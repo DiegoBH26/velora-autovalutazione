@@ -1,0 +1,28 @@
+{
+  "name": "velora-autovalutazione-online",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Versione web protetta di Velora Autovalutazione.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "8.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17"
+  },
+  "author": "Velora"
+}
