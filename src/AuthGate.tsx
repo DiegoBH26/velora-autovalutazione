@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
@@ -23,6 +23,7 @@ type AccessRequest = {
   status: "pending" | "approved" | "registered";
   requested_at: string;
   approved_at: string | null;
+  invited_at: string | null;
   registration_code_expires_at: string | null;
   registered_at: string | null;
 };
@@ -31,6 +32,7 @@ type Profile = {
   authorized: boolean;
   is_admin: boolean;
   full_name: string;
+  onboarding_required: boolean;
 };
 
 const inputClass =
@@ -38,6 +40,30 @@ const inputClass =
 
 const buttonClass =
   "h-12 w-full rounded-2xl bg-[#23124A] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63] disabled:cursor-not-allowed disabled:opacity-50";
+
+function passwordIsValid(password: string) {
+  return password.length >= 12 && password.length <= 128 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
+}
+
+function PasswordChecklist({ password }: { password: string }) {
+  const checks = [
+    [password.length >= 12, "almeno 12 caratteri"],
+    [/[A-Z]/.test(password), "una maiuscola"],
+    [/[a-z]/.test(password), "una minuscola"],
+    [/\d/.test(password), "un numero"],
+    [/[^A-Za-z0-9]/.test(password), "un simbolo"],
+  ] as const;
+
+  return (
+    <div className="grid grid-cols-2 gap-2 text-xs font-bold text-[#718096]" aria-live="polite">
+      {checks.map(([passed, label]) => (
+        <span key={label} className={passed ? "text-emerald-700" : "text-[#718096]"}>
+          {passed ? "✓" : "○"} {label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function cleanMessage(value: unknown, fallback: string) {
   if (typeof value !== "string") return fallback;
@@ -236,30 +262,15 @@ function RegisterPanel({ onView }: { onView: (view: View) => void }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
-
-  const passwordValid = useMemo(
-    () => password.length >= 12 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password),
-    [password]
-  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     if (!/^\d{5}[!@#$%&*]$/.test(code)) {
       setError("Il codice deve contenere cinque numeri e un carattere speciale finale.");
-      return;
-    }
-    if (!passwordValid) {
-      setError("La password non rispetta i requisiti indicati.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Le due password non coincidono.");
       return;
     }
 
@@ -269,7 +280,6 @@ function RegisterPanel({ onView }: { onView: (view: View) => void }) {
         fullName: fullName.trim(),
         email: email.trim(),
         code,
-        password,
       });
       setDone(true);
     } catch (reason) {
@@ -282,10 +292,11 @@ function RegisterPanel({ onView }: { onView: (view: View) => void }) {
   return (
     <div className="mx-auto max-w-md">
       <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Utente autorizzato</p>
-      <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Completa la registrazione</h2>
+      <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Verifica il codice</h2>
       {done ? (
         <div className="mt-7 space-y-5">
-          <Notice kind="success">Account creato. Da questo momento puoi accedere direttamente con email e password.</Notice>
+          <Notice kind="success">Email di verifica inviata. Aprila, clicca il collegamento personale e crea la tua password definitiva. Solo dopo potrai entrare nel software.</Notice>
+          <Notice kind="info">Se non la trovi entro pochi minuti, controlla anche Spam o Promozioni. Il collegamento non deve essere condiviso.</Notice>
           <button type="button" onClick={() => onView("login")} className={buttonClass}>Vai al login</button>
         </div>
       ) : (
@@ -299,15 +310,9 @@ function RegisterPanel({ onView }: { onView: (view: View) => void }) {
           <Field label="Codice ricevuto">
             <input required inputMode="text" maxLength={6} autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\s/g, ""))} className={`${inputClass} text-center font-mono text-xl tracking-[0.25em]`} placeholder="12345!" />
           </Field>
-          <Field label="Crea una password">
-            <input required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} />
-          </Field>
-          <p className="text-xs font-semibold leading-5 text-[#718096]">Almeno 12 caratteri, con maiuscola, minuscola, numero e simbolo.</p>
-          <Field label="Ripeti la password">
-            <input required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} />
-          </Field>
+          <Notice kind="info">Dopo la verifica del codice riceverai un’email personale. Dal collegamento contenuto nell’email sceglierai la password definitiva.</Notice>
           {error && <Notice kind="error">{error}</Notice>}
-          <button disabled={busy} className={buttonClass}>{busy ? "Creazione account…" : "Crea account autorizzato"}</button>
+          <button disabled={busy} className={buttonClass}>{busy ? "Invio email…" : "Verifica codice e invia email"}</button>
         </form>
       )}
       {!done && <button type="button" onClick={() => onView("login")} className="mt-5 w-full text-center text-sm font-black text-[#50627F]">← Torna al login</button>}
@@ -361,7 +366,7 @@ function ResetPanel({ onDone }: { onDone: () => void }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+    if (!passwordIsValid(password)) {
       setError("Usa almeno 12 caratteri con maiuscola, minuscola, numero e simbolo.");
       return;
     }
@@ -385,9 +390,64 @@ function ResetPanel({ onDone }: { onDone: () => void }) {
       <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Scegli la nuova password</h2>
       <form onSubmit={submit} className="mt-7 space-y-4">
         <Field label="Nuova password"><input required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></Field>
+        <PasswordChecklist password={password} />
         <Field label="Ripeti la password"><input required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} /></Field>
         {error && <Notice kind="error">{error}</Notice>}
         <button disabled={busy} className={buttonClass}>{busy ? "Aggiornamento…" : "Aggiorna password"}</button>
+      </form>
+    </div>
+  );
+}
+
+function OnboardingPasswordPanel({ email, onDone }: { email?: string; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!passwordIsValid(password)) {
+      setError("La password non rispetta ancora tutti i requisiti indicati.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Le due password non coincidono.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await invokePublicFunction("complete-onboarding", { password });
+      await supabase.auth.signOut();
+      const cleanUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+      onDone();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Registrazione non riuscita.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-md">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Email verificata</p>
+      <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Crea la tua password</h2>
+      <p className="mt-3 text-sm font-medium leading-6 text-[#50627F]">
+        {email ? `L’indirizzo ${email} è stato verificato.` : "Il tuo indirizzo email è stato verificato."} Scegli ora la password personale definitiva.
+      </p>
+      <form onSubmit={submit} className="mt-7 space-y-4">
+        <Field label="Nuova password">
+          <input required type="password" minLength={12} maxLength={128} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} />
+        </Field>
+        <PasswordChecklist password={password} />
+        <Field label="Ripeti la password">
+          <input required type="password" minLength={12} maxLength={128} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} />
+        </Field>
+        {error && <Notice kind="error">{error}</Notice>}
+        <button disabled={busy} className={buttonClass}>{busy ? "Salvataggio…" : "Conferma password e completa"}</button>
       </form>
     </div>
   );
@@ -459,7 +519,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setPasswordMessage("");
-    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+    if (!passwordIsValid(password)) {
       setPasswordMessage("Usa almeno 12 caratteri con maiuscola, minuscola, numero e simbolo.");
       return;
     }
@@ -557,9 +617,15 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
               <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-[#EEE8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-black">{request.full_name} · {request.email}</p>
-                  <p className="mt-1 text-xs font-bold text-[#718096]">{request.status === "registered" ? "Registrato" : "Approvato — puoi generare un nuovo codice"}</p>
+                  <p className="mt-1 text-xs font-bold text-[#718096]">
+                    {request.status === "registered"
+                      ? "Registrato"
+                      : request.invited_at
+                        ? "Email di verifica inviata — in attesa della password"
+                        : "Approvato — puoi generare un nuovo codice"}
+                  </p>
                 </div>
-                {request.status === "approved" && (
+                {request.status === "approved" && !request.invited_at && (
                   <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="rounded-xl border border-[#C8A96B]/60 bg-[#FFF8E8] px-4 py-2 text-xs font-black">Nuovo codice</button>
                 )}
               </div>
@@ -588,6 +654,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (nextSession) setLoading(true);
       setSession(nextSession);
       setProfile(null);
       if (event === "PASSWORD_RECOVERY") setView("reset");
@@ -605,7 +672,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setLoading(true);
     supabase
       .from("profiles")
-      .select("authorized,is_admin,full_name")
+      .select("authorized,is_admin,full_name,onboarding_required")
       .eq("user_id", session.user.id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -627,7 +694,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (session && profile?.authorized !== true) return <UnauthorizedPanel email={session.user.email} />;
 
-  if (session && profile?.authorized) {
+  if (session && profile?.authorized && profile.onboarding_required) {
+    return (
+      <AccessShell>
+        <OnboardingPasswordPanel email={session.user.email} onDone={() => setView("login")} />
+      </AccessShell>
+    );
+  }
+
+  if (session && profile?.authorized && !profile.onboarding_required) {
     if (profile.is_admin && showAdmin) return <AdminPanel onClose={() => setShowAdmin(false)} />;
     return (
       <>
