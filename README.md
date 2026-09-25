@@ -16,6 +16,8 @@ Versione web protetta del questionario di autovalutazione Velora. È una copia s
 - Richiesta di accesso con pannello amministratore privato
 - Codice di registrazione monouso composto da cinque numeri e un simbolo
 - Approvazione manuale: l’amministratore copia il codice e lo invia con il canale concordato
+- Verifica obbligatoria dell’indirizzo email tramite collegamento personale
+- Creazione della password definitiva solo dopo la verifica email
 - Pubblicazione automatica tramite GitHub Pages
 
 ## Uso in Velora
@@ -39,6 +41,6 @@ Il workflow `.github/workflows/deploy-pages.yml` compila il progetto a ogni push
 
 ## Backend
 
-Lo schema SQL e le Edge Functions sono nella cartella `supabase/`. Il flusso attuale non richiede un dominio email: le richieste compaiono nel pannello amministratore e il codice viene comunicato manualmente.
+Lo schema SQL e le Edge Functions sono nella cartella `supabase/`. Le richieste compaiono nel pannello amministratore e il codice viene comunicato manualmente. Dopo la verifica del codice, Supabase Auth invia l’email personale di conferma e consente all’utente di scegliere la password definitiva.
 
-L’integrazione email automatica potrà essere riattivata in futuro utilizzando un dominio indipendente dedicato a Velora.
+Per inviare email a utenti esterni al team Supabase è necessario configurare un servizio SMTP. La configurazione può usare temporaneamente una casella Google Workspace autorizzata senza modificare il sito o i DNS Barbarhouse; in futuro è consigliato un dominio indipendente dedicato a Velora.
