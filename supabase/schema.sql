@@ -23,6 +23,7 @@ create table if not exists public.access_requests (
   user_id uuid references auth.users(id) on delete set null,
   requested_at timestamptz not null default now(),
   approved_at timestamptz,
+  invited_at timestamptz,
   registered_at timestamptz,
   updated_at timestamptz not null default now(),
   constraint access_requests_email_format check (email = lower(email) and length(email) <= 254),
@@ -53,7 +54,9 @@ create table if not exists public.profiles (
   full_name text not null,
   authorized boolean not null default false,
   is_admin boolean not null default false,
+  onboarding_required boolean not null default false,
   authorized_at timestamptz,
+  email_verified_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint profiles_email_format check (email = lower(email) and length(email) <= 254),
@@ -114,6 +117,7 @@ create policy "authorized_users_select_own_draft"
       from public.profiles
       where profiles.user_id = (select auth.uid())
         and profiles.authorized = true
+        and profiles.onboarding_required = false
     )
   );
 
@@ -129,6 +133,7 @@ create policy "authorized_users_insert_own_draft"
       from public.profiles
       where profiles.user_id = (select auth.uid())
         and profiles.authorized = true
+        and profiles.onboarding_required = false
     )
   );
 
@@ -144,6 +149,7 @@ create policy "authorized_users_update_own_draft"
       from public.profiles
       where profiles.user_id = (select auth.uid())
         and profiles.authorized = true
+        and profiles.onboarding_required = false
     )
   )
   with check (
@@ -153,5 +159,6 @@ create policy "authorized_users_update_own_draft"
       from public.profiles
       where profiles.user_id = (select auth.uid())
         and profiles.authorized = true
+        and profiles.onboarding_required = false
     )
   );
