@@ -10,8 +10,16 @@ import {
   readJson,
   timingSafeEqual,
   validEmail,
-  validPassword,
 } from "../_shared/common.ts";
+
+const DEFAULT_SITE_URL = "https://diegobh26.github.io/velora-autovalutazione/";
+
+function onboardingRedirectUrl() {
+  const configured = Deno.env.get("SITE_URL") || DEFAULT_SITE_URL;
+  const url = new URL(configured);
+  url.searchParams.set("onboarding", "password");
+  return url.toString();
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
@@ -23,22 +31,15 @@ Deno.serve(async (req) => {
     const email = normalizeEmail(body.email);
     const fullName = cleanText(body.fullName, 100);
     const code = cleanText(body.code, 6);
-    const password = typeof body.password === "string" ? body.password : "";
 
     if (!validEmail(email) || fullName.length < 2 || !/^\d{5}[!@#$%&*]$/.test(code)) {
       return json(req, 400, { ok: false, error: "Controlla i dati e il formato del codice." });
     }
-    if (!validPassword(password)) {
-      return json(req, 400, { ok: false, error: "La password deve avere almeno 12 caratteri, maiuscola, minuscola, numero e simbolo." });
-    }
 
     const supabaseAdmin = getAdminClient();
-    const { data: existingProfile } = await supabaseAdmin.from("profiles").select("user_id").eq("email", email).maybeSingle();
-    if (existingProfile) return json(req, 409, { ok: false, error: "Esiste già un account autorizzato. Usa la pagina di login." });
-
     const { data: request, error } = await supabaseAdmin
       .from("access_requests")
-      .select("id,registration_code_hash,registration_code_expires_at,code_attempts,status")
+      .select("id,full_name,invited_at,registration_code_hash,registration_code_expires_at,code_attempts,status")
       .eq("email", email)
       .eq("status", "approved")
       .order("approved_at", { ascending: false })
@@ -46,6 +47,9 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) throw error;
 
+    if (request?.invited_at) {
+      return json(req, 409, { ok: false, error: "L’email di verifica è già stata inviata. Aprila per scegliere la password." });
+    }
     if (!request || !request.registration_code_hash || !request.registration_code_expires_at) {
       return json(req, 400, { ok: false, error: "Codice non valido oppure richiesta non approvata." });
     }
@@ -63,27 +67,40 @@ Deno.serve(async (req) => {
       return json(req, 400, { ok: false, error: "Codice non corretto." });
     }
 
-    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      app_metadata: { authorized: true, created_via: "approved_access" },
-      user_metadata: { full_name: fullName },
+    const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
+      .from("profiles")
+      .select("user_id,onboarding_required")
+      .eq("email", email)
+      .maybeSingle();
+    if (existingProfileError) throw existingProfileError;
+    if (existingProfile?.onboarding_required) {
+      return json(req, 409, { ok: false, error: "L’email di verifica è già stata inviata. Aprila per scegliere la password." });
+    }
+    if (existingProfile) return json(req, 409, { ok: false, error: "Esiste già un account autorizzato. Usa la pagina di login." });
+
+    const { data: created, error: createError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      data: { full_name: request.full_name },
+      redirectTo: onboardingRedirectUrl(),
     });
     if (createError || !created.user) {
       if (createError?.message?.toLowerCase().includes("already")) {
-        return json(req, 409, { ok: false, error: "Esiste già un account con questa email. Usa il login o il recupero password." });
+        return json(req, 409, { ok: false, error: "Esiste già un account con questa email. Usa il login o contatta l’amministratore." });
       }
-      throw createError || new Error("Creazione utente non riuscita.");
+      console.error("invite-user", createError);
+      return json(req, 503, {
+        ok: false,
+        error: "Non è stato possibile inviare l’email di verifica. Il codice non è stato consumato: riprova più tardi.",
+      });
     }
 
     const now = new Date().toISOString();
     const { error: profileError } = await supabaseAdmin.from("profiles").insert({
       user_id: created.user.id,
       email,
-      full_name: fullName,
+      full_name: request.full_name,
       authorized: true,
       authorized_at: now,
+      onboarding_required: true,
     });
     if (profileError) {
       await supabaseAdmin.auth.admin.deleteUser(created.user.id);
@@ -93,17 +110,24 @@ Deno.serve(async (req) => {
     const { error: requestError } = await supabaseAdmin
       .from("access_requests")
       .update({
-        status: "registered",
         user_id: created.user.id,
-        registered_at: now,
+        invited_at: now,
         registration_code_hash: null,
+        registration_code_expires_at: null,
         updated_at: now,
       })
       .eq("id", request.id)
       .eq("status", "approved");
-    if (requestError) throw requestError;
+    if (requestError) {
+      await supabaseAdmin.from("profiles").delete().eq("user_id", created.user.id);
+      await supabaseAdmin.auth.admin.deleteUser(created.user.id);
+      throw requestError;
+    }
 
-    return json(req, 200, { ok: true, message: "Account creato correttamente." });
+    return json(req, 200, {
+      ok: true,
+      message: "Email di verifica inviata. Apri il collegamento ricevuto per scegliere la password.",
+    });
   } catch (error) {
     console.error("complete-registration", error);
     return json(req, 503, { ok: false, error: "Non è stato possibile completare la registrazione. Riprova." });
