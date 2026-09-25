@@ -5,7 +5,9 @@
 - Copia web separata dall'app Windows originale.
 - Login, richiesta di accesso, approvazione, codice monouso e registrazione.
 - Database, regole RLS ed Edge Functions pubblicati su Supabase.
-- Dominio email `velora.barbarhouse.com` creato in Resend (regione UE).
+- Pannello amministratore privato con elenco richieste e generazione manuale del codice.
+- Account amministratore creato e canale di configurazione iniziale disattivato.
+- Nessuna modifica ai DNS o al sito ufficiale Barbarhouse.
 - Verifica desktop e mobile completata.
 - Build di produzione e controllo TypeScript riusciti.
 - Audit dipendenze: 0 vulnerabilità note.
@@ -13,10 +15,8 @@
 
 ## Da completare prima della pubblicazione
 
-1. Aggiungere al DNS i record presenti in `DNS_SETUP.md` e verificare il dominio in Resend.
-2. Creare una chiave Resend con solo permesso di invio e salvarla nei segreti Supabase.
-3. Pubblicare il repository e ottenere l'URL definitivo.
-4. Impostare `SITE_URL` e `ALLOWED_ORIGINS` con l'URL definitivo.
-5. Eseguire una richiesta di accesso reale end-to-end.
+1. Pubblicare il repository e ottenere l'URL definitivo.
+2. Eseguire dal sito pubblico una richiesta di accesso reale end-to-end.
+3. Cambiare la password amministratore temporanea al primo accesso.
 
 Le chiavi segrete non devono mai essere salvate nel repository.

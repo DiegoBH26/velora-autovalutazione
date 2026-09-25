@@ -52,6 +52,7 @@ create table if not exists public.profiles (
   email text not null,
   full_name text not null,
   authorized boolean not null default false,
+  is_admin boolean not null default false,
   authorized_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -61,6 +62,10 @@ create table if not exists public.profiles (
 
 create unique index if not exists profiles_email_unique_idx
   on public.profiles (lower(email));
+
+create index if not exists profiles_admin_idx
+  on public.profiles (is_admin)
+  where is_admin = true;
 
 create table if not exists public.assessment_drafts (
   user_id uuid primary key references auth.users(id) on delete cascade,

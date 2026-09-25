@@ -35,8 +35,7 @@ export function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-export function getAdminClient() {
-  const url = Deno.env.get("SUPABASE_URL");
+function getServerKey() {
   const modernKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
   const legacyKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   let key = legacyKey || "";
@@ -48,6 +47,13 @@ export function getAdminClient() {
       // The legacy key remains a safe server-side fallback.
     }
   }
+
+  return key;
+}
+
+export function getAdminClient() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = getServerKey();
 
   if (!url || !key) throw new Error("Configurazione Supabase server mancante.");
 
@@ -61,7 +67,8 @@ export function getAdminClient() {
 }
 
 function configuredOrigins() {
-  const origins = (Deno.env.get("ALLOWED_ORIGINS") || Deno.env.get("SITE_URL") || "")
+  const defaults = "http://127.0.0.1:4173,http://localhost:4173,http://localhost:5173,https://diegobh26.github.io";
+  const origins = `${defaults},${Deno.env.get("ALLOWED_ORIGINS") || ""},${Deno.env.get("SITE_URL") || ""}`
     .split(",")
     .map((value) => value.trim().replace(/\/$/, ""))
     .filter(Boolean);
@@ -116,19 +123,36 @@ export async function sha256(value: string) {
 }
 
 export async function hashRegistrationCode(code: string, requestId: string) {
-  const pepper = Deno.env.get("CODE_PEPPER");
+  const pepper = Deno.env.get("CODE_PEPPER") || getServerKey();
   if (!pepper || pepper.length < 24) throw new Error("Configurazione codice non valida.");
   return sha256(`${code}:${requestId}:${pepper}`);
 }
 
-export async function deriveRegistrationCode(token: string) {
-  const pepper = Deno.env.get("CODE_PEPPER");
-  if (!pepper || pepper.length < 24) throw new Error("Configurazione codice non valida.");
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${token}:${pepper}`)));
+export function randomRegistrationCode() {
+  const values = crypto.getRandomValues(new Uint8Array(6));
   let digits = "";
-  for (let index = 0; index < 5; index += 1) digits += String(digest[index] % 10);
+  for (let index = 0; index < 5; index += 1) digits += String(values[index] % 10);
   const symbols = "!@#$%&*";
-  return `${digits}${symbols[digest[5] % symbols.length]}`;
+  return `${digits}${symbols[values[5] % symbols.length]}`;
+}
+
+export async function requireAdmin(req: Request) {
+  const authorization = req.headers.get("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  if (!token) return null;
+
+  const supabaseAdmin = getAdminClient();
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data.user) return null;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("authorized,is_admin")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+
+  if (profileError || profile?.authorized !== true || profile?.is_admin !== true) return null;
+  return data.user;
 }
 
 export function timingSafeEqual(left: string, right: string) {
@@ -218,4 +242,3 @@ export function emailFrame(title: string, preheader: string, content: string) {
   </body>
 </html>`;
 }
-

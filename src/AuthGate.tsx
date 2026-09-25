@@ -8,6 +8,29 @@ type FunctionResult = {
   ok?: boolean;
   message?: string;
   error?: string;
+  code?: string;
+  email?: string;
+  fullName?: string;
+  expiresAt?: string;
+  requests?: AccessRequest[];
+};
+
+type AccessRequest = {
+  id: string;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  status: "pending" | "approved" | "registered";
+  requested_at: string;
+  approved_at: string | null;
+  registration_code_expires_at: string | null;
+  registered_at: string | null;
+};
+
+type Profile = {
+  authorized: boolean;
+  is_admin: boolean;
+  full_name: string;
 };
 
 const inputClass =
@@ -107,47 +130,6 @@ function AccessShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ApprovalPanel({ token }: { token: string }) {
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  async function approve() {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await invokePublicFunction("approve-access", { token });
-      setMessage(result.message || "Accesso approvato. Il codice è stato inviato all’utente.");
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Link non valido o scaduto.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <AccessShell>
-      <div className="mx-auto max-w-md">
-        <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Autorizzazione amministratore</p>
-        <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Conferma la richiesta di accesso</h2>
-        <p className="mt-4 text-sm font-medium leading-7 text-[#50627F]">
-          Confermando, l’utente riceverà via email un codice temporaneo composto da cinque numeri e un carattere speciale.
-        </p>
-        <div className="mt-6 space-y-4">
-          {message && <Notice kind="success">{message}</Notice>}
-          {error && <Notice kind="error">{error}</Notice>}
-          {!message && (
-            <button type="button" onClick={approve} disabled={busy} className={buttonClass}>
-              {busy ? "Approvazione in corso…" : "Approva e invia il codice"}
-            </button>
-          )}
-        </div>
-      </div>
-    </AccessShell>
-  );
-}
-
 function LoginPanel({ onView }: { onView: (view: View) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -220,10 +202,10 @@ function RequestPanel({ onView }: { onView: (view: View) => void }) {
     <div className="mx-auto max-w-md">
       <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Nuovo utente</p>
       <h2 className="mt-3 text-3xl font-black tracking-tight text-[#23124A]">Richiedi l’accesso</h2>
-      <p className="mt-3 text-sm font-medium leading-6 text-[#50627F]">L’amministratore riceverà una notifica e potrà autorizzarti con un solo passaggio.</p>
+      <p className="mt-3 text-sm font-medium leading-6 text-[#50627F]">La richiesta comparirà nel pannello privato dell’amministratore.</p>
       {done ? (
         <div className="mt-7 space-y-5">
-          <Notice kind="success">Richiesta registrata. Se approvata, riceverai il codice all’indirizzo indicato.</Notice>
+          <Notice kind="success">Richiesta registrata. Contatta l’amministratore Velora: dopo l’approvazione ti comunicherà personalmente il codice.</Notice>
           <button type="button" onClick={() => onView("login")} className={buttonClass}>Torna all’accesso</button>
         </div>
       ) : (
@@ -240,7 +222,7 @@ function RequestPanel({ onView }: { onView: (view: View) => void }) {
           <div className="hidden" aria-hidden="true">
             <label>Lascia vuoto<input tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
           </div>
-          <Notice kind="info">Il codice viene inviato via email. L’invio tramite SMS potrà essere attivato successivamente.</Notice>
+          <Notice kind="info">Per ora il codice viene comunicato personalmente dall’amministratore tramite il canale concordato.</Notice>
           {error && <Notice kind="error">{error}</Notice>}
           <button disabled={busy} className={buttonClass}>{busy ? "Invio…" : "Invia richiesta"}</button>
         </form>
@@ -424,11 +406,176 @@ function UnauthorizedPanel({ email }: { email?: string }) {
   );
 }
 
+function AdminPanel({ onClose }: { onClose: () => void }) {
+  const [requests, setRequests] = useState<AccessRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  const [generated, setGenerated] = useState<{ code: string; email: string; fullName: string; expiresAt: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+
+  async function loadRequests() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await invokePublicFunction("list-access-requests", {});
+      setRequests(result.requests || []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Richieste non disponibili.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadRequests();
+  }, []);
+
+  async function approve(request: AccessRequest) {
+    setBusyId(request.id);
+    setError("");
+    try {
+      const result = await invokePublicFunction("approve-access", { requestId: request.id });
+      if (!result.code || !result.email || !result.fullName || !result.expiresAt) {
+        throw new Error("Il codice non è stato generato.");
+      }
+      setGenerated({
+        code: result.code,
+        email: result.email,
+        fullName: result.fullName,
+        expiresAt: result.expiresAt,
+      });
+      await loadRequests();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Approvazione non riuscita.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordMessage("");
+    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      setPasswordMessage("Usa almeno 12 caratteri con maiuscola, minuscola, numero e simbolo.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setPasswordMessage("Le due password non coincidono.");
+      return;
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      setPasswordMessage("Aggiornamento non riuscito. Riprova.");
+      return;
+    }
+    setPassword("");
+    setConfirmPassword("");
+    setPasswordMessage("Password aggiornata correttamente.");
+  }
+
+  const pending = requests.filter((request) => request.status === "pending");
+  const history = requests.filter((request) => request.status !== "pending");
+
+  return (
+    <main className="min-h-screen bg-[#F7F4FB] px-5 py-8 text-[#23124A] md:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Amministrazione</p>
+            <h1 className="mt-2 text-3xl font-black">Richieste di accesso</h1>
+            <p className="mt-2 text-sm font-semibold text-[#50627F]">Approva l’utente, copia il codice e invialo personalmente.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void loadRequests()} className="rounded-xl border border-[#E5DDF1] bg-white px-4 py-2 text-xs font-black">Aggiorna</button>
+            <button type="button" onClick={() => setShowPassword((value) => !value)} className="rounded-xl border border-[#E5DDF1] bg-white px-4 py-2 text-xs font-black">Cambia password</button>
+            <button type="button" onClick={onClose} className="rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Apri software</button>
+          </div>
+        </div>
+
+        {showPassword && (
+          <form onSubmit={changePassword} className="mt-6 grid gap-4 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:grid-cols-[1fr_1fr_auto] md:items-end">
+            <Field label="Nuova password"><input required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></Field>
+            <Field label="Ripeti password"><input required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} /></Field>
+            <button className="h-12 rounded-2xl bg-[#23124A] px-5 text-sm font-black text-white">Salva password</button>
+            {passwordMessage && <div className="md:col-span-3"><Notice kind={passwordMessage.includes("correttamente") ? "success" : "error"}>{passwordMessage}</Notice></div>}
+          </form>
+        )}
+
+        {generated && (
+          <section className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Codice pronto</p>
+            <h2 className="mt-2 text-2xl font-black">{generated.fullName}</h2>
+            <p className="mt-1 text-sm font-semibold text-emerald-900">{generated.email}</p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <code className="rounded-2xl bg-white px-6 py-4 text-center text-3xl font-black tracking-[0.25em] text-[#23124A]">{generated.code}</code>
+              <button type="button" onClick={() => navigator.clipboard.writeText(generated.code)} className="rounded-2xl bg-[#23124A] px-5 py-4 text-sm font-black text-white">Copia codice</button>
+            </div>
+            <p className="mt-4 text-xs font-bold text-emerald-800">Valido per 24 ore e utilizzabile una sola volta. Un nuovo codice sostituisce quello precedente.</p>
+          </section>
+        )}
+
+        {error && <div className="mt-6"><Notice kind="error">{error}</Notice></div>}
+
+        <section className="mt-7 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:p-7">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black">Da approvare</h2>
+            <span className="rounded-full bg-[#FFF8E8] px-3 py-1 text-xs font-black text-[#80621F]">{pending.length}</span>
+          </div>
+          {loading ? (
+            <p className="mt-6 text-sm font-bold text-[#718096]">Caricamento…</p>
+          ) : pending.length === 0 ? (
+            <Notice kind="info">Non ci sono nuove richieste.</Notice>
+          ) : (
+            <div className="mt-5 grid gap-4">
+              {pending.map((request) => (
+                <article key={request.id} className="grid gap-4 rounded-2xl border border-[#E5DDF1] p-5 md:grid-cols-[1fr_auto] md:items-center">
+                  <div>
+                    <h3 className="font-black">{request.full_name}</h3>
+                    <p className="mt-1 text-sm font-semibold text-[#50627F]">{request.email}</p>
+                    {request.phone && <p className="mt-1 text-sm font-semibold text-[#50627F]">{request.phone}</p>}
+                    <p className="mt-2 text-xs font-bold text-[#8A94A6]">Richiesta: {new Date(request.requested_at).toLocaleString("it-IT")}</p>
+                  </div>
+                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="rounded-2xl bg-[#23124A] px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+                    {busyId === request.id ? "Approvazione…" : "Approva e genera codice"}
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-7 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:p-7">
+          <h2 className="text-xl font-black">Storico recente</h2>
+          <div className="mt-5 grid gap-3">
+            {history.length === 0 ? (
+              <p className="text-sm font-semibold text-[#718096]">Nessuna richiesta approvata.</p>
+            ) : history.map((request) => (
+              <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-[#EEE8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-black">{request.full_name} · {request.email}</p>
+                  <p className="mt-1 text-xs font-bold text-[#718096]">{request.status === "registered" ? "Registrato" : "Approvato — puoi generare un nuovo codice"}</p>
+                </div>
+                {request.status === "approved" && (
+                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="rounded-xl border border-[#C8A96B]/60 bg-[#FFF8E8] px-4 py-2 text-xs font-black">Nuovo codice</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
-  const approvalToken = new URLSearchParams(window.location.search).get("approve");
   const [view, setView] = useState<View>("login");
   const [session, setSession] = useState<Session | null>(null);
-  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [showAdmin, setShowAdmin] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -442,7 +589,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      setAuthorized(null);
+      setProfile(null);
       if (event === "PASSWORD_RECOVERY") setView("reset");
       if (!nextSession) setLoading(false);
     });
@@ -458,16 +605,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setLoading(true);
     supabase
       .from("profiles")
-      .select("authorized")
+      .select("authorized,is_admin,full_name")
       .eq("user_id", session.user.id)
       .maybeSingle()
       .then(({ data, error }) => {
-        setAuthorized(!error && data?.authorized === true);
+        setProfile(!error && data ? data as Profile : null);
         setLoading(false);
       });
   }, [session]);
-
-  if (approvalToken) return <ApprovalPanel token={approvalToken} />;
 
   if (loading) {
     return (
@@ -480,15 +625,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (session && authorized === false) return <UnauthorizedPanel email={session.user.email} />;
+  if (session && profile?.authorized !== true) return <UnauthorizedPanel email={session.user.email} />;
 
-  if (session && authorized) {
+  if (session && profile?.authorized) {
+    if (profile.is_admin && showAdmin) return <AdminPanel onClose={() => setShowAdmin(false)} />;
     return (
       <>
         <div className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-[#E5DDF1] bg-white/95 px-5 py-3 backdrop-blur md:px-8">
           <Brand />
           <div className="flex items-center gap-3">
             <span className="hidden text-xs font-bold text-[#50627F] sm:inline">{session.user.email}</span>
+            {profile.is_admin && <button type="button" onClick={() => setShowAdmin(true)} className="rounded-xl border border-[#C8A96B]/60 bg-[#FFF8E8] px-4 py-2 text-xs font-black text-[#23124A]">Richieste</button>}
             <button type="button" onClick={() => supabase.auth.signOut()} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-4 py-2 text-xs font-black text-[#23124A] hover:bg-[#F3EEF9]">Esci</button>
           </div>
         </div>
@@ -507,4 +654,3 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     </AccessShell>
   );
 }
-

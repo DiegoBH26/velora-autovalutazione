@@ -13,9 +13,9 @@ Versione web protetta del questionario di autovalutazione Velora. È una copia s
 - Secondo livello opzionale con 20 domande di approfondimento
 - Esportazione del modello 30+20 dell'analisi rapida in PDF e CSV
 - Login personale con Supabase Auth
-- Richiesta di accesso con approvazione amministratore
+- Richiesta di accesso con pannello amministratore privato
 - Codice di registrazione monouso composto da cinque numeri e un simbolo
-- Notifiche transazionali tramite Resend
+- Approvazione manuale: l’amministratore copia il codice e lo invia con il canale concordato
 - Pubblicazione automatica tramite GitHub Pages
 
 ## Uso in Velora
@@ -39,4 +39,6 @@ Il workflow `.github/workflows/deploy-pages.yml` compila il progetto a ogni push
 
 ## Backend
 
-Lo schema SQL e le Edge Functions sono nella cartella `supabase/`. Le funzioni richiedono i segreti `RESEND_API_KEY`, `ADMIN_EMAIL`, `SITE_URL`, `ALLOWED_ORIGINS`, `EMAIL_FROM` e `CODE_PEPPER` configurati nel pannello Supabase.
+Lo schema SQL e le Edge Functions sono nella cartella `supabase/`. Il flusso attuale non richiede un dominio email: le richieste compaiono nel pannello amministratore e il codice viene comunicato manualmente.
+
+L’integrazione email automatica potrà essere riattivata in futuro utilizzando un dominio indipendente dedicato a Velora.

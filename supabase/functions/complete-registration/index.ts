@@ -2,15 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   cleanText,
   corsHeaders,
-  emailFrame,
-  escapeHtml,
   getAdminClient,
   hashRegistrationCode,
   json,
   normalizeEmail,
   originAllowed,
   readJson,
-  sendTransactionalEmail,
   timingSafeEqual,
   validEmail,
   validPassword,
@@ -105,28 +102,6 @@ Deno.serve(async (req) => {
       .eq("id", request.id)
       .eq("status", "approved");
     if (requestError) throw requestError;
-
-    const safeName = escapeHtml(fullName);
-    const html = emailFrame(
-      "Account Velora attivato",
-      "Il tuo account personale è pronto.",
-      `<h1 style="margin:0 0 16px;font-size:26px;line-height:34px;color:#23124a;">Account attivato</h1>
-       <p style="margin:0;color:#50627f;font-size:16px;line-height:26px;">Ciao ${safeName}, il tuo account personale Velora è pronto. Da ora puoi accedere con la tua email e la password scelta durante la registrazione.</p>
-       <p style="margin:20px 0 0;color:#667085;font-size:13px;line-height:21px;">Se non riconosci questa registrazione, rispondi subito a questa email.</p>`
-    );
-    const text = `Account Velora attivato\n\nCiao ${fullName}, il tuo account personale è pronto. Puoi accedere con la tua email e la password scelta.`;
-
-    try {
-      await sendTransactionalEmail({
-        to: email,
-        subject: "Il tuo account Velora è attivo",
-        html,
-        text,
-        idempotencyKey: `account-active-${request.id}`,
-      });
-    } catch (sendError) {
-      console.error("welcome-email", sendError);
-    }
 
     return json(req, 200, { ok: true, message: "Account creato correttamente." });
   } catch (error) {
