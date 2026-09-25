@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
     const supabaseAdmin = getAdminClient();
     const { data, error } = await supabaseAdmin
       .from("access_requests")
-      .select("id,email,full_name,phone,status,requested_at,approved_at,registration_code_expires_at,registered_at")
+      .select("id,email,full_name,phone,status,requested_at,approved_at,invited_at,registration_code_expires_at,registered_at")
       .in("status", ["pending", "approved", "registered"])
       .order("requested_at", { ascending: false })
       .limit(100);
