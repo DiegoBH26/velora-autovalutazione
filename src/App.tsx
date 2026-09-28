@@ -5382,7 +5382,7 @@ export default function App() {
             </div>
           </section>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {ASSESSMENT_DATA.map((macro) => {
               const macroItemIds = flattenItems([macro]).map((row) => row.item.id);
               const selectedInMacro = macroItemIds.filter((id) => selectedDraftSet.has(id)).length;
@@ -5407,12 +5407,12 @@ export default function App() {
                   key={`customizer-${macro.id}`}
                   className="overflow-hidden rounded-[1.75rem] border border-[#E5DDF1] bg-white shadow-[0_12px_34px_rgba(35,18,74,0.045)]"
                 >
-                  <div className="flex flex-col gap-3 border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-col gap-2 border-b border-[#EFE9F7] bg-[#FBF9FF] px-4 py-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">
                         Macro-area
                       </p>
-                      <h2 className="mt-1 text-base font-black text-[#23124A]">
+                      <h2 className="mt-0.5 text-sm font-black text-[#23124A] md:text-base">
                         {macro.title}
                       </h2>
                     </div>
@@ -5423,29 +5423,29 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => toggleCustomMacro(macro)}
-                        className="rounded-xl border border-[#C8A96B]/60 bg-white px-3 py-2 text-[11px] font-black text-[#23124A] transition hover:bg-[#FFF8E8]"
+                        className="rounded-xl border border-[#C8A96B]/60 bg-white px-3 py-1.5 text-[10px] font-black text-[#23124A] transition hover:bg-[#FFF8E8]"
                       >
                         {allMacroSelected ? "Deseleziona area" : "Seleziona area"}
                       </button>
                     </div>
                   </div>
 
-                  <div className="space-y-4 p-4 md:p-5">
+                  <div className="space-y-3 p-3 md:p-4">
                     {visibleCategories.map((category) => (
                       <div key={`customizer-${category.id}`}>
-                        <div className="mb-2 flex items-center gap-3">
-                          <h3 className="text-[11px] font-black uppercase tracking-[0.12em] text-[#50627F]">
+                        <div className="mb-1.5 flex items-center gap-3">
+                          <h3 className="text-[10px] font-black uppercase tracking-[0.1em] text-[#50627F]">
                             {category.title}
                           </h3>
                           <span className="h-px flex-1 bg-[#EFE9F7]" />
                         </div>
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
                           {category.items.map((item) => {
                             const selected = selectedDraftSet.has(item.id);
                             return (
                               <label
                                 key={`customizer-${item.id}`}
-                                className={`flex min-h-[48px] cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition ${
+                                className={`flex min-h-[42px] cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 transition ${
                                   selected
                                     ? "border-[#C8A96B] bg-[#FFF8E8] shadow-sm"
                                     : "border-[#E8E2F0] bg-white hover:border-[#CFC1DF] hover:bg-[#FBF9FF]"
@@ -5455,9 +5455,9 @@ export default function App() {
                                   type="checkbox"
                                   checked={selected}
                                   onChange={() => toggleCustomQuestion(item.id)}
-                                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#CFC1DF] accent-[#23124A]"
+                                  className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[#CFC1DF] accent-[#23124A]"
                                 />
-                                <span className="text-[12px] font-semibold leading-[1.35] text-[#23124A]">
+                                <span className="text-[11px] font-semibold leading-[1.25] text-[#23124A]">
                                   {item.text}
                                 </span>
                               </label>
