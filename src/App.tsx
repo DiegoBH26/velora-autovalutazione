@@ -3516,6 +3516,10 @@ const QUICK_HOTEL_BB_ALL_ITEM_SET = new Set<string>([
   ...QUICK_HOTEL_BB_CORE_ITEM_IDS,
   ...QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS,
 ]);
+const DEFAULT_CUSTOM_QUICK_ITEM_IDS = [
+  ...QUICK_HOTEL_BB_CORE_ITEM_IDS,
+  ...QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS,
+] as string[];
 
 function selectAssessmentItems(itemIds: Set<string>): AssessmentMacro[] {
   return ASSESSMENT_DATA.map((macro) => ({
@@ -3630,15 +3634,33 @@ export default function App() {
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
+  const [useCustomQuickSelection, setUseCustomQuickSelection] = useState(false);
+  const [customQuickItemIds, setCustomQuickItemIds] = useState<string[]>(
+    DEFAULT_CUSTOM_QUICK_ITEM_IDS
+  );
+  const [customQuickDraftIds, setCustomQuickDraftIds] = useState<string[]>(
+    DEFAULT_CUSTOM_QUICK_ITEM_IDS
+  );
+  const [isCustomizingInterview, setIsCustomizingInterview] = useState(false);
+  const [customizerSearch, setCustomizerSearch] = useState("");
   const [activeMacroId, setActiveMacroId] = useState(ASSESSMENT_DATA[0]?.id ?? "");
   const [showOnlyPriority, setShowOnlyPriority] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
+  const customQuickData = useMemo(
+    () => selectAssessmentItems(new Set(customQuickItemIds)),
+    [customQuickItemIds]
+  );
+  const quickTemplateData = useCustomQuickSelection
+    ? customQuickData
+    : QUICK_HOTEL_BB_ALL_DATA;
   const assessmentData = isQuickHotelBb
-    ? showQuickDeepDive
-      ? QUICK_HOTEL_BB_ALL_DATA
-      : QUICK_HOTEL_BB_CORE_DATA
+    ? useCustomQuickSelection
+      ? customQuickData
+      : showQuickDeepDive
+        ? QUICK_HOTEL_BB_ALL_DATA
+        : QUICK_HOTEL_BB_CORE_DATA
     : ASSESSMENT_DATA;
 
   const allRows = useMemo(() => flattenItems(assessmentData), [assessmentData]);
@@ -3697,6 +3719,13 @@ export default function App() {
       if (parsed.assessmentMode === "full" || parsed.assessmentMode === "quick-hotel-bb") {
         setAssessmentMode(parsed.assessmentMode);
       }
+      if (Array.isArray(parsed.customQuickItemIds) && parsed.customQuickItemIds.length) {
+        setCustomQuickItemIds(parsed.customQuickItemIds);
+        setCustomQuickDraftIds(parsed.customQuickItemIds);
+      }
+      if (typeof parsed.useCustomQuickSelection === "boolean") {
+        setUseCustomQuickSelection(parsed.useCustomQuickSelection);
+      }
     } catch {
       window.localStorage.removeItem(STORAGE_KEY);
     }
@@ -3705,9 +3734,15 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ownerInfo, answers, assessmentMode })
+      JSON.stringify({
+        ownerInfo,
+        answers,
+        assessmentMode,
+        customQuickItemIds,
+        useCustomQuickSelection,
+      })
     );
-  }, [ownerInfo, answers, assessmentMode]);
+  }, [ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -3728,10 +3763,72 @@ export default function App() {
   }
 
   function switchAssessmentMode(mode: AssessmentMode) {
-    const nextData = mode === "quick-hotel-bb" ? QUICK_HOTEL_BB_CORE_DATA : ASSESSMENT_DATA;
+    const nextData =
+      mode === "quick-hotel-bb"
+        ? useCustomQuickSelection
+          ? customQuickData
+          : QUICK_HOTEL_BB_CORE_DATA
+        : ASSESSMENT_DATA;
     setAssessmentMode(mode);
     setShowQuickDeepDive(false);
     setActiveMacroId(nextData[0]?.id ?? "");
+    setShowOnlyPriority(false);
+    setSearchTerm("");
+  }
+
+  function openInterviewCustomizer() {
+    setCustomQuickDraftIds(
+      useCustomQuickSelection ? customQuickItemIds : DEFAULT_CUSTOM_QUICK_ITEM_IDS
+    );
+    setCustomizerSearch("");
+    setIsCustomizingInterview(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function toggleCustomQuestion(itemId: string) {
+    setCustomQuickDraftIds((current) =>
+      current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId]
+    );
+  }
+
+  function toggleCustomMacro(macro: AssessmentMacro) {
+    const macroIds = flattenItems([macro]).map((row) => row.item.id);
+    const allSelected = macroIds.every((id) => customQuickDraftIds.includes(id));
+
+    setCustomQuickDraftIds((current) => {
+      if (allSelected) {
+        return current.filter((id) => !macroIds.includes(id));
+      }
+
+      return Array.from(new Set([...current, ...macroIds]));
+    });
+  }
+
+  function confirmCustomInterview() {
+    if (!customQuickDraftIds.length) {
+      window.alert("Seleziona almeno una voce per creare l’intervista consulenziale.");
+      return;
+    }
+
+    const selectedData = selectAssessmentItems(new Set(customQuickDraftIds));
+    setCustomQuickItemIds(customQuickDraftIds);
+    setUseCustomQuickSelection(true);
+    setAssessmentMode("quick-hotel-bb");
+    setShowQuickDeepDive(false);
+    setActiveMacroId(selectedData[0]?.id ?? "");
+    setShowOnlyPriority(false);
+    setSearchTerm("");
+    setIsCustomizingInterview(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function restorePresetQuickInterview() {
+    setUseCustomQuickSelection(false);
+    setAssessmentMode("quick-hotel-bb");
+    setShowQuickDeepDive(false);
+    setActiveMacroId(QUICK_HOTEL_BB_CORE_DATA[0]?.id ?? "");
     setShowOnlyPriority(false);
     setSearchTerm("");
   }
@@ -3742,6 +3839,8 @@ export default function App() {
       ownerInfo,
       answers,
       assessmentMode,
+      customQuickItemIds,
+      useCustomQuickSelection,
       savedAt: new Date().toISOString(),
       globalScore,
       progressPct,
@@ -3782,7 +3881,12 @@ export default function App() {
     const payload = {
       generatedAt: new Date().toISOString(),
       assessmentMode,
-      assessmentFormat: isQuickHotelBb ? "Analisi rapida Hotel / B&B" : "Analisi completa",
+      assessmentFormat: isQuickHotelBb
+        ? useCustomQuickSelection
+          ? "Intervista consulenziale personalizzata"
+          : "Analisi rapida Hotel / B&B"
+        : "Analisi completa",
+      customQuickItemIds: useCustomQuickSelection ? customQuickItemIds : [],
       ownerInfo,
       globalScore,
       macroScores,
@@ -3871,10 +3975,15 @@ export default function App() {
         "",
       ]);
 
-    const rows = [
-      ...buildRows(QUICK_HOTEL_BB_CORE_DATA, "Principale - 30 domande"),
-      ...buildRows(QUICK_HOTEL_BB_DEEP_DIVE_DATA, "Approfondimento - 20 domande"),
-    ];
+    const rows = useCustomQuickSelection
+      ? buildRows(
+          quickTemplateData,
+          `Intervista personalizzata - ${flattenItems(quickTemplateData).length} domande`
+        )
+      : [
+          ...buildRows(QUICK_HOTEL_BB_CORE_DATA, "Principale - 30 domande"),
+          ...buildRows(QUICK_HOTEL_BB_DEEP_DIVE_DATA, "Approfondimento - 20 domande"),
+        ];
 
     const csv = [header, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";"))
@@ -3884,7 +3993,9 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "velora-modello-analisi-rapida-hotel-bb.csv";
+    a.download = useCustomQuickSelection
+      ? "velora-intervista-consulenziale-personalizzata.csv"
+      : "velora-modello-analisi-rapida-hotel-bb.csv";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -4023,21 +4134,28 @@ export default function App() {
       return `<div class="level-heading">${safe(levelTitle)}</div>${content}`;
     };
 
-    const sectionsHtml = [
-      buildSectionsHtml(QUICK_HOTEL_BB_CORE_DATA, "Parte 1 · 30 domande principali", 0),
-      buildSectionsHtml(
-        QUICK_HOTEL_BB_DEEP_DIVE_DATA,
-        "Parte 2 · 20 domande di approfondimento",
-        30
-      ),
-    ].join("");
+    const selectedQuestionCount = flattenItems(quickTemplateData).length;
+    const sectionsHtml = useCustomQuickSelection
+      ? buildSectionsHtml(
+          quickTemplateData,
+          `Intervista personalizzata · ${selectedQuestionCount} domande selezionate`,
+          0
+        )
+      : [
+          buildSectionsHtml(QUICK_HOTEL_BB_CORE_DATA, "Parte 1 · 30 domande principali", 0),
+          buildSectionsHtml(
+            QUICK_HOTEL_BB_DEEP_DIVE_DATA,
+            "Parte 2 · 20 domande di approfondimento",
+            30
+          ),
+        ].join("");
 
     const html = `
       <!doctype html>
       <html lang="it">
         <head>
           <meta charset="utf-8" />
-          <title>Modello Analisi rapida Hotel e B&amp;B</title>
+          <title>${useCustomQuickSelection ? "Intervista consulenziale personalizzata" : "Modello Analisi rapida Hotel e B&amp;B"}</title>
           <style>
             @page { size: A4; margin: 13mm; }
             * { box-sizing: border-box; }
@@ -4067,8 +4185,8 @@ export default function App() {
         <body>
           <header>
             <div class="eyebrow">Velora Consulting · Modello compilabile</div>
-            <h1>Analisi rapida Hotel / B&amp;B</h1>
-            <p class="subtitle">30 domande principali e 20 opzionali per una diagnosi di posizionamento, vendita, revenue, gestione delegata e qualità del servizio.</p>
+            <h1>${useCustomQuickSelection ? "Intervista consulenziale personalizzata" : "Analisi rapida Hotel / B&amp;B"}</h1>
+            <p class="subtitle">${useCustomQuickSelection ? `${selectedQuestionCount} domande scelte dal consulente per questa specifica struttura.` : "30 domande principali e 20 opzionali per una diagnosi di posizionamento, vendita, revenue, gestione delegata e qualità del servizio."}</p>
           </header>
 
           <div class="identity">
@@ -4084,7 +4202,7 @@ export default function App() {
 
           ${sectionsHtml}
 
-          <footer>Modello generato da Velora RMS · Analisi rapida Hotel / B&amp;B · 30 domande principali + 20 di approfondimento.</footer>
+          <footer>Modello generato da Velora RMS · ${useCustomQuickSelection ? `Intervista consulenziale personalizzata · ${selectedQuestionCount} domande.` : "Analisi rapida Hotel / B&amp;B · 30 domande principali + 20 di approfondimento."}</footer>
         </body>
       </html>
     `;
@@ -4092,8 +4210,12 @@ export default function App() {
     const date = new Date().toISOString().slice(0, 10);
     await savePdfHtml(
       html,
-      `velora-modello-analisi-rapida-hotel-bb-${date}.pdf`,
-      "Modello rapido PDF salvato correttamente.",
+      useCustomQuickSelection
+        ? `velora-intervista-consulenziale-personalizzata-${date}.pdf`
+        : `velora-modello-analisi-rapida-hotel-bb-${date}.pdf`,
+      useCustomQuickSelection
+        ? "Intervista personalizzata PDF salvata correttamente."
+        : "Modello rapido PDF salvato correttamente.",
       "velora-quick-template-frame"
     );
   }
@@ -4776,8 +4898,8 @@ export default function App() {
 
         <body>
           <section class="cover">
-            <div class="eyebrow">Velora RMS · ${isQuickHotelBb ? "Analisi rapida Hotel / B&B" : "Autovalutazione consulenziale"}</div>
-            <h1>${isQuickHotelBb ? "Report analisi rapida Hotel / B&B" : "Report di autovalutazione struttura ricettiva"}</h1>
+            <div class="eyebrow">Velora RMS · ${isQuickHotelBb ? useCustomQuickSelection ? "Intervista consulenziale personalizzata" : "Analisi rapida Hotel / B&B" : "Autovalutazione consulenziale"}</div>
+            <h1>${isQuickHotelBb ? useCustomQuickSelection ? "Report intervista consulenziale personalizzata" : "Report analisi rapida Hotel / B&B" : "Report di autovalutazione struttura ricettiva"}</h1>
             <p class="subtitle">
               Diagnosi preliminare dei bisogni operativi, commerciali, revenue,
               amministrativi e gestionali della struttura. Il report evidenzia le aree
@@ -4952,7 +5074,7 @@ export default function App() {
           </section>
 
           <div class="footer">
-            Report generato da Velora RMS · ${isQuickHotelBb ? `Analisi rapida Hotel / B&B · ${showQuickDeepDive ? "30 domande principali + 20 di approfondimento" : "30 domande principali"}.` : "Modulo Autovalutazione struttura ricettiva."}
+            Report generato da Velora RMS · ${isQuickHotelBb ? useCustomQuickSelection ? `Intervista consulenziale personalizzata · ${customQuickItemIds.length} domande selezionate.` : `Analisi rapida Hotel / B&B · ${showQuickDeepDive ? "30 domande principali + 20 di approfondimento" : "30 domande principali"}.` : "Modulo Autovalutazione struttura ricettiva."}
           </div>
 
         </body>
@@ -4961,7 +5083,11 @@ export default function App() {
 
     if (window.veloraDesktop?.savePdf) {
       try {
-        const reportKind = isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
+        const reportKind = isQuickHotelBb
+          ? useCustomQuickSelection
+            ? "intervista-consulenziale-personalizzata"
+            : "analisi-rapida-hotel-bb"
+          : "autovalutazione";
         const propertySlug = sanitizeFilename(ownerInfo.propertyName);
         const result = await window.veloraDesktop.savePdf(
           html,
@@ -5186,6 +5312,199 @@ export default function App() {
     ));
   }
 
+  if (isCustomizingInterview) {
+    const normalizedCustomizerSearch = customizerSearch.trim().toLowerCase();
+    const selectedDraftSet = new Set(customQuickDraftIds);
+
+    return (
+      <main className="min-h-screen bg-[#F7F4FB] px-4 py-5 text-[#23124A] md:px-6">
+        <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
+          <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_18px_50px_rgba(35,18,74,0.07)] md:p-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-4xl">
+                <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#C8A96B]">
+                  Configuratore consulenziale
+                </p>
+                <h1 className="mt-2 text-3xl font-black tracking-tight text-[#23124A] md:text-4xl">
+                  Personalizza intervista consulenziale
+                </h1>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-[#50627F]">
+                  Seleziona soltanto le voci utili per la struttura che visiterai. Ogni macro-area
+                  è organizzata in un box compatto per consentire una consultazione e una scelta rapide.
+                </p>
+              </div>
+
+              <div className="grid min-w-[280px] grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#C8A96B]">
+                    Selezionate
+                  </p>
+                  <p className="mt-1 text-3xl font-black text-[#23124A]">
+                    {customQuickDraftIds.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[#E5DDF1] bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#C8A96B]">
+                    Disponibili
+                  </p>
+                  <p className="mt-1 text-3xl font-black text-[#23124A]">
+                    {flattenItems(ASSESSMENT_DATA).length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <label className="flex flex-col gap-2">
+                <FieldLabel>Cerca voce o reparto</FieldLabel>
+                <input
+                  value={customizerSearch}
+                  onChange={(event) => setCustomizerSearch(event.target.value)}
+                  placeholder="Es. pricing, Booking, foto, qualità..."
+                  className="h-11 rounded-2xl border border-[#E0D7EC] bg-[#FBF9FF] px-4 text-sm font-semibold text-[#23124A] outline-none transition placeholder:text-slate-400 focus:border-[#23124A] focus:ring-4 focus:ring-[#23124A]/10"
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setCustomQuickDraftIds(DEFAULT_CUSTOM_QUICK_ITEM_IDS)}
+                className="self-end rounded-2xl border border-[#C8A96B] bg-[#FFF8E8] px-4 py-3 text-xs font-black text-[#23124A] transition hover:bg-[#F9EAC8]"
+              >
+                Ripristina modello 30 + 20
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomQuickDraftIds([])}
+                className="self-end rounded-2xl border border-[#E5DDF1] bg-white px-4 py-3 text-xs font-black text-[#50627F] transition hover:bg-[#FBF9FF]"
+              >
+                Deseleziona tutto
+              </button>
+            </div>
+          </section>
+
+          <div className="flex flex-col gap-4">
+            {ASSESSMENT_DATA.map((macro) => {
+              const macroItemIds = flattenItems([macro]).map((row) => row.item.id);
+              const selectedInMacro = macroItemIds.filter((id) => selectedDraftSet.has(id)).length;
+              const allMacroSelected =
+                macroItemIds.length > 0 && selectedInMacro === macroItemIds.length;
+              const visibleCategories = macro.categories
+                .map((category) => ({
+                  ...category,
+                  items: category.items.filter((item) => {
+                    if (!normalizedCustomizerSearch) return true;
+                    return `${macro.title} ${category.title} ${item.text}`
+                      .toLowerCase()
+                      .includes(normalizedCustomizerSearch);
+                  }),
+                }))
+                .filter((category) => category.items.length > 0);
+
+              if (!visibleCategories.length) return null;
+
+              return (
+                <section
+                  key={`customizer-${macro.id}`}
+                  className="overflow-hidden rounded-[1.75rem] border border-[#E5DDF1] bg-white shadow-[0_12px_34px_rgba(35,18,74,0.045)]"
+                >
+                  <div className="flex flex-col gap-3 border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">
+                        Macro-area
+                      </p>
+                      <h2 className="mt-1 text-base font-black text-[#23124A]">
+                        {macro.title}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-[#50627F] ring-1 ring-[#E5DDF1]">
+                        {selectedInMacro}/{macroItemIds.length} selezionate
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleCustomMacro(macro)}
+                        className="rounded-xl border border-[#C8A96B]/60 bg-white px-3 py-2 text-[11px] font-black text-[#23124A] transition hover:bg-[#FFF8E8]"
+                      >
+                        {allMacroSelected ? "Deseleziona area" : "Seleziona area"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 p-4 md:p-5">
+                    {visibleCategories.map((category) => (
+                      <div key={`customizer-${category.id}`}>
+                        <div className="mb-2 flex items-center gap-3">
+                          <h3 className="text-[11px] font-black uppercase tracking-[0.12em] text-[#50627F]">
+                            {category.title}
+                          </h3>
+                          <span className="h-px flex-1 bg-[#EFE9F7]" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                          {category.items.map((item) => {
+                            const selected = selectedDraftSet.has(item.id);
+                            return (
+                              <label
+                                key={`customizer-${item.id}`}
+                                className={`flex min-h-[48px] cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition ${
+                                  selected
+                                    ? "border-[#C8A96B] bg-[#FFF8E8] shadow-sm"
+                                    : "border-[#E8E2F0] bg-white hover:border-[#CFC1DF] hover:bg-[#FBF9FF]"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleCustomQuestion(item.id)}
+                                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#CFC1DF] accent-[#23124A]"
+                                />
+                                <span className="text-[12px] font-semibold leading-[1.35] text-[#23124A]">
+                                  {item.text}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
+          <section className="sticky bottom-4 z-20 rounded-[1.5rem] border border-[#D8C8A5] bg-white/95 p-4 shadow-[0_18px_55px_rgba(35,18,74,0.16)] backdrop-blur md:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-black text-[#23124A]">
+                  {customQuickDraftIds.length} domande formeranno la nuova Analisi rapida
+                </p>
+                <p className="mt-1 text-xs font-semibold text-[#50627F]">
+                  La conferma sostituisce il modello rapido corrente, senza cancellare le risposte già inserite.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setIsCustomizingInterview(false)}
+                  className="rounded-xl border border-[#E5DDF1] bg-white px-5 py-3 text-sm font-black text-[#50627F] transition hover:bg-[#FBF9FF]"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmCustomInterview}
+                  className="rounded-xl bg-[#23124A] px-6 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63]"
+                >
+                  Conferma e apri Analisi rapida
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
 
   return (
     <main className="min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
@@ -5204,7 +5523,7 @@ export default function App() {
               </p>
             </div>
 
-            <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:w-auto xl:min-w-[660px]">
+            <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3 xl:w-auto xl:min-w-[930px]">
               <button
                 type="button"
                 aria-pressed={assessmentMode === "full"}
@@ -5234,11 +5553,33 @@ export default function App() {
                 <span className="flex items-center justify-between gap-3 text-sm font-black">
                   Analisi rapida Hotel / B&amp;B
                   <span className="rounded-full bg-[#C8A96B] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#23124A]">
-                    30 + 20
+                    {useCustomQuickSelection ? customQuickItemIds.length : "30 + 20"}
                   </span>
                 </span>
                 <span className="mt-1 block text-xs font-semibold text-[#50627F]">
-                  30 principali, più 20 approfondimenti opzionali
+                  {useCustomQuickSelection
+                    ? `${customQuickItemIds.length} domande scelte dal consulente`
+                    : "30 principali, più 20 approfondimenti opzionali"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={openInterviewCustomizer}
+                className={`rounded-2xl border px-5 py-4 text-left transition ${
+                  useCustomQuickSelection
+                    ? "border-[#23124A] bg-[#F3EEF9] text-[#23124A] shadow-sm ring-2 ring-[#23124A]/10"
+                    : "border-[#E5DDF1] bg-white text-[#23124A] hover:bg-[#FBF9FF]"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3 text-sm font-black">
+                  Personalizza intervista
+                  <span className="rounded-full bg-[#23124A] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white">
+                    Configura
+                  </span>
+                </span>
+                <span className="mt-1 block text-xs font-semibold text-[#50627F]">
+                  Scegli le voci adatte alla singola consulenza
                 </span>
               </button>
             </div>
@@ -5247,9 +5588,20 @@ export default function App() {
           {isQuickHotelBb && (
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#E8D8B3] bg-[#FFFBF2] p-4 md:flex-row md:items-center md:justify-between">
               <p className="text-sm font-semibold text-[#50627F]">
-                Esporta il modello completo: 30 domande principali e 20 approfondimenti opzionali.
+                {useCustomQuickSelection
+                  ? `Modello personalizzato attivo: ${customQuickItemIds.length} domande selezionate.`
+                  : "Esporta il modello completo: 30 domande principali e 20 approfondimenti opzionali."}
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
+                {useCustomQuickSelection && (
+                  <button
+                    type="button"
+                    onClick={restorePresetQuickInterview}
+                    className="rounded-xl border border-[#C8A96B]/60 bg-white px-4 py-2.5 text-xs font-black text-[#23124A] transition hover:bg-[#FFF8E8]"
+                  >
+                    Torna al modello 30 + 20
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={generateQuickTemplatePdf}
@@ -5278,12 +5630,16 @@ export default function App() {
                 </p>
                 <h1 className="mt-3 text-4xl font-black tracking-tight text-[#23124A]">
                   {isQuickHotelBb
-                    ? "Analisi rapida Hotel / B&B"
+                    ? useCustomQuickSelection
+                      ? "Analisi rapida personalizzata"
+                      : "Analisi rapida Hotel / B&B"
                     : "Autovalutazione struttura ricettiva"}
                 </h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-[#50627F]">
                   {isQuickHotelBb
-                    ? `Percorso guidato con 30 domande principali${showQuickDeepDive ? " e 20 approfondimenti aperti" : ""}, focalizzato su posizionamento, revenue, vendita, gestione delegata e qualità del servizio.`
+                    ? useCustomQuickSelection
+                      ? `Percorso consulenziale dinamico con ${customQuickItemIds.length} domande selezionate per questa specifica intervista.`
+                      : `Percorso guidato con 30 domande principali${showQuickDeepDive ? " e 20 approfondimenti aperti" : ""}, focalizzato su posizionamento, revenue, vendita, gestione delegata e qualità del servizio.`
                     : "Questionario diagnostico per capire i bisogni reali della struttura, le aree scoperte e dove Velora può generare valore concreto prima di proporre un intervento consulenziale o operativo."}
                 </p>
               </div>
@@ -5425,6 +5781,41 @@ export default function App() {
 
         {isQuickHotelBb ? (
           <section className="flex flex-col gap-6">
+            {useCustomQuickSelection ? (
+              <>
+                <div className="rounded-[2rem] border border-[#D8C8A5] bg-[#FFFBF2] p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-4xl">
+                      <p className="text-[12px] font-black uppercase tracking-[0.28em] text-[#C8A96B]">
+                        Percorso consulenziale personalizzato
+                      </p>
+                      <h2 className="mt-2 text-2xl font-black text-[#23124A]">
+                        {customQuickItemIds.length} domande selezionate per questa intervista
+                      </h2>
+                      <p className="mt-2 text-sm leading-7 text-[#50627F]">
+                        Le domande sono ordinate per macro-area e reparto. Puoi modificare la
+                        selezione in qualsiasi momento senza perdere le risposte già compilate.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={openInterviewCustomizer}
+                        className="rounded-2xl bg-[#23124A] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63]"
+                      >
+                        Modifica selezione
+                      </button>
+                      <span className="flex items-center justify-center rounded-full bg-[#C8A96B] px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-[#23124A]">
+                        {assessmentData.length} macro-aree
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {renderQuickSections(customQuickData, 0)}
+              </>
+            ) : (
+              <>
             <div className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-4xl">
@@ -5489,6 +5880,8 @@ export default function App() {
                 </div>
                 {renderQuickSections(QUICK_HOTEL_BB_DEEP_DIVE_DATA, 30, true)}
               </div>
+            )}
+              </>
             )}
           </section>
         ) : (
