@@ -40,11 +40,23 @@ type Answer = {
 type OwnerInfo = {
   propertyName: string;
   ownerName: string;
+  consultantName: string;
   location: string;
   propertyType: string;
   rooms: string;
   channels: string;
   objective: string;
+};
+
+const EMPTY_OWNER_INFO: OwnerInfo = {
+  propertyName: "",
+  ownerName: "",
+  consultantName: "",
+  location: "",
+  propertyType: "",
+  rooms: "",
+  channels: "",
+  objective: "",
 };
 
 const ASSESSMENT_DATA: AssessmentMacro[] = [
@@ -3613,15 +3625,7 @@ function FieldLabel({
 }
 
 export default function App() {
-  const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>({
-    propertyName: "",
-    ownerName: "",
-    location: "",
-    propertyType: "",
-    rooms: "",
-    channels: "",
-    objective: "",
-  });
+  const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
@@ -3688,7 +3692,7 @@ export default function App() {
 
     try {
       const parsed = JSON.parse(raw);
-      if (parsed.ownerInfo) setOwnerInfo(parsed.ownerInfo);
+      if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
       if (parsed.assessmentMode === "full" || parsed.assessmentMode === "quick-hotel-bb") {
         setAssessmentMode(parsed.assessmentMode);
@@ -4095,7 +4099,12 @@ export default function App() {
   }
 
   async function generatePrintableReport() {
-    const generatedAt = new Date().toLocaleString("it-IT");
+    const generatedAt = new Date();
+    const generatedDate = generatedAt.toLocaleDateString("it-IT");
+    const generatedTime = generatedAt.toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
     const safe = (value: unknown) =>
       String(value ?? "")
@@ -4104,16 +4113,6 @@ export default function App() {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
-
-    const optionLabel = (
-      options: { value: number; label: string }[],
-      value: number
-    ) => options.find((option) => option.value === value)?.label ?? String(value);
-
-    const highPriorities = topOpportunities.filter((row) => row.score >= 70);
-    const mediumPriorities = topOpportunities.filter(
-      (row) => row.score >= 40 && row.score < 70
-    );
 
     const completedRows = allRows.filter((row) => {
       const answer = answers[row.item.id];
@@ -4126,77 +4125,204 @@ export default function App() {
       );
     });
 
-    const macroRowsHtml = macroScores
-      .map((macro) => {
-        const label = getScoreLabel(macro.score);
-        return `
-          <tr>
-            <td>${safe(macro.title)}</td>
-            <td class="center">${macro.answeredItems}/${macro.totalItems}</td>
-            <td class="center"><strong>${macro.score}</strong>/100</td>
-            <td><span class="badge">${safe(label.label)}</span></td>
-          </tr>
-        `;
-      })
-      .join("");
+    const scoredRows = completedRows.map((row) => {
+      const answer = answers[row.item.id] ?? emptyAnswer();
+      return { ...row, answer, score: getItemScore(answer) };
+    });
+    const reportScore = scoreAverage(scoredRows.map((row) => row.score));
 
-    const topOpportunitiesHtml = topOpportunities.length
-      ? topOpportunities
-          .map((row, index) => {
-            const answer = row.answer ?? emptyAnswer();
-            const label = getScoreLabel(row.score);
+    const sortedOpportunities = [...scoredRows]
+      .filter((row) => row.score > 0)
+      .sort((a, b) => b.score - a.score);
+    const priorityRows = sortedOpportunities.slice(0, 5);
 
-            return `
-              <tr>
-                <td class="center">${index + 1}</td>
-                <td>
-                  <strong>${safe(row.item.text)}</strong><br />
-                  <span>${safe(row.macro.title)} · ${safe(row.category.title)}</span>
-                </td>
-                <td class="center"><strong>${row.score}</strong>/100</td>
-                <td>${safe(label.label)}</td>
-                <td>${safe(answer.note || "—")}</td>
-              </tr>
-            `;
-          })
-          .join("")
-      : `
-        <tr>
-          <td colspan="5" class="empty">
-            Nessuna opportunità rilevante ancora individuata.
-          </td>
-        </tr>
-      `;
+    const distribution = scoredRows.reduce(
+      (counts, row) => {
+        if (row.score >= 70) counts.critical += 1;
+        else if (row.score >= 40) counts.attention += 1;
+        else counts.controlled += 1;
+        return counts;
+      },
+      { critical: 0, attention: 0, controlled: 0 }
+    );
 
-    const detailedRowsHtml = completedRows.length
-      ? completedRows
+    const distributionTotal = scoredRows.length;
+    const percentage = (value: number) =>
+      distributionTotal ? Math.round((value / distributionTotal) * 100) : 0;
+    const criticalPct = percentage(distribution.critical);
+    const attentionPct = percentage(distribution.attention);
+    const controlledPct = Math.max(0, 100 - criticalPct - attentionPct);
+    const criticalEnd = criticalPct;
+    const attentionEnd = criticalPct + attentionPct;
+
+    const topAreas = macroScores
+      .filter((macro) => macro.answeredItems > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    const topAreaText = topAreas.length
+      ? topAreas.map((macro) => `${macro.title} (${macro.score}/100)`).join(", ")
+      : "nessuna macro-area ancora sufficientemente compilata";
+
+    const coverageText = progressPct >= 80
+      ? "La copertura delle risposte è ampia e consente una lettura attendibile del quadro complessivo."
+      : progressPct >= 50
+        ? "La copertura è sufficiente per una prima diagnosi, ma le conclusioni andranno consolidate completando le voci mancanti."
+        : "La compilazione è ancora parziale: le evidenze sono utili per orientare il confronto, non ancora per una diagnosi definitiva.";
+
+    const collaborationText = reportScore >= 70
+      ? "L’indice evidenzia un potenziale di collaborazione ampio: è opportuno costruire un piano coordinato, con responsabilità, KPI e verifiche periodiche."
+      : reportScore >= 40
+        ? "Il potenziale di collaborazione è selettivo: conviene concentrare l’intervento sulle aree ad alto impatto, evitando un progetto troppo esteso nella prima fase."
+        : sortedOpportunities.length
+          ? "L’indice complessivo è contenuto, ma non equivale a assenza di utilità. Le criticità puntuali emerse giustificano una collaborazione mirata, circoscritta ai presidi con maggiore gap e migliore coerenza d’intervento."
+          : "L’indice complessivo è contenuto e non emergono ancora gap quantificabili. Prima di escludere una collaborazione è consigliabile completare le valutazioni e verificare le aree più sensibili con evidenze operative.";
+
+    function recommendedAction(row: (typeof scoredRows)[number]) {
+      const context = `${row.macro.title} ${row.category.title} ${row.item.text}`.toLowerCase();
+      if (/revenue|pricing|tariff|adr|revpar|forecast|pickup|stagional/.test(context)) {
+        return "Impostare una regola di pricing misurabile, un calendario di revisione e KPI revenue condivisi.";
+      }
+      if (/brand|posizion|sito|direct|conversion|marketing|target|promessa/.test(context)) {
+        return "Chiarire posizionamento e proposta di valore, quindi tradurli in contenuti e percorso di prenotazione diretta.";
+      }
+      if (/prenot|channel|ota|booking|calendario|disponibil/.test(context)) {
+        return "Mappare il flusso prenotativo, eliminare i passaggi manuali critici e definire controlli su disponibilità e canali.";
+      }
+      if (/propriet|direzione|report|accord|commercial|responsabil|customer service/.test(context)) {
+        return "Formalizzare responsabilità, SLA, frequenza dei report e criteri di escalation verso proprietà e direzione.";
+      }
+      if (/foto|qualità|qualita|pulizi|ispezion|standard|servizi/.test(context)) {
+        return "Definire standard verificabili, checklist, responsabilità e una cadenza di controllo della qualità erogata.";
+      }
+      if (/crm|centralino|lead|risposta/.test(context)) {
+        return "Centralizzare contatti e richieste, assegnare tempi di risposta e monitorare conversione e richieste perse.";
+      }
+      return "Definire uno standard minimo, un responsabile, una scadenza e un indicatore con cui verificare il miglioramento.";
+    }
+
+    const averageMetric = (metric: keyof Answer) => {
+      if (!scoredRows.length) return "0,0";
+      const total = scoredRows.reduce((sum, row) => {
+        const value = row.answer[metric];
+        return sum + (typeof value === "number" ? value : 0);
+      }, 0);
+      return (total / scoredRows.length).toLocaleString("it-IT", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+    };
+
+    const strengths = scoredRows
+      .filter((row) => row.answer.current >= 2 && row.answer.importance >= 2)
+      .sort((a, b) => b.answer.current - a.answer.current || b.answer.importance - a.answer.importance)
+      .slice(0, 5);
+    const highFitGaps = scoredRows
+      .filter((row) => row.answer.fit >= 2 && row.answer.current <= 1)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    const rowsForContext = (pattern: RegExp) => sortedOpportunities
+      .filter((row) => pattern.test(`${row.macro.title} ${row.category.title} ${row.item.text}`.toLowerCase()))
+      .slice(0, 4);
+    const commercialGaps = rowsForContext(/marketing|brand|posizion|sito|direct|ota|revenue|pricing|tariff|adr|revpar|forecast|pickup/);
+    const governanceGaps = rowsForContext(/propriet|direzione|report|accord|responsabil|qualità|qualita|standard|customer service/);
+
+    const namesOf = (rows: typeof scoredRows, fallback: string) =>
+      rows.length ? rows.map((row) => row.item.text).join(", ") : fallback;
+
+    const strengthText = strengths.length
+      ? `I presidi relativamente più solidi sono ${namesOf(strengths, "")}. Vanno mantenuti e trasformati in standard documentati, così da non dipendere da singole persone.`
+      : "Non emergono ancora presidi sufficientemente consolidati. La prima attività dovrebbe essere la definizione di standard minimi e responsabilità chiare.";
+    const gapText = highFitGaps.length
+      ? `Le aree dove il supporto esterno può produrre il miglior rapporto tra sforzo e risultato sono ${namesOf(highFitGaps, "")}. Qui il gap operativo è alto e la coerenza con un intervento Velora è concreta.`
+      : "Non emergono gap ad alta coerenza sufficientemente netti; conviene validare i dati con un breve approfondimento operativo.";
+    const commercialText = commercialGaps.length
+      ? `Sul piano economico-commerciale richiedono attenzione ${namesOf(commercialGaps, "")}. Il rischio è perdere margine, domanda diretta o capacità di reagire alla stagionalità.`
+      : "Il perimetro economico-commerciale appare relativamente presidiato oppure non ancora valutato in modo sufficiente.";
+    const governanceText = governanceGaps.length
+      ? `Sul piano di governance e qualità emergono ${namesOf(governanceGaps, "")}. È consigliabile collegare ogni attività a un responsabile, una frequenza di controllo e un KPI.`
+      : "Non emergono criticità marcate di governance e qualità; resta utile formalizzare responsabilità e indicatori per proteggere la continuità del servizio.";
+
+    const planStages = [
+      {
+        horizon: "0-30 giorni",
+        title: "Priorità e responsabilità",
+        rows: priorityRows.slice(0, 2),
+        fallback: "Completare le valutazioni mancanti e validare i dati con proprietà e direzione.",
+      },
+      {
+        horizon: "31-60 giorni",
+        title: "Implementazione dei presidi",
+        rows: priorityRows.slice(2, 4),
+        fallback: "Formalizzare procedure, SLA e strumenti di controllo sulle aree selezionate.",
+      },
+      {
+        horizon: "61-90 giorni",
+        title: "Misurazione e consolidamento",
+        rows: priorityRows.slice(4, 5),
+        fallback: "Misurare risultati, correggere le deviazioni e consolidare gli standard efficaci.",
+      },
+    ];
+
+    const planHtml = planStages.map((stage) => `
+      <article class="plan-card">
+        <div class="plan-horizon">${stage.horizon}</div>
+        <h3>${stage.title}</h3>
+        ${stage.rows.length
+          ? `<ul>${stage.rows.map((row) => `<li><b>${safe(row.item.text)}:</b> ${safe(recommendedAction(row))}</li>`).join("")}</ul>`
+          : `<p>${stage.fallback}</p>`}
+      </article>
+    `).join("");
+
+    const valueRowsHtml = scoredRows.length
+      ? scoredRows
           .map((row) => {
-            const answer = answers[row.item.id] ?? emptyAnswer();
-            const score = getItemScore(answer);
-            const label = getScoreLabel(score);
-
+            const label = getScoreLabel(row.score);
             return `
               <tr>
                 <td>
-                  <strong>${safe(row.item.text)}</strong><br />
-                  <span>${safe(row.macro.title)} · ${safe(row.category.title)}</span>
+                  <strong>${safe(row.item.text)}</strong>
+                  <small>${safe(row.macro.title)} · ${safe(row.category.title)}</small>
                 </td>
-                <td>${safe(optionLabel(scoreOptions, answer.importance))}</td>
-                <td>${safe(optionLabel(currentOptions, answer.current))}</td>
-                <td>${safe(optionLabel(scoreOptions, answer.fit))}</td>
-                <td class="center"><strong>${score}</strong>/100<br />${safe(label.label)}</td>
-                <td>${safe(answer.note || "—")}</td>
+                <td class="center compact-values">${row.answer.importance}</td>
+                <td class="center compact-values">${row.answer.current}</td>
+                <td class="center compact-values">${row.answer.fit}</td>
+                <td class="center score-cell">${row.score}</td>
+                <td><span class="status status-${row.score >= 70 ? "critical" : row.score >= 40 ? "attention" : "controlled"}">${safe(label.shortLabel)}</span></td>
+                <td>${safe(row.answer.note || "-")}</td>
               </tr>
             `;
           })
+          .join("") + `
+            <tr class="total-row">
+              <td>Media complessiva</td>
+              <td class="center">${averageMetric("importance")}</td>
+              <td class="center">${averageMetric("current")}</td>
+              <td class="center">${averageMetric("fit")}</td>
+              <td class="center">${reportScore}</td>
+              <td colspan="2">${distribution.critical} critiche · ${distribution.attention} medie · ${distribution.controlled} basse</td>
+            </tr>
+          `
+      : `<tr><td colspan="7" class="empty">Nessuna voce compilata.</td></tr>`;
+
+    const priorityHtml = priorityRows.length
+      ? priorityRows
+          .map((row, index) => `
+            <article class="priority-card">
+              <div class="priority-number">${index + 1}</div>
+              <div>
+                <div class="priority-heading">
+                  <strong>${safe(row.item.text)}</strong>
+                  <span>${row.score}/100</span>
+                </div>
+                <small>${safe(row.macro.title)} · ${safe(row.category.title)}</small>
+                <p><b>Perché intervenire:</b> importanza ${row.answer.importance}/3, presidio attuale ${row.answer.current}/3, coerenza Velora ${row.answer.fit}/3.${row.answer.note ? ` Evidenza rilevata: ${safe(row.answer.note)}.` : ""}</p>
+                <p><b>Prima azione:</b> ${safe(recommendedAction(row))}</p>
+              </div>
+            </article>
+          `)
           .join("")
-      : `
-        <tr>
-          <td colspan="6" class="empty">
-            Nessuna voce compilata.
-          </td>
-        </tr>
-      `;
+      : `<div class="empty-box">Non sono ancora disponibili priorità operative. Completare almeno le voci principali per ottenere una lettura consulenziale.</div>`;
 
     const html = `
       <!doctype html>
@@ -4207,7 +4333,7 @@ export default function App() {
           <style>
             @page {
               size: A4;
-              margin: 18mm;
+              margin: 12mm;
             }
 
             * {
@@ -4219,14 +4345,14 @@ export default function App() {
               background: #ffffff;
               color: #1f2937;
               font-family: Arial, Helvetica, sans-serif;
-              font-size: 12px;
-              line-height: 1.45;
+              font-size: 9.5px;
+              line-height: 1.35;
             }
 
             .cover {
               border-bottom: 4px solid #C8A96B;
-              padding-bottom: 24px;
-              margin-bottom: 24px;
+              padding-bottom: 14px;
+              margin-bottom: 14px;
             }
 
             .eyebrow {
@@ -4240,36 +4366,38 @@ export default function App() {
 
             h1 {
               color: #23124A;
-              font-size: 30px;
+              font-size: 25px;
               line-height: 1.1;
               margin: 0 0 12px;
             }
 
             h2 {
               color: #23124A;
-              font-size: 19px;
-              margin: 28px 0 12px;
-              padding-bottom: 8px;
+              font-size: 16px;
+              margin: 18px 0 8px;
+              padding-bottom: 5px;
               border-bottom: 1px solid #e5e7eb;
+              break-after: avoid;
+              page-break-after: avoid;
             }
 
             .subtitle {
               color: #475569;
-              font-size: 13px;
+              font-size: 10.5px;
               max-width: 760px;
             }
 
             .grid {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
-              gap: 10px;
-              margin: 18px 0;
+              gap: 7px;
+              margin: 12px 0;
             }
 
             .card {
               border: 1px solid #e5e7eb;
-              border-radius: 14px;
-              padding: 12px;
+              border-radius: 10px;
+              padding: 9px;
               background: #f8fafc;
             }
 
@@ -4283,21 +4411,21 @@ export default function App() {
 
             .card-value {
               color: #23124A;
-              font-size: 20px;
+              font-size: 17px;
               font-weight: 800;
               margin-top: 4px;
             }
 
             .info {
               display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 8px 18px;
-              margin-top: 16px;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 6px 14px;
+              margin-top: 12px;
             }
 
             .info div {
               border-bottom: 1px solid #e5e7eb;
-              padding-bottom: 6px;
+              padding-bottom: 4px;
             }
 
             .info span {
@@ -4312,40 +4440,61 @@ export default function App() {
             .info strong {
               display: block;
               color: #111827;
-              font-size: 13px;
+              font-size: 10.5px;
               margin-top: 2px;
             }
 
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 10px;
+              margin-top: 7px;
               page-break-inside: auto;
             }
 
+            thead {
+              display: table-header-group;
+            }
+
             th {
-              background: #23124A;
+              background: #1F4E78;
               color: #ffffff;
               text-align: left;
-              font-size: 10px;
+              font-size: 7.2px;
               text-transform: uppercase;
-              letter-spacing: 0.08em;
-              padding: 8px;
+              letter-spacing: 0.04em;
+              padding: 5px 4px;
+              border: 1px solid #d5d9dd;
             }
 
             td {
-              border: 1px solid #e5e7eb;
-              padding: 8px;
-              vertical-align: top;
+              border: 1px solid #d5d9dd;
+              padding: 3.5px 4px;
+              vertical-align: middle;
             }
 
             tr {
               page-break-inside: avoid;
             }
 
+            tbody tr:nth-child(even):not(.total-row) td {
+              background: #f1f3f5;
+            }
+
+            td:first-child strong {
+              color: #172033;
+              font-size: 9.2px;
+            }
+
             td span {
               color: #64748b;
-              font-size: 10px;
+              font-size: 7.5px;
+            }
+
+            td small, .priority-card small {
+              display: block;
+              color: #64748b;
+              font-size: 7.5px;
+              margin-top: 2px;
             }
 
             .center {
@@ -4371,6 +4520,234 @@ export default function App() {
               margin-top: 14px;
             }
 
+            .analysis-grid {
+              display: grid;
+              grid-template-columns: 1.45fr .75fr;
+              gap: 14px;
+              align-items: start;
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+
+            .analysis-copy p {
+              margin: 0 0 8px;
+            }
+
+            .analysis-copy .focus {
+              border-left: 4px solid #C8A96B;
+              background: #fbf7ed;
+              border-radius: 8px;
+              padding: 10px 12px;
+            }
+
+            .pie-panel {
+              border: 1px solid #e5e7eb;
+              border-radius: 14px;
+              padding: 12px;
+              text-align: center;
+              page-break-inside: avoid;
+            }
+
+            .pie {
+              width: 118px;
+              height: 118px;
+              margin: 2px auto 10px;
+              border-radius: 50%;
+              background: ${distributionTotal ? `conic-gradient(#B42318 0 ${criticalEnd}%, #D69E2E ${criticalEnd}% ${attentionEnd}%, #15803D ${attentionEnd}% 100%)` : "#e5e7eb"};
+              position: relative;
+            }
+
+            .pie::after {
+              content: "${distributionTotal}";
+              position: absolute;
+              inset: 27px;
+              display: grid;
+              place-items: center;
+              border-radius: 50%;
+              background: white;
+              color: #23124A;
+              font-size: 20px;
+              font-weight: 800;
+            }
+
+            .legend {
+              display: grid;
+              gap: 5px;
+              text-align: left;
+            }
+
+            .legend-row {
+              display: grid;
+              grid-template-columns: 8px 1fr auto;
+              gap: 6px;
+              align-items: center;
+            }
+
+            .dot { width: 8px; height: 8px; border-radius: 50%; }
+            .critical { background: #B42318; }
+            .attention { background: #D69E2E; }
+            .controlled { background: #15803D; }
+
+            .compact-values, .score-cell {
+              white-space: nowrap;
+              font-weight: 800;
+              color: #23124A;
+            }
+
+            .score-cell {
+              font-size: 11px;
+            }
+
+            .status {
+              display: inline-block;
+              min-width: 42px;
+              border-radius: 999px;
+              padding: 2px 5px;
+              text-align: center;
+              font-size: 7px;
+              font-weight: 800;
+            }
+
+            .status-critical { color: #9f1239; background: #ffe4e6; }
+            .status-attention { color: #92400e; background: #fef3c7; }
+            .status-controlled { color: #166534; background: #dcfce7; }
+
+            .total-row td {
+              background: #dce8f2;
+              color: #172033;
+              font-weight: 800;
+              border-top: 2px solid #1F4E78;
+            }
+
+            .insight-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 8px;
+              margin-top: 10px;
+            }
+
+            .insight-card {
+              border: 1px solid #d5d9dd;
+              border-top: 4px solid #1F4E78;
+              border-radius: 8px;
+              padding: 9px 10px;
+              background: #f8fafc;
+              page-break-inside: avoid;
+            }
+
+            .insight-card h3,
+            .plan-card h3 {
+              color: #23124A;
+              font-size: 10.5px;
+              margin: 0 0 5px;
+            }
+
+            .insight-card p {
+              margin: 0;
+            }
+
+            .insight-card.positive { border-top-color: #15803D; }
+            .insight-card.risk { border-top-color: #B42318; }
+            .insight-card.commercial { border-top-color: #D69E2E; }
+
+            .plan-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+              margin-top: 10px;
+            }
+
+            .plan-card {
+              border: 1px solid #d5d9dd;
+              border-radius: 9px;
+              padding: 9px;
+              page-break-inside: avoid;
+            }
+
+            .plan-horizon {
+              color: #1F4E78;
+              font-size: 7.5px;
+              font-weight: 800;
+              letter-spacing: .1em;
+              text-transform: uppercase;
+              margin-bottom: 4px;
+            }
+
+            .plan-card ul {
+              margin: 5px 0 0;
+              padding-left: 14px;
+            }
+
+            .plan-card li {
+              margin-bottom: 5px;
+            }
+
+            .consultant-conclusion {
+              border: 1px solid #c9d8e6;
+              border-left: 5px solid #1F4E78;
+              background: #eef5fa;
+              border-radius: 9px;
+              padding: 11px 13px;
+              margin-top: 10px;
+              page-break-inside: avoid;
+            }
+
+            .priority-list {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 8px;
+            }
+
+            .priority-card {
+              display: grid;
+              grid-template-columns: 25px 1fr;
+              gap: 8px;
+              border: 1px solid #e5e7eb;
+              border-radius: 11px;
+              padding: 9px;
+              page-break-inside: avoid;
+            }
+
+            .priority-number {
+              display: grid;
+              place-items: center;
+              width: 25px;
+              height: 25px;
+              border-radius: 50%;
+              background: #23124A;
+              color: white;
+              font-weight: 800;
+            }
+
+            .priority-heading {
+              display: flex;
+              justify-content: space-between;
+              gap: 8px;
+              color: #23124A;
+              font-size: 10.5px;
+            }
+
+            .priority-heading span {
+              color: #B42318;
+              white-space: nowrap;
+              font-weight: 800;
+            }
+
+            .priority-card p {
+              margin: 5px 0 0;
+            }
+
+            .empty-box {
+              border: 1px dashed #cbd5e1;
+              border-radius: 10px;
+              color: #64748b;
+              padding: 14px;
+            }
+
+            .wide {
+              grid-column: span 2;
+            }
+
             .empty {
               text-align: center;
               color: #64748b;
@@ -4382,11 +4759,11 @@ export default function App() {
             }
 
             .footer {
-              margin-top: 30px;
-              padding-top: 12px;
+              margin-top: 18px;
+              padding-top: 8px;
               border-top: 1px solid #e5e7eb;
               color: #64748b;
-              font-size: 10px;
+              font-size: 8px;
             }
 
             @media print {
@@ -4417,6 +4794,10 @@ export default function App() {
                 <strong>${safe(ownerInfo.ownerName || "Non indicato")}</strong>
               </div>
               <div>
+                <span>Consulente</span>
+                <strong>${safe(ownerInfo.consultantName || "Non indicato")}</strong>
+              </div>
+              <div>
                 <span>Località</span>
                 <strong>${safe(ownerInfo.location || "Non indicata")}</strong>
               </div>
@@ -4432,13 +4813,17 @@ export default function App() {
                 <span>Canali attivi</span>
                 <strong>${safe(ownerInfo.channels || "Non indicati")}</strong>
               </div>
-              <div>
+              <div class="wide">
                 <span>Obiettivo principale</span>
                 <strong>${safe(ownerInfo.objective || "Non indicato")}</strong>
               </div>
               <div>
-                <span>Data generazione</span>
-                <strong>${safe(generatedAt)}</strong>
+                <span>Data</span>
+                <strong>${safe(generatedDate)}</strong>
+              </div>
+              <div>
+                <span>Ora</span>
+                <strong>${safe(generatedTime)}</strong>
               </div>
             </div>
           </section>
@@ -4449,82 +4834,121 @@ export default function App() {
             <div class="grid">
               <div class="card">
                 <div class="card-label">Indice opportunità</div>
-                <div class="card-value">${globalScore}/100</div>
+                <div class="card-value">${reportScore}/100</div>
               </div>
               <div class="card">
                 <div class="card-label">Voci compilate</div>
-                <div class="card-value">${answeredCount}/${allRows.length}</div>
+                <div class="card-value">${completedRows.length}/${allRows.length}</div>
               </div>
               <div class="card">
-                <div class="card-label">Priorità alte</div>
-                <div class="card-value">${highPriorities.length}</div>
+                <div class="card-label">Voci critiche</div>
+                <div class="card-value">${distribution.critical}</div>
               </div>
               <div class="card">
-                <div class="card-label">Priorità medie</div>
-                <div class="card-value">${mediumPriorities.length}</div>
+                <div class="card-label">Da attenzionare</div>
+                <div class="card-value">${distribution.attention}</div>
               </div>
             </div>
 
             <div class="summary-box">
-              <strong>Interpretazione del punteggio:</strong><br />
-              il valore cresce quando una voce è importante, oggi poco presidiata
-              e coerente con il possibile intervento Velora. Un punteggio alto non indica
-              un errore della struttura, ma una maggiore opportunità consulenziale.
+              <strong>Chiave di lettura:</strong> il punteggio misura l’opportunità d’intervento,
+              non la qualità assoluta della struttura. Cresce quando una voce è importante,
+              poco presidiata e coerente con il contributo che Velora può offrire.
             </div>
           </section>
 
           <section>
-            <h2>Risultato per macro-area</h2>
+            <h2>Tabella completa delle valutazioni</h2>
+            <p>
+              Quadro sintetico di tutte le voci compilate. Importanza, Presidio attuale
+              e Fit Velora sono espressi su scala 0-3; il voto finale è su scala 0-100.
+            </p>
             <table>
               <thead>
                 <tr>
-                  <th>Macro-area</th>
-                  <th>Compilazione</th>
-                  <th>Punteggio</th>
-                  <th>Lettura</th>
+                  <th style="width: 32%">Voce e ambito</th>
+                  <th style="width: 8%">Import.</th>
+                  <th style="width: 8%">Presidio</th>
+                  <th style="width: 7%">Fit</th>
+                  <th style="width: 8%">Voto</th>
+                  <th style="width: 10%">Fascia</th>
+                  <th>Nota / evidenza</th>
                 </tr>
               </thead>
               <tbody>
-                ${macroRowsHtml}
+                ${valueRowsHtml}
               </tbody>
             </table>
           </section>
 
-          <section class="page-break">
-            <h2>Prime opportunità consulenziali</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Voce</th>
-                  <th>Punteggio</th>
-                  <th>Priorità</th>
-                  <th>Note / evidenze</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${topOpportunitiesHtml}
-              </tbody>
-            </table>
+          <section>
+            <h2>Lettura consulenziale dei dati</h2>
+            <div class="analysis-grid">
+              <div class="analysis-copy">
+                <p><strong>Quadro complessivo.</strong> ${safe(coverageText)}</p>
+                <p><strong>Concentrazione delle opportunità.</strong> Le macro-aree con il maggiore indice di intervento sono: ${safe(topAreaText)}.</p>
+                <p class="focus"><strong>Valutazione della collaborazione.</strong> ${safe(collaborationText)}</p>
+                <p>
+                  La priorità non va definita soltanto dal voto totale: hanno precedenza le voci
+                  che combinano impatto elevato, presidio insufficiente e possibilità concreta
+                  di essere migliorate con responsabilità e risultati misurabili.
+                </p>
+              </div>
+              <aside class="pie-panel">
+                <div class="pie" aria-label="Distribuzione percentuale delle valutazioni"></div>
+                <strong>Distribuzione delle voci</strong>
+                <div class="legend">
+                  <div class="legend-row"><span class="dot critical"></span><span>Critiche</span><b>${criticalPct}%</b></div>
+                  <div class="legend-row"><span class="dot attention"></span><span>Medie</span><b>${attentionPct}%</b></div>
+                  <div class="legend-row"><span class="dot controlled"></span><span>Basse / presidiate</span><b>${controlledPct}%</b></div>
+                </div>
+              </aside>
+            </div>
+
+            <div class="insight-grid">
+              <article class="insight-card positive">
+                <h3>Punti relativamente più presidiati</h3>
+                <p>${safe(strengthText)}</p>
+              </article>
+              <article class="insight-card risk">
+                <h3>Gap ad alto potenziale d’intervento</h3>
+                <p>${safe(gapText)}</p>
+              </article>
+              <article class="insight-card commercial">
+                <h3>Impatto economico e commerciale</h3>
+                <p>${safe(commercialText)}</p>
+              </article>
+              <article class="insight-card">
+                <h3>Governance, controllo e qualità</h3>
+                <p>${safe(governanceText)}</p>
+              </article>
+            </div>
           </section>
 
-          <section class="page-break">
-            <h2>Dettaglio voci compilate</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Voce</th>
-                  <th>Importanza</th>
-                  <th>Stato attuale</th>
-                  <th>Fit Velora</th>
-                  <th>Punteggio</th>
-                  <th>Note / criticità / evidenze</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${detailedRowsHtml}
-              </tbody>
-            </table>
+          <section>
+            <h2>Priorità operative: da dove iniziare</h2>
+            <p>
+              I primi interventi consigliati sono ordinati per impatto potenziale. Anche con
+              un indice complessivo contenuto, queste aree possono giustificare un incarico
+              circoscritto, con obiettivi e verifiche chiare.
+            </p>
+            <div class="priority-list">
+              ${priorityHtml}
+            </div>
+          </section>
+
+          <section>
+            <h2>Piano di lavoro consigliato</h2>
+            <div class="plan-grid">
+              ${planHtml}
+            </div>
+            <div class="consultant-conclusion">
+              <strong>Conclusione consulenziale.</strong> ${safe(collaborationText)}
+              L’eventuale collaborazione dovrebbe partire da un perimetro definito,
+              con indicatori iniziali, responsabilità assegnate e una verifica dei risultati
+              entro 90 giorni. In questo modo anche criticità circoscritte possono produrre
+              benefici concreti senza trasformarsi in un progetto sovradimensionato.
+            </div>
           </section>
 
           <div class="footer">
@@ -4977,6 +5401,7 @@ export default function App() {
             {[
               ["propertyName", "Nome struttura", "Es. Hotel Riviera"],
               ["ownerName", "Proprietario / referente", "Nome e cognome"],
+              ["consultantName", "Consulente", "Nome e cognome del consulente"],
               ["location", "Località", "Città / zona"],
               ["propertyType", "Tipologia", "Hotel, B&B, appartamenti..."],
               ["rooms", "Camere / unità", "Es. 18 camere"],
