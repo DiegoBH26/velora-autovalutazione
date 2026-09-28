@@ -3628,6 +3628,120 @@ function FieldLabel({
   );
 }
 
+const MACRO_GUIDE_PURPOSES: Record<string, string> = {
+  m4: "posizionamento, brand e vendite dirette",
+  m25: "efficienza e integrazione dei sistemi operativi",
+  m115: "solidità dei documenti e degli accordi",
+  m144: "fattibilità e potenziale della nuova offerta",
+  m192: "controllo e trasparenza verso la proprietà",
+  m212: "conformità autorizzativa della struttura",
+  m235: "protezione dai principali rischi operativi",
+  m259: "qualità e completezza della scheda di vendita",
+  m312: "visibilità, distribuzione e rendimento delle OTA",
+  m364: "prezzi, domanda e redditività",
+  m414: "conversione delle richieste in prenotazioni",
+  m448: "qualità dell’esperienza dell’ospite",
+  m497: "continuità e precisione delle operations",
+  m524: "gestione sicura di cauzioni e danni",
+  m543: "incassi corretti e facilmente riconciliabili",
+  m563: "controllo di pagamenti, costi e scadenze",
+  m594: "correttezza amministrativa e contabile",
+  m648: "riduzione dei rischi legali e dei reclami",
+  m681: "affidabilità tecnica e tempi di intervento",
+  m718: "coerenza degli standard e qualità reale",
+  m753: "ricavi aggiuntivi e valore percepito",
+};
+
+const GUIDE_ITEM_HINTS: Array<[RegExp, string]> = [
+  [/^target ospite$/i, "Identifica il pubblico con maggiore valore potenziale."],
+  [/posizionamento/i, "Chiarisce come la struttura si distingue sul mercato."],
+  [/booking engine/i, "Verifica se il sito converte visite in prenotazioni."],
+  [/booking window|lead time/i, "Misura quanto prima gli ospiti prenotano."],
+  [/\badr\b/i, "Misura il prezzo medio realmente venduto."],
+  [/revpar/i, "Misura il ricavo prodotto da ogni camera disponibile."],
+  [/occupancy|occupazione/i, "Misura quanta disponibilità viene realmente venduta."],
+  [/pickup/i, "Mostra la velocità con cui crescono le prenotazioni."],
+  [/forecast|previsione domanda/i, "Stima domanda, occupazione e ricavi futuri."],
+  [/marginalità|margine|goppar/i, "Misura il guadagno dopo i costi operativi."],
+  [/allotment/i, "Controlla le camere riservate a ciascun canale."],
+  [/stop.?sale/i, "Verifica la chiusura tempestiva delle vendite."],
+  [/minimum stay/i, "Valuta l’uso del soggiorno minimo per proteggere ricavi."],
+  [/sincronizzazione/i, "Controlla l’allineamento automatico tra sistemi e canali."],
+  [/foto|immagini|shooting/i, "Verifica se le immagini rappresentano e vendono bene la struttura."],
+  [/recension|sentiment/i, "Misura reputazione, fiducia e criticità percepite."],
+  [/conversion/i, "Misura quante opportunità diventano prenotazioni."],
+  [/pricing|prezz|tariff|\bbar\b/i, "Valuta la coerenza dei prezzi con domanda e obiettivi."],
+  [/cauzion|pre-autorizzazione/i, "Verifica tutela economica, regole e tempi di sblocco."],
+  [/upsell|cross-selling/i, "Misura la capacità di generare ricavi aggiuntivi."],
+  [/sla|tempi risposta|tempi intervento/i, "Misura rapidità e livello del servizio garantito."],
+  [/check-in/i, "Valuta fluidità, sicurezza e qualità dell’arrivo."],
+  [/check-out/i, "Valuta fluidità e controllo della partenza."],
+  [/privacy|consens|gdpr/i, "Verifica raccolta, uso e protezione corretta dei dati."],
+  [/cin|cir|codici identificativi/i, "Verifica presenza, validità ed esposizione dei codici."],
+  [/istat|flussi turistici|arrivi\/presenze/i, "Controlla correttezza e puntualità degli invii statistici."],
+  [/alloggiati|questura|pubblica sicurezza/i, "Controlla invio e conformità dei dati degli ospiti."],
+  [/tassa di soggiorno|imposta soggiorno/i, "Verifica calcolo, dichiarazione e riversamento dell’imposta."],
+  [/housekeeping|pulizi|biancheria/i, "Misura standard, coordinamento e controllo del servizio."],
+  [/manutenz|guasti|impianti/i, "Valuta prevenzione, risposta e continuità della struttura."],
+  [/rimbors|chargeback|storni/i, "Verifica gestione economica e documentale delle contestazioni."],
+  [/report|rendicont/i, "Verifica se i dati supportano decisioni chiare e tempestive."],
+  [/budget|business plan/i, "Confronta obiettivi economici, risorse e risultati attesi."],
+  [/sito|direct booking|prenotazioni dirette/i, "Misura autonomia commerciale e vendite senza intermediari."],
+];
+
+function getGuideText(
+  macro: AssessmentMacro,
+  category: AssessmentCategory,
+  item: AssessmentItem
+) {
+  const purpose = MACRO_GUIDE_PURPOSES[macro.id] ?? category.title.toLowerCase();
+
+  if (/^target ospite$/i.test(item.text)) {
+    if (macro.id === "m4") {
+      return "Individua il pubblico ideale per brand e comunicazione.";
+    }
+    if (macro.id === "m144") {
+      return "Stima i segmenti più redditizi per la nuova offerta.";
+    }
+  }
+
+  const specificHint = GUIDE_ITEM_HINTS.find(([pattern]) => pattern.test(item.text));
+  if (specificHint) return `${specificHint[1]} Utile per ${purpose}.`;
+
+  return `Valuta “${item.text}” per ${category.title.toLowerCase()} e ${purpose}.`;
+}
+
+function GuideToggle({
+  enabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={enabled}
+      onClick={onToggle}
+      title={enabled ? "Disattiva le spiegazioni al passaggio del mouse" : "Attiva le spiegazioni al passaggio del mouse"}
+      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${
+        enabled
+          ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm"
+          : "border-[#E5DDF1] bg-white text-[#50627F] hover:border-emerald-300 hover:bg-emerald-50/50"
+      }`}
+    >
+      <span
+        className={`flex h-6 w-6 items-center justify-center rounded-full text-sm font-black ${
+          enabled ? "bg-emerald-500 text-white" : "bg-[#F3EEF9] text-[#23124A]"
+        }`}
+      >
+        ?
+      </span>
+      {enabled ? "Guida attiva" : "Attiva guida"}
+    </button>
+  );
+}
+
 export default function App() {
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
@@ -3643,6 +3757,7 @@ export default function App() {
   );
   const [isCustomizingInterview, setIsCustomizingInterview] = useState(false);
   const [customizerSearch, setCustomizerSearch] = useState("");
+  const [guideEnabled, setGuideEnabled] = useState(false);
   const [activeMacroId, setActiveMacroId] = useState(ASSESSMENT_DATA[0]?.id ?? "");
   const [showOnlyPriority, setShowOnlyPriority] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -3726,6 +3841,9 @@ export default function App() {
       if (typeof parsed.useCustomQuickSelection === "boolean") {
         setUseCustomQuickSelection(parsed.useCustomQuickSelection);
       }
+      if (typeof parsed.guideEnabled === "boolean") {
+        setGuideEnabled(parsed.guideEnabled);
+      }
     } catch {
       window.localStorage.removeItem(STORAGE_KEY);
     }
@@ -3740,9 +3858,10 @@ export default function App() {
         assessmentMode,
         customQuickItemIds,
         useCustomQuickSelection,
+        guideEnabled,
       })
     );
-  }, [ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
+  }, [ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -5159,11 +5278,14 @@ export default function App() {
   function renderQuestionCard(
     item: AssessmentItem,
     questionNumber?: number,
-    isDeepDive = false
+    isDeepDive = false,
+    macro?: AssessmentMacro,
+    category?: AssessmentCategory
   ) {
     const answer = answers[item.id] ?? emptyAnswer();
     const score = getItemScore(answer);
     const label = getScoreLabel(score);
+    const guideText = macro && category ? getGuideText(macro, category, item) : "";
 
     return (
       <article
@@ -5181,7 +5303,14 @@ export default function App() {
                 ? `${isDeepDive ? "Approfondimento" : "Domanda"} ${questionNumber}`
                 : "Voce consulenziale"}
             </p>
-            <h4 className="mt-1 text-base font-black leading-6 text-[#23124A]">
+            <h4
+              title={guideEnabled ? guideText : undefined}
+              className={`mt-1 text-base font-black leading-6 text-[#23124A] ${
+                guideEnabled
+                  ? "cursor-help underline decoration-emerald-500/70 decoration-dotted underline-offset-4"
+                  : ""
+              }`}
+            >
               {item.text}
             </h4>
           </div>
@@ -5303,7 +5432,13 @@ export default function App() {
 
             <div className="grid grid-cols-1 gap-4 p-4">
               {category.items.map((item) =>
-                renderQuestionCard(item, numberById.get(item.id), isDeepDive)
+                renderQuestionCard(
+                  item,
+                  numberById.get(item.id),
+                  isDeepDive,
+                  macro,
+                  category
+                )
               )}
             </div>
           </div>
@@ -5332,6 +5467,12 @@ export default function App() {
                   Seleziona soltanto le voci utili per la struttura che visiterai. Ogni macro-area
                   è organizzata in un box compatto per consentire una consultazione e una scelta rapide.
                 </p>
+                <div className="mt-4">
+                  <GuideToggle
+                    enabled={guideEnabled}
+                    onToggle={() => setGuideEnabled((current) => !current)}
+                  />
+                </div>
               </div>
 
               <div className="grid min-w-[280px] grid-cols-2 gap-3">
@@ -5445,7 +5586,10 @@ export default function App() {
                             return (
                               <label
                                 key={`customizer-${item.id}`}
-                                className={`flex min-h-[42px] cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 transition ${
+                                title={guideEnabled ? getGuideText(macro, category, item) : undefined}
+                                className={`flex min-h-[42px] items-start gap-2 rounded-lg border px-2.5 py-2 transition ${
+                                  guideEnabled ? "cursor-help" : "cursor-pointer"
+                                } ${
                                   selected
                                     ? "border-[#C8A96B] bg-[#FFF8E8] shadow-sm"
                                     : "border-[#E8E2F0] bg-white hover:border-[#CFC1DF] hover:bg-[#FBF9FF]"
@@ -5457,7 +5601,13 @@ export default function App() {
                                   onChange={() => toggleCustomQuestion(item.id)}
                                   className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[#CFC1DF] accent-[#23124A]"
                                 />
-                                <span className="text-[11px] font-semibold leading-[1.25] text-[#23124A]">
+                                <span
+                                  className={`text-[11px] font-semibold leading-[1.25] text-[#23124A] ${
+                                    guideEnabled
+                                      ? "underline decoration-emerald-500/70 decoration-dotted underline-offset-2"
+                                      : ""
+                                  }`}
+                                >
                                   {item.text}
                                 </span>
                               </label>
@@ -5521,6 +5671,12 @@ export default function App() {
               <p className="mt-1 text-sm text-[#50627F]">
                 Le risposte restano collegate: puoi passare da un formato all’altro senza perdere dati.
               </p>
+              <div className="mt-3">
+                <GuideToggle
+                  enabled={guideEnabled}
+                  onToggle={() => setGuideEnabled((current) => !current)}
+                />
+              </div>
             </div>
 
             <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3 xl:w-auto xl:min-w-[930px]">
@@ -6039,7 +6195,14 @@ export default function App() {
                               <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#C8A96B]">
                                 Voce consulenziale
                               </p>
-                              <h4 className="mt-1 text-base font-black leading-6 text-[#23124A]">
+                              <h4
+                                title={guideEnabled ? getGuideText(activeMacro, category, item) : undefined}
+                                className={`mt-1 text-base font-black leading-6 text-[#23124A] ${
+                                  guideEnabled
+                                    ? "cursor-help underline decoration-emerald-500/70 decoration-dotted underline-offset-4"
+                                    : ""
+                                }`}
+                              >
                                 {item.text}
                               </h4>
                             </div>
