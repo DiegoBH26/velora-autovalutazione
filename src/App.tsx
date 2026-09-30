@@ -3605,8 +3605,29 @@ const EXTERNAL_AUDIT_SOURCE_GROUPS = [
   },
 ] as const;
 
+const FUNDAMENTAL_EXTERNAL_AUDIT_ITEM_IDS = [
+  // Brand e proposta di valore
+  "q6", "q7", "q8", "q9",
+  // Sito, conversione e maturità tecnologica
+  "q12", "q13", "q14", "q15", "q20", "q21", "q22", "q24",
+  // Conformità pubblicamente verificabile
+  "q141", "q221", "q222",
+  // Qualità della presentazione del prodotto
+  "q261", "q263", "q264", "q266", "q269", "q272", "q279", "q280",
+  // Presenza, distribuzione e reputazione online
+  "q307", "q308", "q309", "q310", "q311", "q314", "q318", "q342",
+  // Competitività e revenue osservabile
+  "q366", "q369", "q370", "q372", "q382", "q385",
+  // Contatto e conversione commerciale
+  "q416", "q417", "q418", "q420", "q446",
+  // Qualità percepita e coerenza tra promessa e realtà
+  "q669", "q670", "q720", "q724", "q734", "q744",
+  // Opportunità commerciali visibili
+  "q756", "q769",
+] as const;
+
 const EXTERNAL_WEB_AUDIT_ITEM_SET = new Set<string>(
-  EXTERNAL_AUDIT_SOURCE_GROUPS.flatMap((group) => [...group.itemIds])
+  FUNDAMENTAL_EXTERNAL_AUDIT_ITEM_IDS
 );
 
 function getExternalAuditSources(itemId: string) {
