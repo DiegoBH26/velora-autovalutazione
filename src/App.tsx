@@ -3463,6 +3463,24 @@ const STORAGE_KEY = "velora-owner-assessment-v2";
 const STRUCTURES_KEY = "velora-analyzed-structures-v1";
 const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
 
+// Aggiorna soltanto i riscontri pubblicati nel primo audit, senza toccare le note modificate dall'utente.
+const SANTANTONIO_PREVIOUS_EVIDENCE: Record<string, string> = {
+  q15: "Recensioni presenti senza data; widget con 5 Excellent non rappresentativo dei rating pubblici.",
+  q141: "Codici rilevati sui portali, non sulle pagine principali del sito ufficiale.",
+  q222: "CIN IT072003A100027082 coerente su Booking e Tripadvisor.",
+  q261: "Galleria dedicata alle camere con circa dieci immagini.",
+  q266: "Fotografie principalmente descrittive; limitati dettagli di esperienza ospite.",
+  q308: "Schede su Booking, Hotels.com/Expedia, Trip.com e altri distributori.",
+  q342: "Nel campione recente di Tripadvisor non sono state rilevate risposte della direzione.",
+  q369: "Booking discreto; Google 3,6/5 e Tripadvisor 3,1/5 evidenziano un gap di percezione.",
+  q372: "Posizione e pulizia apprezzate; camere e comfort generano riserve.",
+  q669: "Booking circa 8,3/10 e Tripadvisor 4,1/5 per pulizia.",
+  q670: "Recensioni ripetute su camere datate, arredi, rumore e assenza di climatizzazione.",
+  q720: "Camere ampie e pulite, ma spesso descritte come semplici o datate.",
+  q724: "Recensioni segnalano aggiornamenti necessari; impossibile ispezionare fisicamente.",
+  q744: "Promessa di comfort da chiarire: solo 3 camere Superior su 24 hanno aria condizionata.",
+};
+
 type AnalyzedStructure = {
   id: string;
   name: string;
@@ -3493,6 +3511,18 @@ function santantonioStructure(): AnalyzedStructure {
       note: `${check.evidence}\nFonti: ${sourceLinks.join(" · ")}`,
     };
   }
+  for (const channel of santantonioAudit.otaPresence) {
+    const source = santantonioAudit.sources[channel.source as keyof typeof santantonioAudit.sources];
+    answers[`audit-ota-${channel.id}`] = {
+      ...emptyAnswer(),
+      auditStatus: channel.status as AuditStatus,
+      note: `${channel.finding}\nFonte: ${source?.url ?? "verifica manuale"}`,
+    };
+  }
+  answers["audit-google-strengths"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.strengths.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
+  answers["audit-google-weaknesses"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
+  answers["audit-google-actions"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.action}`).join("\n") };
+  answers["audit-photo-score"] = { ...emptyAnswer(), current: santantonioAudit.photoAssessment.score, note: `${santantonioAudit.photoAssessment.gaps}\nAzione: ${santantonioAudit.photoAssessment.actions}` };
   return {
     id: santantonioAudit.id,
     name: santantonioAudit.name,
@@ -3527,7 +3557,20 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
     const existing = saved.filter((item): item is AnalyzedStructure =>
       Boolean(item && typeof item.id === "string" && item.ownerInfo && item.answers)
     );
-    return existing.some((item) => item.id === seed.id) ? existing : [seed, ...existing];
+    const migrated = existing.map((item) => {
+      if (item.id !== seed.id) return item;
+      const answers = { ...item.answers };
+      for (const [id, answer] of Object.entries(seed.answers)) {
+        if (id.startsWith("audit-") && !answers[id]) answers[id] = answer;
+        const oldEvidence = SANTANTONIO_PREVIOUS_EVIDENCE[id];
+        const noteLines = answers[id]?.note?.split("\n") ?? [];
+        if (oldEvidence && noteLines.length === 2 && noteLines[0] === oldEvidence && noteLines[1].startsWith("Fonti: ")) {
+          answers[id] = answer;
+        }
+      }
+      return { ...item, answers };
+    });
+    return migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
   } catch {
     return [seed];
   }
@@ -5910,6 +5953,45 @@ export default function App() {
             ))}
           </div>
         </div>
+
+        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_14px_40px_rgba(35,18,74,0.05)] md:p-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Approfondimento non incluso nell'indice dei 50 controlli</p>
+          <h3 className="mt-1 text-xl font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi</h3>
+          <p className="mt-2 text-xs leading-5 text-[#50627F]">Segna una scheda come presente solo con un URL univoco. “Non trovato” significa soltanto che non è emersa nella ricerca pubblica; non prova l'assenza di un contratto. Google Hotels è un metasearch, HolidayCheck può mostrare offerte senza distribuzione diretta.</p>
+          <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {santantonioAudit.otaPresence.map((channel) => {
+              const id = `audit-ota-${channel.id}`;
+              const answer = answers[id] ?? emptyAnswer();
+              return <div key={id} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><p className="text-xs font-black text-[#23124A]">{channel.platform}</p><p className="text-[10px] font-semibold text-[#50627F]">{channel.group}</p></div>
+                  <select aria-label={`Esito ${channel.platform}`} value={answer.auditStatus ?? ""} onChange={(event) => updateAnswer(id, { auditStatus: event.target.value as AuditStatus })} className="rounded-lg border border-[#DCCFEA] bg-white px-2 py-1.5 text-[11px] font-bold text-[#23124A]">
+                    <option value="">Da esaminare</option><option value="present">Scheda trovata</option><option value="missing">Non trovata</option><option value="unverified">Non confermata</option><option value="not-applicable">Non adatta</option>
+                  </select>
+                </div>
+                <input value={answer.note} onChange={(event) => updateAnswer(id, { note: event.target.value })} placeholder="URL o prova concreta della scheda" className="mt-2 w-full rounded-lg border border-[#E0D7EC] bg-white px-2.5 py-2 text-[11px] text-[#23124A] placeholder:text-slate-400" />
+              </div>;
+            })}
+          </div>
+          <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Annota esempi specifici, non soltanto il voto medio. Un campione pubblico non equivale all'analisi di tutte le recensioni. Valuta le foto da 1 a 10 rispetto a uno shooting alberghiero professionale.</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {([
+              ["audit-google-strengths", "Punti di forza percepiti"],
+              ["audit-google-weaknesses", "Criticità percepite"],
+              ["audit-google-actions", "Azioni operative dalle recensioni"],
+            ] as const).map(([id, label]) => <label key={id} className="block text-[11px] font-black text-[#23124A]">{label}
+              <textarea value={answers[id]?.note ?? ""} onChange={(event) => updateAnswer(id, { note: event.target.value })} placeholder="Tema, esempio concreto, fonte e data" className="mt-1.5 min-h-[90px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
+            </label>)}
+            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+              <label className="text-[11px] font-black text-[#23124A]">Qualità delle foto / 10
+                <input type="number" min="1" max="10" step="0.5" value={answers["audit-photo-score"]?.current || ""} onChange={(event) => updateAnswer("audit-photo-score", { current: Number(event.target.value) })} className="mt-1.5 block w-24 rounded-lg border border-[#E0D7EC] bg-white px-2.5 py-2 text-sm font-black text-[#23124A]" />
+              </label>
+              <textarea value={answers["audit-photo-score"]?.note ?? ""} onChange={(event) => updateAnswer("audit-photo-score", { note: event.target.value })} placeholder="Luce, composizione, copertura delle tipologie e intervento consigliato" className="mt-2 min-h-[65px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-white px-3 py-2 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] text-[#50627F]">Il PDF salvato nella scheda Sant'Antonio fotografa l'analisi pubblicata; modifiche locali a queste note non lo rigenerano automaticamente.</p>
+        </section>
 
         {visibleData.map((macro) => (
           <section
