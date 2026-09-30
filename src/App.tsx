@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import santantonioAudit from "./santantonio-audit.json";
+import santantonioReportUrl from "./santantonio-report.pdf?url";
 
 declare global {
   interface Window {
@@ -13,7 +15,7 @@ declare global {
 
 type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
 
-type AuditStatus = "" | "present" | "partial" | "missing" | "not-applicable";
+type AuditStatus = "" | "present" | "partial" | "missing" | "unverified" | "not-applicable";
 
 type AssessmentItem = {
   id: string;
@@ -45,6 +47,8 @@ type OwnerInfo = {
   ownerName: string;
   consultantName: string;
   location: string;
+  city: string;
+  province: string;
   propertyType: string;
   rooms: string;
   channels: string;
@@ -56,6 +60,8 @@ const EMPTY_OWNER_INFO: OwnerInfo = {
   ownerName: "",
   consultantName: "",
   location: "",
+  city: "",
+  province: "",
   propertyType: "",
   rooms: "",
   channels: "",
@@ -3454,6 +3460,78 @@ const ASSESSMENT_DATA: AssessmentMacro[] = [
 ];
 
 const STORAGE_KEY = "velora-owner-assessment-v2";
+const STRUCTURES_KEY = "velora-analyzed-structures-v1";
+const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
+
+type AnalyzedStructure = {
+  id: string;
+  name: string;
+  city: string;
+  province: string;
+  rooms: string;
+  website?: string;
+  reportPath?: string;
+  auditedAt?: string;
+  ownerInfo: OwnerInfo;
+  answers: Record<string, Answer>;
+  assessmentMode: AssessmentMode;
+  updatedAt: string;
+};
+
+function santantonioStructure(): AnalyzedStructure {
+  const answers: Record<string, Answer> = {};
+  for (const check of santantonioAudit.checks) {
+    const status = check.status as AuditStatus;
+    const sourceLinks = check.sources
+      .map((sourceId) => santantonioAudit.sources[sourceId as keyof typeof santantonioAudit.sources]?.url)
+      .filter(Boolean);
+    answers[check.id] = {
+      importance: status === "unverified" ? 0 : 3,
+      current: status === "present" ? 3 : status === "partial" ? 1.5 : 0,
+      fit: status === "unverified" ? 0 : 3,
+      auditStatus: status,
+      note: `${check.evidence}\nFonti: ${sourceLinks.join(" · ")}`,
+    };
+  }
+  return {
+    id: santantonioAudit.id,
+    name: santantonioAudit.name,
+    city: santantonioAudit.city,
+    province: santantonioAudit.province,
+    rooms: String(santantonioAudit.rooms),
+    website: santantonioAudit.website,
+    reportPath: santantonioAudit.reportPath,
+    auditedAt: santantonioAudit.auditedAt,
+    ownerInfo: {
+      ...EMPTY_OWNER_INFO,
+      propertyName: santantonioAudit.name,
+      location: santantonioAudit.city,
+      city: santantonioAudit.city,
+      province: santantonioAudit.province,
+      propertyType: santantonioAudit.propertyType,
+      rooms: String(santantonioAudit.rooms),
+      channels: "Sito ufficiale, Booking.com, Google Hotels, Hotels.com",
+      objective: "Audit pubblico di visibilità, prenotazione diretta e reputazione",
+    },
+    answers,
+    assessmentMode: "web-audit",
+    updatedAt: santantonioAudit.auditedAt,
+  };
+}
+
+function loadAnalyzedStructures(): AnalyzedStructure[] {
+  const seed = santantonioStructure();
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STRUCTURES_KEY) || "[]");
+    if (!Array.isArray(saved)) return [seed];
+    const existing = saved.filter((item): item is AnalyzedStructure =>
+      Boolean(item && typeof item.id === "string" && item.ownerInfo && item.answers)
+    );
+    return existing.some((item) => item.id === seed.id) ? existing : [seed, ...existing];
+  } catch {
+    return [seed];
+  }
+}
 
 const QUICK_HOTEL_BB_CORE_ITEM_IDS = [
   "q6",   // Posizionamento
@@ -3697,6 +3775,13 @@ const AUDIT_STATUS_OPTIONS: Array<{
     current: 0,
   },
   {
+    value: "unverified",
+    label: "Non verificato",
+    shortLabel: "Da verificare",
+    className: "border-slate-300 bg-slate-50 text-slate-600",
+    current: 0,
+  },
+  {
     value: "not-applicable",
     label: "Non applicabile",
     shortLabel: "N/A",
@@ -3913,6 +3998,10 @@ function GuideToggle({
 }
 
 export default function App() {
+  const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
+  const [activeStructureId, setActiveStructureId] = useState<string | null>(null);
+  const [showStructures, setShowStructures] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -4010,8 +4099,22 @@ export default function App() {
   }, [allRows, answers]);
 
   useEffect(() => {
+    const selectedId = window.localStorage.getItem(ACTIVE_STRUCTURE_KEY);
+    const selected = structures.find((item) => item.id === selectedId);
+    if (selected) {
+      setActiveStructureId(selected.id);
+      setOwnerInfo({ ...EMPTY_OWNER_INFO, ...selected.ownerInfo });
+      setAnswers(selected.answers);
+      setAssessmentMode(selected.assessmentMode);
+      setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
+      setHydrated(true);
+      return;
+    }
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      setHydrated(true);
+      return;
+    }
 
     try {
       const parsed = JSON.parse(raw);
@@ -4037,9 +4140,11 @@ export default function App() {
     } catch {
       window.localStorage.removeItem(STORAGE_KEY);
     }
+    setHydrated(true);
   }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -4051,7 +4156,27 @@ export default function App() {
         guideEnabled,
       })
     );
-  }, [ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+  }, [hydrated, ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem(STRUCTURES_KEY, JSON.stringify(structures));
+  }, [hydrated, structures]);
+
+  useEffect(() => {
+    if (!hydrated || !activeStructureId) return;
+    setStructures((previous) => previous.map((item) => item.id === activeStructureId ? {
+      ...item,
+      name: ownerInfo.propertyName || item.name,
+      city: ownerInfo.city || item.city,
+      province: ownerInfo.province || item.province,
+      rooms: ownerInfo.rooms || item.rooms,
+      ownerInfo,
+      answers,
+      assessmentMode,
+      updatedAt: new Date().toISOString(),
+    } : item));
+  }, [hydrated, activeStructureId, ownerInfo, answers, assessmentMode]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -4062,6 +4187,54 @@ export default function App() {
 
   function updateOwnerInfo<K extends keyof OwnerInfo>(key: K, value: OwnerInfo[K]) {
     setOwnerInfo((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function openStructure(structure: AnalyzedStructure) {
+    if (!activeStructureId && (ownerInfo.propertyName || Object.keys(answers).length)) {
+      const draftId = `bozza-${Date.now()}`;
+      setStructures((previous) => [...previous, {
+        id: draftId,
+        name: ownerInfo.propertyName || "Bozza precedente",
+        city: ownerInfo.city,
+        province: ownerInfo.province,
+        rooms: ownerInfo.rooms,
+        ownerInfo,
+        answers,
+        assessmentMode,
+        updatedAt: new Date().toISOString(),
+      }]);
+    }
+    setActiveStructureId(structure.id);
+    window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
+    setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
+    setAnswers(structure.answers);
+    setAssessmentMode(structure.assessmentMode);
+    setActiveMacroId(
+      (structure.assessmentMode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA : ASSESSMENT_DATA)[0]?.id ?? ""
+    );
+    setSearchTerm("");
+    setAuditSourceFilter("Tutte le fonti");
+    setShowStructures(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openStoredReport(structure: AnalyzedStructure) {
+    if (!structure.reportPath) return;
+    const url = structure.id === santantonioAudit.id
+      ? santantonioReportUrl
+      : `${import.meta.env.BASE_URL}${structure.reportPath}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function restoreOriginalAudit() {
+    if (!window.confirm("Ripristinare i 50 riscontri originali del Sant'Antonio? Le modifiche locali a questa scheda saranno sostituite.")) return;
+    const original = santantonioStructure();
+    setStructures((previous) => previous.map((item) => item.id === original.id ? original : item));
+    if (activeStructureId === original.id) {
+      setOwnerInfo(original.ownerInfo);
+      setAnswers(original.answers);
+      setAssessmentMode(original.assessmentMode);
+    }
   }
 
   function updateAnswer(itemId: string, patch: Partial<Answer>) {
@@ -4085,7 +4258,7 @@ export default function App() {
     }
 
     const option = AUDIT_STATUS_OPTIONS.find((entry) => entry.value === status);
-    const isNotApplicable = status === "not-applicable";
+    const isNotApplicable = status === "not-applicable" || status === "unverified";
 
     updateAnswer(itemId, {
       auditStatus: status,
@@ -5665,7 +5838,7 @@ export default function App() {
           items: category.items.filter((item) => {
             const sources = getExternalAuditSources(item.id);
             const matchesSource =
-              auditSourceFilter === "Tutte le fonti" || sources.includes(auditSourceFilter);
+              auditSourceFilter === "Tutte le fonti" || sources.some((source) => source === auditSourceFilter);
             const matchesSearch =
               !normalizedSearch ||
               `${macro.title} ${category.title} ${item.text} ${sources.join(" ")}`
@@ -5912,6 +6085,62 @@ export default function App() {
     ));
   }
 
+  if (showStructures) {
+    return (
+      <main className="min-h-screen bg-[#F7F4FB] px-4 py-8 text-[#23124A] md:px-6">
+        <div className="mx-auto max-w-[1300px]">
+          <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)] md:p-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-[#C8A96B]">Archivio consulenziale</p>
+                <h1 className="mt-2 text-3xl font-black">Strutture analizzate</h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-[#50627F]">
+                  Apri la scheda compilata per consultare o aggiornare i riscontri. Il PDF disponibile è il report alla data indicata.
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
+                Torna al questionario
+              </button>
+            </div>
+          </section>
+          <div className="mt-5 grid gap-4">
+            {structures.map((structure) => (
+              <article key={structure.id} className="rounded-[1.7rem] border border-[#E5DDF1] bg-white p-5 shadow-sm md:p-6">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#C8A96B]">
+                      {structure.assessmentMode === "web-audit" ? "Audit Web & Frontend" : "Analisi Velora"}
+                    </p>
+                    <h2 className="mt-1 text-xl font-black">{structure.name}</h2>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#50627F]">
+                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.city || "Città da inserire"} {structure.province ? `(${structure.province})` : ""}</span>
+                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.rooms || "—"} camere / unità</span>
+                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{Object.keys(structure.answers).length} voci compilate</span>
+                      {structure.auditedAt && <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">Report {new Date(`${structure.auditedAt}T12:00:00`).toLocaleDateString("it-IT")}</span>}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => openStructure(structure)} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+                      Apri analisi
+                    </button>
+                    {structure.reportPath && <button type="button" onClick={() => openStoredReport(structure)} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-5 py-3 text-sm font-black hover:bg-[#FFF1CF]">
+                      Apri report PDF
+                    </button>}
+                    {structure.id === santantonioAudit.id && <button type="button" onClick={restoreOriginalAudit} className="rounded-xl border border-[#E5DDF1] px-5 py-3 text-sm font-black hover:bg-[#FBF9FF]">
+                      Ripristina audit originale
+                    </button>}
+                    {structure.website && <a href={structure.website} target="_blank" rel="noreferrer" className="rounded-xl border border-[#E5DDF1] px-5 py-3 text-sm font-black hover:bg-[#FBF9FF]">Sito web</a>}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche alle schede restano salvate in questo browser. Le strutture del prossimo elenco saranno aggiunte al catalogo quando riceverò il file con città, provincia e numero di camere.</p>
+        </div>
+      </main>
+    );
+  }
+
   if (isCustomizingInterview) {
     const normalizedCustomizerSearch = customizerSearch.trim().toLowerCase();
     const selectedDraftSet = new Set(customQuickDraftIds);
@@ -6124,6 +6353,24 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-6">
+        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Archivio consulenziale</p>
+            <p className="mt-1 text-sm font-bold text-[#23124A]">
+              {activeStructureId ? `Scheda aperta: ${ownerInfo.propertyName || "struttura senza nome"}` : `${structures.length} strutture in archivio`}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeStructureId && structures.find((item) => item.id === activeStructureId)?.reportPath && (
+              <button type="button" onClick={() => openStoredReport(structures.find((item) => item.id === activeStructureId)!)} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-5 py-3 text-sm font-black hover:bg-[#FFF1CF]">
+                Apri report PDF originale
+              </button>
+            )}
+            <button type="button" onClick={() => setShowStructures(true)} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+              Strutture analizzate
+            </button>
+          </div>
+        </section>
         <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
@@ -6409,6 +6656,8 @@ export default function App() {
               ["ownerName", "Proprietario / referente", "Nome e cognome"],
               ["consultantName", "Consulente", "Nome e cognome del consulente"],
               ["location", "Località", "Città / zona"],
+              ["city", "Città", "Es. Alberobello"],
+              ["province", "Provincia", "Es. BA"],
               ["propertyType", "Tipologia", "Hotel, B&B, appartamenti..."],
               ["rooms", "Camere / unità", "Es. 18 camere"],
               ["channels", "Canali attivi", "Booking, Airbnb, sito..."],
