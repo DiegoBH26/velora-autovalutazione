@@ -3465,6 +3465,7 @@ const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
 
 // Aggiorna soltanto i riscontri pubblicati nel primo audit, senza toccare le note modificate dall'utente.
 const SANTANTONIO_PREVIOUS_EVIDENCE: Record<string, string> = {
+  q14: "Scheda camere e listino 2026 presenti, senza prezzo e disponibilità per data.",
   q385: "Confronto omogeneo impossibile: il sito non espone una tariffa diretta prenotabile per data.",
   q15: "Recensioni presenti senza data; widget con 5 Excellent non rappresentativo dei rating pubblici.",
   q141: "Codici rilevati sui portali, non sulle pagine principali del sito ufficiale.",
@@ -3494,6 +3495,7 @@ type AnalyzedStructure = {
   ownerInfo: OwnerInfo;
   answers: Record<string, Answer>;
   rateQuotes?: RateQuote[];
+  availabilityProbes?: AvailabilityProbe[];
   assessmentMode: AssessmentMode;
   updatedAt: string;
 };
@@ -3512,16 +3514,47 @@ type RateQuote = {
   audience: string;
   taxes: string;
   promotion: string;
+  promotionKind?: string;
+  originalTotal?: number;
   eventTag: string;
   sourceUrl: string;
+};
+
+type AvailabilityStatus = "no-rate" | "calendar-closed" | "blocked";
+
+type AvailabilityProbe = {
+  id: string;
+  otaId: string;
+  stayDate: string;
+  observedAt: string;
+  status: AvailabilityStatus;
+  roomType: string;
+  guests: number;
+  sourceUrl: string;
+  note: string;
+};
+
+const EMPTY_AVAILABILITY_DRAFT: AvailabilityProbe = {
+  id: "", otaId: "booking", stayDate: "", observedAt: "", status: "no-rate",
+  roomType: "Matrimoniale", guests: 2, sourceUrl: "", note: "",
+};
+
+const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  "no-rate": "Nessun prezzo mostrato per questa ricerca",
+  "calendar-closed": "Data non selezionabile / calendario non aperto",
+  blocked: "Verifica impedita dal portale",
 };
 
 const EMPTY_RATE_DRAFT: RateQuote = {
   id: "", otaId: "booking", stayDate: "", observedAt: "", total: 0,
   nights: 1, roomType: "Matrimoniale", guests: 2, board: "Colazione inclusa",
   refund: "Rimborsabile", audience: "Pubblico senza login", taxes: "IVA inclusa, tassa di soggiorno esclusa",
-  promotion: "", eventTag: "", sourceUrl: "",
+  promotion: "", promotionKind: "Non verificata", originalTotal: 0, eventTag: "", sourceUrl: "",
 };
+
+function todayLocalIso(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 function rateCohortKey(quote: RateQuote): string {
   return [quote.roomType.trim().toLowerCase(), quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
@@ -3539,14 +3572,47 @@ function monthKeys(from: string, count = 12): string[] {
   });
 }
 
+function futureMonthKeys(date = new Date()): string[] {
+  return monthKeys(todayLocalIso(date).slice(0, 7), 24 - date.getMonth());
+}
+
 function latestRateQuotes(quotes: RateQuote[], cohort: string): RateQuote[] {
   const latest = new Map<string, RateQuote>();
-  for (const quote of quotes.filter((item) => rateCohortKey(item) === cohort && Number.isFinite(item.total) && item.total > 0 && Number.isFinite(item.nights) && item.nights > 0 && /^\d{4}-\d{2}-\d{2}$/.test(item.stayDate))) {
+  const today = todayLocalIso();
+  for (const quote of quotes.filter((item) => rateCohortKey(item) === cohort && Number.isFinite(item.total) && item.total > 0 && Number.isFinite(item.nights) && item.nights > 0 && /^\d{4}-\d{2}-\d{2}$/.test(item.stayDate) && item.stayDate >= today)) {
     const key = `${quote.otaId}|${quote.stayDate}`;
     const old = latest.get(key);
     if (!old || old.observedAt < quote.observedAt) latest.set(key, quote);
   }
   return [...latest.values()];
+}
+
+function monthlyAvailabilitySummary(probes: AvailabilityProbe[], month: string, otaId: string): string {
+  const latest = new Map<string, AvailabilityProbe>();
+  for (const probe of probes.filter((item) => item.otaId === otaId && item.stayDate.startsWith(month) && item.stayDate >= todayLocalIso())) {
+    const key = `${probe.stayDate}|${probe.roomType}|${probe.guests}`;
+    const old = latest.get(key);
+    if (!old || old.observedAt < probe.observedAt) latest.set(key, probe);
+  }
+  const values = [...latest.values()];
+  if (!values.length) return "Non verificato";
+  const counts = { "no-rate": 0, "calendar-closed": 0, blocked: 0 };
+  values.forEach((item) => { counts[item.status] += 1; });
+  return [counts["no-rate"] && `Prezzo non mostrato: ${counts["no-rate"]} data/e`, counts["calendar-closed"] && `Calendario non aperto: ${counts["calendar-closed"]} data/e`, counts.blocked && `Verifica impedita: ${counts.blocked} data/e`].filter(Boolean).join("; ");
+}
+
+function monthlyCoverageSummary(quotes: RateQuote[], probes: AvailabilityProbe[], month: string, otaId: string): string {
+  const priceCount = monthlyRateCell(quotes, month, otaId).count;
+  const probeSummary = monthlyAvailabilitySummary(probes, month, otaId);
+  return [priceCount && `Prezzo visibile: ${priceCount} data/e`, probeSummary !== "Non verificato" && probeSummary].filter(Boolean).join("; ") || "Non verificato";
+}
+
+function promotionSummary(quote: RateQuote): string {
+  const type = quote.promotionKind || (quote.promotion ? "Tipo non classificato" : "Non verificata");
+  const discount = Number(quote.originalTotal) > quote.total
+    ? ` · -${((1 - quote.total / Number(quote.originalTotal)) * 100).toFixed(1)}% rispetto al prezzo barrato`
+    : "";
+  return `${type}${quote.promotion ? ` · ${quote.promotion}` : ""}${discount}`;
 }
 
 function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { average: number | null; count: number; deltaPct: number | null; matched: number } {
@@ -3618,6 +3684,7 @@ function santantonioStructure(): AnalyzedStructure {
     },
     answers,
     rateQuotes: [],
+    availabilityProbes: [],
     assessmentMode: "web-audit",
     updatedAt: santantonioAudit.auditedAt,
   };
@@ -3642,7 +3709,7 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
           answers[id] = answer;
         }
       }
-      return { ...item, answers, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [] };
+      return { ...item, answers, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
     });
     return migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
   } catch {
@@ -4124,6 +4191,8 @@ export default function App() {
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [rateQuotes, setRateQuotes] = useState<RateQuote[]>([]);
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
+  const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
+  const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
   const [selectedRateCohort, setSelectedRateCohort] = useState("");
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
@@ -4226,6 +4295,7 @@ export default function App() {
       setOwnerInfo({ ...EMPTY_OWNER_INFO, ...selected.ownerInfo });
       setAnswers(selected.answers);
       setRateQuotes(Array.isArray(selected.rateQuotes) ? selected.rateQuotes : []);
+      setAvailabilityProbes(Array.isArray(selected.availabilityProbes) ? selected.availabilityProbes : []);
       setAssessmentMode(selected.assessmentMode);
       setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
       setHydrated(true);
@@ -4242,6 +4312,7 @@ export default function App() {
       if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
       if (Array.isArray(parsed.rateQuotes)) setRateQuotes(parsed.rateQuotes);
+      if (Array.isArray(parsed.availabilityProbes)) setAvailabilityProbes(parsed.availabilityProbes);
       if (
         parsed.assessmentMode === "full" ||
         parsed.assessmentMode === "quick-hotel-bb" ||
@@ -4273,13 +4344,14 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        availabilityProbes,
         assessmentMode,
         customQuickItemIds,
         useCustomQuickSelection,
         guideEnabled,
       })
     );
-  }, [hydrated, ownerInfo, answers, rateQuotes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+  }, [hydrated, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -4297,10 +4369,11 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      availabilityProbes,
       assessmentMode,
       updatedAt: new Date().toISOString(),
     } : item));
-  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, assessmentMode]);
+  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -4314,7 +4387,7 @@ export default function App() {
   }
 
   function openStructure(structure: AnalyzedStructure) {
-    if (!activeStructureId && (ownerInfo.propertyName || Object.keys(answers).length || rateQuotes.length)) {
+    if (!activeStructureId && (ownerInfo.propertyName || Object.keys(answers).length || rateQuotes.length || availabilityProbes.length)) {
       const draftId = `bozza-${Date.now()}`;
       setStructures((previous) => [...previous, {
         id: draftId,
@@ -4325,6 +4398,7 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        availabilityProbes,
         assessmentMode,
         updatedAt: new Date().toISOString(),
       }]);
@@ -4334,6 +4408,7 @@ export default function App() {
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
     setRateQuotes(Array.isArray(structure.rateQuotes) ? structure.rateQuotes : []);
+    setAvailabilityProbes(Array.isArray(structure.availabilityProbes) ? structure.availabilityProbes : []);
     setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
     setActiveMacroId(
@@ -4361,6 +4436,7 @@ export default function App() {
       setOwnerInfo(original.ownerInfo);
       setAnswers(original.answers);
       setRateQuotes([]);
+      setAvailabilityProbes([]);
       setAssessmentMode(original.assessmentMode);
     }
   }
@@ -4373,14 +4449,29 @@ export default function App() {
   }
 
   function addRateQuote() {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim())) {
-      window.alert("Completa data del soggiorno, importo positivo, camera, ospiti e URL della tariffa consultata.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || rateDraft.stayDate < todayLocalIso() || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim()) || (Number(rateDraft.originalTotal) > 0 && Number(rateDraft.originalTotal) <= rateDraft.total)) {
+      window.alert("Inserisci una data futura, prezzo positivo, camera, ospiti e URL. Se indichi un prezzo barrato, deve superare quello finale.");
       return;
     }
     const quote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim() };
     setRateQuotes((previous) => [...previous, quote]);
     setSelectedRateCohort(rateCohortKey(quote));
-    setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, promotion: "", eventTag: "", sourceUrl: "" }));
+    setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, originalTotal: 0, promotion: "", eventTag: "", sourceUrl: "" }));
+  }
+
+  function addAvailabilityProbe() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(availabilityDraft.stayDate) || availabilityDraft.stayDate < todayLocalIso() || !availabilityDraft.roomType.trim() || availabilityDraft.guests < 1 || !/^https?:\/\//i.test(availabilityDraft.sourceUrl.trim())) {
+      window.alert("Per registrare la verifica servono una data futura, camera, ospiti e URL della ricerca.");
+      return;
+    }
+    const probe = { ...availabilityDraft, id: globalThis.crypto?.randomUUID?.() ?? `availability-${Date.now()}`, observedAt: new Date().toISOString(), roomType: availabilityDraft.roomType.trim(), sourceUrl: availabilityDraft.sourceUrl.trim() };
+    setAvailabilityProbes((previous) => [...previous, probe]);
+    setAvailabilityDraft((previous) => ({ ...previous, stayDate: "", sourceUrl: "", note: "" }));
+  }
+
+  function removeAvailabilityProbe(id: string) {
+    if (!window.confirm("Eliminare questa verifica dal browser?")) return;
+    setAvailabilityProbes((previous) => previous.filter((probe) => probe.id !== id));
   }
 
   function removeRateQuote(id: string) {
@@ -4492,6 +4583,7 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      availabilityProbes,
       assessmentMode,
       customQuickItemIds,
       useCustomQuickSelection,
@@ -4529,6 +4621,7 @@ export default function App() {
 
     setAnswers({});
     setRateQuotes([]);
+    setAvailabilityProbes([]);
     window.localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -4556,6 +4649,7 @@ export default function App() {
       })),
       answers,
       rateQuotes,
+      availabilityProbes,
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -5146,10 +5240,18 @@ export default function App() {
     const reportCohort = selectedRateCohort && reportCohorts.some(([key]) => key === selectedRateCohort) ? selectedRateCohort : reportCohorts[0]?.[0] ?? "";
     const reportQuotes = reportCohort ? latestRateQuotes(rateQuotes, reportCohort) : [];
     const reportToday = new Date();
-    const reportMonths = monthKeys(new Date(Date.UTC(reportToday.getFullYear(), reportToday.getMonth() + 1, 1)).toISOString().slice(0, 7));
+    const reportMonths = futureMonthKeys(reportToday);
     const reportChannels = santantonioAudit.otaPresence;
     const monthlyTable = (channels: typeof reportChannels) => `<table><thead><tr><th>Mese</th>${channels.map((channel) => `<th>${safe(channel.platform)}</th>`).join("")}</tr></thead><tbody>${reportMonths.map((month) => `<tr><td><b>${safe(new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "short", year: "numeric", timeZone: "UTC" }))}</b></td>${channels.map((channel) => { const cell = monthlyRateCell(reportQuotes, month, channel.id); return `<td>${cell.average === null ? "n.d." : `<b>€ ${cell.average.toFixed(2)}</b><small>${cell.count} data/e${cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</small>`}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
     const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${activeStructureId === santantonioAudit.id ? safe(santantonioAudit.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table><h2>Prezzo medio osservato per mese e canale</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte nel campione inserito. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita: celle n.d. e nessun delta calcolabile."} Il delta confronta soltanto le stesse date di soggiorno, rilevate nello stesso giorno e nelle stesse condizioni.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Δ = differenza percentuale media rispetto a Booking; il numero tra parentesi indica le date abbinate. Una o poche date non rappresentano tutto il mese. Controllare in particolare Pasqua, ponti, giugno, Ferragosto e Natale/Capodanno. I prezzi possono variare dopo la rilevazione.</p></section>` : "";
+
+    const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
+      const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id);
+      return '<td>' + safe(status) + '</td>';
+    }).join('') + '</tr>').join('') + '</tbody></table>';
+    const futurePromotions = rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !['Non verificata', 'Nessuna visibile'].includes(quote.promotionKind));
+    const futureGaps = availabilityProbes.filter((probe) => probe.stayDate >= todayLocalIso() && probe.status !== 'blocked');
+    const coverageReportHtml = isWebAudit ? '<section class="page-break"><h2>Copertura delle vendite future per OTA</h2><p>Periodo dalla data del report alla fine dell’anno successivo. Le celle non verificate NON significano vendite chiuse. Una data senza prezzo non prova da sola una chiusura: verificare camere esaurite, minimum stay, booking window, restrizioni e problemi del portale.</p>' + coverageTable(reportChannels.slice(0, 5)) + coverageTable(reportChannels.slice(5)) + '<p><b>Indicatore commerciale:</b> ' + (futureGaps.length ? 'Sono state registrate ' + futureGaps.length + ' date future con prezzo non mostrato o calendario non aperto. Controllare in extranet l’apertura delle vendite e la sincronizzazione prima di definire il periodo non commercializzato.' : 'Non sono ancora state documentate date future con prezzo assente o calendario non aperto. Servono prove per canale e data per valutare l’anticipo di vendita.') + '</p><h2>Promozioni osservate su tariffe future</h2><p>' + (futurePromotions.length ? futurePromotions.map((quote) => safe((reportChannels.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId) + ' · ' + quote.stayDate + ' · ' + promotionSummary(quote))).join('<br/>') : 'Nessuno sconto specifico della struttura confermato su una tariffa futura nel campione registrato. Last minute, Genius, mobile e member restano da verificare per data e pubblico.') + '</p><p>Fonte, data, camera e condizioni di ogni prova sono conservate nella scheda locale ed esportabili in JSON. Una campagna generica del portale non equivale a sconto applicato a questa struttura.</p></section>' : '';
 
     const html = `
       <!doctype html>
@@ -5685,6 +5787,7 @@ export default function App() {
           </section>
 
           ${commercialReportHtml}
+          ${coverageReportHtml}
 
           <section>
             <h2>Tabella completa delle valutazioni</h2>
@@ -5988,7 +6091,7 @@ export default function App() {
       ? selectedRateCohort : cohortOptions[0]?.[0] ?? "";
     const comparableQuotes = activeCohort ? latestRateQuotes(rateQuotes, activeCohort) : [];
     const today = new Date();
-    const rateMonths = monthKeys(new Date(Date.UTC(today.getFullYear(), today.getMonth() + 1, 1)).toISOString().slice(0, 7));
+    const rateMonths = futureMonthKeys(today);
     const statusCounts = AUDIT_STATUS_OPTIONS.map((option) => ({
       ...option,
       count: allRows.filter(({ item }) => answers[item.id]?.auditStatus === option.value).length,
@@ -6122,14 +6225,52 @@ export default function App() {
             <label className="text-[11px] font-black text-[#23124A]">Sconto / promo visibile<input value={rateDraft.promotion} onChange={(event) => setRateDraft((previous) => ({ ...previous, promotion: event.target.value }))} placeholder="Nessuno, Genius, mobile..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Evento / festività (se pertinente)<input value={rateDraft.eventTag} onChange={(event) => setRateDraft((previous) => ({ ...previous, eventTag: event.target.value }))} placeholder="Ferragosto, Pasqua, ponte..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">URL del preventivo<input type="url" value={rateDraft.sourceUrl} onChange={(event) => setRateDraft((previous) => ({ ...previous, sourceUrl: event.target.value }))} placeholder="https://..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
-            <button type="button" onClick={addRateQuote} className="col-span-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white md:col-span-4">Salva prezzo osservato con data e ora della verifica</button>
           </div>
+          <div className="mt-2 grid grid-cols-1 gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 md:grid-cols-2">
+            <label className="text-[11px] font-black text-[#23124A]">Tipo di sconto sulla tariffa osservata
+              <select value={rateDraft.promotionKind ?? "Non verificata"} onChange={(event) => setRateDraft((previous) => ({ ...previous, promotionKind: event.target.value }))} className="mt-1 block w-full rounded-lg border border-amber-200 bg-white p-2 text-xs">
+                <option>Non verificata</option><option>Nessuna visibile</option><option>Last minute</option><option>Early booking</option><option>Genius</option><option>Member / loyalty</option><option>Mobile / app</option><option>Coupon</option><option>Pacchetto</option><option>Altra promozione</option>
+              </select>
+            </label>
+            <label className="text-[11px] font-black text-[#23124A]">Prezzo barrato originale in EUR (solo se visibile)
+              <input type="number" min="0" step="0.01" value={rateDraft.originalTotal || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, originalTotal: Number(event.target.value) }))} className="mt-1 block w-full rounded-lg border border-amber-200 bg-white p-2 text-xs" />
+            </label>
+            <p className="text-[10px] leading-4 text-amber-900 md:col-span-2">Il portale deve attribuire lo sconto a questa struttura e a queste date. Non confondere campagne generiche del portale con una promozione dell'hotel; se il prezzo barrato non compare, lascia vuoto.</p>
+          </div>
+          <button type="button" onClick={addRateQuote} className="mt-3 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Salva prezzo e promozione osservati con data e ora della verifica</button>
           <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
             <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Nessuna rilevazione ancora inserita</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           </label>
           <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{santantonioAudit.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{santantonioAudit.otaPresence.map((channel) => { const cell = monthlyRateCell(comparableQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? "—" : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} data/e{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
           <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{santantonioAudit.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.refund} · {quote.promotion || "senza promo annotata"}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+            <b>Promozioni verificate su una tariffa futura:</b> {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).length || "nessuna"}.
+            {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).slice(-6).map((quote) => <p key={`promo-${quote.id}`} className="mt-1">{santantonioAudit.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId} · {quote.stayDate} · {promotionSummary(quote)}</p>)}
+          </div>
+          <h3 className="mt-7 text-lg font-black text-[#23124A]">Visibilità del calendario futuro per OTA</h3>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Controlla date future su ogni canale. Registra separatamente prezzo non mostrato, data non selezionabile e verifica impedita. Una data senza prezzo può dipendere da camere esaurite, soggiorno minimo, chiusura delle vendite, finestra di prenotazione o errore tecnico: da sola non prova che la stagione sia chiusa.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
+            <label className="text-[11px] font-black text-[#23124A]">OTA<select value={availabilityDraft.otaId} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{santantonioAudit.otaPresence.map((channel) => <option key={`probe-${channel.id}`} value={channel.id}>{channel.platform}</option>)}</select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" min={todayLocalIso()} value={availabilityDraft.stayDate} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Esito<select value={availabilityDraft.status} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, status: event.target.value as AvailabilityStatus }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Camera<input value={availabilityDraft.roomType} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, roomType: event.target.value }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" value={availabilityDraft.guests} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">URL della ricerca<input type="url" value={availabilityDraft.sourceUrl} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, sourceUrl: event.target.value }))} placeholder="https://..." className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="col-span-2 text-[11px] font-black text-[#23124A]">Nota sul messaggio mostrato<input value={availabilityDraft.note} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, note: event.target.value }))} placeholder="Es. data non selezionabile fino al..." className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <button type="button" onClick={addAvailabilityProbe} className="col-span-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white md:col-span-4">Registra verifica del calendario</button>
+          </div>
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]">
+            <table className="min-w-[1240px] w-full border-collapse text-[10px]">
+              <thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese futuro</th>{santantonioAudit.otaPresence.map((channel) => <th key={`coverage-head-${channel.id}`} className="p-2 text-left">{channel.platform}</th>)}</tr></thead>
+              <tbody>{rateMonths.map((month) => <tr key={`coverage-${month}`} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]">
+                <th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>
+                {santantonioAudit.otaPresence.map((channel) => <td key={`coverage-${month}-${channel.id}`} className="p-2 text-[#23124A]">{monthlyCoverageSummary(comparableQuotes, availabilityProbes, month, channel.id)}</td>)}
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-[#50627F]">“Non verificato” significa che non è stata registrata una prova per quel mese, non che il canale sia inattivo. “Prezzo non mostrato” riguarda solo le date provate. Se il calendario futuro non è aperto su più canali e date, verificare in extranet finestra di vendita, tariffe 2027, restrizioni e sincronizzazione: possibile intervento commerciale prioritario.</p>
+          <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{santantonioAudit.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Annota esempi specifici, non soltanto il voto medio. Un campione pubblico non equivale all'analisi di tutte le recensioni. Valuta le foto da 1 a 10 rispetto a uno shooting alberghiero professionale.</p>
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
