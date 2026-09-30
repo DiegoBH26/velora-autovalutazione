@@ -11,7 +11,9 @@ declare global {
   }
 }
 
-type AssessmentMode = "full" | "quick-hotel-bb";
+type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
+
+type AuditStatus = "" | "present" | "partial" | "missing" | "not-applicable";
 
 type AssessmentItem = {
   id: string;
@@ -35,6 +37,7 @@ type Answer = {
   current: number;
   fit: number;
   note: string;
+  auditStatus?: AuditStatus;
 };
 
 type OwnerInfo = {
@@ -3508,6 +3511,110 @@ const QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS = [
   "q756", // Offerte sul canale diretto
 ] as const;
 
+const EXTERNAL_AUDIT_SOURCE_GROUPS = [
+  {
+    label: "Sito ufficiale",
+    itemIds: [
+      "q6", "q7", "q8", "q9", "q12", "q13", "q14", "q15", "q19", "q20", "q21", "q22", "q24",
+      "q37", "q41", "q46", "q47", "q48", "q49", "q53", "q54", "q55", "q56", "q57", "q58", "q59",
+      "q104", "q105", "q106", "q107", "q139", "q141", "q142", "q146", "q147", "q148", "q149", "q150",
+      "q261", "q262", "q263", "q264", "q265", "q266", "q267", "q269", "q270", "q271", "q272", "q273",
+      "q274", "q275", "q276", "q277", "q279", "q280", "q281", "q282", "q283", "q284", "q285", "q287",
+      "q288", "q292", "q293", "q294", "q295", "q296", "q297", "q298", "q307", "q310", "q311",
+      "q416", "q417", "q418", "q419", "q420", "q433", "q454", "q455", "q456", "q475", "q476",
+      "q477", "q478", "q479", "q480", "q481", "q482", "q483", "q526", "q527", "q528", "q529",
+      "q530", "q545", "q546", "q547", "q548", "q550", "q650", "q651", "q652", "q653", "q654",
+      "q655", "q657", "q658", "q755", "q756", "q757", "q758", "q766", "q767", "q768", "q769", "q777",
+    ],
+  },
+  {
+    label: "Booking engine",
+    itemIds: [
+      "q13", "q14", "q15", "q30", "q37", "q41", "q44", "q46", "q47", "q48", "q49", "q104",
+      "q117", "q118", "q119", "q120", "q121", "q292", "q293", "q294", "q295", "q296", "q297",
+      "q298", "q303", "q305", "q321", "q323", "q381", "q382", "q384", "q385", "q387", "q388",
+      "q389", "q390", "q391", "q392", "q419", "q420", "q421", "q450", "q451", "q452", "q453",
+      "q454", "q455", "q456", "q463", "q464", "q465", "q466", "q467", "q526", "q527", "q528",
+      "q529", "q530", "q545", "q546", "q547", "q548", "q549", "q550", "q650", "q651", "q652",
+      "q653", "q654", "q655", "q755", "q756", "q757",
+    ],
+  },
+  {
+    label: "OTA e metasearch",
+    itemIds: [
+      "q14", "q30", "q37", "q42", "q44", "q53", "q54", "q55", "q56", "q57", "q58", "q59",
+      "q141", "q146", "q147", "q148", "q149", "q150", "q151", "q220", "q221", "q222", "q223",
+      "q261", "q262", "q263", "q264", "q265", "q266", "q267", "q269", "q270", "q271", "q272",
+      "q273", "q274", "q275", "q276", "q277", "q279", "q280", "q281", "q282", "q283", "q284",
+      "q285", "q287", "q288", "q289", "q290", "q292", "q293", "q294", "q295", "q296", "q297",
+      "q298", "q305", "q308", "q309", "q311", "q314", "q315", "q316", "q317", "q318", "q319",
+      "q321", "q323", "q326", "q327", "q328", "q329", "q330", "q331", "q332", "q342", "q343",
+      "q366", "q367", "q368", "q369", "q370", "q371", "q372", "q381", "q382", "q384", "q385",
+      "q387", "q388", "q389", "q390", "q391", "q392", "q394", "q395", "q396", "q397", "q398",
+      "q399", "q430", "q431", "q432", "q433", "q760", "q761", "q762", "q763", "q764",
+    ],
+  },
+  {
+    label: "Google e Maps",
+    itemIds: [
+      "q6", "q7", "q8", "q9", "q19", "q139", "q141", "q142", "q147", "q148", "q149", "q150",
+      "q151", "q220", "q221", "q222", "q223", "q261", "q263", "q264", "q265", "q266", "q269",
+      "q270", "q271", "q272", "q273", "q274", "q275", "q276", "q277", "q279", "q280", "q281",
+      "q282", "q283", "q287", "q288", "q307", "q309", "q310", "q311", "q318", "q319", "q326",
+      "q327", "q328", "q329", "q330", "q331", "q332", "q342", "q343", "q366", "q367", "q368",
+      "q369", "q370", "q371", "q372", "q376", "q377", "q378", "q379", "q760", "q761", "q762",
+      "q763", "q764",
+    ],
+  },
+  {
+    label: "Recensioni ospiti",
+    itemIds: [
+      "q6", "q7", "q8", "q9", "q148", "q261", "q262", "q263", "q264", "q265", "q266", "q269",
+      "q270", "q271", "q272", "q273", "q274", "q275", "q276", "q277", "q280", "q281", "q282",
+      "q283", "q311", "q326", "q327", "q328", "q329", "q342", "q343", "q366", "q367", "q368",
+      "q369", "q370", "q371", "q372", "q669", "q670", "q671", "q672", "q673", "q720", "q721",
+      "q722", "q723", "q724", "q725", "q733", "q734", "q735", "q736", "q737", "q738", "q739",
+      "q741", "q742", "q743", "q744",
+    ],
+  },
+  {
+    label: "Social e contenuti",
+    itemIds: [
+      "q6", "q7", "q8", "q9", "q147", "q148", "q149", "q150", "q151", "q261", "q262", "q263",
+      "q264", "q265", "q266", "q267", "q279", "q280", "q281", "q282", "q283", "q284", "q285",
+      "q287", "q288", "q307", "q310", "q311", "q326", "q327", "q332", "q376", "q755", "q756",
+      "q757", "q758", "q768", "q769",
+    ],
+  },
+  {
+    label: "Ricerca web e mercato",
+    itemIds: [
+      "q6", "q7", "q9", "q139", "q141", "q142", "q146", "q147", "q148", "q149", "q150", "q151",
+      "q220", "q221", "q222", "q223", "q366", "q367", "q368", "q369", "q370", "q371", "q372",
+      "q376", "q377", "q378", "q379", "q760", "q761", "q762", "q763", "q764",
+    ],
+  },
+  {
+    label: "Test di contatto",
+    itemIds: [
+      "q334", "q335", "q336", "q337", "q339", "q416", "q417", "q418", "q419", "q420", "q421",
+      "q422", "q430", "q431", "q432", "q433", "q446", "q450", "q451", "q452", "q453", "q454",
+      "q455", "q456", "q463", "q464", "q465", "q466", "q467", "q469", "q472", "q475", "q476",
+      "q477", "q478", "q479", "q480", "q481", "q482", "q483",
+    ],
+  },
+] as const;
+
+const EXTERNAL_WEB_AUDIT_ITEM_SET = new Set<string>(
+  EXTERNAL_AUDIT_SOURCE_GROUPS.flatMap((group) => [...group.itemIds])
+);
+
+function getExternalAuditSources(itemId: string) {
+  return EXTERNAL_AUDIT_SOURCE_GROUPS
+    .filter((group) => (group.itemIds as readonly string[]).includes(itemId))
+    .map((group) => group.label);
+}
+
 const QUICK_HOTEL_BB_CORE_ITEM_SET = new Set<string>(QUICK_HOTEL_BB_CORE_ITEM_IDS);
 const QUICK_HOTEL_BB_DEEP_DIVE_ITEM_SET = new Set<string>(
   QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS
@@ -3538,6 +3645,48 @@ const QUICK_HOTEL_BB_DEEP_DIVE_DATA = selectAssessmentItems(
   QUICK_HOTEL_BB_DEEP_DIVE_ITEM_SET
 );
 const QUICK_HOTEL_BB_ALL_DATA = selectAssessmentItems(QUICK_HOTEL_BB_ALL_ITEM_SET);
+const EXTERNAL_WEB_AUDIT_DATA = selectAssessmentItems(EXTERNAL_WEB_AUDIT_ITEM_SET);
+
+const AUDIT_STATUS_OPTIONS: Array<{
+  value: Exclude<AuditStatus, "">;
+  label: string;
+  shortLabel: string;
+  className: string;
+  current: number;
+}> = [
+  {
+    value: "present",
+    label: "Presente e coerente",
+    shortLabel: "Presente",
+    className: "border-emerald-300 bg-emerald-50 text-emerald-800",
+    current: 3,
+  },
+  {
+    value: "partial",
+    label: "Presente ma parziale",
+    shortLabel: "Parziale",
+    className: "border-amber-300 bg-amber-50 text-amber-800",
+    current: 1.5,
+  },
+  {
+    value: "missing",
+    label: "Non trovato / incoerente",
+    shortLabel: "Non trovato",
+    className: "border-red-300 bg-red-50 text-red-800",
+    current: 0,
+  },
+  {
+    value: "not-applicable",
+    label: "Non applicabile",
+    shortLabel: "N/A",
+    className: "border-slate-300 bg-slate-50 text-slate-600",
+    current: 3,
+  },
+];
+
+function getAuditStatusLabel(status?: AuditStatus) {
+  return AUDIT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? "Da verificare";
+}
 
 const scoreOptions = [
   { value: 0, label: "0 - Non rilevante / assente" },
@@ -3554,7 +3703,7 @@ const currentOptions = [
 ];
 
 function emptyAnswer(): Answer {
-  return { importance: 0, current: 0, fit: 0, note: "" };
+  return { importance: 0, current: 0, fit: 0, note: "", auditStatus: "" };
 }
 
 function getItemScore(answer?: Answer) {
@@ -3761,8 +3910,10 @@ export default function App() {
   const [activeMacroId, setActiveMacroId] = useState(ASSESSMENT_DATA[0]?.id ?? "");
   const [showOnlyPriority, setShowOnlyPriority] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [auditSourceFilter, setAuditSourceFilter] = useState("Tutte le fonti");
 
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
+  const isWebAudit = assessmentMode === "web-audit";
   const customQuickData = useMemo(
     () => selectAssessmentItems(new Set(customQuickItemIds)),
     [customQuickItemIds]
@@ -3770,13 +3921,15 @@ export default function App() {
   const quickTemplateData = useCustomQuickSelection
     ? customQuickData
     : QUICK_HOTEL_BB_ALL_DATA;
-  const assessmentData = isQuickHotelBb
-    ? useCustomQuickSelection
-      ? customQuickData
-      : showQuickDeepDive
-        ? QUICK_HOTEL_BB_ALL_DATA
-        : QUICK_HOTEL_BB_CORE_DATA
-    : ASSESSMENT_DATA;
+  const assessmentData = isWebAudit
+    ? EXTERNAL_WEB_AUDIT_DATA
+    : isQuickHotelBb
+      ? useCustomQuickSelection
+        ? customQuickData
+        : showQuickDeepDive
+          ? QUICK_HOTEL_BB_ALL_DATA
+          : QUICK_HOTEL_BB_CORE_DATA
+      : ASSESSMENT_DATA;
 
   const allRows = useMemo(() => flattenItems(assessmentData), [assessmentData]);
 
@@ -3784,7 +3937,13 @@ export default function App() {
     () =>
       allRows.filter(({ item }) => {
         const answer = answers[item.id];
-        return answer && (answer.importance || answer.current || answer.fit || answer.note);
+        return answer && (
+          answer.importance ||
+          answer.current ||
+          answer.fit ||
+          answer.note ||
+          answer.auditStatus
+        );
       }).length,
     [allRows, answers]
   );
@@ -3805,7 +3964,13 @@ export default function App() {
         totalItems: macroItems.length,
         answeredItems: macroItems.filter((item) => {
           const answer = answers[item.id];
-          return answer && (answer.importance || answer.current || answer.fit || answer.note);
+          return answer && (
+            answer.importance ||
+            answer.current ||
+            answer.fit ||
+            answer.note ||
+            answer.auditStatus
+          );
         }).length,
       };
     });
@@ -3831,7 +3996,11 @@ export default function App() {
       const parsed = JSON.parse(raw);
       if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
-      if (parsed.assessmentMode === "full" || parsed.assessmentMode === "quick-hotel-bb") {
+      if (
+        parsed.assessmentMode === "full" ||
+        parsed.assessmentMode === "quick-hotel-bb" ||
+        parsed.assessmentMode === "web-audit"
+      ) {
         setAssessmentMode(parsed.assessmentMode);
       }
       if (Array.isArray(parsed.customQuickItemIds) && parsed.customQuickItemIds.length) {
@@ -3881,9 +4050,35 @@ export default function App() {
     }));
   }
 
+  function updateAuditStatus(itemId: string, status: Exclude<AuditStatus, "">) {
+    const currentAnswer = answers[itemId] ?? emptyAnswer();
+
+    if (currentAnswer.auditStatus === status) {
+      updateAnswer(itemId, {
+        auditStatus: "",
+        importance: 0,
+        current: 0,
+        fit: 0,
+      });
+      return;
+    }
+
+    const option = AUDIT_STATUS_OPTIONS.find((entry) => entry.value === status);
+    const isNotApplicable = status === "not-applicable";
+
+    updateAnswer(itemId, {
+      auditStatus: status,
+      importance: isNotApplicable ? 0 : 3,
+      current: option?.current ?? 0,
+      fit: isNotApplicable ? 0 : 3,
+    });
+  }
+
   function switchAssessmentMode(mode: AssessmentMode) {
     const nextData =
-      mode === "quick-hotel-bb"
+      mode === "web-audit"
+        ? EXTERNAL_WEB_AUDIT_DATA
+        : mode === "quick-hotel-bb"
         ? useCustomQuickSelection
           ? customQuickData
           : QUICK_HOTEL_BB_CORE_DATA
@@ -3893,6 +4088,7 @@ export default function App() {
     setActiveMacroId(nextData[0]?.id ?? "");
     setShowOnlyPriority(false);
     setSearchTerm("");
+    setAuditSourceFilter("Tutte le fonti");
   }
 
   function openInterviewCustomizer() {
@@ -4000,7 +4196,9 @@ export default function App() {
     const payload = {
       generatedAt: new Date().toISOString(),
       assessmentMode,
-      assessmentFormat: isQuickHotelBb
+      assessmentFormat: isWebAudit
+        ? "Audit Web & Frontend"
+        : isQuickHotelBb
         ? useCustomQuickSelection
           ? "Intervista consulenziale personalizzata"
           : "Analisi rapida Hotel / B&B"
@@ -4031,6 +4229,44 @@ export default function App() {
   }
 
   function exportCsv() {
+    if (isWebAudit) {
+      const header = [
+        "Macro-area",
+        "Categoria",
+        "Voce verificabile",
+        "Dove verificare",
+        "Esito",
+        "Indice criticità",
+        "Evidenza / URL / nota",
+      ];
+
+      const rows = allRows.map((row) => {
+        const answer = answers[row.item.id] ?? emptyAnswer();
+
+        return [
+          row.macro.title,
+          row.category.title,
+          row.item.text,
+          getExternalAuditSources(row.item.id).join(", "),
+          getAuditStatusLabel(answer.auditStatus),
+          String(getItemScore(answer)),
+          answer.note,
+        ];
+      });
+
+      const csv = [header, ...rows]
+        .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";"))
+        .join("\n");
+      const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `velora-audit-web-${sanitizeFilename(ownerInfo.propertyName)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     const header = [
       "Macro-area",
       "Categoria",
@@ -4570,7 +4806,7 @@ export default function App() {
       <html lang="it">
         <head>
           <meta charset="utf-8" />
-          <title>${isQuickHotelBb ? "Report Analisi rapida Hotel e B&B" : "Report Autovalutazione Velora"}</title>
+          <title>${isWebAudit ? "Report Audit Web e Frontend" : isQuickHotelBb ? "Report Analisi rapida Hotel e B&B" : "Report Autovalutazione Velora"}</title>
           <style>
             @page {
               size: A4;
@@ -5017,8 +5253,8 @@ export default function App() {
 
         <body>
           <section class="cover">
-            <div class="eyebrow">Velora RMS · ${isQuickHotelBb ? useCustomQuickSelection ? "Intervista consulenziale personalizzata" : "Analisi rapida Hotel / B&B" : "Autovalutazione consulenziale"}</div>
-            <h1>${isQuickHotelBb ? useCustomQuickSelection ? "Report intervista consulenziale personalizzata" : "Report analisi rapida Hotel / B&B" : "Report di autovalutazione struttura ricettiva"}</h1>
+            <div class="eyebrow">Velora RMS · ${isWebAudit ? "Audit Web & Frontend" : isQuickHotelBb ? useCustomQuickSelection ? "Intervista consulenziale personalizzata" : "Analisi rapida Hotel / B&B" : "Autovalutazione consulenziale"}</div>
+            <h1>${isWebAudit ? "Report audit esterno della struttura ricettiva" : isQuickHotelBb ? useCustomQuickSelection ? "Report intervista consulenziale personalizzata" : "Report analisi rapida Hotel / B&B" : "Report di autovalutazione struttura ricettiva"}</h1>
             <p class="subtitle">
               Diagnosi preliminare dei bisogni operativi, commerciali, revenue,
               amministrativi e gestionali della struttura. Il report evidenzia le aree
@@ -5193,7 +5429,7 @@ export default function App() {
           </section>
 
           <div class="footer">
-            Report generato da Velora RMS · ${isQuickHotelBb ? useCustomQuickSelection ? `Intervista consulenziale personalizzata · ${customQuickItemIds.length} domande selezionate.` : `Analisi rapida Hotel / B&B · ${showQuickDeepDive ? "30 domande principali + 20 di approfondimento" : "30 domande principali"}.` : "Modulo Autovalutazione struttura ricettiva."}
+            Report generato da Velora RMS · ${isWebAudit ? `Audit Web & Frontend · ${allRows.length} punti verificabili.` : isQuickHotelBb ? useCustomQuickSelection ? `Intervista consulenziale personalizzata · ${customQuickItemIds.length} domande selezionate.` : `Analisi rapida Hotel / B&B · ${showQuickDeepDive ? "30 domande principali + 20 di approfondimento" : "30 domande principali"}.` : "Modulo Autovalutazione struttura ricettiva."}
           </div>
 
         </body>
@@ -5202,7 +5438,9 @@ export default function App() {
 
     if (window.veloraDesktop?.savePdf) {
       try {
-        const reportKind = isQuickHotelBb
+        const reportKind = isWebAudit
+          ? "audit-web-frontend"
+          : isQuickHotelBb
           ? useCustomQuickSelection
             ? "intervista-consulenziale-personalizzata"
             : "analisi-rapida-hotel-bb"
@@ -5388,6 +5626,212 @@ export default function App() {
           />
         </label>
       </article>
+    );
+  }
+
+  function renderExternalWebAudit() {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const statusCounts = AUDIT_STATUS_OPTIONS.map((option) => ({
+      ...option,
+      count: allRows.filter(({ item }) => answers[item.id]?.auditStatus === option.value).length,
+    }));
+
+    const visibleData = EXTERNAL_WEB_AUDIT_DATA.map((macro) => ({
+      ...macro,
+      categories: macro.categories
+        .map((category) => ({
+          ...category,
+          items: category.items.filter((item) => {
+            const sources = getExternalAuditSources(item.id);
+            const matchesSource =
+              auditSourceFilter === "Tutte le fonti" || sources.includes(auditSourceFilter);
+            const matchesSearch =
+              !normalizedSearch ||
+              `${macro.title} ${category.title} ${item.text} ${sources.join(" ")}`
+                .toLowerCase()
+                .includes(normalizedSearch);
+            return matchesSource && matchesSearch;
+          }),
+        }))
+        .filter((category) => category.items.length > 0),
+    })).filter((macro) => macro.categories.length > 0);
+
+    return (
+      <section className="flex flex-col gap-5">
+        <div className="rounded-[2rem] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.05)]">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-4xl">
+              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-700">
+                Verifica autonoma senza intervista
+              </p>
+              <h2 className="mt-2 text-2xl font-black text-[#23124A]">
+                Checklist Audit Web &amp; Frontend
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-[#50627F]">
+                Controlla solo elementi dimostrabili dall’esterno. Per ogni voce indica il riscontro
+                trovato e annota URL, pagina, screenshot o risultato del test. Un elemento non visibile
+                non prova che il processo interno non esista: segnala soltanto che non è verificabile dal cliente.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
+                Punti verificabili
+              </p>
+              <p className="mt-1 text-4xl font-black text-[#23124A]">{allRows.length}</p>
+              <p className="mt-1 text-xs font-semibold text-[#50627F]">estratti dalle 643 voci</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <label className="flex flex-col gap-2">
+              <FieldLabel>Cerca nella checklist</FieldLabel>
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Es. foto, CIN, prezzi, recensioni, mobile..."
+                className="h-11 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-semibold text-[#23124A] outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <FieldLabel>Dove stai verificando</FieldLabel>
+              <select
+                value={auditSourceFilter}
+                onChange={(event) => setAuditSourceFilter(event.target.value)}
+                className="h-11 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-[#23124A] outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+              >
+                <option>Tutte le fonti</option>
+                {EXTERNAL_AUDIT_SOURCE_GROUPS.map((group) => (
+                  <option key={group.label}>{group.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {statusCounts.map((status) => (
+              <div key={status.value} className={`rounded-2xl border px-4 py-3 ${status.className}`}>
+                <p className="text-[10px] font-black uppercase tracking-[0.14em]">{status.shortLabel}</p>
+                <p className="mt-1 text-2xl font-black">{status.count}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {visibleData.map((macro) => (
+          <section
+            key={`audit-${macro.id}`}
+            className="overflow-hidden rounded-[2rem] border border-[#E5DDF1] bg-white shadow-[0_14px_40px_rgba(35,18,74,0.05)]"
+          >
+            <div className="border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">
+                Macro-area osservabile
+              </p>
+              <h3 className="mt-1 text-lg font-black text-[#23124A]">{macro.title}</h3>
+            </div>
+
+            <div className="space-y-5 p-4 md:p-5">
+              {macro.categories.map((category) => (
+                <div key={`audit-${category.id}`}>
+                  <div className="mb-3 flex items-center gap-3">
+                    <h4 className="text-xs font-black uppercase tracking-[0.12em] text-[#50627F]">
+                      {category.title}
+                    </h4>
+                    <span className="h-px flex-1 bg-[#EFE9F7]" />
+                    <span className="text-[10px] font-black text-[#50627F]">
+                      {category.items.length} controlli
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                    {category.items.map((item) => {
+                      const answer = answers[item.id] ?? emptyAnswer();
+                      const sources = getExternalAuditSources(item.id);
+                      const activeStatus = AUDIT_STATUS_OPTIONS.find(
+                        (option) => option.value === answer.auditStatus
+                      );
+
+                      return (
+                        <article
+                          key={`audit-${item.id}`}
+                          className="rounded-2xl border border-[#E5DDF1] bg-white p-4 transition hover:border-emerald-300 hover:shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#C8A96B]">
+                                Riscontro esterno
+                              </p>
+                              <h5 className="mt-1 text-sm font-black leading-5 text-[#23124A]">
+                                {item.text}
+                              </h5>
+                            </div>
+                            <span
+                              className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black ${
+                                activeStatus?.className ?? "border-slate-200 bg-slate-50 text-slate-500"
+                              }`}
+                            >
+                              {activeStatus?.shortLabel ?? "Da verificare"}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {sources.map((source) => (
+                              <span
+                                key={`${item.id}-${source}`}
+                                className="rounded-full bg-[#F3EEF9] px-2.5 py-1 text-[9px] font-black text-[#50627F]"
+                              >
+                                {source}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {AUDIT_STATUS_OPTIONS.map((status) => {
+                              const active = answer.auditStatus === status.value;
+                              return (
+                                <button
+                                  key={`${item.id}-${status.value}`}
+                                  type="button"
+                                  aria-pressed={active}
+                                  onClick={() => updateAuditStatus(item.id, status.value)}
+                                  className={`rounded-xl border px-2.5 py-2 text-[10px] font-black transition ${
+                                    active
+                                      ? status.className
+                                      : "border-[#E5DDF1] bg-white text-[#50627F] hover:bg-[#FBF9FF]"
+                                  }`}
+                                >
+                                  {status.shortLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <label className="mt-3 block">
+                            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">
+                              Prova concreta: URL, pagina o nota
+                            </span>
+                            <textarea
+                              value={answer.note}
+                              onChange={(event) => updateAnswer(item.id, { note: event.target.value })}
+                              placeholder="Es. pagina camere, URL Booking, screenshot, esito del test..."
+                              className="mt-1.5 min-h-[64px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A] outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                            />
+                          </label>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {!visibleData.length && (
+          <div className="rounded-[2rem] border border-dashed border-[#CFC1DF] bg-white p-8 text-center text-sm font-semibold text-[#50627F]">
+            Nessuna voce corrisponde ai filtri selezionati.
+          </div>
+        )}
+      </section>
     );
   }
 
@@ -5679,7 +6123,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3 xl:w-auto xl:min-w-[930px]">
+            <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:w-auto xl:min-w-[1180px] xl:grid-cols-4">
               <button
                 type="button"
                 aria-pressed={assessmentMode === "full"}
@@ -5693,6 +6137,27 @@ export default function App() {
                 <span className="block text-sm font-black">Analisi completa</span>
                 <span className={`mt-1 block text-xs font-semibold ${assessmentMode === "full" ? "text-white/75" : "text-[#50627F]"}`}>
                   Tutte le {flattenItems(ASSESSMENT_DATA).length} voci disponibili
+                </span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={assessmentMode === "web-audit"}
+                onClick={() => switchAssessmentMode("web-audit")}
+                className={`rounded-2xl border px-5 py-4 text-left transition ${
+                  assessmentMode === "web-audit"
+                    ? "border-emerald-500 bg-emerald-50 text-[#23124A] shadow-sm ring-2 ring-emerald-500/20"
+                    : "border-emerald-200 bg-white text-[#23124A] hover:bg-emerald-50"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3 text-sm font-black">
+                  Audit Web &amp; Frontend
+                  <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white">
+                    {flattenItems(EXTERNAL_WEB_AUDIT_DATA).length}
+                  </span>
+                </span>
+                <span className="mt-1 block text-xs font-semibold text-[#50627F]">
+                  Checklist autonoma su prove pubbliche
                 </span>
               </button>
 
@@ -5785,14 +6250,18 @@ export default function App() {
                   Velora Consulting
                 </p>
                 <h1 className="mt-3 text-4xl font-black tracking-tight text-[#23124A]">
-                  {isQuickHotelBb
+                  {isWebAudit
+                    ? "Audit Web & Frontend struttura ricettiva"
+                    : isQuickHotelBb
                     ? useCustomQuickSelection
                       ? "Analisi rapida personalizzata"
                       : "Analisi rapida Hotel / B&B"
                     : "Autovalutazione struttura ricettiva"}
                 </h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-[#50627F]">
-                  {isQuickHotelBb
+                  {isWebAudit
+                    ? "Checklist di elementi verificabili autonomamente su sito, booking engine, OTA, Google, recensioni, social e test di contatto. Ogni valutazione deve essere accompagnata da un riscontro concreto."
+                    : isQuickHotelBb
                     ? useCustomQuickSelection
                       ? `Percorso consulenziale dinamico con ${customQuickItemIds.length} domande selezionate per questa specifica intervista.`
                       : `Percorso guidato con 30 domande principali${showQuickDeepDive ? " e 20 approfondimenti aperti" : ""}, focalizzato su posizionamento, revenue, vendita, gestione delegata e qualità del servizio.`
@@ -5804,7 +6273,7 @@ export default function App() {
                 className={`min-w-[260px] rounded-[1.5rem] border px-5 py-4 shadow-sm ${globalLabel.className}`}
               >
                 <p className="text-[11px] font-black uppercase tracking-[0.18em]">
-                  Indice opportunità
+                  {isWebAudit ? "Indice criticità esterna" : "Indice opportunità"}
                 </p>
                 <div className="mt-2 flex items-end gap-2">
                   <span className="text-5xl font-black leading-none">{globalScore}</span>
@@ -5828,7 +6297,7 @@ export default function App() {
                 />
               </div>
               <p className="mt-2 text-xs font-semibold text-[#50627F]">
-                {answeredCount} su {allRows.length} voci operative
+                {answeredCount} su {allRows.length} {isWebAudit ? "riscontri verificati" : "voci operative"}
               </p>
             </div>
 
@@ -5840,7 +6309,11 @@ export default function App() {
                 {assessmentData.length}
               </p>
               <p className="mt-2 text-xs font-semibold text-[#50627F]">
-                {isQuickHotelBb ? "settori essenziali selezionati" : "mappa completa dei bisogni"}
+                {isWebAudit
+                  ? "aree con evidenze osservabili"
+                  : isQuickHotelBb
+                    ? "settori essenziali selezionati"
+                    : "mappa completa dei bisogni"}
               </p>
             </div>
 
@@ -5852,7 +6325,7 @@ export default function App() {
                 {topOpportunities.filter((row) => row.score >= 70).length}
               </p>
               <p className="mt-2 text-xs font-semibold text-[#50627F]">
-                prime aree da valutare
+                {isWebAudit ? "criticità pubbliche rilevate" : "prime aree da valutare"}
               </p>
             </div>
 
@@ -5935,7 +6408,9 @@ export default function App() {
           </div>
         </section>
 
-        {isQuickHotelBb ? (
+        {isWebAudit ? (
+          renderExternalWebAudit()
+        ) : isQuickHotelBb ? (
           <section className="flex flex-col gap-6">
             {useCustomQuickSelection ? (
               <>
@@ -6301,11 +6776,12 @@ export default function App() {
                 Output consulenziale
               </p>
               <h2 className="mt-2 text-2xl font-black text-[#23124A]">
-                Prime opportunità consulenziali
+                {isWebAudit ? "Criticità visibili dall’esterno" : "Prime opportunità consulenziali"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-[#50627F]">
-                Le voci con punteggio più alto indicano dove Velora può generare più valore
-                o dove serve una valutazione più approfondita.
+                {isWebAudit
+                  ? "Le voci non trovate o solo parzialmente riscontrate indicano i primi punti da approfondire con la struttura o correggere sui canali pubblici."
+                  : "Le voci con punteggio più alto indicano dove Velora può generare più valore o dove serve una valutazione più approfondita."}
               </p>
             </div>
 
@@ -6356,7 +6832,9 @@ export default function App() {
                       colSpan={4}
                       className="px-4 py-8 text-center text-sm font-semibold text-[#50627F]"
                     >
-                      Compila almeno alcune voci per generare le priorità.
+                      {isWebAudit
+                        ? "Verifica almeno alcune voci per evidenziare le criticità esterne."
+                        : "Compila almeno alcune voci per generare le priorità."}
                     </td>
                   </tr>
                 )}
