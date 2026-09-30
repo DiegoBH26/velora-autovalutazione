@@ -3465,6 +3465,7 @@ const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
 
 // Aggiorna soltanto i riscontri pubblicati nel primo audit, senza toccare le note modificate dall'utente.
 const SANTANTONIO_PREVIOUS_EVIDENCE: Record<string, string> = {
+  q385: "Confronto omogeneo impossibile: il sito non espone una tariffa diretta prenotabile per data.",
   q15: "Recensioni presenti senza data; widget con 5 Excellent non rappresentativo dei rating pubblici.",
   q141: "Codici rilevati sui portali, non sulle pagine principali del sito ufficiale.",
   q222: "CIN IT072003A100027082 coerente su Booking e Tripadvisor.",
@@ -3492,9 +3493,73 @@ type AnalyzedStructure = {
   auditedAt?: string;
   ownerInfo: OwnerInfo;
   answers: Record<string, Answer>;
+  rateQuotes?: RateQuote[];
   assessmentMode: AssessmentMode;
   updatedAt: string;
 };
+
+type RateQuote = {
+  id: string;
+  otaId: string;
+  stayDate: string;
+  observedAt: string;
+  total: number;
+  nights: number;
+  roomType: string;
+  guests: number;
+  board: string;
+  refund: string;
+  audience: string;
+  taxes: string;
+  promotion: string;
+  eventTag: string;
+  sourceUrl: string;
+};
+
+const EMPTY_RATE_DRAFT: RateQuote = {
+  id: "", otaId: "booking", stayDate: "", observedAt: "", total: 0,
+  nights: 1, roomType: "Matrimoniale", guests: 2, board: "Colazione inclusa",
+  refund: "Rimborsabile", audience: "Pubblico senza login", taxes: "IVA inclusa, tassa di soggiorno esclusa",
+  promotion: "", eventTag: "", sourceUrl: "",
+};
+
+function rateCohortKey(quote: RateQuote): string {
+  return [quote.roomType.trim().toLowerCase(), quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
+}
+
+function rateCohortLabel(quote: RateQuote): string {
+  return `${quote.roomType} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
+}
+
+function monthKeys(from: string, count = 12): string[] {
+  const [year, month] = from.split("-").map(Number);
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 + index, 1));
+    return date.toISOString().slice(0, 7);
+  });
+}
+
+function latestRateQuotes(quotes: RateQuote[], cohort: string): RateQuote[] {
+  const latest = new Map<string, RateQuote>();
+  for (const quote of quotes.filter((item) => rateCohortKey(item) === cohort && Number.isFinite(item.total) && item.total > 0 && Number.isFinite(item.nights) && item.nights > 0 && /^\d{4}-\d{2}-\d{2}$/.test(item.stayDate))) {
+    const key = `${quote.otaId}|${quote.stayDate}`;
+    const old = latest.get(key);
+    if (!old || old.observedAt < quote.observedAt) latest.set(key, quote);
+  }
+  return [...latest.values()];
+}
+
+function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { average: number | null; count: number; deltaPct: number | null; matched: number } {
+  const own = quotes.filter((quote) => quote.otaId === otaId && quote.stayDate.startsWith(month));
+  if (!own.length) return { average: null, count: 0, deltaPct: null, matched: 0 };
+  const average = own.reduce((sum, quote) => sum + quote.total / quote.nights, 0) / own.length;
+  const pairs = otaId === "booking" ? [] : own.flatMap((quote) => {
+    const base = quotes.find((other) => other.otaId === "booking" && other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
+    return base ? [{ own: quote.total / quote.nights, base: base.total / base.nights }] : [];
+  });
+  const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
+  return { average, count: own.length, deltaPct, matched: pairs.length };
+}
 
 function santantonioStructure(): AnalyzedStructure {
   const answers: Record<string, Answer> = {};
@@ -3519,6 +3584,14 @@ function santantonioStructure(): AnalyzedStructure {
       note: `${channel.finding}\nFonte: ${source?.url ?? "verifica manuale"}`,
     };
   }
+  for (const policy of santantonioAudit.pricingAudit.policies) {
+    const source = santantonioAudit.sources[policy.source as keyof typeof santantonioAudit.sources];
+    answers[`audit-policy-${policy.otaId}`] = {
+      ...emptyAnswer(),
+      note: `Piani: ${policy.plans}\nPromozioni/sconti: ${policy.promotions}\nAffidabilità: ${policy.confidence}. Fonte: ${source?.url ?? "verifica manuale"}`,
+    };
+  }
+  answers["audit-policy-direct"] = { ...emptyAnswer(), note: santantonioAudit.pricingAudit.direct };
   answers["audit-google-strengths"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.strengths.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
   answers["audit-google-weaknesses"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
   answers["audit-google-actions"] = { ...emptyAnswer(), note: santantonioAudit.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.action}`).join("\n") };
@@ -3544,6 +3617,7 @@ function santantonioStructure(): AnalyzedStructure {
       objective: "Audit pubblico di visibilità, prenotazione diretta e reputazione",
     },
     answers,
+    rateQuotes: [],
     assessmentMode: "web-audit",
     updatedAt: santantonioAudit.auditedAt,
   };
@@ -3568,7 +3642,7 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
           answers[id] = answer;
         }
       }
-      return { ...item, answers };
+      return { ...item, answers, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [] };
     });
     return migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
   } catch {
@@ -4048,6 +4122,9 @@ export default function App() {
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [rateQuotes, setRateQuotes] = useState<RateQuote[]>([]);
+  const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
+  const [selectedRateCohort, setSelectedRateCohort] = useState("");
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
   const [useCustomQuickSelection, setUseCustomQuickSelection] = useState(false);
@@ -4148,6 +4225,7 @@ export default function App() {
       setActiveStructureId(selected.id);
       setOwnerInfo({ ...EMPTY_OWNER_INFO, ...selected.ownerInfo });
       setAnswers(selected.answers);
+      setRateQuotes(Array.isArray(selected.rateQuotes) ? selected.rateQuotes : []);
       setAssessmentMode(selected.assessmentMode);
       setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
       setHydrated(true);
@@ -4163,6 +4241,7 @@ export default function App() {
       const parsed = JSON.parse(raw);
       if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
+      if (Array.isArray(parsed.rateQuotes)) setRateQuotes(parsed.rateQuotes);
       if (
         parsed.assessmentMode === "full" ||
         parsed.assessmentMode === "quick-hotel-bb" ||
@@ -4193,13 +4272,14 @@ export default function App() {
       JSON.stringify({
         ownerInfo,
         answers,
+        rateQuotes,
         assessmentMode,
         customQuickItemIds,
         useCustomQuickSelection,
         guideEnabled,
       })
     );
-  }, [hydrated, ownerInfo, answers, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+  }, [hydrated, ownerInfo, answers, rateQuotes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -4216,10 +4296,11 @@ export default function App() {
       rooms: ownerInfo.rooms || item.rooms,
       ownerInfo,
       answers,
+      rateQuotes,
       assessmentMode,
       updatedAt: new Date().toISOString(),
     } : item));
-  }, [hydrated, activeStructureId, ownerInfo, answers, assessmentMode]);
+  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, assessmentMode]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -4233,7 +4314,7 @@ export default function App() {
   }
 
   function openStructure(structure: AnalyzedStructure) {
-    if (!activeStructureId && (ownerInfo.propertyName || Object.keys(answers).length)) {
+    if (!activeStructureId && (ownerInfo.propertyName || Object.keys(answers).length || rateQuotes.length)) {
       const draftId = `bozza-${Date.now()}`;
       setStructures((previous) => [...previous, {
         id: draftId,
@@ -4243,6 +4324,7 @@ export default function App() {
         rooms: ownerInfo.rooms,
         ownerInfo,
         answers,
+        rateQuotes,
         assessmentMode,
         updatedAt: new Date().toISOString(),
       }]);
@@ -4251,6 +4333,8 @@ export default function App() {
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
+    setRateQuotes(Array.isArray(structure.rateQuotes) ? structure.rateQuotes : []);
+    setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
     setActiveMacroId(
       (structure.assessmentMode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA : ASSESSMENT_DATA)[0]?.id ?? ""
@@ -4276,6 +4360,7 @@ export default function App() {
     if (activeStructureId === original.id) {
       setOwnerInfo(original.ownerInfo);
       setAnswers(original.answers);
+      setRateQuotes([]);
       setAssessmentMode(original.assessmentMode);
     }
   }
@@ -4285,6 +4370,22 @@ export default function App() {
       ...prev,
       [itemId]: { ...(prev[itemId] ?? emptyAnswer()), ...patch },
     }));
+  }
+
+  function addRateQuote() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim())) {
+      window.alert("Completa data del soggiorno, importo positivo, camera, ospiti e URL della tariffa consultata.");
+      return;
+    }
+    const quote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim() };
+    setRateQuotes((previous) => [...previous, quote]);
+    setSelectedRateCohort(rateCohortKey(quote));
+    setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, promotion: "", eventTag: "", sourceUrl: "" }));
+  }
+
+  function removeRateQuote(id: string) {
+    if (!window.confirm("Eliminare questa rilevazione tariffaria dalla scheda locale?")) return;
+    setRateQuotes((previous) => previous.filter((quote) => quote.id !== id));
   }
 
   function updateAuditStatus(itemId: string, status: Exclude<AuditStatus, "">) {
@@ -4390,6 +4491,7 @@ export default function App() {
     const payload = {
       ownerInfo,
       answers,
+      rateQuotes,
       assessmentMode,
       customQuickItemIds,
       useCustomQuickSelection,
@@ -4426,6 +4528,7 @@ export default function App() {
     if (!confirmed) return;
 
     setAnswers({});
+    setRateQuotes([]);
     window.localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -4452,6 +4555,7 @@ export default function App() {
         answer: row.answer,
       })),
       answers,
+      rateQuotes,
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -5038,6 +5142,15 @@ export default function App() {
           .join("")
       : `<div class="empty-box">Non sono ancora disponibili priorità operative. Completare almeno le voci principali per ottenere una lettura consulenziale.</div>`;
 
+    const reportCohorts = [...new Map(rateQuotes.map((quote) => [rateCohortKey(quote), rateCohortLabel(quote)])).entries()];
+    const reportCohort = selectedRateCohort && reportCohorts.some(([key]) => key === selectedRateCohort) ? selectedRateCohort : reportCohorts[0]?.[0] ?? "";
+    const reportQuotes = reportCohort ? latestRateQuotes(rateQuotes, reportCohort) : [];
+    const reportToday = new Date();
+    const reportMonths = monthKeys(new Date(Date.UTC(reportToday.getFullYear(), reportToday.getMonth() + 1, 1)).toISOString().slice(0, 7));
+    const reportChannels = santantonioAudit.otaPresence;
+    const monthlyTable = (channels: typeof reportChannels) => `<table><thead><tr><th>Mese</th>${channels.map((channel) => `<th>${safe(channel.platform)}</th>`).join("")}</tr></thead><tbody>${reportMonths.map((month) => `<tr><td><b>${safe(new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "short", year: "numeric", timeZone: "UTC" }))}</b></td>${channels.map((channel) => { const cell = monthlyRateCell(reportQuotes, month, channel.id); return `<td>${cell.average === null ? "n.d." : `<b>€ ${cell.average.toFixed(2)}</b><small>${cell.count} data/e${cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</small>`}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
+    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${activeStructureId === santantonioAudit.id ? safe(santantonioAudit.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table><h2>Prezzo medio osservato per mese e canale</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte nel campione inserito. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita: celle n.d. e nessun delta calcolabile."} Il delta confronta soltanto le stesse date di soggiorno, rilevate nello stesso giorno e nelle stesse condizioni.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Δ = differenza percentuale media rispetto a Booking; il numero tra parentesi indica le date abbinate. Una o poche date non rappresentano tutto il mese. Controllare in particolare Pasqua, ponti, giugno, Ferragosto e Natale/Capodanno. I prezzi possono variare dopo la rilevazione.</p></section>` : "";
+
     const html = `
       <!doctype html>
       <html lang="it">
@@ -5571,6 +5684,8 @@ export default function App() {
             </div>
           </section>
 
+          ${commercialReportHtml}
+
           <section>
             <h2>Tabella completa delle valutazioni</h2>
             <p>
@@ -5868,6 +5983,12 @@ export default function App() {
 
   function renderExternalWebAudit() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
+    const cohortOptions = [...new Map(rateQuotes.map((quote) => [rateCohortKey(quote), rateCohortLabel(quote)])).entries()];
+    const activeCohort = selectedRateCohort && cohortOptions.some(([key]) => key === selectedRateCohort)
+      ? selectedRateCohort : cohortOptions[0]?.[0] ?? "";
+    const comparableQuotes = activeCohort ? latestRateQuotes(rateQuotes, activeCohort) : [];
+    const today = new Date();
+    const rateMonths = monthKeys(new Date(Date.UTC(today.getFullYear(), today.getMonth() + 1, 1)).toISOString().slice(0, 7));
     const statusCounts = AUDIT_STATUS_OPTIONS.map((option) => ({
       ...option,
       count: allRows.filter(({ item }) => answers[item.id]?.auditStatus === option.value).length,
@@ -5973,6 +6094,42 @@ export default function App() {
               </div>;
             })}
           </div>
+          <h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Registra soltanto ciò che compare sulla specifica scheda, con data e URL. Una dicitura “potresti avere uno sconto” non dimostra una promozione attiva; tariffe per iscritti o app vanno distinte da quelle pubbliche.</p>
+          <label className="mt-3 block text-[11px] font-black text-[#23124A]">Sito diretto e listino
+            <textarea value={answers["audit-policy-direct"]?.note ?? ""} onChange={(event) => updateAnswer("audit-policy-direct", { note: event.target.value })} placeholder="Periodi, prezzi, condizioni, fonte e data" className="mt-1.5 min-h-[65px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A]" />
+          </label>
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {santantonioAudit.otaPresence.map((channel) => <label key={`policy-${channel.id}`} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3 text-[11px] font-black text-[#23124A]">
+              {channel.platform} <span className="font-medium text-[#50627F]">· {channel.group}</span>
+              <textarea value={answers[`audit-policy-${channel.id}`]?.note ?? ""} onChange={(event) => updateAnswer(`audit-policy-${channel.id}`, { note: event.target.value })} placeholder="Rimborsabile/parziale/non rimborsabile; Genius, mobile, member, pacchetti; URL e data. Se non verificato, dichiararlo." className="mt-2 min-h-[94px] w-full resize-y rounded-lg border border-[#E0D7EC] bg-white px-2.5 py-2 text-[11px] font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
+            </label>)}
+          </div>
+
+          <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Questa è la <b>media dei prezzi richiesti per notte nel campione</b>, non l'ADR reale (ricavi camere / camere vendute). Inserisci preventivi della stessa camera, ospiti, durata, colazione, cancellazione, pubblico, valuta e trattamento fiscale. I delta rispetto a Booking sono calcolati solo su date di soggiorno identiche, rilevate nello stesso giorno. “—” = nessun dato, non prezzo zero.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
+            <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{santantonioAudit.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Totale camera in EUR<input type="number" min="0.01" step="0.01" value={rateDraft.total || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, total: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Notti<input type="number" min="1" value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Tipologia camera<input value={rateDraft.roomType} onChange={(event) => setRateDraft((previous) => ({ ...previous, roomType: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" value={rateDraft.guests} onChange={(event) => setRateDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Trattamento<select value={rateDraft.board} onChange={(event) => setRateDraft((previous) => ({ ...previous, board: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Colazione inclusa</option><option>Solo camera</option><option>Altro / non chiaro</option></select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Cancellazione<select value={rateDraft.refund} onChange={(event) => setRateDraft((previous) => ({ ...previous, refund: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Rimborsabile</option><option>Parzialmente rimborsabile</option><option>Non rimborsabile</option><option>Non chiaro</option></select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Pubblico<select value={rateDraft.audience} onChange={(event) => setRateDraft((previous) => ({ ...previous, audience: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Pubblico senza login</option><option>Iscritto / loyalty</option><option>Solo app / mobile</option><option>Altro</option></select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Tasse<select value={rateDraft.taxes} onChange={(event) => setRateDraft((previous) => ({ ...previous, taxes: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>IVA inclusa, tassa di soggiorno esclusa</option><option>Tutte le imposte incluse</option><option>Imposte escluse</option><option>Non chiaro</option></select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Sconto / promo visibile<input value={rateDraft.promotion} onChange={(event) => setRateDraft((previous) => ({ ...previous, promotion: event.target.value }))} placeholder="Nessuno, Genius, mobile..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Evento / festività (se pertinente)<input value={rateDraft.eventTag} onChange={(event) => setRateDraft((previous) => ({ ...previous, eventTag: event.target.value }))} placeholder="Ferragosto, Pasqua, ponte..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">URL del preventivo<input type="url" value={rateDraft.sourceUrl} onChange={(event) => setRateDraft((previous) => ({ ...previous, sourceUrl: event.target.value }))} placeholder="https://..." className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <button type="button" onClick={addRateQuote} className="col-span-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white md:col-span-4">Salva prezzo osservato con data e ora della verifica</button>
+          </div>
+          <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
+            <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Nessuna rilevazione ancora inserita</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+          </label>
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{santantonioAudit.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{santantonioAudit.otaPresence.map((channel) => { const cell = monthlyRateCell(comparableQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? "—" : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} data/e{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
+          <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
+          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{santantonioAudit.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.refund} · {quote.promotion || "senza promo annotata"}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Annota esempi specifici, non soltanto il voto medio. Un campione pubblico non equivale all'analisi di tutte le recensioni. Valuta le foto da 1 a 10 rispetto a uno shooting alberghiero professionale.</p>
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
