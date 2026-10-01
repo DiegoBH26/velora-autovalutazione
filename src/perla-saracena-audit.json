@@ -55,6 +55,13 @@
       { "otaId": "trip", "plans": "Scheda hotel presente; piani datati e regole di cancellazione non verificati in campione omogeneo.", "promotions": "Le promozioni generiche del portale non provano sconti finanziati dalla struttura.", "source": "trip", "confidence": "da verificare" },
       { "otaId": "holidaycheck", "plans": "Profilo di una suite/aggregatore; offerte di terzi non identificano un piano gestito direttamente dall'hotel.", "promotions": "Sconti non attribuibili con certezza alla struttura.", "source": "holidaycheck", "confidence": "non attribuibile" }
     ],
+    "comparisonSamples": [
+      { "stay": "15-18 ott 2026", "otaId": "sito", "roomType": "Matrimoniale Standard Accessibile", "nightly": 56.77, "conditions": "Piano meno caro mostrato; condizioni fiscali e cancellazione non allineate", "delta": "n.d.", "source": "listino" },
+      { "stay": "15-18 ott 2026", "otaId": "booking", "roomType": "Camera Accessibile", "nightly": 53.87, "conditions": "Non rimborsabile, prezzo iscritto; totale EUR 161,60/3", "delta": "base solo se unità e condizioni confermate", "source": "booking" },
+      { "stay": "15-18 ott 2026", "otaId": "airbnb", "roomType": "Suite Attico Jacuzzi", "nightly": 120.78, "conditions": "Non rimborsabile; totale EUR 362,34/3 con last minute", "delta": "n.d. - unità diversa/non mappata", "source": "airbnb" },
+      { "stay": "15-18 ott 2026", "otaId": "expedia", "roomType": "Luxury con Vista (offerta Vrbo)", "nightly": 123.67, "conditions": "Totale EUR 371/3; unità e cancellazione non allineate", "delta": "n.d. - unità diversa/non mappata", "source": "expedia" },
+      { "stay": "15-18 ott 2026", "otaId": "expedia", "roomType": "Perla Saracena Luxury Suites (altro prodotto)", "nightly": 106.00, "conditions": "Totale EUR 318/3; prodotto distinto dall'offerta Vrbo", "delta": "n.d. - unità diversa/non mappata", "source": "expedia" }
+    ],
     "monthlySamples": [
       { "month": "2026-10", "stay": "15-18 ott", "nights": 3, "direct": { "low": 56.77, "high": 160.46, "scope": "14 tipologie", "lowRoom": "Matrimoniale Standard Accessibile", "highRoom": "Suite La Perla" }, "booking": { "low": 54.00, "high": 143.67, "scope": "14 tipologie; prezzo iscritto" }, "other": "Airbnb: Suite Attico Jacuzzi EUR 120,78/notte; Expedia: Luxury con Vista via Vrbo EUR 123,67/notte (solo singole unità).", "delta": "Non calcolabile: unità/piani/tasse e pubblico non omogenei." },
       { "month": "2026-11", "stay": "15-18 nov", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
