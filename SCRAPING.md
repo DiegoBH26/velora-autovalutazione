@@ -35,10 +35,20 @@ scaricati di nuovo. Ogni riga è scaricata su disco subito.
 ## Colonne e affidabilità
 
 Il CSV contiene URL, piattaforma, esito, timestamp, nome, indirizzo/città,
-descrizione, servizi, contatti, URL delle foto e `prices_json`. I campi lista
+descrizione, servizi, contatti, URL delle foto, `prices_json` e le colonne
+`booking_engine_*` (fornitore, URL, tipo di collegamento, esito, prova). I campi lista
 sono JSON dentro la cella CSV. `prices_json` registra soltanto *indizi di
 prezzo* esposti in HTML o JSON-LD, con provenienza e limiti: **non è ADR** e non
 si usa automaticamente per il delta fra portali.
+
+Il booking engine è cercato sul sito pubblico, anche se la pagina è ospitata
+direttamente dal fornitore e non esiste un sito indipendente. Domini noti come
+`book.ermeshotels.com`, `book.krossbooking.com` e `*.kross.travel` possono
+identificare il fornitore; un dominio personalizzato o un link generico resta
+“fornitore non identificato”. Si escludono le schede OTA e i pulsanti che
+portano soltanto ai contatti. Un link non prova che il checkout sia operativo.
+La nuova versione del CSV ha colonne aggiuntive: se hai già un file prodotto
+con la vecchia intestazione, usa un nuovo nome di output per non alterarlo.
 
 Il confronto numerico nel report Velora richiede preventivi datati con:
 stessa unità fisica verificata, check-in, notti, ospiti, piano, trattamento,
@@ -53,3 +63,64 @@ identifica come bot, rispetta `robots.txt`, non supera login/CAPTCHA/403 e non
 simula disponibilità o tariffe assenti. La velocità effettiva dipende dai siti,
 dalla rete e dalle restrizioni: 15 richieste concorrenti **non** significano
 15-20 pagine completate ogni secondo.
+
+## Pilota locale delle date future, senza servizi a pagamento
+
+`browser_audit_pilot.py` usa il Chrome già installato su questo PC tramite
+Playwright. Sceglie automaticamente un soggiorno campione per ogni mese fino a
+dicembre dell'anno successivo: 15-18 del mese, 12-17 agosto (5 notti), due
+adulti. Se la data del mese è passata, usa una data ancora futura oppure salta
+il mese. Non usa l'account personale Chrome e non effettua login.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-scraping.txt
+.\.venv\Scripts\python.exe browser_audit_pilot.py --dry-run
+.\.venv\Scripts\python.exe browser_audit_pilot.py --months 1 --channels booking,airbnb --output dati_strutture_pilot.json
+```
+
+### Uso dal software sullo stesso PC
+
+Questa funzione non richiede un server a pagamento. Dalla cartella del
+progetto, con Node e Python già installati:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-scraping.txt
+npm run build
+.\.venv\Scripts\python.exe local_audit_server.py
+```
+
+Apri `http://127.0.0.1:8768/` nel browser e accedi a Velora con il tuo
+account già autorizzato. Nella scheda **Audit Web** di Perla Saracena o
+Sant'Antonio, sotto “Prezzi osservati per mese”, trovi **Prova un mese** e
+**Verifica mesi futuri fino a fine anno prossimo**. Il risultato è salvato
+progressivamente in un file `dati_strutture_pilot_<id>.json` nella cartella
+del progetto e incluso nel report. In questa versione locale, il pulsante
+**Genera report PDF** scarica direttamente il file; sul sito GitHub Pages
+continua ad aprire la stampa del browser, da cui puoi scegliere “Salva come
+PDF”. Interrompi il servizio locale con `Ctrl+C` nella finestra PowerShell.
+
+Il servizio è disponibile **solo su questo PC** (`127.0.0.1`): non espone il
+pilota ai colleghi attraverso il link pubblico. L'autenticazione di Velora
+resta attiva anche in locale. Per gli altri utenti il PDF esistente e la
+compilazione manuale continuano a funzionare online.
+
+Per ora gli adattatori che **tentano** di applicare le date sono Booking e
+Airbnb. Lo script visita solo URL consentiti da `robots.txt`, si ferma davanti
+a blocchi o CAPTCHA e salva progressivamente esiti e fonti nel JSON. Una URL
+con date non prova che la pagina abbia applicato quelle date: se non compaiono
+nel contenuto reso, l'esito è `dates_unconfirmed`. Gli altri canali sono
+esplicitamente `date_adapter_missing`, non "nessun prezzo". Il pilota non
+inserisce automaticamente cifre nel report: prezzo finale, camera, piano,
+imposte e pubblico vanno ancora verificati come un singolo preventivo prima
+del confronto. È una base gratuita e onesta per sviluppare gli adattatori
+canale per canale, non una promessa di scraping integrale delle OTA.
+
+Prova del 1° ottobre 2026 su Perla Saracena (15–18 ottobre, due adulti): il
+sito diretto e sei OTA non hanno ancora un adattatore date; Booking non ha
+confermato le date nel contenuto reso; Airbnb mostra date ma non un
+preventivo completo attribuibile con sicurezza a camera, piano e imposte.
+Di conseguenza **zero prezzi sono stati acquisiti automaticamente** in questa
+prova. Le tariffe e i delta già presenti nel report storico restano separati
+da questi nuovi esiti. Per ottenere una tabella numerica futura affidabile,
+servono adattatori e prove per ciascun portale, o un'integrazione ufficiale
+con il channel manager/fornitore delle tariffe.

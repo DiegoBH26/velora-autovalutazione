@@ -11,4 +11,5 @@ supabase/.temp/
 .supabase-home/
 *.log
 dati_strutture*.csv
+dati_strutture_pilot*.json
 input_strutture.txt

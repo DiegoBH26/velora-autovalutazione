@@ -25,6 +25,8 @@ from urllib.parse import urljoin, urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 from xml.etree import ElementTree
 
+from booking_engine import detect_booking_engine
+
 try:
     from curl_cffi.requests import AsyncSession
     from selectolax.lexbor import LexborHTMLParser
@@ -55,7 +57,9 @@ PRICE_RE = re.compile(r"(?:€\s*|EUR\s*)(\d{1,5}(?:[.,]\d{2})?)", re.I)
 FIELDS = [
     "source_url", "final_url", "platform", "status", "http_status", "observed_at",
     "name", "address", "city", "description", "amenities_json", "prices_json",
-    "email", "phone", "photo_urls_json", "error",
+    "email", "phone", "photo_urls_json", "booking_engine_status",
+    "booking_engine_provider", "booking_engine_url", "booking_engine_mode",
+    "booking_engine_evidence", "error",
 ]
 
 
@@ -334,6 +338,10 @@ def extract(result: FetchResult) -> dict[str, str]:
     if "html" not in result.content_type.lower():
         row.update(status="not_html", error=f"Content-Type: {result.content_type}")
         return row
+    engine = detect_booking_engine(result.url, result.body.decode("utf-8", errors="replace"), result.final_url)
+    row.update(booking_engine_status=engine["status"], booking_engine_provider=engine["provider"],
+               booking_engine_url=engine["url"], booking_engine_mode=engine["mode"],
+               booking_engine_evidence=engine["evidence"])
     tree = LexborHTMLParser(result.body)
     ld = ld_objects(tree)
     lodging_types = {"hotel", "lodgingbusiness", "bedandbreakfast", "motel", "hostel", "resort", "vacationrental", "accommodation", "apartment", "house"}
