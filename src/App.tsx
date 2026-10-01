@@ -3510,6 +3510,7 @@ type RateQuote = {
   total: number;
   nights: number;
   roomType: string;
+  unitId?: string;
   guests: number;
   board: string;
   refund: string;
@@ -3549,7 +3550,7 @@ const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
 
 const EMPTY_RATE_DRAFT: RateQuote = {
   id: "", otaId: "booking", stayDate: "", observedAt: "", total: 0,
-  nights: 1, roomType: "Matrimoniale", guests: 2, board: "Colazione inclusa",
+  nights: 1, roomType: "Matrimoniale", unitId: "", guests: 2, board: "Colazione inclusa",
   refund: "Rimborsabile", audience: "Pubblico senza login", taxes: "IVA inclusa, tassa di soggiorno esclusa",
   promotion: "", promotionKind: "Non verificata", originalTotal: 0, eventTag: "", sourceUrl: "",
 };
@@ -3559,11 +3560,12 @@ function todayLocalIso(date = new Date()): string {
 }
 
 function rateCohortKey(quote: RateQuote): string {
-  return [quote.roomType.trim().toLowerCase(), quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
+  const physicalUnit = quote.unitId?.trim().toLowerCase() || `non-verificata:${quote.otaId}:${quote.roomType.trim().toLowerCase()}`;
+  return [physicalUnit, quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
 }
 
 function rateCohortLabel(quote: RateQuote): string {
-  return `${quote.roomType} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
+  return `${quote.unitId?.trim() ? `Unità ${quote.unitId.trim()}` : `${quote.roomType} (unità non verificata)`} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
 }
 
 function monthKeys(from: string, count = 12): string[] {
@@ -3622,13 +3624,13 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
   if (!own.length) return { average: null, count: 0, deltaPct: null, matched: 0 };
   const average = own.reduce((sum, quote) => sum + quote.total / quote.nights, 0) / own.length;
   const pairs = otaId === "booking" ? [] : own.flatMap((quote) => {
-    const base = quotes.find((other) => other.otaId === "booking" && other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
+    if (!quote.unitId?.trim()) return [];
+    const base = quotes.find((other) => other.otaId === "booking" && other.unitId?.trim().toLowerCase() === quote.unitId?.trim().toLowerCase() && other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
     return base ? [{ own: quote.total / quote.nights, base: base.total / base.nights }] : [];
   });
   const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
   return { average, count: own.length, deltaPct, matched: pairs.length };
 }
-
 function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): AnalyzedStructure {
   const sources = data.sources as Record<string, { label: string; url: string }>;
   const answers: Record<string, Answer> = {};
@@ -5255,7 +5257,14 @@ export default function App() {
     const reportMonths = futureMonthKeys(reportToday);
     const reportChannels = activeAuditData.otaPresence;
     const monthlyTable = (channels: typeof reportChannels) => `<table><thead><tr><th>Mese</th>${channels.map((channel) => `<th>${safe(channel.platform)}</th>`).join("")}</tr></thead><tbody>${reportMonths.map((month) => `<tr><td><b>${safe(new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "short", year: "numeric", timeZone: "UTC" }))}</b></td>${channels.map((channel) => { const cell = monthlyRateCell(reportQuotes, month, channel.id); return `<td>${cell.average === null ? "n.d." : `<b>€ ${cell.average.toFixed(2)}</b><small>${cell.count} data/e${cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</small>`}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
-    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${(activeStructureId === santantonioAudit.id || activeStructureId === perlaAudit.id) ? safe(activeAuditData.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table><h2>Prezzo medio osservato per mese e canale</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte nel campione inserito. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita: celle n.d. e nessun delta calcolabile."} Il delta confronta soltanto le stesse date di soggiorno, rilevate nello stesso giorno e nelle stesse condizioni.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Δ = differenza percentuale media rispetto a Booking; il numero tra parentesi indica le date abbinate. Una o poche date non rappresentano tutto il mese. Controllare in particolare Pasqua, ponti, giugno, Ferragosto e Natale/Capodanno. I prezzi possono variare dopo la rilevazione.</p></section>` : "";
+    const seededSamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+      ? activeAuditData.pricingAudit.monthlySamples : [];
+    const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
+      sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
+        : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
+    const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Due adulti, tre notti per mese salvo agosto (cinque). Estremi delle tipologie quotate al piano meno caro del campione; non ADR, non media di tutte le date. Una sola villa su Booking non è un range dell'hotel.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, cancellazione, trattamento, imposte e pubblico. La data senza prezzo non prova chiusura stagionale; il campione diretto di agosto incontra un minimo di sette notti.</p>` : "";
+    const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
+    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${(activeStructureId === santantonioAudit.id || activeStructureId === perlaAudit.id) ? safe(activeAuditData.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${seededPricingHtml}${manualPricingHtml}</section>` : "";
 
     const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
       const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id);
@@ -6098,6 +6107,12 @@ export default function App() {
 
   function renderExternalWebAudit() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
+    const publishedMonthlySamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+      ? activeAuditData.pricingAudit.monthlySamples : [];
+    const publishedRange = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
+      sample.low === undefined || sample.high === undefined
+        ? sample.status || "Non campionato"
+        : `€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte · ${sample.scope || "copertura da verificare"}`;
     const cohortOptions = [...new Map(rateQuotes.map((quote) => [rateCohortKey(quote), rateCohortLabel(quote)])).entries()];
     const activeCohort = selectedRateCohort && cohortOptions.some(([key]) => key === selectedRateCohort)
       ? selectedRateCohort : cohortOptions[0]?.[0] ?? "";
@@ -6222,13 +6237,18 @@ export default function App() {
           </div>
 
           <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
-          <p className="mt-1 text-xs leading-5 text-[#50627F]">Questa è la <b>media dei prezzi richiesti per notte nel campione</b>, non l'ADR reale (ricavi camere / camere vendute). Inserisci preventivi della stessa camera, ospiti, durata, colazione, cancellazione, pubblico, valuta e trattamento fiscale. I delta rispetto a Booking sono calcolati solo su date di soggiorno identiche, rilevate nello stesso giorno. “—” = nessun dato, non prezzo zero.</p>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
+          {publishedMonthlySamples.length > 0 && <div className="mt-4 overflow-x-auto rounded-xl border border-[#E5DDF1]">
+            <table className="min-w-[1000px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese / date campione</th><th className="p-2 text-left">Sito diretto · range tipologie</th><th className="p-2 text-left">Booking · range tipologie</th><th className="p-2 text-left">Altri portali · copertura parziale</th><th className="p-2 text-left">Delta omogeneo</th></tr></thead><tbody>{publishedMonthlySamples.map((sample) => <tr key={sample.month} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{sample.month}<span className="block font-medium text-[#50627F]">{sample.stay} · {sample.nights} notti</span></th><td className="p-2">{publishedRange(sample.direct)}</td><td className="p-2">{publishedRange(sample.booking)}</td><td className="p-2">{sample.other}</td><td className="p-2">{sample.delta}</td></tr>)}</tbody></table>
+          </div>}
+          {publishedMonthlySamples.length > 0 && <p className="mt-2 text-[10px] leading-4 text-[#50627F]">Rilevazioni del 01/10/2026, due adulti. Il prezzo Booking visualizzato richiede iscrizione; una sola villa quotata non è il range dell'intero hotel. Agosto sul diretto richiede almeno 7 notti per molte unità nel campione di 5. I mesi senza prezzo non provano chiusura stagionale.</p>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
             <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Totale camera in EUR<input type="number" min="0.01" step="0.01" value={rateDraft.total || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, total: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Notti<input type="number" min="1" value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Tipologia camera<input value={rateDraft.roomType} onChange={(event) => setRateDraft((previous) => ({ ...previous, roomType: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">ID unità fisica verificata<input value={rateDraft.unitId || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, unitId: event.target.value }))} placeholder="Stesso ID solo se la camera è davvero identica" className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" value={rateDraft.guests} onChange={(event) => setRateDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Trattamento<select value={rateDraft.board} onChange={(event) => setRateDraft((previous) => ({ ...previous, board: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Colazione inclusa</option><option>Solo camera</option><option>Altro / non chiaro</option></select></label>
             <label className="text-[11px] font-black text-[#23124A]">Cancellazione<select value={rateDraft.refund} onChange={(event) => setRateDraft((previous) => ({ ...previous, refund: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Rimborsabile</option><option>Parzialmente rimborsabile</option><option>Non rimborsabile</option><option>Non chiaro</option></select></label>
