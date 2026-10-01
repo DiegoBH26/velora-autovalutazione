@@ -3524,6 +3524,24 @@ type RateQuote = {
   sourceUrl: string;
 };
 
+type BrowserPilotObservation = {
+  otaId: string;
+  month: string;
+  checkin: string;
+  checkout: string;
+  status: string;
+  evidence?: string;
+  requestedUrl?: string;
+};
+
+type BrowserPilotResult = {
+  schema: "velora-browser-audit-pilot-v1";
+  propertyId: string;
+  createdAt: string;
+  bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
+  observations: BrowserPilotObservation[];
+};
+
 type AvailabilityStatus = "no-rate" | "calendar-closed" | "blocked";
 
 type AvailabilityProbe = {
@@ -3555,6 +3573,26 @@ const EMPTY_RATE_DRAFT: RateQuote = {
   refund: "Rimborsabile", audience: "Pubblico senza login", taxes: "IVA inclusa, tassa di soggiorno esclusa",
   promotion: "", promotionKind: "Non verificata", originalTotal: 0, eventTag: "", sourceUrl: "",
 };
+
+function providerFromBookingUrl(value: string): { provider: string; mode: string; status: AuditStatus } | null {
+  try {
+    const url = new URL(value.trim());
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host.endsWith('.kross.travel') || host === 'book.krossbooking.com') {
+      return { provider: 'Kross Booking', mode: 'Fornitore indicato dal dominio del percorso di prenotazione', status: 'present' };
+    }
+    if (host === 'book.ermeshotels.com' || host.endsWith('.book.ermeshotels.com')) {
+      return { provider: 'ErmesHotels', mode: 'Fornitore indicato dal dominio del percorso di prenotazione', status: 'present' };
+    }
+    if (['booking.com', 'airbnb.com', 'expedia.com', 'expedia.it', 'vrbo.com', 'hotels.com', 'agoda.com', 'trip.com'].some((domain) => host === domain || host.endsWith(`.${domain}`))) {
+      return null;
+    }
+    return { provider: '', mode: `Fornitore non identificato dal dominio ${host}`, status: 'partial' };
+  } catch {
+    return null;
+  }
+}
 
 function todayLocalIso(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -3664,6 +3702,11 @@ function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): 
     };
   }
   answers["audit-policy-direct"] = { ...emptyAnswer(), note: data.pricingAudit.direct };
+  answers["audit-booking-engine"] = { ...emptyAnswer(), auditStatus: data.bookingEngine.status === "provider_identified" ? "present" : data.bookingEngine.status === "provider_unknown" ? "partial" : "unverified" };
+  answers["audit-booking-engine-provider"] = { ...emptyAnswer(), note: data.bookingEngine.provider };
+  answers["audit-booking-engine-url"] = { ...emptyAnswer(), note: data.bookingEngine.url };
+  answers["audit-booking-engine-mode"] = { ...emptyAnswer(), note: data.bookingEngine.mode };
+  answers["audit-booking-engine-evidence"] = { ...emptyAnswer(), note: data.bookingEngine.evidence };
   answers["audit-google-strengths"] = { ...emptyAnswer(), note: data.reviewInsights.strengths.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
   answers["audit-google-weaknesses"] = { ...emptyAnswer(), note: data.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.finding}`).join("\n") };
   answers["audit-google-actions"] = { ...emptyAnswer(), note: data.reviewInsights.weaknesses.map((entry) => `${entry.theme}: ${entry.action}`).join("\n") };
@@ -4205,6 +4248,10 @@ export default function App() {
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
+  const [browserPilotResult, setBrowserPilotResult] = useState<BrowserPilotResult | null>(null);
+  const [localPilotToken, setLocalPilotToken] = useState("");
+  const [localPilotRunning, setLocalPilotRunning] = useState(false);
+  const [localPilotMessage, setLocalPilotMessage] = useState("");
   const [selectedRateCohort, setSelectedRateCohort] = useState("");
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
@@ -4226,6 +4273,92 @@ export default function App() {
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
   const activeAuditData = activeStructureId === perlaAudit.id ? perlaAudit : santantonioAudit;
+
+  useEffect(() => {
+    if (window.location.hostname !== "127.0.0.1" || window.location.port !== "8768") return;
+    fetch("/api/pilot/config").then((response) => response.json()).then((config: { token?: string }) => {
+      setLocalPilotToken(config.token || "");
+    }).catch(() => setLocalPilotMessage("Il servizio di rilevazione locale non risponde."));
+  }, []);
+
+  useEffect(() => {
+    if (!activeStructureId) {
+      setBrowserPilotResult(null);
+      return;
+    }
+    try {
+      const saved = window.localStorage.getItem(`velora-browser-pilot:${activeStructureId}`);
+      const parsed = saved ? JSON.parse(saved) as BrowserPilotResult : null;
+      setBrowserPilotResult(parsed?.schema === "velora-browser-audit-pilot-v1" && parsed.propertyId === activeStructureId ? parsed : null);
+    } catch {
+      setBrowserPilotResult(null);
+    }
+  }, [activeStructureId]);
+
+  async function importBrowserPilotResult(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5_000_000) {
+      window.alert("Il file del pilota è troppo grande (massimo 5 MB).");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text()) as BrowserPilotResult;
+      if (parsed.schema !== "velora-browser-audit-pilot-v1" || parsed.propertyId !== activeAuditData.id || !Array.isArray(parsed.observations)) {
+        throw new Error("File non valido o appartenente a un'altra struttura.");
+      }
+      const cleaned: BrowserPilotResult = {
+        schema: parsed.schema, propertyId: parsed.propertyId, createdAt: String(parsed.createdAt || ""),
+        bookingEngine: parsed.bookingEngine && typeof parsed.bookingEngine === "object" ? {
+          status: String(parsed.bookingEngine.status || "unverified"), provider: String(parsed.bookingEngine.provider || ""),
+          url: String(parsed.bookingEngine.url || ""), mode: String(parsed.bookingEngine.mode || ""),
+          evidence: String(parsed.bookingEngine.evidence || ""),
+        } : undefined,
+        observations: parsed.observations.filter((item) => item && typeof item.otaId === "string" && typeof item.month === "string" && typeof item.status === "string").slice(0, 500),
+      };
+      setBrowserPilotResult(cleaned);
+      window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(cleaned));
+      window.alert(`${cleaned.observations.length} verifiche importate. I prezzi non confermati non entrano nei calcoli.`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Impossibile leggere il file del pilota.");
+    }
+  }
+
+  async function startLocalPilot(months: 1 | "all") {
+    if (!localPilotToken || localPilotRunning) return;
+    setLocalPilotRunning(true);
+    setLocalPilotMessage("Rilevazione in corso. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
+    try {
+      const started = await fetch("/api/pilot/start", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        body: JSON.stringify({ propertyId: activeAuditData.id, months }),
+      });
+      if (!started.ok) {
+        const body = await started.json() as { error?: string };
+        throw new Error(body.error || "Avvio non riuscito");
+      }
+      for (let attempt = 0; attempt < 360; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        const response = await fetch("/api/pilot/status", { cache: "no-store" });
+        if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
+        const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
+        const count = status.result?.observations?.length || 0;
+        setLocalPilotMessage(status.running ? `${count} controlli completati. Nessuna tariffa non verificata sarà inserita nel report.` : `${count} controlli completati.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`);
+        if (!status.running) {
+          if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
+            setBrowserPilotResult(status.result);
+            window.localStorage.setItem(`velora-browser-pilot:${activeAuditData.id}`, JSON.stringify(status.result));
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      setLocalPilotMessage(error instanceof Error ? error.message : "Errore della rilevazione locale.");
+    } finally {
+      setLocalPilotRunning(false);
+    }
+  }
   const customQuickData = useMemo(
     () => selectAssessmentItems(new Set(customQuickItemIds)),
     [customQuickItemIds]
@@ -5274,6 +5407,24 @@ export default function App() {
     const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Due adulti, tre notti per mese salvo agosto (cinque). Estremi delle tipologie quotate al piano meno caro del campione; non ADR, non media di tutte le date. Una sola villa su Booking non è un range dell'hotel.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, cancellazione, trattamento, imposte e pubblico. La data senza prezzo non prova chiusura stagionale; il campione diretto di agosto incontra un minimo di sette notti.</p>` : "";
     const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
     const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${(activeStructureId === santantonioAudit.id || activeStructureId === perlaAudit.id) ? safe(activeAuditData.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
+    const bookingStatus = answers["audit-booking-engine"]?.auditStatus || "unverified";
+    const bookingProvider = answers["audit-booking-engine-provider"]?.note || browserPilotResult?.bookingEngine?.provider || "Fornitore non identificato";
+    const bookingUrl = answers["audit-booking-engine-url"]?.note || browserPilotResult?.bookingEngine?.url || "URL non disponibile";
+    const bookingMode = answers["audit-booking-engine-mode"]?.note || browserPilotResult?.bookingEngine?.mode || "Non verificato";
+    const bookingEvidence = answers["audit-booking-engine-evidence"]?.note || browserPilotResult?.bookingEngine?.evidence || "Nessun riscontro registrato";
+    const bookingStatusLabel = bookingStatus === "present" ? bookingProvider === "Fornitore non identificato" ? "Percorso di prenotazione rilevato; fornitore non confermato" : "Fornitore identificato" : bookingStatus === "partial" ? "Percorso di prenotazione rilevato; fornitore non confermato" : bookingStatus === "missing" ? "Percorso di prenotazione non rilevato nel campione" : "Non verificato";
+    const bookingEngineReportHtml = isWebAudit ? `<section><h2>Booking engine e fornitore del canale diretto</h2><table><tbody><tr><th style="width:25%">Esito</th><td>${safe(bookingStatusLabel)}</td></tr><tr><th>Fornitore</th><td><b>${safe(bookingProvider)}</b></td></tr><tr><th>Percorso</th><td>${safe(bookingMode)}</td></tr><tr><th>URL di prova</th><td>${safe(bookingUrl)}</td></tr><tr><th>Riscontro</th><td>${safe(bookingEvidence)}</td></tr></tbody></table><p>Un dominio riconosciuto identifica il fornitore del percorso pubblico, ma non prova che disponibilità, pagamento e checkout funzionino. Un sito ospitato direttamente dal fornitore va registrato anche se non esiste un dominio ufficiale separato.</p></section>` : "";
+    const pilotObservations = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.observations : [];
+    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", needs_human_review: "Preventivo da verificare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
+    const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
+    const pilotRows = pilotChannelIds.map((otaId) => {
+      const entries = pilotObservations.filter((item) => item.otaId === otaId);
+      const counts = [...new Set(entries.map((item) => item.status))].map((status) => `${pilotStatusLabels[status] || status}: ${entries.filter((item) => item.status === status).length}`).join("; ");
+      const example = entries.find((item) => item.evidence)?.evidence || "Nessuna prova specifica disponibile.";
+      const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || (otaId === "sito" ? "Sito diretto" : otaId);
+      return `<tr><td><b>${safe(platform)}</b></td><td class="center">${entries.length}</td><td>${safe(counts)}</td><td>${safe(example)}</td></tr>`;
+    });
+    const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. Questi esiti <b>non sono preventivi</b>: nessun prezzo o delta è stato aggiunto automaticamente senza conferma di date, camera e condizioni. “Non verificato” non indica disponibilità chiusa.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table><p>Il file JSON locale conserva date e URL di ogni controllo. Le tariffe storiche riportate nelle tabelle precedenti sono indipendenti da questa prova.</p></section>` : "";
 
     const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
       const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id);
@@ -5817,6 +5968,8 @@ export default function App() {
           </section>
 
           ${commercialReportHtml}
+          ${bookingEngineReportHtml}
+          ${pilotReportHtml}
           ${coverageReportHtml}
 
           <section>
@@ -5952,6 +6105,33 @@ export default function App() {
       }
 
       return;
+    }
+
+    if (localPilotToken && window.location.hostname === "127.0.0.1" && window.location.port === "8768") {
+      try {
+        const reportKind = isWebAudit ? "audit-web-frontend" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
+        const filename = `velora-${reportKind}-${sanitizeFilename(ownerInfo.propertyName)}.pdf`;
+        const response = await fetch("/api/report/pdf", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+          body: JSON.stringify({ html, filename }),
+        });
+        if (!response.ok) {
+          const problem = await response.json() as { error?: string };
+          throw new Error(problem.error || "Generazione PDF non riuscita.");
+        }
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        return;
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Errore durante la generazione del PDF locale.");
+        return;
+      }
     }
 
     const existingFrame = document.getElementById("velora-print-frame");
@@ -6236,6 +6416,49 @@ export default function App() {
               </div>;
             })}
           </div>
+          <section className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+            <h3 className="text-lg font-black text-[#23124A]">Booking engine e fornitore del canale diretto</h3>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Registra anche il caso in cui la struttura usa soltanto un minisito ospitato dal fornitore. Un URL può identificare Kross Booking o ErmesHotels; con un dominio personalizzato il fornitore può restare non riconoscibile. Il collegamento non dimostra che il checkout funzioni.</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="text-[11px] font-black text-[#23124A]">Esito della verifica
+                <select value={answers["audit-booking-engine"]?.auditStatus || "unverified"} onChange={(event) => updateAnswer("audit-booking-engine", { auditStatus: event.target.value as AuditStatus })} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">
+                  <option value="unverified">Non verificato</option><option value="present">Motore e fornitore identificati</option><option value="partial">Percorso rilevato; fornitore incerto</option><option value="missing">Percorso non rilevato nel campione</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-black text-[#23124A]">Fornitore identificato
+                <input value={answers["audit-booking-engine-provider"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-provider", { note: event.target.value })} placeholder="Es. Kross Booking, ErmesHotels; lascia vuoto se non certo" className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
+              </label>
+              <label className="text-[11px] font-black text-[#23124A]">URL del percorso di prenotazione
+                <input type="url" value={answers["audit-booking-engine-url"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-url", { note: event.target.value })} placeholder="https://..." className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
+              </label>
+              <label className="text-[11px] font-black text-[#23124A]">Tipo di collegamento
+                <input value={answers["audit-booking-engine-mode"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-mode", { note: event.target.value })} placeholder="Sito ospitato, link esterno, widget integrato..." className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
+              </label>
+            </div>
+            <button type="button" onClick={() => {
+              const url = answers["audit-booking-engine-url"]?.note || "";
+              const match = providerFromBookingUrl(url);
+              if (!match) { window.alert("Inserisci l'URL pubblico del percorso diretto: una scheda OTA non identifica il booking engine."); return; }
+              updateAnswer("audit-booking-engine-provider", { note: match.provider });
+              updateAnswer("audit-booking-engine-mode", { note: match.mode });
+              updateAnswer("audit-booking-engine", { auditStatus: match.status });
+              updateAnswer("audit-booking-engine-evidence", { note: `Dominio del percorso di prenotazione: ${new URL(url).hostname}. Verificare manualmente disponibilità e checkout.` });
+            }} className="mt-3 rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Riconosci il fornitore dall’URL</button>
+            <label className="mt-3 block text-[11px] font-black text-[#23124A]">Evidenza e limiti della verifica
+              <textarea value={answers["audit-booking-engine-evidence"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-evidence", { note: event.target.value })} placeholder="Dove porta Prenota, cosa compare, data della prova, cosa non è stato verificato" className="mt-1 block min-h-[70px] w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
+            </label>
+            {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-[#135443]">
+              <b>Riscontro della prova locale:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
+              <button type="button" onClick={() => {
+                const found = browserPilotResult.bookingEngine!;
+                updateAnswer("audit-booking-engine", { auditStatus: found.status === "provider_identified" ? "present" : found.status === "provider_unknown" ? "partial" : found.status === "not_found_in_page" ? "missing" : "unverified" });
+                updateAnswer("audit-booking-engine-provider", { note: found.provider });
+                updateAnswer("audit-booking-engine-url", { note: found.url });
+                updateAnswer("audit-booking-engine-mode", { note: found.mode });
+                updateAnswer("audit-booking-engine-evidence", { note: found.evidence });
+              }} className="ml-2 font-black underline">Usa questo riscontro</button>
+            </div>}
+          </section>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Registra soltanto ciò che compare sulla specifica scheda, con data e URL. Una dicitura “potresti avere uno sconto” non dimostra una promozione attiva; tariffe per iscritti o app vanno distinte da quelle pubbliche.</p>
           <label className="mt-3 block text-[11px] font-black text-[#23124A]">Sito diretto e listino
@@ -6250,6 +6473,17 @@ export default function App() {
 
           <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
+          <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+            <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Per ora non acquisisce preventivi numerici completi: un portale bloccato, una data non confermata o un adattatore mancante rimangono “non verificati”, mai prezzo zero. Importa il JSON prodotto sul PC per includere gli esiti nel PDF generato qui sotto.</p>
+            {localPilotToken && <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot(1)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Prova un mese</button>
+              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all")} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Verifica mesi futuri fino a fine anno prossimo</button>
+            </div>}
+            {localPilotMessage && <p className="mt-2 text-[11px] font-semibold text-[#23124A]" role="status">{localPilotMessage}</p>}
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
+            {browserPilotResult?.propertyId === activeAuditData.id && <p className="mt-2 text-[11px] font-semibold text-[#23124A]">{browserPilotResult.observations.length} controlli importati · nessun prezzo aggiunto automaticamente · esiti inclusi nel prossimo report PDF.</p>}
+          </div>
           <h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Ogni cifra è un preventivo datato diviso per le notti. Δ = (prezzo OTA / prezzo Booking − 1) × 100. Un numero nella colonna Δ compare solo con unità fisica e condizioni identiche, rilevate lo stesso giorno; altrimenti n.d. La tabella descrittiva delle politiche commerciali resta invariata.</p>
           <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1050px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Camera/unità</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Booking base</th><th className="p-2 text-right">Δ</th><th className="p-2 text-left">Condizioni / limite</th></tr></thead><tbody>

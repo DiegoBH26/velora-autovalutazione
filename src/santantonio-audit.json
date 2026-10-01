@@ -6,6 +6,7 @@
   "rooms": 24,
   "propertyType": "Hotel 3 stelle",
   "website": "https://www.santantonioalbergo.com/",
+  "bookingEngine": { "status": "not_found_in_page", "provider": "", "url": "", "mode": "percorso non rilevato", "evidence": "Nel campione del sito, il pulsante Prenota porta ai contatti; nessun percorso pubblico con calendario e checkout diretto verificato. Non prova assenza di strumenti interni." },
   "auditedAt": "2026-09-30",
   "reportPath": "reports/velora-audit-casa-albergo-santantonio-alberobello.pdf",
   "sources": {

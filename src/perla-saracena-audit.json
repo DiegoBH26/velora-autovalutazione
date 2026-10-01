@@ -7,6 +7,7 @@
   "capacity": "Fino a 58 ospiti dichiarati; numero attuale di camere/unità non verificato",
   "propertyType": "Hotel, suite e villette",
   "website": "https://www.perlasaracena.it/",
+  "bookingEngine": { "status": "provider_unknown", "provider": "", "url": "https://www.perlasaracena.it/hotel-perla-saracena-luxury-suites-restaurant.html", "mode": "selettore integrato nel sito", "evidence": "La pagina mostra selezione di date e tariffe datate; il nome del fornitore del motore non è identificabile con certezza dall'URL pubblico. Checkout finale non testato." },
   "auditedAt": "2026-10-01",
   "reportPath": "reports/velora-audit-perla-saracena-torre-pali.pdf",
   "sources": {
