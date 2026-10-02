@@ -4508,9 +4508,15 @@ export default function App() {
     setLocalPilotRunning(true);
     setLocalPilotMessage("Rilevazione in corso. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
-      const started = await fetch("/api/pilot/start", {
-        method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
-        body: JSON.stringify({ propertyId: activeAuditData.id, months }),
+      const started = await fetch(localAgentUrl("/api/pilot/start"), {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        body: JSON.stringify({
+          propertyId: activeAuditData.id,
+          months,
+          propertyData: { id: activeAuditData.id, name: activeAuditData.name, sources: activeAuditData.sources },
+        }),
       });
       if (!started.ok) {
         const body = await started.json() as { error?: string };
@@ -4518,7 +4524,7 @@ export default function App() {
       }
       for (let attempt = 0; attempt < 360; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const response = await fetch("/api/pilot/status", { cache: "no-store" });
+        const response = await fetch(localAgentUrl("/api/pilot/status"), { cache: "no-store", mode: "cors" });
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
@@ -5569,9 +5575,9 @@ export default function App() {
     const reportMonths = futureMonthKeys(reportToday);
     const reportChannels = activeAuditData.otaPresence;
     const monthlyTable = (channels: typeof reportChannels) => `<table><thead><tr><th>Mese</th>${channels.map((channel) => `<th>${safe(channel.platform)}</th>`).join("")}</tr></thead><tbody>${reportMonths.map((month) => `<tr><td><b>${safe(new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "short", year: "numeric", timeZone: "UTC" }))}</b></td>${channels.map((channel) => { const cell = monthlyRateCell(reportQuotes, month, channel.id); return `<td>${cell.average === null ? "n.d." : `<b>€ ${cell.average.toFixed(2)}</b><small>${cell.count} data/e${cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</small>`}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
-    const seededSamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+    const seededSamples = "monthlySamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.monthlySamples : [];
-    const seededComparisons = activeStructureId === perlaAudit.id && "comparisonSamples" in activeAuditData.pricingAudit
+    const seededComparisons = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const manualComparisons = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const numericPricingRows = [
@@ -5584,7 +5590,7 @@ export default function App() {
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
     const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Due adulti, tre notti per mese salvo agosto (cinque). Estremi delle tipologie quotate al piano meno caro del campione; non ADR, non media di tutte le date. Una sola villa su Booking non è un range dell'hotel.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, cancellazione, trattamento, imposte e pubblico. La data senza prezzo non prova chiusura stagionale; il campione diretto di agosto incontra un minimo di sette notti.</p>` : "";
     const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
-    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${(activeStructureId === santantonioAudit.id || activeStructureId === perlaAudit.id) ? safe(activeAuditData.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
+    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${safe(activeAuditData.pricingAudit.method)}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
     const bookingStatus = answers["audit-booking-engine"]?.auditStatus || "unverified";
     const bookingProvider = answers["audit-booking-engine-provider"]?.note || browserPilotResult?.bookingEngine?.provider || "Fornitore non identificato";
     const bookingUrl = answers["audit-booking-engine-url"]?.note || browserPilotResult?.bookingEngine?.url || "URL non disponibile";
@@ -5597,7 +5603,7 @@ export default function App() {
     const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
     const pilotRows = pilotChannelIds.map((otaId) => {
       const entries = pilotObservations.filter((item) => item.otaId === otaId);
-      const counts = [...new Set(entries.map((item) => item.status))].map((status) => `${pilotStatusLabels[status] || status}: ${entries.filter((item) => item.status === status).length}`).join("; ");
+      const counts = [...new Set<string>(entries.map((item) => item.status))].map((status) => `${pilotStatusLabels[status] || status}: ${entries.filter((item) => item.status === status).length}`).join("; ");
       const example = entries.find((item) => item.evidence)?.evidence || "Nessuna prova specifica disponibile.";
       const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || (otaId === "sito" ? "Sito diretto" : otaId);
       return `<tr><td><b>${safe(platform)}</b></td><td class="center">${entries.length}</td><td>${safe(counts)}</td><td>${safe(example)}</td></tr>`;
@@ -6285,12 +6291,14 @@ export default function App() {
       return;
     }
 
-    if (localPilotToken && window.location.hostname === "127.0.0.1" && window.location.port === "8768") {
+    if (localPilotToken) {
       try {
         const reportKind = isWebAudit ? "audit-web-frontend" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
         const filename = `velora-${reportKind}-${sanitizeFilename(ownerInfo.propertyName)}.pdf`;
-        const response = await fetch("/api/report/pdf", {
-          method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        const response = await fetch(localAgentUrl("/api/report/pdf"), {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
           body: JSON.stringify({ html, filename }),
         });
         if (!response.ok) {
@@ -6474,9 +6482,9 @@ export default function App() {
 
   function renderExternalWebAudit() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
-    const publishedMonthlySamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+    const publishedMonthlySamples = "monthlySamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.monthlySamples : [];
-    const publishedComparisonSamples = activeStructureId === perlaAudit.id && "comparisonSamples" in activeAuditData.pricingAudit
+    const publishedComparisonSamples = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const publishedRange = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
