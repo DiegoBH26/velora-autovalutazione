@@ -4573,7 +4573,7 @@ export default function App() {
       window.alert("Inserisci il sito ufficiale della struttura.");
       return;
     }
-    const token = localPilotToken || await connectLocalAgent(false);
+    const token = await connectLocalAgent(false);
     if (!token) {
       setAutoAuditMessage("L'agente locale non e' attivo. Avvialo sul PC e premi di nuovo Analizza struttura.");
       return;
@@ -4714,14 +4714,19 @@ export default function App() {
   }
 
   async function startLocalPilot(months: 1 | "all") {
-    if (!localPilotToken || localPilotRunning) return;
+    if (localPilotRunning) return;
+    const token = await connectLocalAgent(false);
+    if (!token) {
+      setLocalPilotMessage("L'agente locale non e' attivo. Avvialo sul PC e riprova.");
+      return;
+    }
     setLocalPilotRunning(true);
     setLocalPilotMessage("Rilevazione in corso. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
       const started = await fetch(localAgentUrl("/api/pilot/start"), {
         method: "POST",
         mode: "cors",
-        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": token },
         body: JSON.stringify({
           propertyId: activeAuditData.id,
           months,
@@ -6526,12 +6531,14 @@ export default function App() {
 
     if (localPilotToken) {
       try {
+        const token = await connectLocalAgent(true);
+        if (!token) throw new Error("Agente locale non disponibile.");
         const reportKind = isWebAudit ? "audit-web-frontend" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
         const filename = `velora-${reportKind}-${sanitizeFilename(ownerInfo.propertyName)}.pdf`;
         const response = await fetch(localAgentUrl("/api/report/pdf"), {
           method: "POST",
           mode: "cors",
-          headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+          headers: { "Content-Type": "application/json", "X-Velora-Local-Token": token },
           body: JSON.stringify({ html, filename }),
         });
         if (!response.ok) {
