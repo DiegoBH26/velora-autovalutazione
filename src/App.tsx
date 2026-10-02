@@ -4432,10 +4432,20 @@ export default function App() {
     try {
       const response = await fetch(localAgentUrl("/api/pilot/config"), { cache: "no-store", mode: "cors" });
       if (!response.ok) throw new Error("Agente locale non disponibile");
-      const config = await response.json() as { token?: string; agentVersion?: string; autoAudit?: boolean };
+      const config = await response.json() as {
+        token?: string;
+        agentVersion?: string;
+        autoAudit?: boolean;
+        catalog?: { loaded?: boolean; count?: number; websites?: number; emails?: number; fileName?: string; error?: string };
+      };
       if (!config.token) throw new Error("Token locale mancante");
       setLocalPilotToken(config.token);
-      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + ".");
+      const catalogLabel = config.catalog?.loaded
+        ? ` · Database locale: ${config.catalog.count || 0} strutture`
+        : config.catalog?.error
+          ? " · Database locale non leggibile"
+          : " · Database locale non caricato";
+      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + catalogLabel + ".");
       return config.token;
     } catch {
       setLocalPilotToken("");
