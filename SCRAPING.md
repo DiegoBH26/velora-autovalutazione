@@ -146,3 +146,21 @@ privacy/cookie, CIN visibili, servizi, fotografie, segnali mobile e booking
 engine quando rilevabile. I dati non dimostrabili restano **Non verificati**.
 Prezzi OTA, recensioni e parita' tariffaria richiedono gli adattatori dedicati
 e non vengono inventati.
+
+
+## Step 2: Booking.com, scheda OTA e candidati tariffari
+
+Il pilota locale ora prova anche a individuare automaticamente la scheda Booking.com
+della struttura quando non è già registrata. La ricerca usa nome struttura e città,
+confronta il nome visibile della scheda e salva la similarità e l'URL osservato.
+Se la corrispondenza non è abbastanza sicura, la scheda resta **Da verificare**.
+
+Quando la scheda Booking è disponibile, il pilota applica le date campione e prova a
+raccogliere righe che contengono insieme nome camera e prezzo. I valori vengono
+salvati come **candidati tariffari**, non come ADR e non come delta definitivo.
+Entrano nel report come evidenza descrittiva; non vengono usati automaticamente nel
+confronto numerico finché non sono verificati anche identità della stessa unità,
+tasse, cancellazione, trattamento e pubblico.
+
+Questo step non aggira CAPTCHA, login, blocchi o restrizioni del portale. Se Booking
+impedisce la verifica, Velora registra il motivo invece di inventare un prezzo.
