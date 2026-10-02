@@ -3471,7 +3471,33 @@ const ASSESSMENT_DATA: AssessmentMacro[] = [
 const STORAGE_KEY = "velora-owner-assessment-v2";
 const STRUCTURES_KEY = "velora-analyzed-structures-v1";
 const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
+const DELETED_STRUCTURES_KEY = "velora-deleted-structures-v1";
 const UI_STATE_KEY = "velora-ui-state-v1";
+
+function loadDeletedStructureIds(): Set<string> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DELETED_STRUCTURES_KEY) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function isStructureDeleted(id: string): boolean {
+  return loadDeletedStructureIds().has(id);
+}
+
+function markStructureDeleted(id: string) {
+  const deleted = loadDeletedStructureIds();
+  deleted.add(id);
+  window.localStorage.setItem(DELETED_STRUCTURES_KEY, JSON.stringify([...deleted]));
+}
+
+function unmarkStructureDeleted(id: string) {
+  const deleted = loadDeletedStructureIds();
+  if (!deleted.delete(id)) return;
+  window.localStorage.setItem(DELETED_STRUCTURES_KEY, JSON.stringify([...deleted]));
+}
 
 type PersistedUiState = {
   showStructures?: boolean;
@@ -3826,11 +3852,12 @@ function isAuditData(value: unknown): value is AuditData {
 function loadAnalyzedStructures(): AnalyzedStructure[] {
   const seed = santantonioStructure();
   const perlaSeed = auditSeedStructure(perlaAudit);
+  const deleted = loadDeletedStructureIds();
   try {
     const saved = JSON.parse(window.localStorage.getItem(STRUCTURES_KEY) || "[]");
-    if (!Array.isArray(saved)) return [seed, perlaSeed];
+    if (!Array.isArray(saved)) return [seed, perlaSeed].filter((item) => !deleted.has(item.id));
     const existing = saved.filter((item): item is AnalyzedStructure =>
-      Boolean(item && typeof item.id === "string" && item.ownerInfo && item.answers)
+      Boolean(item && typeof item.id === "string" && item.ownerInfo && item.answers && !deleted.has(item.id))
     );
     const migrated = existing.map((item) => {
       if (item.id !== seed.id) return item;
@@ -3845,10 +3872,14 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
       }
       return { ...item, answers, auditData: item.auditData ?? knownAuditData(item.id) ?? undefined, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
     });
-    const withSantAntonio = migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
-    return withSantAntonio.some((item) => item.id === perlaSeed.id) ? withSantAntonio : [...withSantAntonio, perlaSeed];
+    const withSantAntonio = deleted.has(seed.id) || migrated.some((item) => item.id === seed.id)
+      ? migrated
+      : [seed, ...migrated];
+    return deleted.has(perlaSeed.id) || withSantAntonio.some((item) => item.id === perlaSeed.id)
+      ? withSantAntonio
+      : [...withSantAntonio, perlaSeed];
   } catch {
-    return [seed, perlaSeed];
+    return [seed, perlaSeed].filter((item) => !deleted.has(item.id));
   }
 }
 
@@ -4452,7 +4483,7 @@ export default function App() {
         }
         if (!status.running && isAuditData(status.auditData)) {
           const auditId = status.auditData.id;
-          if (!structures.some((item) => item.id === auditId)) {
+          if (!isStructureDeleted(auditId) && !structures.some((item) => item.id === auditId)) {
             installAuditData(status.auditData);
             setAutoAuditMessage("Audit completato mentre eri fuori da Velora: risultato recuperato automaticamente.");
           }
@@ -4483,6 +4514,7 @@ export default function App() {
   }, [activeStructureId]);
 
   function installAuditData(parsed: AuditData) {
+    unmarkStructureDeleted(parsed.id);
     const seeded = auditSeedStructure(parsed);
     setStructures((previous) => {
       const index = previous.findIndex((item) => item.id === seeded.id);
@@ -4848,6 +4880,28 @@ export default function App() {
     setAuditSourceFilter("Tutte le fonti");
     setShowStructures(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function deleteStructure(structure: AnalyzedStructure) {
+    const confirmed = window.confirm(
+      `Eliminare “${structure.name}” da Strutture analizzate?\n\nLa scheda e i dati salvati in questo browser verranno rimossi. Potrai creare una nuova analisi in futuro.`
+    );
+    if (!confirmed) return;
+
+    markStructureDeleted(structure.id);
+    setStructures((previous) => previous.filter((item) => item.id !== structure.id));
+    window.localStorage.removeItem(`velora-browser-pilot:${structure.id}`);
+
+    if (activeStructureId === structure.id) {
+      setActiveStructureId(null);
+      window.localStorage.removeItem(ACTIVE_STRUCTURE_KEY);
+      setOwnerInfo(EMPTY_OWNER_INFO);
+      setAnswers({});
+      setRateQuotes([]);
+      setAvailabilityProbes([]);
+      setBrowserPilotResult(null);
+      setAssessmentMode("full");
+    }
   }
 
   function openStoredReport(structure: AnalyzedStructure) {
@@ -7135,6 +7189,17 @@ export default function App() {
                       Ripristina audit originale
                     </button>}
                     {structure.website && <a href={structure.website} target="_blank" rel="noreferrer" className="rounded-xl border border-[#E5DDF1] px-5 py-3 text-sm font-black hover:bg-[#FBF9FF]">Sito web</a>}
+                    <button
+                      type="button"
+                      onClick={() => deleteStructure(structure)}
+                      title={`Elimina ${structure.name}`}
+                      aria-label={`Elimina ${structure.name}`}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </article>
