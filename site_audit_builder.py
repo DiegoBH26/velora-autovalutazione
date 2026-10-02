@@ -317,8 +317,28 @@ def build_audit(payload, snaps, mobile):
     for c in checks.values():
         c["status"]="unverified"; c["evidence"]="Non verificato automaticamente in questa fase."; c["sources"]=["sito"]
     def setc(cid,status,evidence,src=None):
-        if cid in checks:
-            checks[cid]["status"]=status; checks[cid]["evidence"]=clean(evidence,700); checks[cid]["sources"]=src or ["sito"]
+        if cid not in checks:
+            return
+        observed = clean(evidence, 900)
+        if not observed.lower().startswith("esito:"):
+            label = {
+                "present": "Presente",
+                "partial": "Parziale",
+                "missing": "Non trovato",
+                "unverified": "Da verificare",
+                "not-applicable": "N/A",
+            }.get(status, status)
+            reason = {
+                "present": "il requisito è supportato da un riscontro osservabile nel campione analizzato.",
+                "partial": "il requisito è supportato solo in parte oppure manca un passaggio necessario per considerarlo completo.",
+                "missing": "nel campione analizzato non è stato rilevato il requisito richiesto.",
+                "unverified": "le evidenze raccolte non sono sufficienti per attribuire con sicurezza Presente, Parziale o Non trovato.",
+                "not-applicable": "il requisito non è applicabile al caso analizzato.",
+            }.get(status, "l'esito deriva dal riscontro riportato.")
+            observed = f"Esito: {label}. Riscontro osservato: {observed} Motivo dell'esito: {reason}"
+        checks[cid]["status"] = status
+        checks[cid]["evidence"] = clean(observed, 1200)
+        checks[cid]["sources"] = src or ["sito"]
     engine_status = (
         "present" if engine.get("status") == "provider_identified"
         else "partial" if engine.get("status") in {"provider_unknown", "request_only"}
