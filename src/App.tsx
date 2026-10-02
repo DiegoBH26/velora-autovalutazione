@@ -17,6 +17,12 @@ declare global {
 }
 
 type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
+type AuditData = typeof santantonioAudit | typeof perlaAudit;
+
+const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
+function localAgentUrl(path: string): string {
+  return window.location.hostname === "127.0.0.1" && window.location.port === "8768" ? path : LOCAL_AGENT_BASE + path;
+}
 
 type AuditStatus = "" | "present" | "partial" | "missing" | "unverified" | "not-applicable";
 
@@ -3499,6 +3505,7 @@ type AnalyzedStructure = {
   answers: Record<string, Answer>;
   rateQuotes?: RateQuote[];
   availabilityProbes?: AvailabilityProbe[];
+  auditData?: AuditData;
   assessmentMode: AssessmentMode;
   updatedAt: string;
 };
@@ -3670,7 +3677,7 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
   const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
   return { average, count: own.length, deltaPct, matched: pairs.length };
 }
-function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): AnalyzedStructure {
+function auditSeedStructure(data: AuditData): AnalyzedStructure {
   const sources = data.sources as Record<string, { label: string; url: string }>;
   const answers: Record<string, Answer> = {};
   for (const check of data.checks) {
@@ -3734,6 +3741,7 @@ function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): 
     answers,
     rateQuotes: [],
     availabilityProbes: [],
+    auditData: data,
     assessmentMode: "web-audit",
     updatedAt: data.auditedAt,
   };
@@ -3741,6 +3749,59 @@ function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): 
 
 function santantonioStructure(): AnalyzedStructure {
   return auditSeedStructure(santantonioAudit);
+}
+
+function knownAuditData(id: string | null | undefined): AuditData | null {
+  if (id === santantonioAudit.id) return santantonioAudit;
+  if (id === perlaAudit.id) return perlaAudit;
+  return null;
+}
+
+function blankAuditDataForStructure(structure: Pick<AnalyzedStructure, "id" | "name" | "city" | "province" | "rooms" | "website">): AuditData {
+  const template = JSON.parse(JSON.stringify(santantonioAudit)) as any;
+  template.id = structure.id;
+  template.name = structure.name || "Nuova struttura";
+  template.city = structure.city || "";
+  template.province = structure.province || "";
+  template.rooms = Number.parseInt(structure.rooms || "", 10) || 0;
+  template.propertyType = "Struttura ricettiva";
+  template.website = structure.website || "";
+  template.auditedAt = todayLocalIso();
+  template.reportPath = "";
+  template.sources = { sito: { label: "Sito ufficiale", url: structure.website || "" } };
+  template.bookingEngine = { status: "unverified", provider: "", url: "", mode: "", evidence: "Da verificare." };
+  template.otaPresence = template.otaPresence.map((channel: any) => ({
+    ...channel, status: "unverified", finding: "Da verificare su fonte pubblica.", source: "sito",
+  }));
+  template.pricingAudit = {
+    capturedAt: todayLocalIso(),
+    method: "Campionamento da eseguire: nessun prezzo viene stimato senza preventivo verificato.",
+    direct: "Non verificato.",
+    policies: template.otaPresence.map((channel: any) => ({ otaId: channel.id, plans: "Non verificato", promotions: "Non verificato", confidence: "Da verificare", source: "sito" })),
+    priceCalendar: { from: todayLocalIso(), through: "", status: "Non verificato", reason: "Da campionare.", metric: "Preventivo datato / notti", focus: "2 adulti; date campione omogenee." },
+  };
+  template.reviewInsights = { googleRating: "Non verificato", method: "Da verificare.", strengths: [], weaknesses: [] };
+  template.photoAssessment = { score: 0, method: "Da verificare.", strengths: "", gaps: "Non verificato.", actions: "Verificare gallery sito e OTA." };
+  delete template.reportNarrative;
+  template.checks = template.checks.map((check: any) => ({
+    ...check, status: "unverified", evidence: "Non ancora verificato.", sources: ["sito"],
+  }));
+  return template as AuditData;
+}
+
+function isAuditData(value: unknown): value is AuditData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return typeof data.id === "string"
+    && typeof data.name === "string"
+    && typeof data.website === "string"
+    && Array.isArray(data.checks)
+    && Array.isArray(data.otaPresence)
+    && Boolean(data.pricingAudit && typeof data.pricingAudit === "object")
+    && Boolean(data.bookingEngine && typeof data.bookingEngine === "object")
+    && Boolean(data.sources && typeof data.sources === "object")
+    && Boolean(data.reviewInsights && typeof data.reviewInsights === "object")
+    && Boolean(data.photoAssessment && typeof data.photoAssessment === "object");
 }
 
 function loadAnalyzedStructures(): AnalyzedStructure[] {
@@ -3763,7 +3824,7 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
           answers[id] = answer;
         }
       }
-      return { ...item, answers, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
+      return { ...item, answers, auditData: item.auditData ?? knownAuditData(item.id) ?? undefined, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
     });
     const withSantAntonio = migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
     return withSantAntonio.some((item) => item.id === perlaSeed.id) ? withSantAntonio : [...withSantAntonio, perlaSeed];
@@ -4252,6 +4313,9 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
+  const [autoAuditDraft, setAutoAuditDraft] = useState({ name: "", website: "", city: "", province: "", rooms: "" });
+  const [autoAuditRunning, setAutoAuditRunning] = useState(false);
+  const [autoAuditMessage, setAutoAuditMessage] = useState("");
   const [selectedRateCohort, setSelectedRateCohort] = useState("");
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
@@ -4272,13 +4336,36 @@ export default function App() {
 
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
-  const activeAuditData = activeStructureId === perlaAudit.id ? perlaAudit : santantonioAudit;
+  const activeStructure = structures.find((item) => item.id === activeStructureId);
+  const activeAuditData: AuditData = activeStructure?.auditData
+    ?? knownAuditData(activeStructureId)
+    ?? blankAuditDataForStructure({
+      id: activeStructureId || "bozza-corrente",
+      name: ownerInfo.propertyName || "Nuova struttura",
+      city: ownerInfo.city,
+      province: ownerInfo.province,
+      rooms: ownerInfo.rooms,
+      website: activeStructure?.website,
+    });
+
+  async function connectLocalAgent(silent = false): Promise<string> {
+    try {
+      const response = await fetch(localAgentUrl("/api/pilot/config"), { cache: "no-store", mode: "cors" });
+      if (!response.ok) throw new Error("Agente locale non disponibile");
+      const config = await response.json() as { token?: string; agentVersion?: string; autoAudit?: boolean };
+      if (!config.token) throw new Error("Token locale mancante");
+      setLocalPilotToken(config.token);
+      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + ".");
+      return config.token;
+    } catch {
+      setLocalPilotToken("");
+      if (!silent) setLocalPilotMessage("Avvia l'agente Velora sul PC e consenti al browser l'accesso alla rete locale/loopback, poi riprova.");
+      return "";
+    }
+  }
 
   useEffect(() => {
-    if (window.location.hostname !== "127.0.0.1" || window.location.port !== "8768") return;
-    fetch("/api/pilot/config").then((response) => response.json()).then((config: { token?: string }) => {
-      setLocalPilotToken(config.token || "");
-    }).catch(() => setLocalPilotMessage("Il servizio di rilevazione locale non risponde."));
+    void connectLocalAgent(true);
   }, []);
 
   useEffect(() => {
@@ -4294,6 +4381,97 @@ export default function App() {
       setBrowserPilotResult(null);
     }
   }, [activeStructureId]);
+
+  function installAuditData(parsed: AuditData) {
+    const seeded = auditSeedStructure(parsed);
+    setStructures((previous) => {
+      const index = previous.findIndex((item) => item.id === seeded.id);
+      if (index < 0) return [...previous, seeded];
+      const next = [...previous];
+      next[index] = seeded;
+      return next;
+    });
+    setActiveStructureId(seeded.id);
+    window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, seeded.id);
+    setOwnerInfo(seeded.ownerInfo);
+    setAnswers(seeded.answers);
+    setRateQuotes([]);
+    setAvailabilityProbes([]);
+    setSelectedRateCohort("");
+    setAssessmentMode("web-audit");
+    setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
+    setSearchTerm("");
+    setAuditSourceFilter("Tutte le fonti");
+    setShowStructures(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return seeded;
+  }
+
+  async function startAutomaticAudit() {
+    if (autoAuditRunning) return;
+    const website = autoAuditDraft.website.trim();
+    if (!website) {
+      window.alert("Inserisci il sito ufficiale della struttura.");
+      return;
+    }
+    const token = localPilotToken || await connectLocalAgent(false);
+    if (!token) {
+      setAutoAuditMessage("L'agente locale non e' attivo. Avvialo sul PC e premi di nuovo Analizza struttura.");
+      return;
+    }
+    setAutoAuditRunning(true);
+    setAutoAuditMessage("Avvio audit: sto leggendo il sito ufficiale e preparando la scheda Velora...");
+    try {
+      const response = await fetch(localAgentUrl("/api/audit/start"), {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": token },
+        body: JSON.stringify(autoAuditDraft),
+      });
+      if (!response.ok) {
+        const body = await response.json() as { error?: string };
+        throw new Error(body.error || "Avvio audit non riuscito");
+      }
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const statusResponse = await fetch(localAgentUrl("/api/audit/status"), { cache: "no-store", mode: "cors" });
+        if (!statusResponse.ok) throw new Error("Impossibile leggere lo stato dell'audit automatico.");
+        const status = await statusResponse.json() as { running?: boolean; error?: string; message?: string; auditData?: unknown };
+        setAutoAuditMessage(status.message || (status.running ? "Analisi in corso..." : "Elaborazione completata."));
+        if (!status.running) {
+          if (status.error) throw new Error(status.error);
+          if (!isAuditData(status.auditData)) throw new Error("L'agente non ha restituito un audit Velora valido.");
+          const seeded = installAuditData(status.auditData);
+          setAutoAuditDraft({ name: "", website: "", city: "", province: "", rooms: "" });
+          setAutoAuditMessage("Audit iniziale creato per " + seeded.name + ". Completa OTA, recensioni e prezzi futuri prima del report definitivo.");
+          return;
+        }
+      }
+      throw new Error("Tempo massimo dell'audit automatico superato.");
+    } catch (error) {
+      setAutoAuditMessage(error instanceof Error ? error.message : "Errore durante l'audit automatico.");
+    } finally {
+      setAutoAuditRunning(false);
+    }
+  }
+
+  async function importAuditDataset(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 10_000_000) {
+      window.alert("Il file audit e' troppo grande (massimo 10 MB).");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isAuditData(parsed)) throw new Error("JSON audit Velora non valido.");
+      const seeded = installAuditData(parsed);
+      window.alert("Audit importato: " + seeded.name + ". La struttura e' ora disponibile nell'archivio di questo browser.");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Impossibile importare il JSON audit.");
+    }
+  }
 
   async function importBrowserPilotResult(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -4330,9 +4508,15 @@ export default function App() {
     setLocalPilotRunning(true);
     setLocalPilotMessage("Rilevazione in corso. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
-      const started = await fetch("/api/pilot/start", {
-        method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
-        body: JSON.stringify({ propertyId: activeAuditData.id, months }),
+      const started = await fetch(localAgentUrl("/api/pilot/start"), {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        body: JSON.stringify({
+          propertyId: activeAuditData.id,
+          months,
+          propertyData: { id: activeAuditData.id, name: activeAuditData.name, sources: activeAuditData.sources },
+        }),
       });
       if (!started.ok) {
         const body = await started.json() as { error?: string };
@@ -4340,7 +4524,7 @@ export default function App() {
       }
       for (let attempt = 0; attempt < 360; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const response = await fetch("/api/pilot/status", { cache: "no-store" });
+        const response = await fetch(localAgentUrl("/api/pilot/status"), { cache: "no-store", mode: "cors" });
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
@@ -5391,9 +5575,9 @@ export default function App() {
     const reportMonths = futureMonthKeys(reportToday);
     const reportChannels = activeAuditData.otaPresence;
     const monthlyTable = (channels: typeof reportChannels) => `<table><thead><tr><th>Mese</th>${channels.map((channel) => `<th>${safe(channel.platform)}</th>`).join("")}</tr></thead><tbody>${reportMonths.map((month) => `<tr><td><b>${safe(new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "short", year: "numeric", timeZone: "UTC" }))}</b></td>${channels.map((channel) => { const cell = monthlyRateCell(reportQuotes, month, channel.id); return `<td>${cell.average === null ? "n.d." : `<b>€ ${cell.average.toFixed(2)}</b><small>${cell.count} data/e${cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</small>`}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
-    const seededSamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+    const seededSamples = "monthlySamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.monthlySamples : [];
-    const seededComparisons = activeStructureId === perlaAudit.id && "comparisonSamples" in activeAuditData.pricingAudit
+    const seededComparisons = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const manualComparisons = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const numericPricingRows = [
@@ -5406,7 +5590,7 @@ export default function App() {
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
     const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Due adulti, tre notti per mese salvo agosto (cinque). Estremi delle tipologie quotate al piano meno caro del campione; non ADR, non media di tutte le date. Una sola villa su Booking non è un range dell'hotel.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, cancellazione, trattamento, imposte e pubblico. La data senza prezzo non prova chiusura stagionale; il campione diretto di agosto incontra un minimo di sette notti.</p>` : "";
     const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
-    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${(activeStructureId === santantonioAudit.id || activeStructureId === perlaAudit.id) ? safe(activeAuditData.pricingAudit.method) : "Annotare fonte e data per ogni riscontro."}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
+    const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${safe(activeAuditData.pricingAudit.method)}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
     const bookingStatus = answers["audit-booking-engine"]?.auditStatus || "unverified";
     const bookingProvider = answers["audit-booking-engine-provider"]?.note || browserPilotResult?.bookingEngine?.provider || "Fornitore non identificato";
     const bookingUrl = answers["audit-booking-engine-url"]?.note || browserPilotResult?.bookingEngine?.url || "URL non disponibile";
@@ -5419,7 +5603,7 @@ export default function App() {
     const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
     const pilotRows = pilotChannelIds.map((otaId) => {
       const entries = pilotObservations.filter((item) => item.otaId === otaId);
-      const counts = [...new Set(entries.map((item) => item.status))].map((status) => `${pilotStatusLabels[status] || status}: ${entries.filter((item) => item.status === status).length}`).join("; ");
+      const counts = [...new Set<string>(entries.map((item) => item.status))].map((status) => `${pilotStatusLabels[status] || status}: ${entries.filter((item) => item.status === status).length}`).join("; ");
       const example = entries.find((item) => item.evidence)?.evidence || "Nessuna prova specifica disponibile.";
       const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || (otaId === "sito" ? "Sito diretto" : otaId);
       return `<tr><td><b>${safe(platform)}</b></td><td class="center">${entries.length}</td><td>${safe(counts)}</td><td>${safe(example)}</td></tr>`;
@@ -6107,12 +6291,14 @@ export default function App() {
       return;
     }
 
-    if (localPilotToken && window.location.hostname === "127.0.0.1" && window.location.port === "8768") {
+    if (localPilotToken) {
       try {
         const reportKind = isWebAudit ? "audit-web-frontend" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
         const filename = `velora-${reportKind}-${sanitizeFilename(ownerInfo.propertyName)}.pdf`;
-        const response = await fetch("/api/report/pdf", {
-          method: "POST", headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        const response = await fetch(localAgentUrl("/api/report/pdf"), {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
           body: JSON.stringify({ html, filename }),
         });
         if (!response.ok) {
@@ -6296,9 +6482,9 @@ export default function App() {
 
   function renderExternalWebAudit() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
-    const publishedMonthlySamples = activeStructureId === perlaAudit.id && "monthlySamples" in activeAuditData.pricingAudit
+    const publishedMonthlySamples = "monthlySamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.monthlySamples : [];
-    const publishedComparisonSamples = activeStructureId === perlaAudit.id && "comparisonSamples" in activeAuditData.pricingAudit
+    const publishedComparisonSamples = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const publishedRange = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
@@ -6476,7 +6662,10 @@ export default function App() {
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Per ora non acquisisce preventivi numerici completi: un portale bloccato, una data non confermata o un adattatore mancante rimangono “non verificati”, mai prezzo zero. Importa il JSON prodotto sul PC per includere gli esiti nel PDF generato qui sotto.</p>
-            {localPilotToken && <div className="mt-3 flex flex-wrap gap-2">
+            {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
+              <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
+            </div> : <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot(1)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Prova un mese</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all")} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Verifica mesi futuri fino a fine anno prossimo</button>
             </div>}
@@ -6763,11 +6952,62 @@ export default function App() {
                   Apri la scheda compilata per consultare o aggiornare i riscontri. Il PDF disponibile è il report alla data indicata.
                 </p>
               </div>
-              <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
-                Torna al questionario
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <label className="inline-flex cursor-pointer items-center rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+                  Importa audit JSON
+                  <input type="file" accept=".json,application/json" onChange={importAuditDataset} className="sr-only" />
+                </label>
+                <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
+                  Torna al questionario
+                </button>
+              </div>
             </div>
           </section>
+          <section className="mt-5 rounded-[2rem] border border-[#C8A96B]/50 bg-[#FFFDF7] p-6 shadow-sm md:p-7">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Nuovo audit automatico</p>
+                <h2 className="mt-1 text-2xl font-black text-[#23124A]">Parti dal sito ufficiale</h2>
+                <p className="mt-2 text-sm leading-6 text-[#50627F]">
+                  Velora online invia il sito all'agente gratuito sul tuo PC. Il browser locale legge le pagine pubbliche, crea la nuova struttura e compila automaticamente i riscontri dimostrabili. OTA, recensioni e prezzi futuri restano separati finche' non vengono verificati.
+                </p>
+              </div>
+              <div className={"rounded-full px-3 py-1.5 text-xs font-black " + (localPilotToken ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
+                {localPilotToken ? "Agente locale collegato" : "Agente locale da collegare"}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-6">
+              <label className="lg:col-span-2">
+                <span className="text-[11px] font-black text-[#23124A]">Nome struttura <span className="font-semibold text-[#718096]">(opzionale)</span></span>
+                <input value={autoAuditDraft.name} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Es. Hotel Aurora" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label className="lg:col-span-4">
+                <span className="text-[11px] font-black text-[#23124A]">Sito ufficiale *</span>
+                <input value={autoAuditDraft.website} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, website: event.target.value }))} placeholder="https://www.struttura.it" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-[11px] font-black text-[#23124A]">Citta' <span className="font-semibold text-[#718096]">(opzionale)</span></span>
+                <input value={autoAuditDraft.city} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, city: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label>
+                <span className="text-[11px] font-black text-[#23124A]">Provincia</span>
+                <input value={autoAuditDraft.province} maxLength={2} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, province: event.target.value.toUpperCase() }))} placeholder="LE" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold uppercase outline-none focus:border-[#23124A]" />
+              </label>
+              <label>
+                <span className="text-[11px] font-black text-[#23124A]">Camere / unita'</span>
+                <input value={autoAuditDraft.rooms} inputMode="numeric" onChange={(event) => setAutoAuditDraft((current) => ({ ...current, rooms: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="Es. 12" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <div className="flex items-end gap-2 lg:col-span-2">
+                {!localPilotToken && <button type="button" onClick={() => void connectLocalAgent(false)} className="h-11 rounded-xl border border-[#C8A96B] bg-white px-4 text-xs font-black text-[#23124A] hover:bg-[#FFF8E8]">Collega agente</button>}
+                <button type="button" disabled={autoAuditRunning || !autoAuditDraft.website.trim()} onClick={() => void startAutomaticAudit()} className="h-11 flex-1 rounded-xl bg-[#23124A] px-5 text-sm font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-50">
+                  {autoAuditRunning ? "Analisi in corso..." : "Analizza struttura"}
+                </button>
+              </div>
+            </div>
+            {(autoAuditMessage || localPilotMessage) && <p className="mt-3 rounded-xl bg-white px-4 py-3 text-xs font-semibold leading-5 text-[#50627F] ring-1 ring-[#E5DDF1]" role="status">{autoAuditMessage || localPilotMessage}</p>}
+          </section>
+
           <div className="mt-5 grid gap-4">
             {structures.map((structure) => (
               <article key={structure.id} className="rounded-[1.7rem] border border-[#E5DDF1] bg-white p-5 shadow-sm md:p-6">
@@ -6800,7 +7040,7 @@ export default function App() {
               </article>
             ))}
           </div>
-          <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche alle schede restano salvate in questo browser. Le strutture del prossimo elenco saranno aggiunte al catalogo quando riceverò il file con città, provincia e numero di camere.</p>
+          <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche e le nuove strutture restano salvate in questo browser. Per l&apos;audit automatico il software online usa l&apos;agente gratuito sullo stesso PC; i dati non verificabili restano marcati come tali.</p>
         </div>
       </main>
     );

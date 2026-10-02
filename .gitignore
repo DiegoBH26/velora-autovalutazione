@@ -13,3 +13,4 @@ supabase/.temp/
 dati_strutture*.csv
 dati_strutture_pilot*.json
 input_strutture.txt
+tmp/
