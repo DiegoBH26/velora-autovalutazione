@@ -6662,7 +6662,10 @@ export default function App() {
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Per ora non acquisisce preventivi numerici completi: un portale bloccato, una data non confermata o un adattatore mancante rimangono “non verificati”, mai prezzo zero. Importa il JSON prodotto sul PC per includere gli esiti nel PDF generato qui sotto.</p>
-            {localPilotToken && <div className="mt-3 flex flex-wrap gap-2">
+            {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
+              <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
+            </div> : <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot(1)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Prova un mese</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all")} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Verifica mesi futuri fino a fine anno prossimo</button>
             </div>}
@@ -6949,11 +6952,62 @@ export default function App() {
                   Apri la scheda compilata per consultare o aggiornare i riscontri. Il PDF disponibile è il report alla data indicata.
                 </p>
               </div>
-              <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
-                Torna al questionario
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <label className="inline-flex cursor-pointer items-center rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+                  Importa audit JSON
+                  <input type="file" accept=".json,application/json" onChange={importAuditDataset} className="sr-only" />
+                </label>
+                <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
+                  Torna al questionario
+                </button>
+              </div>
             </div>
           </section>
+          <section className="mt-5 rounded-[2rem] border border-[#C8A96B]/50 bg-[#FFFDF7] p-6 shadow-sm md:p-7">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Nuovo audit automatico</p>
+                <h2 className="mt-1 text-2xl font-black text-[#23124A]">Parti dal sito ufficiale</h2>
+                <p className="mt-2 text-sm leading-6 text-[#50627F]">
+                  Velora online invia il sito all'agente gratuito sul tuo PC. Il browser locale legge le pagine pubbliche, crea la nuova struttura e compila automaticamente i riscontri dimostrabili. OTA, recensioni e prezzi futuri restano separati finche' non vengono verificati.
+                </p>
+              </div>
+              <div className={"rounded-full px-3 py-1.5 text-xs font-black " + (localPilotToken ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
+                {localPilotToken ? "Agente locale collegato" : "Agente locale da collegare"}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-6">
+              <label className="lg:col-span-2">
+                <span className="text-[11px] font-black text-[#23124A]">Nome struttura <span className="font-semibold text-[#718096]">(opzionale)</span></span>
+                <input value={autoAuditDraft.name} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Es. Hotel Aurora" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label className="lg:col-span-4">
+                <span className="text-[11px] font-black text-[#23124A]">Sito ufficiale *</span>
+                <input value={autoAuditDraft.website} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, website: event.target.value }))} placeholder="https://www.struttura.it" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-[11px] font-black text-[#23124A]">Citta' <span className="font-semibold text-[#718096]">(opzionale)</span></span>
+                <input value={autoAuditDraft.city} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, city: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <label>
+                <span className="text-[11px] font-black text-[#23124A]">Provincia</span>
+                <input value={autoAuditDraft.province} maxLength={2} onChange={(event) => setAutoAuditDraft((current) => ({ ...current, province: event.target.value.toUpperCase() }))} placeholder="LE" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold uppercase outline-none focus:border-[#23124A]" />
+              </label>
+              <label>
+                <span className="text-[11px] font-black text-[#23124A]">Camere / unita'</span>
+                <input value={autoAuditDraft.rooms} inputMode="numeric" onChange={(event) => setAutoAuditDraft((current) => ({ ...current, rooms: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="Es. 12" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
+              </label>
+              <div className="flex items-end gap-2 lg:col-span-2">
+                {!localPilotToken && <button type="button" onClick={() => void connectLocalAgent(false)} className="h-11 rounded-xl border border-[#C8A96B] bg-white px-4 text-xs font-black text-[#23124A] hover:bg-[#FFF8E8]">Collega agente</button>}
+                <button type="button" disabled={autoAuditRunning || !autoAuditDraft.website.trim()} onClick={() => void startAutomaticAudit()} className="h-11 flex-1 rounded-xl bg-[#23124A] px-5 text-sm font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-50">
+                  {autoAuditRunning ? "Analisi in corso..." : "Analizza struttura"}
+                </button>
+              </div>
+            </div>
+            {(autoAuditMessage || localPilotMessage) && <p className="mt-3 rounded-xl bg-white px-4 py-3 text-xs font-semibold leading-5 text-[#50627F] ring-1 ring-[#E5DDF1]" role="status">{autoAuditMessage || localPilotMessage}</p>}
+          </section>
+
           <div className="mt-5 grid gap-4">
             {structures.map((structure) => (
               <article key={structure.id} className="rounded-[1.7rem] border border-[#E5DDF1] bg-white p-5 shadow-sm md:p-6">
@@ -6986,7 +7040,7 @@ export default function App() {
               </article>
             ))}
           </div>
-          <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche alle schede restano salvate in questo browser. Le strutture del prossimo elenco saranno aggiunte al catalogo quando riceverò il file con città, provincia e numero di camere.</p>
+          <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche e le nuove strutture restano salvate in questo browser. Per l&apos;audit automatico il software online usa l&apos;agente gratuito sullo stesso PC; i dati non verificabili restano marcati come tali.</p>
         </div>
       </main>
     );
