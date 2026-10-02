@@ -457,12 +457,17 @@ async def discover_booking_source(context, property_name: str, city: str, robots
           return result;
         }""")
         scored = []
-        city_lower = (city or "").strip().lower()
         for item in cards:
-            score = _name_similarity(property_name, str(item.get("title", "")))
-            if city_lower and city_lower in str(item.get("text", "")).lower():
-                score = min(1.0, score + 0.08)
-            scored.append((score, item))
+            raw_url=str(item.get("href", ""))
+            score,path_slug,text_score,url_score,reasons = _identity_match_score(
+                property_name,
+                city,
+                address,
+                str(item.get("title", "")),
+                str(item.get("text", "")),
+                raw_url,
+            )
+            scored.append((score, item, path_slug, text_score, url_score, reasons))
         scored.sort(key=lambda row: row[0], reverse=True)
         if not scored:
             direct = await discover_booking_via_direct_candidates(context, property_name, city, robots)
@@ -488,26 +493,48 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 "searchUrl": search_url,
             }
 
-        score, item = scored[0]
+        score, item, path_slug, text_score, url_score, reasons = scored[0]
         clean_url = urlunparse(urlparse(str(item.get("href", "")))._replace(query="", fragment=""))
+        raw_title=str(item.get("title", "")).strip()
+        display_title=raw_title if raw_title.lower() not in {"", "hotel", "booking.com"} else path_slug
         if score >= 0.68:
             return {
-                "status": "found", "url": clean_url, "title": str(item.get("title", ""))[:220],
+                "status": "found", "url": clean_url, "title": display_title[:220],
                 "score": round(score, 3),
                 "evidence": (
-                    f"Booking.com: trovata la scheda «{item.get('title', '')}» nella ricerca «{property_name}{' ' + city if city else ''}». "
-                    f"Similarità nome {score:.0%}. URL osservato: {clean_url}"
+                    f"Booking.com: candidato trovato nella ricerca «{property_name}{' ' + city if city else ''}». "
+                    f"Match identità {score:.0%}: {reasons}. URL osservato: {clean_url}"
                 )[:900],
                 "searchUrl": search_url,
+                "discoveryMode": "Booking internal search + identity match",
             }
+
+        # Un risultato interno generico (es. link «Hotel») non deve chiudere la discovery.
+        # Prova i candidati diretti e poi i motori pubblici usando anche indirizzo/sito.
+        direct = await discover_booking_via_direct_candidates(context, property_name, city, robots)
+        if direct.get("status") == "found":
+            direct["evidence"] = (
+                f"Il miglior risultato della ricerca Booking aveva match identità {score:.0%} ({reasons}); "
+                + str(direct.get("evidence") or "")
+            )[:900]
+            return direct
+        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
+        if fallback.get("status") == "found":
+            fallback["evidence"] = (
+                f"Il miglior risultato della ricerca Booking aveva match identità {score:.0%} ({reasons}); "
+                + str(fallback.get("evidence") or "")
+            )[:900]
+            return fallback
         return {
-            "status": "needs_review", "url": clean_url, "title": str(item.get("title", ""))[:220],
+            "status": "needs_review", "url": clean_url, "title": display_title[:220],
             "score": round(score, 3),
             "evidence": (
-                f"Booking.com: il risultato più vicino è «{item.get('title', '')}», ma la similarità ({score:.0%}) "
-                "non è sufficiente per attribuire automaticamente la scheda alla struttura."
+                f"Booking.com: candidato interno «{display_title}» con match identità {score:.0%} ({reasons}), "
+                "non sufficiente. Anche i controlli alternativi non hanno trovato una scheda attribuibile con certezza. "
+                + str(fallback.get("evidence") or "")
             )[:900],
             "searchUrl": search_url,
+            "discoveryMode": "identity fallback exhausted",
         }
     except Exception as exc:
         return {"status": "navigation_error", "url": "", "title": "", "score": 0.0,
@@ -707,6 +734,17 @@ async def run(args: argparse.Namespace) -> dict:
                 )
                 if discovery.get("status") == "found" and discovery.get("url"):
                     sources["booking"] = {"label": "Booking.com", "url": discovery["url"]}
+                    try:
+                        property_path=Path(args.property)
+                        if property_path.parent.name=="runtime-properties":
+                            data["sources"]=sources
+                            tmp_property=property_path.with_suffix(".tmp")
+                            tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                            tmp_property.replace(property_path)
+                            discovery["saved"]=True
+                            discovery["evidence"]=(str(discovery.get("evidence") or "")+" Scheda Booking registrata localmente per i controlli successivi.")[:900]
+                    except OSError:
+                        discovery["saved"]=False
             else:
                 result["discoveredSources"]["booking"] = {
                     "status": "existing", "url": sources["booking"]["url"], "title": "",
