@@ -6791,7 +6791,7 @@ export default function App() {
               <b>Riscontro della prova locale:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
               <button type="button" onClick={() => {
                 const found = browserPilotResult.bookingEngine!;
-                updateAnswer("audit-booking-engine", { auditStatus: found.status === "provider_identified" ? "present" : found.status === "provider_unknown" ? "partial" : found.status === "not_found_in_page" ? "missing" : "unverified" });
+                updateAnswer("audit-booking-engine", { auditStatus: found.status === "provider_identified" ? "present" : found.status === "provider_unknown" || found.status === "request_only" ? "partial" : "unverified" });
                 updateAnswer("audit-booking-engine-provider", { note: found.provider });
                 updateAnswer("audit-booking-engine-url", { note: found.url });
                 updateAnswer("audit-booking-engine-mode", { note: found.mode });
