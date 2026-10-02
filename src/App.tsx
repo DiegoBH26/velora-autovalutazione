@@ -4730,7 +4730,13 @@ export default function App() {
         body: JSON.stringify({
           propertyId: activeAuditData.id,
           months,
-          propertyData: { id: activeAuditData.id, name: activeAuditData.name, sources: activeAuditData.sources },
+          propertyData: {
+            id: activeAuditData.id,
+            name: activeAuditData.name,
+            city: activeAuditData.city,
+            province: activeAuditData.province,
+            sources: activeAuditData.sources,
+          },
         }),
       });
       if (!started.ok) {
