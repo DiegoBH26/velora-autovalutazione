@@ -12,6 +12,8 @@ import argparse
 import asyncio
 import json
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -30,6 +32,11 @@ BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
 )
+PRICE_RE = re.compile(r"(?:€|EUR)\s*([0-9]{1,5}(?:[.,][0-9]{2})?)|([0-9]{1,5}(?:[.,][0-9]{2})?)\s*(?:€|EUR)", re.I)
+GENERIC_NAME_WORDS = {
+    "hotel", "aparthotel", "resort", "b&b", "bb", "bed", "breakfast", "apartments",
+    "apartment", "appartamenti", "appartamento", "rooms", "room", "suite", "suites",
+}
 
 
 def monthly_plan(today: date, end_year: int | None = None, limit: int | None = None) -> list[dict]:
@@ -99,6 +106,209 @@ def visible_dates_confirmed(text: str, stay: dict) -> bool:
     return any(value in lowered for value in forms(start)) and any(value in lowered for value in forms(end))
 
 
+def _norm_name(value: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii").lower()
+    tokens = [token for token in re.findall(r"[a-z0-9]+", ascii_text) if token not in GENERIC_NAME_WORDS]
+    return " ".join(tokens)
+
+
+def _name_similarity(expected: str, observed: str) -> float:
+    left, right = _norm_name(expected), _norm_name(observed)
+    if not left or not right:
+        return 0.0
+    ratio = SequenceMatcher(None, left, right).ratio()
+    left_tokens, right_tokens = set(left.split()), set(right.split())
+    overlap = len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
+    containment = len(left_tokens & right_tokens) / max(1, min(len(left_tokens), len(right_tokens)))
+    return max(ratio, 0.55 * overlap + 0.45 * containment)
+
+
+async def dismiss_cookie(page) -> str:
+    for selector in (
+        "button:has-text('Accetta tutti')", "button:has-text('Accetta')",
+        "button:has-text('Accept all')", "button:has-text('Accept')",
+        "[id*='accept']", "[data-testid*='accept']",
+    ):
+        try:
+            node = page.locator(selector).first
+            if await node.count() and await node.is_visible(timeout=250):
+                label = re.sub(r"\s+", " ", (await node.inner_text(timeout=500)) or selector)[:80]
+                await node.click(timeout=1000)
+                await page.wait_for_timeout(250)
+                return label
+        except Exception:
+            pass
+    return ""
+
+
+def booking_search_url(property_name: str, city: str = "") -> str:
+    query = " ".join(part for part in (property_name.strip(), city.strip()) if part)
+    return "https://www.booking.com/searchresults.it.html?" + urlencode({
+        "ss": query,
+        "group_adults": "2",
+        "no_rooms": "1",
+        "group_children": "0",
+    })
+
+
+async def discover_booking_source(context, property_name: str, city: str, robots: dict) -> dict:
+    search_url = booking_search_url(property_name, city)
+    permission = await asyncio.to_thread(allowed_by_robots, search_url, robots)
+    if permission is not True:
+        return {
+            "status": "robots_denied" if permission is False else "robots_unavailable",
+            "url": "", "title": "", "score": 0.0,
+            "evidence": "Ricerca Booking.com non eseguita: robots.txt nega o non chiarisce l'accesso automatico.",
+            "searchUrl": search_url,
+        }
+
+    page = await context.new_page()
+    try:
+        response = await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(1800)
+        await dismiss_cookie(page)
+        body = (await page.locator("body").inner_text(timeout=7000))[:20000]
+        lowered = body.lower()
+        if response and response.status >= 400:
+            return {"status": "http_error", "url": "", "title": "", "score": 0.0,
+                    "evidence": f"Ricerca Booking.com: HTTP {response.status}.", "searchUrl": search_url}
+        if any(word in lowered for word in BLOCK_WORDS):
+            return {"status": "blocked", "url": "", "title": "", "score": 0.0,
+                    "evidence": "Booking.com ha mostrato una pagina di verifica/blocco; nessun aggiramento tentato.",
+                    "searchUrl": search_url}
+
+        cards = await page.evaluate("""() => {
+          const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
+          const result = [];
+          const seen = new Set();
+          const cardNodes = Array.from(document.querySelectorAll('[data-testid="property-card"]'));
+          for (const card of cardNodes.slice(0, 40)) {
+            const link = card.querySelector('a[data-testid="title-link"], a[href*="/hotel/"]');
+            const titleNode = card.querySelector('[data-testid="title"], [data-testid="property-title"], h3');
+            const href = link ? abs(link.getAttribute('href') || '') : '';
+            const title = (titleNode?.textContent || link?.textContent || '').replace(/\s+/g,' ').trim();
+            const text = (card.innerText || '').replace(/\s+/g,' ').trim().slice(0, 1200);
+            if (href && title && !seen.has(href)) { seen.add(href); result.push({href, title, text}); }
+          }
+          if (!result.length) {
+            for (const link of Array.from(document.querySelectorAll('a[href*="/hotel/"]')).slice(0, 80)) {
+              const href = abs(link.getAttribute('href') || '');
+              const title = (link.textContent || link.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim();
+              if (href && title && !seen.has(href)) { seen.add(href); result.push({href, title, text: title}); }
+            }
+          }
+          return result;
+        }""")
+        scored = []
+        city_lower = (city or "").strip().lower()
+        for item in cards:
+            score = _name_similarity(property_name, str(item.get("title", "")))
+            if city_lower and city_lower in str(item.get("text", "")).lower():
+                score = min(1.0, score + 0.08)
+            scored.append((score, item))
+        scored.sort(key=lambda row: row[0], reverse=True)
+        if not scored:
+            return {
+                "status": "not_found_in_search", "url": "", "title": "", "score": 0.0,
+                "evidence": f"Ricerca Booking.com eseguita per «{property_name}{' ' + city if city else ''}»: nessuna scheda struttura riconoscibile nel risultato visibile.",
+                "searchUrl": search_url,
+            }
+
+        score, item = scored[0]
+        clean_url = urlunparse(urlparse(str(item.get("href", "")))._replace(query="", fragment=""))
+        if score >= 0.68:
+            return {
+                "status": "found", "url": clean_url, "title": str(item.get("title", ""))[:220],
+                "score": round(score, 3),
+                "evidence": (
+                    f"Booking.com: trovata la scheda «{item.get('title', '')}» nella ricerca «{property_name}{' ' + city if city else ''}». "
+                    f"Similarità nome {score:.0%}. URL osservato: {clean_url}"
+                )[:900],
+                "searchUrl": search_url,
+            }
+        return {
+            "status": "needs_review", "url": clean_url, "title": str(item.get("title", ""))[:220],
+            "score": round(score, 3),
+            "evidence": (
+                f"Booking.com: il risultato più vicino è «{item.get('title', '')}», ma la similarità ({score:.0%}) "
+                "non è sufficiente per attribuire automaticamente la scheda alla struttura."
+            )[:900],
+            "searchUrl": search_url,
+        }
+    except Exception as exc:
+        return {"status": "navigation_error", "url": "", "title": "", "score": 0.0,
+                "evidence": f"Ricerca Booking.com non completata: {type(exc).__name__}: {str(exc)[:180]}",
+                "searchUrl": search_url}
+    finally:
+        await page.close()
+
+
+def _money_value(text: str) -> float | None:
+    match = PRICE_RE.search(text or "")
+    if not match:
+        return None
+    raw = (match.group(1) or match.group(2) or "").replace(".", "").replace(",", ".")
+    try:
+        value = float(raw)
+        return value if value > 0 else None
+    except ValueError:
+        return None
+
+
+async def booking_quote_candidates(page, stay: dict) -> list[dict]:
+    """Raccoglie candidati leggibili nella stessa riga camera/prezzo; non li dichiara ADR."""
+    rows = await page.evaluate("""() => {
+      const result = [];
+      const selectors = ['#hprt-table tbody tr', '[data-testid="room-list"] > *', '[data-testid="room-card"]'];
+      const seen = new Set();
+      for (const selector of selectors) {
+        for (const row of Array.from(document.querySelectorAll(selector)).slice(0, 60)) {
+          const text = (row.innerText || '').replace(/\s+/g,' ').trim();
+          if (!text || text.length < 20 || seen.has(text)) continue;
+          seen.add(text);
+          const nameNode = row.querySelector('.hprt-roomtype-link, [data-testid="room-name"], h3, h4');
+          const priceNode = row.querySelector('.bui-price-display__value, [data-testid="price-and-discounted-price"], [data-testid*="price"]');
+          result.push({
+            text: text.slice(0, 1600),
+            room: (nameNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 220),
+            price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 120)
+          });
+        }
+      }
+      return result;
+    }""")
+    out = []
+    for row in rows:
+        text = str(row.get("text", ""))
+        room = str(row.get("room", "")).strip()
+        price_text = str(row.get("price", "")).strip() or text
+        total = _money_value(price_text)
+        if not room or total is None:
+            continue
+        low = text.lower()
+        board = "Colazione inclusa" if any(x in low for x in ("colazione inclusa", "breakfast included")) else "Trattamento da verificare"
+        refund = "Cancellazione gratuita" if any(x in low for x in ("cancellazione gratuita", "free cancellation")) else (
+            "Non rimborsabile" if any(x in low for x in ("non rimborsabile", "non-refundable")) else "Cancellazione da verificare"
+        )
+        total_is_explicit = any(x in low for x in (
+            f"{stay['nights']} nott", "prezzo per", "price for", "totale", "total",
+        ))
+        out.append({
+            "roomType": room,
+            "total": round(total, 2),
+            "currency": "EUR",
+            "nights": stay["nights"],
+            "guests": stay["adults"],
+            "board": board,
+            "refund": refund,
+            "audience": "Pubblico senza login",
+            "taxes": "Da verificare nel dettaglio del preventivo",
+            "verified": bool(total_is_explicit),
+            "evidence": text[:700],
+        })
+    return out[:12]
+
+
 def write_result(path: Path, result: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -141,7 +351,33 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         elif not visible_dates_confirmed(body, stay):
             record.update(status="dates_unconfirmed", evidence="Le date richieste non sono confermate nel contenuto visibile: prezzi non utilizzabili.")
         else:
-            record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
+            if channel == "booking":
+                candidates = await booking_quote_candidates(page, stay)
+                record["quotes"] = candidates
+                verified = [item for item in candidates if item.get("verified")]
+                if verified:
+                    first = verified[0]
+                    record.update(
+                        status="quote_candidates",
+                        evidence=(
+                            f"Date confermate nel contenuto visibile. Rilevati {len(candidates)} candidati camera/prezzo; "
+                            f"{len(verified)} riportano nella stessa riga un riferimento compatibile con totale/soggiorno. "
+                            f"Esempio: {first['roomType']} · €{first['total']:.2f} per {stay['nights']} notti. "
+                            "Tasse e identità fisica dell'unità restano da verificare prima del delta."
+                        )
+                    )
+                elif candidates:
+                    record.update(
+                        status="quote_candidates_unverified",
+                        evidence=(
+                            f"Date confermate e {len(candidates)} righe camera/prezzo rilevate, ma il totale del soggiorno "
+                            "non è attribuibile automaticamente con sufficiente certezza."
+                        )
+                    )
+                else:
+                    record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
+            else:
+                record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
         record["visibleExcerpt"] = re.sub(r"\s+", " ", body)[:350]
     except Exception as exc:
@@ -161,7 +397,8 @@ async def run(args: argparse.Namespace) -> dict:
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
-                                                  "evidence": "Non ancora esaminato."}, "observations": []}
+                                                  "evidence": "Non ancora esaminato."},
+              "discoveredSources": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -171,6 +408,17 @@ async def run(args: argparse.Namespace) -> dict:
         browser = await playwright.chromium.launch(channel="chrome", headless=True)
         context = await browser.new_context(locale="it-IT", timezone_id="Europe/Rome")
         try:
+            if not sources.get("booking", {}).get("url"):
+                discovery = await discover_booking_source(context, data.get("name", ""), data.get("city", ""), robots)
+                result["discoveredSources"]["booking"] = discovery
+                if discovery.get("status") == "found" and discovery.get("url"):
+                    sources["booking"] = {"label": "Booking.com", "url": discovery["url"]}
+            else:
+                result["discoveredSources"]["booking"] = {
+                    "status": "existing", "url": sources["booking"]["url"], "title": "",
+                    "score": 1.0, "evidence": "Scheda Booking.com già registrata nella struttura."
+                }
+
             official_url = sources.get("sito", {}).get("url", "")
             if official_url:
                 permission = await asyncio.to_thread(allowed_by_robots, official_url, robots)
@@ -193,8 +441,10 @@ async def run(args: argparse.Namespace) -> dict:
                 for channel in channels:
                     source = sources.get(channel, {}).get("url", "")
                     if not source:
+                        discovery = result.get("discoveredSources", {}).get(channel, {})
+                        evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
                         record = {"otaId": channel, **stay, "status": "source_missing", "quotes": [],
-                                  "evidence": "Nessuna scheda univoca conosciuta per questo portale."}
+                                  "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
                         page = await context.new_page()
                         try:
