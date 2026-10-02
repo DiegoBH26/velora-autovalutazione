@@ -654,11 +654,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      if (nextSession) setLoading(true);
       setSession(nextSession);
-      setProfile(null);
       if (event === "PASSWORD_RECOVERY") setView("reset");
-      if (!nextSession) setLoading(false);
+
+      // Non smontare l'app per un semplice refresh del token.
+      // Supabase puo' emettere TOKEN_REFRESHED quando la scheda torna in primo piano:
+      // mantenendo il profilo montato, Velora conserva pagina, moduli e audit in corso.
+      if (!nextSession) {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
     return () => {
@@ -667,19 +672,29 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const sessionUserId = session?.user.id ?? null;
+
   useEffect(() => {
-    if (!session) return;
+    if (!sessionUserId) return;
+    let active = true;
     setLoading(true);
+    setProfile(null);
+
     supabase
       .from("profiles")
       .select("authorized,is_admin,full_name,onboarding_required")
-      .eq("user_id", session.user.id)
+      .eq("user_id", sessionUserId)
       .maybeSingle()
       .then(({ data, error }) => {
+        if (!active) return;
         setProfile(!error && data ? data as Profile : null);
         setLoading(false);
       });
-  }, [session]);
+
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId]);
 
   if (loading) {
     return (

@@ -3471,6 +3471,25 @@ const ASSESSMENT_DATA: AssessmentMacro[] = [
 const STORAGE_KEY = "velora-owner-assessment-v2";
 const STRUCTURES_KEY = "velora-analyzed-structures-v1";
 const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
+const UI_STATE_KEY = "velora-ui-state-v1";
+
+type PersistedUiState = {
+  showStructures?: boolean;
+  activeMacroId?: string;
+  searchTerm?: string;
+  auditSourceFilter?: string;
+  scrollY?: number;
+  autoAuditDraft?: { name: string; website: string; city: string; province: string; rooms: string };
+};
+
+function loadUiState(): PersistedUiState {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(UI_STATE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed as PersistedUiState : {};
+  } catch {
+    return {};
+  }
+}
 
 // Aggiorna soltanto i riscontri pubblicati nel primo audit, senza toccare le note modificate dall'utente.
 const SANTANTONIO_PREVIOUS_EVIDENCE: Record<string, string> = {
@@ -4298,9 +4317,10 @@ function GuideToggle({
 }
 
 export default function App() {
+  const initialUiState = useMemo(() => loadUiState(), []);
   const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
   const [activeStructureId, setActiveStructureId] = useState<string | null>(null);
-  const [showStructures, setShowStructures] = useState(false);
+  const [showStructures, setShowStructures] = useState(initialUiState.showStructures === true);
   const [hydrated, setHydrated] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
@@ -4313,7 +4333,9 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
-  const [autoAuditDraft, setAutoAuditDraft] = useState({ name: "", website: "", city: "", province: "", rooms: "" });
+  const [autoAuditDraft, setAutoAuditDraft] = useState(
+    initialUiState.autoAuditDraft ?? { name: "", website: "", city: "", province: "", rooms: "" }
+  );
   const [autoAuditRunning, setAutoAuditRunning] = useState(false);
   const [autoAuditMessage, setAutoAuditMessage] = useState("");
   const [selectedRateCohort, setSelectedRateCohort] = useState("");
@@ -4329,10 +4351,10 @@ export default function App() {
   const [isCustomizingInterview, setIsCustomizingInterview] = useState(false);
   const [customizerSearch, setCustomizerSearch] = useState("");
   const [guideEnabled, setGuideEnabled] = useState(false);
-  const [activeMacroId, setActiveMacroId] = useState(ASSESSMENT_DATA[0]?.id ?? "");
+  const [activeMacroId, setActiveMacroId] = useState(initialUiState.activeMacroId || ASSESSMENT_DATA[0]?.id || "");
   const [showOnlyPriority, setShowOnlyPriority] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [auditSourceFilter, setAuditSourceFilter] = useState("Tutte le fonti");
+  const [searchTerm, setSearchTerm] = useState(initialUiState.searchTerm || "");
+  const [auditSourceFilter, setAuditSourceFilter] = useState(initialUiState.auditSourceFilter || "Tutte le fonti");
 
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
@@ -4367,6 +4389,84 @@ export default function App() {
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
+
+  useEffect(() => {
+    const saveUiState = () => {
+      const payload: PersistedUiState = {
+        showStructures,
+        activeMacroId,
+        searchTerm,
+        auditSourceFilter,
+        scrollY: window.scrollY,
+        autoAuditDraft,
+      };
+      window.sessionStorage.setItem(UI_STATE_KEY, JSON.stringify(payload));
+    };
+
+    saveUiState();
+    window.addEventListener("pagehide", saveUiState);
+    window.addEventListener("beforeunload", saveUiState);
+    return () => {
+      saveUiState();
+      window.removeEventListener("pagehide", saveUiState);
+      window.removeEventListener("beforeunload", saveUiState);
+    };
+  }, [showStructures, activeMacroId, searchTerm, auditSourceFilter, autoAuditDraft]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const y = Number(initialUiState.scrollY || 0);
+    if (!Number.isFinite(y) || y <= 0) return;
+    window.requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!localPilotToken) return;
+    let cancelled = false;
+
+    async function recoverAutomaticAudit() {
+      try {
+        const response = await fetch(localAgentUrl("/api/audit/status"), { cache: "no-store", mode: "cors" });
+        if (!response.ok || cancelled) return;
+        let status = await response.json() as { running?: boolean; error?: string; message?: string; auditData?: unknown };
+
+        if (status.running) {
+          setAutoAuditRunning(true);
+          setAutoAuditMessage(status.message || "Audit automatico in corso sul PC...");
+          for (let attempt = 0; attempt < 300 && !cancelled; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 2000));
+            const nextResponse = await fetch(localAgentUrl("/api/audit/status"), { cache: "no-store", mode: "cors" });
+            if (!nextResponse.ok || cancelled) return;
+            status = await nextResponse.json() as { running?: boolean; error?: string; message?: string; auditData?: unknown };
+            if (cancelled) return;
+            setAutoAuditMessage(status.message || (status.running ? "Analisi in corso..." : "Elaborazione completata."));
+            if (!status.running) break;
+          }
+        }
+
+        if (cancelled) return;
+        setAutoAuditRunning(Boolean(status.running));
+        if (status.error) {
+          setAutoAuditMessage(status.error);
+          return;
+        }
+        if (!status.running && isAuditData(status.auditData)) {
+          const auditId = status.auditData.id;
+          if (!structures.some((item) => item.id === auditId)) {
+            installAuditData(status.auditData);
+            setAutoAuditMessage("Audit completato mentre eri fuori da Velora: risultato recuperato automaticamente.");
+          }
+        }
+      } catch {
+        // Se l'agente è spento, mantieni comunque pagina e dati correnti.
+      }
+    }
+
+    void recoverAutomaticAudit();
+    return () => {
+      cancelled = true;
+    };
+  }, [localPilotToken]);
 
   useEffect(() => {
     if (!activeStructureId) {
