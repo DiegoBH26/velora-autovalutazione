@@ -4313,6 +4313,9 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
+  const [autoAuditDraft, setAutoAuditDraft] = useState({ name: "", website: "", city: "", province: "", rooms: "" });
+  const [autoAuditRunning, setAutoAuditRunning] = useState(false);
+  const [autoAuditMessage, setAutoAuditMessage] = useState("");
   const [selectedRateCohort, setSelectedRateCohort] = useState("");
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
@@ -4333,13 +4336,36 @@ export default function App() {
 
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
-  const activeAuditData = activeStructureId === perlaAudit.id ? perlaAudit : santantonioAudit;
+  const activeStructure = structures.find((item) => item.id === activeStructureId);
+  const activeAuditData: AuditData = activeStructure?.auditData
+    ?? knownAuditData(activeStructureId)
+    ?? blankAuditDataForStructure({
+      id: activeStructureId || "bozza-corrente",
+      name: ownerInfo.propertyName || "Nuova struttura",
+      city: ownerInfo.city,
+      province: ownerInfo.province,
+      rooms: ownerInfo.rooms,
+      website: activeStructure?.website,
+    });
+
+  async function connectLocalAgent(silent = false): Promise<string> {
+    try {
+      const response = await fetch(localAgentUrl("/api/pilot/config"), { cache: "no-store", mode: "cors" });
+      if (!response.ok) throw new Error("Agente locale non disponibile");
+      const config = await response.json() as { token?: string; agentVersion?: string; autoAudit?: boolean };
+      if (!config.token) throw new Error("Token locale mancante");
+      setLocalPilotToken(config.token);
+      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + ".");
+      return config.token;
+    } catch {
+      setLocalPilotToken("");
+      if (!silent) setLocalPilotMessage("Avvia l'agente Velora sul PC e consenti al browser l'accesso alla rete locale/loopback, poi riprova.");
+      return "";
+    }
+  }
 
   useEffect(() => {
-    if (window.location.hostname !== "127.0.0.1" || window.location.port !== "8768") return;
-    fetch("/api/pilot/config").then((response) => response.json()).then((config: { token?: string }) => {
-      setLocalPilotToken(config.token || "");
-    }).catch(() => setLocalPilotMessage("Il servizio di rilevazione locale non risponde."));
+    void connectLocalAgent(true);
   }, []);
 
   useEffect(() => {
@@ -4355,6 +4381,97 @@ export default function App() {
       setBrowserPilotResult(null);
     }
   }, [activeStructureId]);
+
+  function installAuditData(parsed: AuditData) {
+    const seeded = auditSeedStructure(parsed);
+    setStructures((previous) => {
+      const index = previous.findIndex((item) => item.id === seeded.id);
+      if (index < 0) return [...previous, seeded];
+      const next = [...previous];
+      next[index] = seeded;
+      return next;
+    });
+    setActiveStructureId(seeded.id);
+    window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, seeded.id);
+    setOwnerInfo(seeded.ownerInfo);
+    setAnswers(seeded.answers);
+    setRateQuotes([]);
+    setAvailabilityProbes([]);
+    setSelectedRateCohort("");
+    setAssessmentMode("web-audit");
+    setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
+    setSearchTerm("");
+    setAuditSourceFilter("Tutte le fonti");
+    setShowStructures(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return seeded;
+  }
+
+  async function startAutomaticAudit() {
+    if (autoAuditRunning) return;
+    const website = autoAuditDraft.website.trim();
+    if (!website) {
+      window.alert("Inserisci il sito ufficiale della struttura.");
+      return;
+    }
+    const token = localPilotToken || await connectLocalAgent(false);
+    if (!token) {
+      setAutoAuditMessage("L'agente locale non e' attivo. Avvialo sul PC e premi di nuovo Analizza struttura.");
+      return;
+    }
+    setAutoAuditRunning(true);
+    setAutoAuditMessage("Avvio audit: sto leggendo il sito ufficiale e preparando la scheda Velora...");
+    try {
+      const response = await fetch(localAgentUrl("/api/audit/start"), {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": token },
+        body: JSON.stringify(autoAuditDraft),
+      });
+      if (!response.ok) {
+        const body = await response.json() as { error?: string };
+        throw new Error(body.error || "Avvio audit non riuscito");
+      }
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const statusResponse = await fetch(localAgentUrl("/api/audit/status"), { cache: "no-store", mode: "cors" });
+        if (!statusResponse.ok) throw new Error("Impossibile leggere lo stato dell'audit automatico.");
+        const status = await statusResponse.json() as { running?: boolean; error?: string; message?: string; auditData?: unknown };
+        setAutoAuditMessage(status.message || (status.running ? "Analisi in corso..." : "Elaborazione completata."));
+        if (!status.running) {
+          if (status.error) throw new Error(status.error);
+          if (!isAuditData(status.auditData)) throw new Error("L'agente non ha restituito un audit Velora valido.");
+          const seeded = installAuditData(status.auditData);
+          setAutoAuditDraft({ name: "", website: "", city: "", province: "", rooms: "" });
+          setAutoAuditMessage("Audit iniziale creato per " + seeded.name + ". Completa OTA, recensioni e prezzi futuri prima del report definitivo.");
+          return;
+        }
+      }
+      throw new Error("Tempo massimo dell'audit automatico superato.");
+    } catch (error) {
+      setAutoAuditMessage(error instanceof Error ? error.message : "Errore durante l'audit automatico.");
+    } finally {
+      setAutoAuditRunning(false);
+    }
+  }
+
+  async function importAuditDataset(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 10_000_000) {
+      window.alert("Il file audit e' troppo grande (massimo 10 MB).");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isAuditData(parsed)) throw new Error("JSON audit Velora non valido.");
+      const seeded = installAuditData(parsed);
+      window.alert("Audit importato: " + seeded.name + ". La struttura e' ora disponibile nell'archivio di questo browser.");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Impossibile importare il JSON audit.");
+    }
+  }
 
   async function importBrowserPilotResult(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
