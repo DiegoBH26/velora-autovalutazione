@@ -195,7 +195,7 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 continue
             if any(word in lowered for word in BLOCK_WORDS):
                 continue
-            links = await page.evaluate("""() => Array.from(document.querySelectorAll('a[href]')).slice(0,500).map(a => ({
+            links = await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,500).map(a => ({
               href: a.getAttribute('href') || '',
               text: (a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,320)
             }))""")
@@ -289,7 +289,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                     "evidence": "Booking.com ha mostrato una pagina di verifica/blocco; nessun aggiramento tentato.",
                     "searchUrl": search_url}
 
-        cards = await page.evaluate("""() => {
+        cards = await page.evaluate(r"""() => {
           const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
           const result = [];
           const seen = new Set();
@@ -379,7 +379,7 @@ def _money_value(text: str) -> float | None:
 
 async def booking_quote_candidates(page, stay: dict) -> list[dict]:
     """Raccoglie candidati leggibili nella stessa riga camera/prezzo; non li dichiara ADR."""
-    rows = await page.evaluate("""() => {
+    rows = await page.evaluate(r"""() => {
       const result = [];
       const selectors = ['#hprt-table tbody tr', '[data-testid="room-list"] > *', '[data-testid="room-card"]'];
       const seen = new Set();
