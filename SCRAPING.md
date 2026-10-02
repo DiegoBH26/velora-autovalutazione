@@ -124,3 +124,25 @@ prova. Le tariffe e i delta già presenti nel report storico restano separati
 da questi nuovi esiti. Per ottenere una tabella numerica futura affidabile,
 servono adattatori e prove per ciascun portale, o un'integrazione ufficiale
 con il channel manager/fornitore delle tariffe.
+
+
+## Uso dall'app online con agente locale
+
+Velora online puo' usare il browser Playwright del PC senza spostare lo scraping
+su un servizio a pagamento.
+
+1. esegui una sola volta `INSTALLA_AGENTE_VELORA.bat`;
+2. quando devi fare un audit, avvia `AVVIA_AGENTE_VELORA.bat` e lascia aperta la finestra;
+3. apri `https://diegobh26.github.io/velora-autovalutazione/`;
+4. in **Strutture analizzate** usa **Nuovo audit automatico**, inserisci il sito
+   ufficiale e premi **Analizza struttura**.
+
+Il frontend online comunica con `http://127.0.0.1:8768` sullo stesso PC.
+L'agente accetta richieste soltanto dalle origini Velora autorizzate e usa un
+token casuale rigenerato a ogni avvio.
+
+L'audit automatico iniziale riguarda il sito ufficiale: pagine, contatti,
+privacy/cookie, CIN visibili, servizi, fotografie, segnali mobile e booking
+engine quando rilevabile. I dati non dimostrabili restano **Non verificati**.
+Prezzi OTA, recensioni e parita' tariffaria richiedono gli adattatori dedicati
+e non vengono inventati.
