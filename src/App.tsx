@@ -17,6 +17,12 @@ declare global {
 }
 
 type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
+type AuditData = typeof santantonioAudit | typeof perlaAudit;
+
+const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
+function localAgentUrl(path: string): string {
+  return window.location.hostname === "127.0.0.1" && window.location.port === "8768" ? path : LOCAL_AGENT_BASE + path;
+}
 
 type AuditStatus = "" | "present" | "partial" | "missing" | "unverified" | "not-applicable";
 
@@ -3499,6 +3505,7 @@ type AnalyzedStructure = {
   answers: Record<string, Answer>;
   rateQuotes?: RateQuote[];
   availabilityProbes?: AvailabilityProbe[];
+  auditData?: AuditData;
   assessmentMode: AssessmentMode;
   updatedAt: string;
 };
@@ -3670,7 +3677,7 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
   const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
   return { average, count: own.length, deltaPct, matched: pairs.length };
 }
-function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): AnalyzedStructure {
+function auditSeedStructure(data: AuditData): AnalyzedStructure {
   const sources = data.sources as Record<string, { label: string; url: string }>;
   const answers: Record<string, Answer> = {};
   for (const check of data.checks) {
@@ -3734,6 +3741,7 @@ function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): 
     answers,
     rateQuotes: [],
     availabilityProbes: [],
+    auditData: data,
     assessmentMode: "web-audit",
     updatedAt: data.auditedAt,
   };
@@ -3741,6 +3749,59 @@ function auditSeedStructure(data: typeof santantonioAudit | typeof perlaAudit): 
 
 function santantonioStructure(): AnalyzedStructure {
   return auditSeedStructure(santantonioAudit);
+}
+
+function knownAuditData(id: string | null | undefined): AuditData | null {
+  if (id === santantonioAudit.id) return santantonioAudit;
+  if (id === perlaAudit.id) return perlaAudit;
+  return null;
+}
+
+function blankAuditDataForStructure(structure: Pick<AnalyzedStructure, "id" | "name" | "city" | "province" | "rooms" | "website">): AuditData {
+  const template = JSON.parse(JSON.stringify(santantonioAudit)) as any;
+  template.id = structure.id;
+  template.name = structure.name || "Nuova struttura";
+  template.city = structure.city || "";
+  template.province = structure.province || "";
+  template.rooms = Number.parseInt(structure.rooms || "", 10) || 0;
+  template.propertyType = "Struttura ricettiva";
+  template.website = structure.website || "";
+  template.auditedAt = todayLocalIso();
+  template.reportPath = "";
+  template.sources = { sito: { label: "Sito ufficiale", url: structure.website || "" } };
+  template.bookingEngine = { status: "unverified", provider: "", url: "", mode: "", evidence: "Da verificare." };
+  template.otaPresence = template.otaPresence.map((channel: any) => ({
+    ...channel, status: "unverified", finding: "Da verificare su fonte pubblica.", source: "sito",
+  }));
+  template.pricingAudit = {
+    capturedAt: todayLocalIso(),
+    method: "Campionamento da eseguire: nessun prezzo viene stimato senza preventivo verificato.",
+    direct: "Non verificato.",
+    policies: template.otaPresence.map((channel: any) => ({ otaId: channel.id, plans: "Non verificato", promotions: "Non verificato", confidence: "Da verificare", source: "sito" })),
+    priceCalendar: { from: todayLocalIso(), through: "", status: "Non verificato", reason: "Da campionare.", metric: "Preventivo datato / notti", focus: "2 adulti; date campione omogenee." },
+  };
+  template.reviewInsights = { googleRating: "Non verificato", method: "Da verificare.", strengths: [], weaknesses: [] };
+  template.photoAssessment = { score: 0, method: "Da verificare.", strengths: "", gaps: "Non verificato.", actions: "Verificare gallery sito e OTA." };
+  delete template.reportNarrative;
+  template.checks = template.checks.map((check: any) => ({
+    ...check, status: "unverified", evidence: "Non ancora verificato.", sources: ["sito"],
+  }));
+  return template as AuditData;
+}
+
+function isAuditData(value: unknown): value is AuditData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return typeof data.id === "string"
+    && typeof data.name === "string"
+    && typeof data.website === "string"
+    && Array.isArray(data.checks)
+    && Array.isArray(data.otaPresence)
+    && Boolean(data.pricingAudit && typeof data.pricingAudit === "object")
+    && Boolean(data.bookingEngine && typeof data.bookingEngine === "object")
+    && Boolean(data.sources && typeof data.sources === "object")
+    && Boolean(data.reviewInsights && typeof data.reviewInsights === "object")
+    && Boolean(data.photoAssessment && typeof data.photoAssessment === "object");
 }
 
 function loadAnalyzedStructures(): AnalyzedStructure[] {
@@ -3763,7 +3824,7 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
           answers[id] = answer;
         }
       }
-      return { ...item, answers, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
+      return { ...item, answers, auditData: item.auditData ?? knownAuditData(item.id) ?? undefined, rateQuotes: Array.isArray(item.rateQuotes) ? item.rateQuotes : [], availabilityProbes: Array.isArray(item.availabilityProbes) ? item.availabilityProbes : [] };
     });
     const withSantAntonio = migrated.some((item) => item.id === seed.id) ? migrated : [seed, ...migrated];
     return withSantAntonio.some((item) => item.id === perlaSeed.id) ? withSantAntonio : [...withSantAntonio, perlaSeed];
