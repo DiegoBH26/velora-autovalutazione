@@ -249,7 +249,7 @@ def build_audit(payload, snaps, mobile):
             sources[key] = {"label": labels.get(key, key.title()), "url": url}
 
     engines = [detect_booking_engine(x["url"], x["html"], x["url"]) for x in snaps]
-    rank = {"provider_identified":0,"provider_unknown":1,"not_found_in_page":2,"not_applicable":3}
+    rank = {"provider_identified":0,"request_only":1,"provider_unknown":2,"not_found_in_page":3,"not_applicable":4}
     engine = sorted(engines, key=lambda x: rank.get(x.get("status",""), 9))[0] if engines else {"status":"unverified","provider":"","url":"","mode":"","evidence":"Nessuna pagina esaminata."}
     if engine.get("url"):
         sources["engine"] = {"label":"Booking engine","url":engine["url"]}
@@ -294,7 +294,13 @@ def build_audit(payload, snaps, mobile):
     template["pricingAudit"] = {
         "capturedAt":date.today().isoformat(),
         "method":"Audit automatico iniziale del sito ufficiale. Tariffe future e delta richiedono preventivi omogenei; nessun prezzo viene stimato.",
-        "direct":"Percorso diretto rilevato; tariffe future da campionare." if engine.get("status") in {"provider_identified","provider_unknown"} else "Percorso diretto da verificare.",
+        "direct":(
+            "Booking engine diretto rilevato; tariffe future da campionare."
+            if engine.get("status") in {"provider_identified","provider_unknown"}
+            else "CTA di prenotazione presente, ma conduce a richiesta/contatto e non a disponibilità con prezzo e checkout."
+            if engine.get("status") == "request_only"
+            else "Percorso diretto da verificare."
+        ),
         "policies":[{"otaId":c["id"],"plans":"Non verificato","promotions":"Non verificato","confidence":"Da verificare","source":"sito"} for c in template["otaPresence"]],
         "priceCalendar":{"from":date.today().isoformat(),"through":"","status":"Non verificato","reason":"Da campionare con browser locale.","metric":"Preventivo datato / notti","focus":"2 adulti; condizioni omogenee."},
     }
@@ -311,16 +317,64 @@ def build_audit(payload, snaps, mobile):
     for c in checks.values():
         c["status"]="unverified"; c["evidence"]="Non verificato automaticamente in questa fase."; c["sources"]=["sito"]
     def setc(cid,status,evidence,src=None):
-        if cid in checks:
-            checks[cid]["status"]=status; checks[cid]["evidence"]=clean(evidence,700); checks[cid]["sources"]=src or ["sito"]
-    engine_status = "present" if engine.get("status")=="provider_identified" else ("partial" if engine.get("status") in {"provider_unknown","not_found_in_page"} else "unverified")
+        if cid not in checks:
+            return
+        observed = clean(evidence, 900)
+        if not observed.lower().startswith("esito:"):
+            label = {
+                "present": "Presente",
+                "partial": "Parziale",
+                "missing": "Non trovato",
+                "unverified": "Da verificare",
+                "not-applicable": "N/A",
+            }.get(status, status)
+            reason = {
+                "present": "il requisito è supportato da un riscontro osservabile nel campione analizzato.",
+                "partial": "il requisito è supportato solo in parte oppure manca un passaggio necessario per considerarlo completo.",
+                "missing": "nel campione analizzato non è stato rilevato il requisito richiesto.",
+                "unverified": "le evidenze raccolte non sono sufficienti per attribuire con sicurezza Presente, Parziale o Non trovato.",
+                "not-applicable": "il requisito non è applicabile al caso analizzato.",
+            }.get(status, "l'esito deriva dal riscontro riportato.")
+            observed = f"Esito: {label}. Riscontro osservato: {observed} Motivo dell'esito: {reason}"
+        checks[cid]["status"] = status
+        checks[cid]["evidence"] = clean(observed, 1200)
+        checks[cid]["sources"] = src or ["sito"]
+    engine_status = (
+        "present" if engine.get("status") == "provider_identified"
+        else "partial" if engine.get("status") in {"provider_unknown", "request_only"}
+        else "unverified"
+    )
+    engine_reason = clean(engine.get("evidence") or "Nessuna evidenza tecnica disponibile.", 700)
+    if engine.get("status") == "provider_identified":
+        engine_explanation = (
+            "Esito: Presente. Riscontro osservato: è stato identificato un percorso di prenotazione transazionale "
+            f"e il fornitore è {engine.get('provider') or 'riconoscibile dal percorso'}. Dettaglio tecnico: {engine_reason}"
+        )
+    elif engine.get("status") == "provider_unknown":
+        engine_explanation = (
+            "Esito: Parziale. Riscontro osservato: esiste un percorso con segnali di prenotazione, "
+            "ma il fornitore o il completamento del flusso non sono identificabili con sufficiente certezza. "
+            f"Dettaglio tecnico: {engine_reason}"
+        )
+    elif engine.get("status") == "request_only":
+        engine_explanation = (
+            "Esito: Parziale. Riscontro osservato: il sito presenta una CTA collegata alla prenotazione, "
+            "ma il clic conduce a un contatto/modulo di richiesta invece di un motore con disponibilità, tariffa e checkout. "
+            f"Dettaglio tecnico: {engine_reason}"
+        )
+    else:
+        engine_explanation = (
+            "Esito: Da verificare. Riscontro osservato: nel campione automatico non è stato identificato un percorso "
+            "transazionale certo; questo non dimostra che il booking engine sia assente. "
+            f"Dettaglio tecnico: {engine_reason}"
+        )
 
     setc("q6","present" if len(home["text"])>500 else "partial",f"Homepage leggibile; campione di {len(snaps)} pagine.")
     setc("q7","present" if len(targets)>=2 else "partial","Target rilevati: "+(", ".join(targets) if targets else "nessuno esplicito nel campione"))
     setc("q8","present" if len(experiences)>=2 else "partial","Elementi della promessa: "+(", ".join(experiences) if experiences else "da chiarire"))
     setc("q9","present" if city else "partial","Localita' rilevata: "+(city or "non identificata automaticamente"))
     setc("q12","present" if mobile_ok else "partial","Test preliminare mobile 390 px: "+("viewport presente e nessun overflow orizzontale." if mobile_ok else "verifica visuale/performance ancora necessaria."))
-    setc("q13",engine_status,(engine.get("evidence") or "")+" Fornitore: "+(engine.get("provider") or "non identificato"),["engine"] if "engine" in sources else ["sito"])
+    setc("q13",engine_status,engine_explanation,["engine"] if "engine" in sources else ["sito"])
     setc("q14","present" if room_pages and price_visible else "partial",f"Pagine camere: {len(room_pages)}; prezzo/testo tariffario visibile: {'si' if price_visible else 'non attribuibile a date precise'}.",["camere"] if "camere" in sources else ["sito"])
     trust=sum(bool(x) for x in (phones,emails,privacy,cin))
     setc("q15","present" if trust>=3 else "partial",f"Telefono {'si' if phones else 'no'}, email {'si' if emails else 'no'}, privacy {'si' if privacy else 'no'}, CIN {'si' if cin else 'no'}.")
@@ -345,11 +399,19 @@ def build_audit(payload, snaps, mobile):
         setc(cid,"unverified",label+": da verificare su fonte esterna.")
     for cid,label in (("q366","Comp set"),("q369","Recensioni competitive"),("q372","Percezione valore"),("q382","Pricing dinamico"),("q385","Parita tariffaria")):
         setc(cid,"unverified",label+": richiede dati esterni e preventivi omogenei.")
-    setc("q370","partial" if engine_status!="unverified" or price_visible else "unverified","Percorso/prezzo diretto preliminare; calendario futuro da campionare.")
+    setc(
+        "q370",
+        "partial" if engine_status != "unverified" or price_visible else "unverified",
+        (
+            "Riscontro osservato: il sito espone un percorso diretto, ma la verifica di prezzo/calendario non è ancora completa. "
+            + engine_explanation
+        ) if engine_status != "unverified" else
+        "Riscontro osservato: nessun prezzo diretto attribuibile con certezza a date e condizioni precise; calendario futuro da verificare."
+    )
     setc("q416","present" if phones else "partial","Telefono: "+(phones[0] if phones else "non rilevato."),["contatti"] if "contatti" in sources else ["sito"])
     setc("q417","present" if emails else "partial","Email: "+(emails[0] if emails else "non rilevata."),["contatti"] if "contatti" in sources else ["sito"])
     setc("q418","present" if whatsapp else "partial","WhatsApp "+("rilevato." if whatsapp else "non rilevato nel campione."))
-    setc("q420",engine_status,"Booking engine: "+str(engine.get("status"))+". Checkout e pagamento non testati.",["engine"] if "engine" in sources else ["sito"])
+    setc("q420",engine_status,engine_explanation+" Checkout e pagamento non vengono considerati verificati finché non sono completati dal test.",["engine"] if "engine" in sources else ["sito"])
     setc("q446","unverified","Tempo di risposta richiede test di contatto autorizzato.")
     for cid,label in (("q669","Pulizia"),("q670","Manutenzione"),("q720","Stato camere"),("q724","Manutenzioni visibili")):
         setc(cid,"unverified",label+": non deducibile in modo affidabile dal solo sito.")
