@@ -62,6 +62,14 @@ def clean(value, limit=4000):
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+def clean_multiline(value, limit=4000):
+    lines = [
+        re.sub(r"[ \t]+", " ", line).strip()
+        for line in str(value or "").splitlines()
+    ]
+    return "\n".join(line for line in lines if line)[:limit]
+
+
 def public_url(value):
     raw = str(value or "").strip()
     if raw and not re.match(r"^https?://", raw, re.I):
@@ -141,7 +149,7 @@ async def snapshot(page, url, mobile=False):
     response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
     await page.wait_for_timeout(650)
     cookie_action = await dismiss_cookie(page)
-    data = await page.evaluate("""() => {
+    data = await page.evaluate(r"""() => {
       const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
       return {
         title: document.title || '',
@@ -319,7 +327,7 @@ def build_audit(payload, snaps, mobile):
     def setc(cid,status,evidence,src=None):
         if cid not in checks:
             return
-        observed = clean(evidence, 900)
+        observed = clean_multiline(evidence, 1000)
         if not observed.lower().startswith("esito:"):
             label = {
                 "present": "Presente",
@@ -331,13 +339,17 @@ def build_audit(payload, snaps, mobile):
             reason = {
                 "present": "il requisito è supportato da un riscontro osservabile nel campione analizzato.",
                 "partial": "il requisito è supportato solo in parte oppure manca un passaggio necessario per considerarlo completo.",
-                "missing": "nel campione analizzato non è stato rilevato il requisito richiesto.",
+                "missing": "nel campione analizzato non è stato rilevato il requisito richiesto; l'esito vale per le pagine effettivamente campionate e non prova un'assenza assoluta.",
                 "unverified": "le evidenze raccolte non sono sufficienti per attribuire con sicurezza Presente, Parziale o Non trovato.",
                 "not-applicable": "il requisito non è applicabile al caso analizzato.",
             }.get(status, "l'esito deriva dal riscontro riportato.")
-            observed = f"Esito: {label}. Riscontro osservato: {observed} Motivo dell'esito: {reason}"
+            observed = (
+                f"Esito: {label}\n"
+                f"Riscontro osservato: {observed}\n"
+                f"Motivo dell'esito: {reason}"
+            )
         checks[cid]["status"] = status
-        checks[cid]["evidence"] = clean(observed, 1200)
+        checks[cid]["evidence"] = clean_multiline(observed, 1600)
         checks[cid]["sources"] = src or ["sito"]
     engine_status = (
         "present" if engine.get("status") == "provider_identified"
@@ -347,25 +359,33 @@ def build_audit(payload, snaps, mobile):
     engine_reason = clean(engine.get("evidence") or "Nessuna evidenza tecnica disponibile.", 700)
     if engine.get("status") == "provider_identified":
         engine_explanation = (
-            "Esito: Presente. Riscontro osservato: è stato identificato un percorso di prenotazione transazionale "
-            f"e il fornitore è {engine.get('provider') or 'riconoscibile dal percorso'}. Dettaglio tecnico: {engine_reason}"
+            "Esito: Presente\n"
+            "Riscontro osservato: è stato identificato un percorso di prenotazione transazionale "
+            f"e il fornitore è {engine.get('provider') or 'riconoscibile dal percorso'}.\n"
+            "Motivo dell'esito: il percorso rilevato presenta elementi coerenti con un booking engine diretto.\n"
+            f"Dettaglio tecnico: {engine_reason}"
         )
     elif engine.get("status") == "provider_unknown":
         engine_explanation = (
-            "Esito: Parziale. Riscontro osservato: esiste un percorso con segnali di prenotazione, "
-            "ma il fornitore o il completamento del flusso non sono identificabili con sufficiente certezza. "
+            "Esito: Parziale\n"
+            "Riscontro osservato: esiste un percorso con segnali di prenotazione, ma il fornitore "
+            "o il completamento del flusso non sono identificabili con sufficiente certezza.\n"
+            "Motivo dell'esito: il percorso esiste, ma non sono state verificate tutte le condizioni di un flusso completo.\n"
             f"Dettaglio tecnico: {engine_reason}"
         )
     elif engine.get("status") == "request_only":
         engine_explanation = (
-            "Esito: Parziale. Riscontro osservato: il sito presenta una CTA collegata alla prenotazione, "
-            "ma il clic conduce a un contatto/modulo di richiesta invece di un motore con disponibilità, tariffa e checkout. "
+            "Esito: Parziale\n"
+            "Riscontro osservato: il sito presenta una CTA collegata alla prenotazione, ma il clic conduce "
+            "a un contatto/modulo di richiesta invece di un motore con disponibilità, tariffa e checkout.\n"
+            "Motivo dell'esito: è presente un canale di richiesta, ma non una prenotazione online transazionale completa.\n"
             f"Dettaglio tecnico: {engine_reason}"
         )
     else:
         engine_explanation = (
-            "Esito: Da verificare. Riscontro osservato: nel campione automatico non è stato identificato un percorso "
-            "transazionale certo; questo non dimostra che il booking engine sia assente. "
+            "Esito: Da verificare\n"
+            "Riscontro osservato: nel campione automatico non è stato identificato un percorso transazionale certo.\n"
+            "Motivo dell'esito: il campione non consente di concludere né che il booking engine sia presente né che sia assente.\n"
             f"Dettaglio tecnico: {engine_reason}"
         )
 
@@ -408,9 +428,38 @@ def build_audit(payload, snaps, mobile):
         ) if engine_status != "unverified" else
         "Riscontro osservato: nessun prezzo diretto attribuibile con certezza a date e condizioni precise; calendario futuro da verificare."
     )
-    setc("q416","present" if phones else "partial","Telefono: "+(phones[0] if phones else "non rilevato."),["contatti"] if "contatti" in sources else ["sito"])
-    setc("q417","present" if emails else "partial","Email: "+(emails[0] if emails else "non rilevata."),["contatti"] if "contatti" in sources else ["sito"])
-    setc("q418","present" if whatsapp else "partial","WhatsApp "+("rilevato." if whatsapp else "non rilevato nel campione."))
+    contact_page_sampled = "contatti" in sources
+    phone_status = "present" if phones else ("missing" if contact_page_sampled else "unverified")
+    email_status = "present" if emails else ("missing" if contact_page_sampled else "unverified")
+    whatsapp_status = "present" if whatsapp else ("missing" if contact_page_sampled else "unverified")
+
+    setc(
+        "q416",
+        phone_status,
+        "Telefono rilevato: " + phones[0] if phones
+        else "Nella pagina contatti campionata non è stato rilevato un numero telefonico cliccabile o riconoscibile."
+        if contact_page_sampled else
+        "Non è stata campionata una pagina contatti sufficiente per verificare con certezza il telefono.",
+        ["contatti"] if "contatti" in sources else ["sito"],
+    )
+    setc(
+        "q417",
+        email_status,
+        "Email rilevata: " + emails[0] if emails
+        else "Nella pagina contatti campionata non è stato rilevato un indirizzo email cliccabile o riconoscibile."
+        if contact_page_sampled else
+        "Non è stata campionata una pagina contatti sufficiente per verificare con certezza l'email.",
+        ["contatti"] if "contatti" in sources else ["sito"],
+    )
+    setc(
+        "q418",
+        whatsapp_status,
+        "WhatsApp rilevato: " + whatsapp[0] if whatsapp
+        else "Nella pagina contatti campionata non è stato rilevato alcun collegamento WhatsApp riconoscibile (wa.me, api.whatsapp.com o whatsapp.com/send)."
+        if contact_page_sampled else
+        "Non è stata campionata una pagina contatti sufficiente per verificare con certezza la presenza di WhatsApp.",
+        ["contatti"] if "contatti" in sources else ["sito"],
+    )
     setc("q420",engine_status,engine_explanation+" Checkout e pagamento non vengono considerati verificati finché non sono completati dal test.",["engine"] if "engine" in sources else ["sito"])
     setc("q446","unverified","Tempo di risposta richiede test di contatto autorizzato.")
     for cid,label in (("q669","Pulizia"),("q670","Manutenzione"),("q720","Stato camere"),("q724","Manutenzioni visibili")):
