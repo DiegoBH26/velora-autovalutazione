@@ -151,12 +151,28 @@ def booking_search_url(property_name: str, city: str = "") -> str:
     })
 
 
-def external_search_urls(property_name: str, city: str = "") -> list[tuple[str, str]]:
-    query = " ".join(part for part in (f'site:booking.com/hotel/ "{property_name.strip()}"', city.strip()) if part)
-    return [
-        ("Bing", "https://www.bing.com/search?" + urlencode({"q": query, "setlang": "it"})),
-        ("Google", "https://www.google.com/search?" + urlencode({"q": query, "hl": "it"})),
-    ]
+def external_search_urls(property_name: str, city: str = "", address: str = "", website: str = "") -> list[tuple[str, str]]:
+    base = f'site:booking.com/hotel/ "{property_name.strip()}"'
+    queries = [" ".join(part for part in (base, city.strip()) if part)]
+    if address.strip():
+        queries.append(" ".join(part for part in (base, f'"{address.strip()}"', city.strip()) if part))
+    try:
+        host=(urlparse(website).hostname or "").lower().removeprefix("www.")
+    except Exception:
+        host=""
+    if host:
+        queries.append(" ".join(part for part in (base, host, city.strip()) if part))
+    result=[]
+    seen=set()
+    for query in queries:
+        if not query or query in seen:
+            continue
+        seen.add(query)
+        result.extend([
+            ("Bing", "https://www.bing.com/search?" + urlencode({"q": query, "setlang": "it"})),
+            ("Google", "https://www.google.com/search?" + urlencode({"q": query, "hl": "it"})),
+        ])
+    return result
 
 
 def _slugify_booking(value: str) -> str:
@@ -270,8 +286,36 @@ def booking_candidate_from_search_href(href: str, base_url: str) -> str:
     return ""
 
 
-async def discover_booking_via_search_engine(context, property_name: str, city: str) -> dict:
-    for engine_name, search_url in external_search_urls(property_name, city):
+def _identity_match_score(property_name: str, city: str, address: str, title: str, snippet: str, url: str):
+    path_slug=urlparse(url).path.rsplit("/",1)[-1].split(".")[0].replace("-"," ")
+    combined=" ".join(part for part in (title, snippet, path_slug) if part)
+    name_text_score=_name_similarity(property_name,title)
+    name_slug_score=_name_similarity(property_name,path_slug)
+    name_context_score=_name_similarity(property_name,snippet[:500])
+    name_score=max(name_text_score,name_slug_score,name_context_score)
+    score=name_score
+    reasons=[f"nome {name_score:.0%}",f"url {name_slug_score:.0%}"]
+    combined_norm=normalize_name(combined)
+    city_norm=normalize_name(city)
+    if city_norm and city_norm in combined_norm:
+        score=min(1.0,score+0.08)
+        reasons.append("citta coincidente")
+    address_norm=normalize_name(address)
+    if address_norm:
+        address_tokens={t for t in address_norm.split() if len(t)>=3 or t.isdigit()}
+        combined_tokens=set(combined_norm.split())
+        ratio=len(address_tokens & combined_tokens)/max(1,len(address_tokens))
+        if ratio>=0.60:
+            score=min(1.0,score+0.14)
+            reasons.append(f"indirizzo {ratio:.0%}")
+        elif ratio>=0.30:
+            score=min(1.0,score+0.06)
+            reasons.append(f"indirizzo {ratio:.0%}")
+    return score,path_slug,name_text_score,name_slug_score,", ".join(reasons)
+
+
+async def discover_booking_via_search_engine(context, property_name: str, city: str, address: str = "", website: str = "") -> dict:
+    for engine_name, search_url in external_search_urls(property_name, city, address, website):
         page = await context.new_page()
         try:
             response = await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
@@ -283,27 +327,29 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 continue
             if any(word in lowered for word in BLOCK_WORDS):
                 continue
-            links = await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,500).map(a => ({
-              href: a.getAttribute('href') || '',
-              text: (a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,320)
-            }))""")
+            links = await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,500).map(a => {
+              const box=a.closest('li, article, [data-testid], div') || a.parentElement;
+              return {
+                href: a.getAttribute('href') || '',
+                text: (a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,320),
+                context: (box?.innerText || '').replace(/\s+/g,' ').trim().slice(0,900)
+              };
+            })""")
             candidates = []
             for item in links:
                 url = booking_candidate_from_search_href(str(item.get("href", "")), page.url)
                 if not url:
                     continue
                 text = str(item.get("text", ""))
-                path_slug = urlparse(url).path.rsplit("/", 1)[-1].split(".")[0].replace("-", " ")
-                text_score = _name_similarity(property_name, text)
-                url_score = _name_similarity(property_name, path_slug)
-                score = max(text_score, url_score)
-                if city and (city.lower() in text.lower() or city.lower() in path_slug.lower()):
-                    score = min(1.0, score + 0.08)
-                candidates.append((score, url, text, path_slug, text_score, url_score))
+                context_text = str(item.get("context", ""))
+                score,path_slug,text_score,url_score,reasons = _identity_match_score(
+                    property_name,city,address,text,context_text,url
+                )
+                candidates.append((score, url, text, path_slug, text_score, url_score, reasons))
             candidates.sort(key=lambda row: row[0], reverse=True)
             if not candidates:
                 continue
-            score, url, text, path_slug, text_score, url_score = candidates[0]
+            score, url, text, path_slug, text_score, url_score, reasons = candidates[0]
             display_title = text.strip() if text.strip() and text.strip().lower() not in {"hotel", "booking.com"} else path_slug
             if score >= 0.70:
                 return {
@@ -313,7 +359,7 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                     "score": round(score, 3),
                     "evidence": (
                         f"{engine_name}: trovata una pagina Booking.com compatibile con «{property_name}{' ' + city if city else ''}». "
-                        f"Similarità complessiva {score:.0%} (testo {text_score:.0%}, URL {url_score:.0%}). URL osservato: {url}"
+                        f"Match identità {score:.0%}: {reasons}. URL osservato: {url}"
                     )[:900],
                     "searchUrl": search_url,
                     "discoveryMode": f"{engine_name} site-search",
@@ -324,7 +370,7 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 "title": text[:220],
                 "score": round(score, 3),
                 "evidence": (
-                    f"{engine_name}: risultato Booking.com trovato, ma similarità {score:.0%} (testo {text_score:.0%}, URL {url_score:.0%}) non sufficiente "
+                    f"{engine_name}: risultato Booking.com trovato, ma match identità {score:.0%} ({reasons}) non sufficiente "
                     "per attribuirlo automaticamente alla struttura."
                 )[:900],
                 "searchUrl": search_url,
@@ -345,7 +391,7 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
     }
 
 
-async def discover_booking_source(context, property_name: str, city: str, robots: dict) -> dict:
+async def discover_booking_source(context, property_name: str, city: str, robots: dict, address: str = "", website: str = "") -> dict:
     search_url = booking_search_url(property_name, city)
     permission = await asyncio.to_thread(allowed_by_robots, search_url, robots)
     if permission is not True:
@@ -356,7 +402,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 + str(direct.get("evidence") or "")
             )[:900]
             return direct
-        fallback = await discover_booking_via_search_engine(context, property_name, city)
+        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
         if fallback.get("status") == "found":
             fallback["evidence"] = (
                 "La ricerca interna Booking.com non è stata usata perché robots.txt non ne consente o non chiarisce l'accesso automatico. "
@@ -426,7 +472,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                     + str(direct.get("evidence") or "")
                 )[:900]
                 return direct
-            fallback = await discover_booking_via_search_engine(context, property_name, city)
+            fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
             if fallback.get("status") == "found":
                 fallback["evidence"] = (
                     f"Ricerca Booking.com eseguita per «{property_name}{' ' + city if city else ''}» senza scheda riconoscibile; "
@@ -637,7 +683,22 @@ async def run(args: argparse.Namespace) -> dict:
         context = await browser.new_context(locale="it-IT", timezone_id="Europe/Rome")
         try:
             if not sources.get("booking", {}).get("url"):
-                discovery = await discover_booking_source(context, data.get("name", ""), data.get("city", ""), robots)
+                official_identity_url=(sources.get("sito") or {}).get("url","")
+                catalog_match=data.get("catalogMatch") if isinstance(data.get("catalogMatch"),dict) else {}
+                if catalog_match:
+                    print(
+                        f"catalog identity: {data.get('name','')} · {data.get('city','')} · "
+                        f"{data.get('address','')} · match {catalog_match.get('score','')} · {catalog_match.get('reason','')}",
+                        flush=True,
+                    )
+                discovery = await discover_booking_source(
+                    context,
+                    data.get("name", ""),
+                    data.get("city", ""),
+                    robots,
+                    address=data.get("address", ""),
+                    website=official_identity_url,
+                )
                 result["discoveredSources"]["booking"] = discovery
                 print(
                     f"booking discovery: {discovery.get('status')} · {discovery.get('title','')} · "
