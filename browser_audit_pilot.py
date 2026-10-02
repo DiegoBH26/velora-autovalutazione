@@ -293,23 +293,27 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 if not url:
                     continue
                 text = str(item.get("text", ""))
-                score = _name_similarity(property_name, text)
-                if city and city.lower() in text.lower():
+                path_slug = urlparse(url).path.rsplit("/", 1)[-1].split(".")[0].replace("-", " ")
+                text_score = _name_similarity(property_name, text)
+                url_score = _name_similarity(property_name, path_slug)
+                score = max(text_score, url_score)
+                if city and (city.lower() in text.lower() or city.lower() in path_slug.lower()):
                     score = min(1.0, score + 0.08)
-                candidates.append((score, url, text))
+                candidates.append((score, url, text, path_slug, text_score, url_score))
             candidates.sort(key=lambda row: row[0], reverse=True)
             if not candidates:
                 continue
-            score, url, text = candidates[0]
+            score, url, text, path_slug, text_score, url_score = candidates[0]
+            display_title = text.strip() if text.strip() and text.strip().lower() not in {"hotel", "booking.com"} else path_slug
             if score >= 0.70:
                 return {
                     "status": "found",
                     "url": url,
-                    "title": text[:220],
+                    "title": display_title[:220],
                     "score": round(score, 3),
                     "evidence": (
                         f"{engine_name}: trovata una pagina Booking.com compatibile con «{property_name}{' ' + city if city else ''}». "
-                        f"Similarità del risultato {score:.0%}. URL osservato: {url}"
+                        f"Similarità complessiva {score:.0%} (testo {text_score:.0%}, URL {url_score:.0%}). URL osservato: {url}"
                     )[:900],
                     "searchUrl": search_url,
                     "discoveryMode": f"{engine_name} site-search",
@@ -320,7 +324,7 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 "title": text[:220],
                 "score": round(score, 3),
                 "evidence": (
-                    f"{engine_name}: risultato Booking.com trovato, ma similarità {score:.0%} non sufficiente "
+                    f"{engine_name}: risultato Booking.com trovato, ma similarità {score:.0%} (testo {text_score:.0%}, URL {url_score:.0%}) non sufficiente "
                     "per attribuirlo automaticamente alla struttura."
                 )[:900],
                 "searchUrl": search_url,
