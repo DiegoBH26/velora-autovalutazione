@@ -244,6 +244,13 @@ def match_catalog(payload):
 
 def enrich_from_catalog(payload):
     enriched=dict(payload or {})
+    if not str(enriched.get("website") or "").strip():
+        try:
+            site_source=(enriched.get("sources") or {}).get("sito") or {}
+            if isinstance(site_source,dict) and site_source.get("url"):
+                enriched["website"]=str(site_source.get("url") or "").strip()
+        except Exception:
+            pass
     match=match_catalog(enriched)
     if not match:
         return enriched,None
