@@ -3576,6 +3576,20 @@ type RateQuote = {
   sourceUrl: string;
 };
 
+type BrowserPilotQuoteCandidate = {
+  roomType: string;
+  total: number;
+  currency: string;
+  nights: number;
+  guests: number;
+  board: string;
+  refund: string;
+  audience: string;
+  taxes: string;
+  verified?: boolean;
+  evidence?: string;
+};
+
 type BrowserPilotObservation = {
   otaId: string;
   month: string;
@@ -3584,6 +3598,18 @@ type BrowserPilotObservation = {
   status: string;
   evidence?: string;
   requestedUrl?: string;
+  finalUrl?: string;
+  title?: string;
+  quotes?: BrowserPilotQuoteCandidate[];
+};
+
+type DiscoveredPilotSource = {
+  status: string;
+  url?: string;
+  title?: string;
+  score?: number;
+  evidence?: string;
+  searchUrl?: string;
 };
 
 type BrowserPilotResult = {
@@ -3591,6 +3617,7 @@ type BrowserPilotResult = {
   propertyId: string;
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
+  discoveredSources?: Record<string, DiscoveredPilotSource>;
   observations: BrowserPilotObservation[];
 };
 
@@ -4625,13 +4652,64 @@ export default function App() {
           url: String(parsed.bookingEngine.url || ""), mode: String(parsed.bookingEngine.mode || ""),
           evidence: String(parsed.bookingEngine.evidence || ""),
         } : undefined,
-        observations: parsed.observations.filter((item) => item && typeof item.otaId === "string" && typeof item.month === "string" && typeof item.status === "string").slice(0, 500),
+        discoveredSources: parsed.discoveredSources && typeof parsed.discoveredSources === "object"
+          ? parsed.discoveredSources
+          : undefined,
+        observations: parsed.observations
+          .filter((item) => item && typeof item.otaId === "string" && typeof item.month === "string" && typeof item.status === "string")
+          .slice(0, 500)
+          .map((item) => ({
+            ...item,
+            quotes: Array.isArray(item.quotes)
+              ? item.quotes.filter((quote) => quote && typeof quote.roomType === "string" && Number.isFinite(Number(quote.total))).slice(0, 20)
+              : [],
+          })),
       };
       setBrowserPilotResult(cleaned);
       window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(cleaned));
       window.alert(`${cleaned.observations.length} verifiche importate. I prezzi non confermati non entrano nei calcoli.`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Impossibile leggere il file del pilota.");
+    }
+  }
+
+  function applyPilotEvidence(result: BrowserPilotResult) {
+    const bookingDiscovery = result.discoveredSources?.booking;
+    if (bookingDiscovery?.status === "found" && bookingDiscovery.url) {
+      updateAnswer("audit-ota-booking", {
+        auditStatus: "present",
+        note:
+          "Esito: Presente\n" +
+          "Riscontro osservato: è stata individuata una scheda Booking.com attribuibile alla struttura.\n" +
+          "Motivo dell'esito: la ricerca pubblica ha restituito una corrispondenza con similarità sufficiente.\n" +
+          "Scheda rilevata: " + (bookingDiscovery.title || "titolo non disponibile") + "\n" +
+          "Fonte: " + bookingDiscovery.url + "\n" +
+          "Dettaglio tecnico: " + (bookingDiscovery.evidence || "nessun dettaglio aggiuntivo"),
+      });
+    } else if (bookingDiscovery && bookingDiscovery.status !== "existing") {
+      updateAnswer("audit-ota-booking", {
+        auditStatus: "unverified",
+        note:
+          "Esito: Da verificare\n" +
+          "Riscontro osservato: la ricerca automatica Booking.com non ha prodotto una scheda attribuibile con sufficiente certezza.\n" +
+          "Motivo dell'esito: " + (bookingDiscovery.evidence || bookingDiscovery.status) + "\n" +
+          "Questo non prova che la struttura sia assente da Booking.com.",
+      });
+    }
+
+    const bookingObs = result.observations.filter((item) => item.otaId === "booking");
+    if (bookingObs.length) {
+      const withQuotes = bookingObs.filter((item) => Array.isArray(item.quotes) && item.quotes.length);
+      const verifiedCandidates = withQuotes.flatMap((item) => (item.quotes || []).filter((quote) => quote.verified));
+      const evidence =
+        "Campionamento futuro Booking.com: " + bookingObs.length + " date/mese controllati. " +
+        "Righe camera/prezzo rilevate in " + withQuotes.length + " controlli; candidati con riferimento esplicito a totale/soggiorno: " +
+        verifiedCandidates.length + ".";
+      updateAnswer("audit-policy-booking", {
+        note:
+          evidence +
+          "\nI valori restano candidati di quotazione e non entrano automaticamente nel delta finché tasse, condizioni e identità della stessa unità fisica non sono confermate.",
+      });
     }
   }
 
@@ -4665,6 +4743,7 @@ export default function App() {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
             setBrowserPilotResult(status.result);
             window.localStorage.setItem(`velora-browser-pilot:${activeAuditData.id}`, JSON.stringify(status.result));
+            applyPilotEvidence(status.result);
           }
           break;
         }
@@ -5753,7 +5832,7 @@ export default function App() {
     const bookingStatusLabel = bookingStatus === "present" ? bookingProvider === "Fornitore non identificato" ? "Percorso di prenotazione rilevato; fornitore non confermato" : "Fornitore identificato" : bookingStatus === "partial" ? "Percorso di prenotazione rilevato; fornitore non confermato" : bookingStatus === "missing" ? "Percorso di prenotazione non rilevato nel campione" : "Non verificato";
     const bookingEngineReportHtml = isWebAudit ? `<section><h2>Booking engine e fornitore del canale diretto</h2><table><tbody><tr><th style="width:25%">Esito</th><td>${safe(bookingStatusLabel)}</td></tr><tr><th>Fornitore</th><td><b>${safe(bookingProvider)}</b></td></tr><tr><th>Percorso</th><td>${safe(bookingMode)}</td></tr><tr><th>URL di prova</th><td>${safe(bookingUrl)}</td></tr><tr><th>Riscontro</th><td>${safe(bookingEvidence)}</td></tr></tbody></table><p>Un dominio riconosciuto identifica il fornitore del percorso pubblico, ma non prova che disponibilità, pagamento e checkout funzionino. Un sito ospitato direttamente dal fornitore va registrato anche se non esiste un dominio ufficiale separato.</p></section>` : "";
     const pilotObservations = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.observations : [];
-    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", needs_human_review: "Preventivo da verificare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
+    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", needs_human_review: "Preventivo da verificare", quote_candidates: "Candidati tariffari rilevati", quote_candidates_unverified: "Righe camera/prezzo da verificare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
     const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
     const pilotRows = pilotChannelIds.map((otaId) => {
       const entries = pilotObservations.filter((item) => item.otaId === otaId);
