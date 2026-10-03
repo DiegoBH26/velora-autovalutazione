@@ -217,6 +217,99 @@ async def booking_property_rate_context(page) -> tuple[bool, str]:
     return bool(is_property and has_rate_area), ", ".join(found[:6])
 
 
+async def _first_visible_locator(page, selectors):
+    for selector in selectors:
+        try:
+            loc=page.locator(selector).first
+            if await loc.count() and await loc.is_visible(timeout=350):
+                return loc, selector
+        except Exception:
+            pass
+    return None, ""
+
+
+async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
+    """Prova a impostare check-in/check-out usando il date picker pubblico di Booking."""
+    checkin=stay["checkin"]
+    checkout=stay["checkout"]
+    evidence=[]
+    opener, opener_selector = await _first_visible_locator(page, (
+        '[data-testid="date-display-field-start"]',
+        'button[data-testid="date-display-field-start"]',
+        '[data-testid="searchbox-dates-container"]',
+        'button[aria-label*="check-in" i]',
+        'button[aria-label*="arrivo" i]',
+    ))
+    if opener is None:
+        return False, "date picker Booking non individuato"
+    try:
+        await opener.click(timeout=1800)
+        await page.wait_for_timeout(350)
+        evidence.append(f"aperto con {opener_selector}")
+    except Exception as exc:
+        return False, f"date picker non apribile: {type(exc).__name__}"
+
+    async def pick(target_iso: str) -> tuple[bool, str]:
+        target_selector=f'[data-date="{target_iso}"]'
+        for step in range(20):
+            try:
+                target=page.locator(target_selector).first
+                if await target.count() and await target.is_visible(timeout=250):
+                    disabled = await target.get_attribute("aria-disabled")
+                    if disabled == "true":
+                        return False, f"{target_iso} presente ma non selezionabile"
+                    await target.click(timeout=1800)
+                    await page.wait_for_timeout(250)
+                    return True, f"{target_iso} selezionata"
+            except Exception:
+                pass
+            next_button, next_selector = await _first_visible_locator(page, (
+                'button[aria-label*="mese successivo" i]',
+                'button[aria-label*="successivo" i]',
+                'button[aria-label*="next month" i]',
+                'button[aria-label*="next" i]',
+                '[data-testid="calendar-next-button"]',
+                '[data-testid*="next-month"]',
+            ))
+            if next_button is None:
+                return False, f"{target_iso} non visibile e navigazione calendario non trovata"
+            try:
+                await next_button.click(timeout=1500)
+                await page.wait_for_timeout(220)
+                if step == 0:
+                    evidence.append(f"navigazione calendario con {next_selector}")
+            except Exception as exc:
+                return False, f"navigazione calendario fallita: {type(exc).__name__}"
+        return False, f"{target_iso} non raggiunta entro 20 mesi"
+
+    ok_start, ev_start = await pick(checkin)
+    evidence.append(ev_start)
+    if not ok_start:
+        return False, "; ".join(evidence)
+    ok_end, ev_end = await pick(checkout)
+    evidence.append(ev_end)
+    if not ok_end:
+        return False, "; ".join(evidence)
+
+    submit, submit_selector = await _first_visible_locator(page, (
+        '[data-testid="date-submit-button"]',
+        '[data-testid="searchbox-layout-wide"] button[type="submit"]',
+        'form[role="search"] button[type="submit"]',
+        'form[action*="searchresults"] button[type="submit"]',
+    ))
+    if submit is not None:
+        try:
+            await submit.click(timeout=1800)
+            evidence.append(f"ricerca inviata con {submit_selector}")
+        except Exception:
+            evidence.append("date selezionate; pulsante ricerca non cliccabile")
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=8000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(1200)
+    return True, "; ".join(evidence)
+
 def _norm_name(value: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii").lower()
     tokens = [token for token in re.findall(r"[a-z0-9]+", ascii_text) if token not in GENERIC_NAME_WORDS]
@@ -744,32 +837,47 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         return record
     try:
         response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
+        if channel == "booking":
+            await dismiss_cookie(page)
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
         try:
             await page.locator("body").wait_for(state="visible", timeout=5000)
             await page.wait_for_timeout(1500)
         except PlaywrightTimeout:
             pass
+
+        async def snapshot_and_confirm():
+            current_title=(await page.title())[:200]
+            current_body=(await page.locator("body").inner_text(timeout=7000))[:12000]
+            confirmed=visible_dates_confirmed(current_body, stay)
+            mode="visible-text" if confirmed else ""
+            dom_excerpt=""
+            if channel == "booking" and not confirmed:
+                confirmed, dom_excerpt = await booking_dom_dates_confirmed(page, stay)
+                if confirmed:
+                    mode="booking-dom-fields"
+            if channel == "booking" and not confirmed and booking_url_dates_confirmed(page.url, stay):
+                property_context, context_evidence = await booking_property_rate_context(page)
+                if property_context:
+                    confirmed=True
+                    mode="booking-final-url+rate-context"
+                    dom_excerpt=(
+                        "URL finale Booking mantiene check-in/check-out richiesti; "
+                        f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
+                    )
+            return current_title,current_body,confirmed,mode,dom_excerpt
+
         record["finalUrl"] = page.url
-        record["title"] = (await page.title())[:200]
-        body = (await page.locator("body").inner_text(timeout=7000))[:12000]
-        text = (record["title"] + " " + body).lower()
-        dates_confirmed = visible_dates_confirmed(body, stay)
-        date_confirmation_mode = "visible-text" if dates_confirmed else ""
-        date_dom_excerpt = ""
+        record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+        ui_date_evidence=""
         if channel == "booking" and not dates_confirmed:
-            dates_confirmed, date_dom_excerpt = await booking_dom_dates_confirmed(page, stay)
-            if dates_confirmed:
-                date_confirmation_mode = "booking-dom-fields"
-        if channel == "booking" and not dates_confirmed and booking_url_dates_confirmed(page.url, stay):
-            property_context, context_evidence = await booking_property_rate_context(page)
-            if property_context:
-                dates_confirmed = True
-                date_confirmation_mode = "booking-final-url+rate-context"
-                date_dom_excerpt = (
-                    "URL finale Booking mantiene check-in/check-out richiesti; "
-                    f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
-                )
+            applied, ui_date_evidence = await booking_apply_dates_via_ui(page, stay)
+            if applied:
+                record["finalUrl"] = page.url
+                record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+                if dates_confirmed and not date_confirmation_mode:
+                    date_confirmation_mode="booking-ui-date-picker"
+        text = (record["title"] + " " + body).lower()
         if response and response.status >= 400:
             record.update(status="http_error", evidence=f"HTTP {response.status}")
         elif any(word in text for word in BLOCK_WORDS):
@@ -778,11 +886,12 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record.update(status="empty_page", evidence="Pagina senza contenuto leggibile nel campione.")
         elif not dates_confirmed:
             detail = f" Stato DOM date: {date_dom_excerpt}" if date_dom_excerpt else ""
+            ui_detail = f" Tentativo date picker: {ui_date_evidence}." if ui_date_evidence else ""
             record.update(
                 status="dates_unconfirmed",
                 evidence=(
                     f"Le date richieste {stay['checkin']} → {stay['checkout']} non sono confermate nel contenuto visibile o nei campi data del portale; "
-                    "i prezzi non vengono utilizzati." + detail
+                    f"i prezzi non vengono utilizzati. URL finale: {page.url}." + detail + ui_detail
                 )[:900],
             )
         else:
