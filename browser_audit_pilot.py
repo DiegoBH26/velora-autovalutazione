@@ -96,14 +96,91 @@ def allowed_by_robots(url: str, cache: dict[str, RobotFileParser | bool | None])
     return parser.can_fetch("VeloraAuditBot", url) if parser else None
 
 
+MONTH_NAMES = {
+    1: ("gen", "gennaio", "jan", "january"),
+    2: ("feb", "febbraio", "february"),
+    3: ("mar", "marzo", "march"),
+    4: ("apr", "aprile", "april"),
+    5: ("mag", "maggio", "may"),
+    6: ("giu", "giugno", "jun", "june"),
+    7: ("lug", "luglio", "jul", "july"),
+    8: ("ago", "agosto", "aug", "august"),
+    9: ("set", "sett", "settembre", "sep", "sept", "september"),
+    10: ("ott", "ottobre", "oct", "october"),
+    11: ("nov", "novembre", "november"),
+    12: ("dic", "dicembre", "dec", "december"),
+}
+
+
+def _date_forms(day: date) -> tuple[str, ...]:
+    forms = {
+        day.isoformat(),
+        f"{day.day:02d}/{day.month:02d}/{day.year}",
+        f"{day.day}/{day.month}/{day.year}",
+        f"{day.day:02d}-{day.month:02d}-{day.year}",
+        f"{day.day}-{day.month}-{day.year}",
+        f"{day.day:02d}.{day.month:02d}.{day.year}",
+        f"{day.day}.{day.month}.{day.year}",
+    }
+    for month_name in MONTH_NAMES[day.month]:
+        forms.update({
+            f"{day.day} {month_name}",
+            f"{day.day:02d} {month_name}",
+            f"{month_name} {day.day}",
+            f"{month_name} {day.day:02d}",
+            f"{day.day} {month_name} {day.year}",
+            f"{day.day:02d} {month_name} {day.year}",
+            f"{month_name} {day.day} {day.year}",
+            f"{month_name} {day.day:02d} {day.year}",
+        })
+    return tuple(forms)
+
+
 def visible_dates_confirmed(text: str, stay: dict) -> bool:
-    """Conservativo: le date richieste devono apparire nella pagina renderizzata."""
+    """Conservativo: check-in e check-out devono comparire nel contenuto renderizzato."""
     start, end = date.fromisoformat(stay["checkin"]), date.fromisoformat(stay["checkout"])
-    lowered = text.lower()
-    # Le lingue e i formati variano. Un URL con date non basta come prova.
-    forms = lambda day: (day.isoformat(), f"{day.day:02d}/{day.month:02d}/{day.year}",
-                         f"{day.day}/{day.month}/{day.year}")
-    return any(value in lowered for value in forms(start)) and any(value in lowered for value in forms(end))
+    lowered = re.sub(r"\s+", " ", (text or "").lower())
+    return any(value in lowered for value in _date_forms(start)) and any(value in lowered for value in _date_forms(end))
+
+
+async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
+    """Conferma le date nello stato DOM Booking senza affidarsi ai soli parametri URL."""
+    start, end = date.fromisoformat(stay["checkin"]), date.fromisoformat(stay["checkout"])
+    try:
+        values = await page.evaluate(r"""() => {
+          const selectors = [
+            '[data-testid="date-display-field-start"]',
+            '[data-testid="date-display-field-end"]',
+            'input[name="checkin"]',
+            'input[name="checkout"]',
+            '[data-date]',
+            '[aria-label*="check-in" i]',
+            '[aria-label*="check-out" i]',
+            '[aria-label*="arrivo" i]',
+            '[aria-label*="partenza" i]'
+          ];
+          const out = [];
+          const seen = new Set();
+          for (const selector of selectors) {
+            for (const el of Array.from(document.querySelectorAll(selector)).slice(0, 80)) {
+              const parts = [
+                el.textContent || '',
+                el.getAttribute('value') || '',
+                el.getAttribute('data-date') || '',
+                el.getAttribute('aria-label') || '',
+                el.getAttribute('placeholder') || ''
+              ];
+              const value = parts.join(' ').replace(/\s+/g,' ').trim();
+              if (value && !seen.has(value)) { seen.add(value); out.push(value.slice(0,300)); }
+            }
+          }
+          return out;
+        }""")
+    except Exception:
+        return False, ""
+    combined = " | ".join(str(value) for value in values).lower()
+    confirmed = any(value in combined for value in _date_forms(start)) and any(value in combined for value in _date_forms(end))
+    return confirmed, combined[:700]
 
 
 def _norm_name(value: str) -> str:
@@ -643,14 +720,25 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         record["title"] = (await page.title())[:200]
         body = (await page.locator("body").inner_text(timeout=7000))[:12000]
         text = (record["title"] + " " + body).lower()
+        dates_confirmed = visible_dates_confirmed(body, stay)
+        date_dom_excerpt = ""
+        if channel == "booking" and not dates_confirmed:
+            dates_confirmed, date_dom_excerpt = await booking_dom_dates_confirmed(page, stay)
         if response and response.status >= 400:
             record.update(status="http_error", evidence=f"HTTP {response.status}")
         elif any(word in text for word in BLOCK_WORDS):
             record.update(status="blocked", evidence="Il portale ha mostrato una pagina di verifica/blocco; nessun prezzo acquisito.")
         elif not body.strip():
             record.update(status="empty_page", evidence="Pagina senza contenuto leggibile nel campione.")
-        elif not visible_dates_confirmed(body, stay):
-            record.update(status="dates_unconfirmed", evidence="Le date richieste non sono confermate nel contenuto visibile: prezzi non utilizzabili.")
+        elif not dates_confirmed:
+            detail = f" Stato DOM date: {date_dom_excerpt}" if date_dom_excerpt else ""
+            record.update(
+                status="dates_unconfirmed",
+                evidence=(
+                    f"Le date richieste {stay['checkin']} → {stay['checkout']} non sono confermate nel contenuto visibile o nei campi data del portale; "
+                    "i prezzi non vengono utilizzati." + detail
+                )[:900],
+            )
         else:
             if channel == "booking":
                 candidates = await booking_quote_candidates(page, stay)
