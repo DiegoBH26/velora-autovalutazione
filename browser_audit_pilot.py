@@ -295,12 +295,12 @@ def _identity_match_score(property_name: str, city: str, address: str, title: st
     name_score=max(name_text_score,name_slug_score,name_context_score)
     score=name_score
     reasons=[f"nome {name_score:.0%}",f"url {name_slug_score:.0%}"]
-    combined_norm=normalize_name(combined)
-    city_norm=normalize_name(city)
+    combined_norm=_norm_name(combined)
+    city_norm=_norm_name(city)
     if city_norm and city_norm in combined_norm:
         score=min(1.0,score+0.08)
         reasons.append("citta coincidente")
-    address_norm=normalize_name(address)
+    address_norm=_norm_name(address)
     if address_norm:
         address_tokens={t for t in address_norm.split() if len(t)>=3 or t.isdigit()}
         combined_tokens=set(combined_norm.split())
