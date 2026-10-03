@@ -821,6 +821,159 @@ def write_result(path: Path, result: dict) -> None:
     temporary.replace(path)
 
 
+
+def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
+    query = " ".join(part for part in (property_name.strip(), city.strip()) if part)
+    return "https://www.booking.com/searchresults.it.html?" + urlencode({
+        "ss": query,
+        "checkin": stay["checkin"],
+        "checkout": stay["checkout"],
+        "group_adults": str(stay.get("adults") or 2),
+        "no_rooms": "1",
+        "group_children": "0",
+    })
+
+
+async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
+    requested = booking_dated_search_url(property_name, city, stay)
+    record = {
+        "otaId": "booking",
+        **stay,
+        "sourceUrl": source,
+        "requestedUrl": requested,
+        "observedAt": datetime.now(timezone.utc).isoformat(),
+        "status": "dated_search_inconclusive",
+        "finalUrl": "",
+        "title": "",
+        "evidence": "",
+        "quotes": [],
+    }
+    permission = await asyncio.to_thread(allowed_by_robots, requested, robots)
+    if permission is not True:
+        record["evidence"] = "Ricerca Booking con date non eseguita: robots.txt non consente o non chiarisce l'accesso automatico."
+        return record
+    try:
+        response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
+        await dismiss_cookie(page)
+        try:
+            await page.locator("body").wait_for(state="visible", timeout=5000)
+            await page.wait_for_timeout(1600)
+        except PlaywrightTimeout:
+            pass
+        record["finalUrl"] = page.url
+        record["title"] = (await page.title())[:200]
+        if response and response.status >= 400:
+            record.update(status="http_error", evidence=f"Ricerca Booking con date: HTTP {response.status}.")
+            return record
+
+        final_dates_ok = booking_url_dates_confirmed(page.url, stay)
+        cards = await page.evaluate(r"""() => {
+          const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
+          const result = [];
+          for (const card of Array.from(document.querySelectorAll('[data-testid="property-card"]')).slice(0, 60)) {
+            const link = card.querySelector('a[data-testid="title-link"], a[href*="/hotel/"]');
+            const titleNode = card.querySelector('[data-testid="title"], [data-testid="property-title"], h3');
+            const priceNode = card.querySelector('[data-testid="price-and-discounted-price"], [data-testid*="price"]');
+            result.push({
+              href: link ? abs(link.getAttribute('href') || '') : '',
+              title: (titleNode?.textContent || link?.textContent || '').replace(/\s+/g,' ').trim().slice(0,240),
+              text: (card.innerText || '').replace(/\s+/g,' ').trim().slice(0,1800),
+              price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0,160)
+            });
+          }
+          return result;
+        }""")
+
+        source_path=(urlparse(source).path or "").rstrip("/").lower()
+        best=None
+        for item in cards:
+            href=str(item.get("href") or "")
+            candidate_path=(urlparse(href).path or "").rstrip("/").lower()
+            exact_path=bool(source_path and candidate_path and source_path==candidate_path)
+            score=_name_similarity(property_name, str(item.get("title") or ""))
+            if exact_path:
+                score=1.0
+            elif city and city.lower() in str(item.get("text") or "").lower():
+                score=min(1.0, score+0.08)
+            row=(score, exact_path, item)
+            if best is None or row[0]>best[0]:
+                best=row
+
+        if not best or best[0] < 0.68:
+            body=(await page.locator("body").inner_text(timeout=7000))[:9000]
+            record["evidence"]=(
+                f"Ricerca Booking con date {stay['checkin']} → {stay['checkout']} eseguita, "
+                "ma la scheda esatta della struttura non è stata isolata con sufficiente certezza. "
+                f"Date nella URL finale: {'sì' if final_dates_ok else 'no'}. "
+                f"Estratto: {re.sub(r'\s+', ' ', body)[:280]}"
+            )[:900]
+            return record
+
+        score, exact_path, item = best
+        card_text=str(item.get("text") or "")
+        low=card_text.lower()
+        unavailable_terms=(
+            "non disponibile per le date selezionate",
+            "non disponibile nelle date selezionate",
+            "nessuna disponibilità",
+            "nessuna camera disponibile",
+            "sold out",
+            "not available for your dates",
+            "no availability",
+            "no rooms available",
+        )
+        unavailable_hit=next((term for term in unavailable_terms if term in low), "")
+        total=_money_value(str(item.get("price") or "") or card_text)
+
+        if final_dates_ok and unavailable_hit:
+            record.update(
+                status="no_public_rate",
+                evidence=(
+                    f"Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
+                    f"Scheda esatta {'per URL' if exact_path else 'per nome'}: «{item.get('title','')}». "
+                    f"Il portale mostra un messaggio di indisponibilità («{unavailable_hit}»). "
+                    "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date; la causa non è determinabile automaticamente."
+                )[:900],
+            )
+            return record
+
+        if final_dates_ok and total is not None:
+            quote={
+                "roomType": "Tipologia camera da verificare",
+                "total": round(total,2),
+                "currency": "EUR",
+                "nights": stay["nights"],
+                "guests": stay["adults"],
+                "board": "Trattamento da verificare",
+                "refund": "Cancellazione da verificare",
+                "audience": "Pubblico senza login",
+                "taxes": "Da verificare nel dettaglio del preventivo",
+                "verified": False,
+                "evidence": card_text[:700],
+            }
+            record["quotes"]=[quote]
+            record.update(
+                status="quote_candidates_unverified",
+                evidence=(
+                    f"Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
+                    f"Scheda esatta {'per URL' if exact_path else 'per nome'}: «{item.get('title','')}». "
+                    f"Prezzo totale visibile nel risultato: €{total:.2f}. "
+                    "La tipologia fisica della camera e le condizioni restano da verificare prima di usare il dato nel delta."
+                )[:900],
+            )
+            return record
+
+        record["evidence"]=(
+            f"Ricerca Booking con date {stay['checkin']} → {stay['checkout']} e scheda «{item.get('title','')}» individuata "
+            f"(match {score:.0%}); date nella URL finale: {'sì' if final_dates_ok else 'no'}. "
+            "Nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
+        )[:900]
+        return record
+    except Exception as exc:
+        record.update(status="navigation_error", evidence=f"Ricerca Booking con date non completata: {type(exc).__name__}: {str(exc)[:180]}")
+        return record
+
+
 async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> dict:
     requested = dated_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
@@ -1021,11 +1174,39 @@ async def run(args: argparse.Namespace) -> dict:
                         record = {"otaId": channel, **stay, "status": "source_missing", "quotes": [],
                                   "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
-                        page = await context.new_page()
-                        try:
-                            record = await observe(page, channel, source, stay, robots)
-                        finally:
-                            await page.close()
+                        if channel == "booking":
+                            search_page = await context.new_page()
+                            try:
+                                dated_record = await booking_dated_search_observation(
+                                    search_page,
+                                    source,
+                                    data.get("name", ""),
+                                    data.get("city", ""),
+                                    stay,
+                                    robots,
+                                )
+                            finally:
+                                await search_page.close()
+                            if dated_record.get("status") in {"quote_candidates_unverified", "no_public_rate"}:
+                                record = dated_record
+                            else:
+                                page = await context.new_page()
+                                try:
+                                    record = await observe(page, channel, source, stay, robots)
+                                finally:
+                                    await page.close()
+                                if record.get("status") in {"dates_unconfirmed", "needs_human_review"}:
+                                    record["evidence"] = (
+                                        str(record.get("evidence") or "") +
+                                        " | Ricerca Booking datata: " +
+                                        str(dated_record.get("evidence") or "")
+                                    )[:900]
+                        else:
+                            page = await context.new_page()
+                            try:
+                                record = await observe(page, channel, source, stay, robots)
+                            finally:
+                                await page.close()
                     result["observations"].append(record)
                     write_result(output, result)
                     if channel == "booking":
