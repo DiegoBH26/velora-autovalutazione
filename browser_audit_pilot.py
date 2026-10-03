@@ -182,6 +182,40 @@ async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
     confirmed = any(value in combined for value in _date_forms(start)) and any(value in combined for value in _date_forms(end))
     return confirmed, combined[:700]
 
+def booking_url_dates_confirmed(url: str, stay: dict) -> bool:
+    """Conferma che Booking abbia mantenuto esattamente le date richieste nella URL finale."""
+    try:
+        parsed=urlparse(url)
+        query=dict(parse_qsl(parsed.query, keep_blank_values=True))
+    except Exception:
+        return False
+    checkin=query.get("checkin") or query.get("check_in") or ""
+    checkout=query.get("checkout") or query.get("check_out") or ""
+    return checkin==stay["checkin"] and checkout==stay["checkout"]
+
+
+async def booking_property_rate_context(page) -> tuple[bool, str]:
+    """Verifica che la pagina sia una scheda struttura con area disponibilita/camere caricata."""
+    selectors=(
+        '#hprt-table',
+        '[data-testid="room-list"]',
+        '[data-testid="room-card"]',
+        '[data-testid="availability-block"]',
+        '[data-testid="property-title"]',
+    )
+    found=[]
+    for selector in selectors:
+        try:
+            loc=page.locator(selector).first
+            if await loc.count():
+                found.append(selector)
+        except Exception:
+            pass
+    path=(urlparse(page.url).path or "").lower()
+    is_property="/hotel/" in path
+    has_rate_area=any(selector in found for selector in ('#hprt-table','[data-testid="room-list"]','[data-testid="room-card"]','[data-testid="availability-block"]'))
+    return bool(is_property and has_rate_area), ", ".join(found[:6])
+
 
 def _norm_name(value: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii").lower()
@@ -721,9 +755,21 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         body = (await page.locator("body").inner_text(timeout=7000))[:12000]
         text = (record["title"] + " " + body).lower()
         dates_confirmed = visible_dates_confirmed(body, stay)
+        date_confirmation_mode = "visible-text" if dates_confirmed else ""
         date_dom_excerpt = ""
         if channel == "booking" and not dates_confirmed:
             dates_confirmed, date_dom_excerpt = await booking_dom_dates_confirmed(page, stay)
+            if dates_confirmed:
+                date_confirmation_mode = "booking-dom-fields"
+        if channel == "booking" and not dates_confirmed and booking_url_dates_confirmed(page.url, stay):
+            property_context, context_evidence = await booking_property_rate_context(page)
+            if property_context:
+                dates_confirmed = True
+                date_confirmation_mode = "booking-final-url+rate-context"
+                date_dom_excerpt = (
+                    "URL finale Booking mantiene check-in/check-out richiesti; "
+                    f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
+                )
         if response and response.status >= 400:
             record.update(status="http_error", evidence=f"HTTP {response.status}")
         elif any(word in text for word in BLOCK_WORDS):
@@ -749,7 +795,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     record.update(
                         status="quote_candidates",
                         evidence=(
-                            f"Date confermate nel contenuto visibile. Rilevati {len(candidates)} candidati camera/prezzo; "
+                            f"Date confermate ({date_confirmation_mode or 'pagina renderizzata'}). Rilevati {len(candidates)} candidati camera/prezzo; "
                             f"{len(verified)} riportano nella stessa riga un riferimento compatibile con totale/soggiorno. "
                             f"Esempio: {first['roomType']} · €{first['total']:.2f} per {stay['nights']} notti. "
                             "Tasse e identità fisica dell'unità restano da verificare prima del delta."
@@ -759,7 +805,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     record.update(
                         status="quote_candidates_unverified",
                         evidence=(
-                            f"Date confermate e {len(candidates)} righe camera/prezzo rilevate, ma il totale del soggiorno "
+                            f"Date confermate ({date_confirmation_mode or 'pagina renderizzata'}) e {len(candidates)} righe camera/prezzo rilevate, ma il totale del soggiorno "
                             "non è attribuibile automaticamente con sufficiente certezza."
                         )
                     )
@@ -873,7 +919,13 @@ async def run(args: argparse.Namespace) -> dict:
                             await page.close()
                     result["observations"].append(record)
                     write_result(output, result)
-                    print(f"{stay['month']} {channel}: {record['status']}", flush=True)
+                    if channel == "booking":
+                        print(
+                            f"{stay['month']} {channel}: {record['status']} · {str(record.get('evidence') or '')[:220]}",
+                            flush=True,
+                        )
+                    else:
+                        print(f"{stay['month']} {channel}: {record['status']}", flush=True)
                     await asyncio.sleep(1)
         finally:
             await browser.close()
