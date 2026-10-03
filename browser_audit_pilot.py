@@ -1034,6 +1034,84 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         return record
 
 
+async def booking_settle_render(page) -> dict:
+    """Attende e stimola il rendering della sezione disponibilita' senza aggirare blocchi."""
+    diagnostics={"bodyLength":0,"priceNodes":0,"roomNodes":0,"availabilityNodes":0,"reloaded":False}
+    async def inspect():
+        try:
+            return await page.evaluate(r"""() => {
+              const bodyText=(document.body?.innerText || '').replace(/\s+/g,' ').trim();
+              return {
+                bodyLength: bodyText.length,
+                priceNodes: document.querySelectorAll(
+                  '[data-testid="price-and-discounted-price"], [data-testid*="price"], .bui-price-display__value, .prco-valign-middle-helper'
+                ).length,
+                roomNodes: document.querySelectorAll(
+                  '#hprt-table tbody tr, #hprt-form tbody tr, [data-testid="room-card"], [data-testid*="room-card"], [data-testid="room-list"] > *'
+                ).length,
+                availabilityNodes: document.querySelectorAll(
+                  '#hprt-table, #hprt-form, [data-testid="availability-block"], [data-testid*="availability"]'
+                ).length
+              };
+            }""")
+        except Exception:
+            return {"bodyLength":0,"priceNodes":0,"roomNodes":0,"availabilityNodes":0}
+
+    try:
+        target, _ = await _first_visible_locator(page, (
+            '#hprt-table',
+            '#hprt-form',
+            '[data-testid="availability-block"]',
+            '[data-testid*="availability"]',
+            '[data-testid="room-list"]',
+        ))
+        if target is not None:
+            try:
+                await target.scroll_into_view_if_needed(timeout=1200)
+            except Exception:
+                pass
+        else:
+            await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1800))")
+        await page.wait_for_timeout(2200)
+    except Exception:
+        pass
+
+    diagnostics.update(await inspect())
+    meaningful = (
+        diagnostics["bodyLength"] >= 500
+        or diagnostics["priceNodes"] > 0
+        or diagnostics["roomNodes"] > 0
+        or diagnostics["availabilityNodes"] > 0
+    )
+    if meaningful:
+        return diagnostics
+
+    # Una sola ricarica prudente: se il DOM e' rimasto quasi vuoto aspetta una seconda idratazione.
+    try:
+        await page.reload(wait_until="domcontentloaded", timeout=20000)
+        diagnostics["reloaded"]=True
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(3000)
+        try:
+            target, _ = await _first_visible_locator(page, (
+                '#hprt-table',
+                '#hprt-form',
+                '[data-testid="availability-block"]',
+                '[data-testid*="availability"]',
+                '[data-testid="room-list"]',
+            ))
+            if target is not None:
+                await target.scroll_into_view_if_needed(timeout=1200)
+        except Exception:
+            pass
+        await page.wait_for_timeout(1600)
+        diagnostics.update(await inspect())
+        diagnostics["reloaded"]=True
+    except Exception:
+        pass
+    return diagnostics
+
+
 async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> dict:
     requested = dated_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
@@ -1090,6 +1168,11 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="booking-ui-date-picker"
+        render_diag={}
+        if channel == "booking" and dates_confirmed:
+            render_diag = await booking_settle_render(page)
+            record["finalUrl"] = page.url
+            record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         text = (record["title"] + " " + body).lower()
         if response and response.status >= 400:
             record.update(status="http_error", evidence=f"HTTP {response.status}")
@@ -1149,12 +1232,29 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     )
                 else:
                     excerpt=re.sub(r"\s+", " ", body)[:500]
+                    diag=(
+                        f"DOM: testo {render_diag.get('bodyLength', len(body))} caratteri, "
+                        f"prezzi {render_diag.get('priceNodes', 0)}, camere {render_diag.get('roomNodes', 0)}, "
+                        f"blocchi disponibilità {render_diag.get('availabilityNodes', 0)}, "
+                        f"reload {'sì' if render_diag.get('reloaded') else 'no'}."
+                    )
+                    debug_path=""
+                    try:
+                        debug_dir=Path(__file__).resolve().parent/"tmp"
+                        debug_dir.mkdir(parents=True,exist_ok=True)
+                        debug_file=debug_dir/f"booking-debug-{stay['month']}.png"
+                        await page.screenshot(path=str(debug_file), full_page=False)
+                        debug_path=str(debug_file)
+                    except Exception:
+                        debug_path=""
                     record.update(
                         status="needs_human_review",
                         evidence=(
                             "Date confermate, ma nessun prezzo e nessun messaggio esplicito di indisponibilità sono stati "
                             "attribuiti automaticamente con sufficiente certezza nella scheda struttura. "
-                            f"Estratto osservato: {excerpt}"
+                            + diag + " "
+                            + (f"Screenshot diagnostico: {debug_path}. " if debug_path else "")
+                            + f"Estratto osservato: {excerpt}"
                         )[:900],
                     )
             else:
