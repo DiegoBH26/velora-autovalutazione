@@ -333,6 +333,35 @@ def prepare_runtime_property(payload):
         cleaned[source_id[:60]]={"label":str(source.get("label") or source_id)[:160],"url":url}
     if "sito" not in cleaned:
         raise ValueError("La fonte sito con URL pubblico e' obbligatoria")
+
+    # Mantiene le OTA già scoperte dal pilota quando il frontend reinvia solo il sito ufficiale.
+    existing_path=runtime_property_path(property_id)
+    if existing_path.exists():
+        try:
+            existing=json.loads(existing_path.read_text(encoding="utf-8"))
+            same_name=_norm(existing.get("name"))==_norm(name)
+            existing_site=((existing.get("sources") or {}).get("sito") or {}).get("url","")
+            current_site=(cleaned.get("sito") or {}).get("url","")
+            same_site=False
+            try:
+                same_site=(urlparse(existing_site).hostname or "").lower().removeprefix("www.") == (urlparse(current_site).hostname or "").lower().removeprefix("www.")
+            except Exception:
+                same_site=False
+            if same_name and same_site:
+                for source_id,source in (existing.get("sources") or {}).items():
+                    if source_id in cleaned or not isinstance(source,dict) or not source.get("url"):
+                        continue
+                    try:
+                        url=public_http_url(source.get("url"))
+                    except ValueError:
+                        continue
+                    cleaned[source_id[:60]]={
+                        "label":str(source.get("label") or source_id)[:160],
+                        "url":url,
+                    }
+        except (OSError,json.JSONDecodeError):
+            pass
+
     data={
         "id":property_id,
         "name":name,
