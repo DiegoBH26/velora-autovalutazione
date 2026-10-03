@@ -761,34 +761,64 @@ def _money_value(text: str) -> float | None:
 
 
 async def booking_quote_candidates(page, stay: dict) -> list[dict]:
-    """Raccoglie candidati leggibili nella stessa riga camera/prezzo; non li dichiara ADR."""
+    """Raccoglie candidati camera/prezzo dalla scheda Booking, senza trasformarli automaticamente in ADR."""
     rows = await page.evaluate(r"""() => {
       const result = [];
-      const selectors = ['#hprt-table tbody tr', '[data-testid="room-list"] > *', '[data-testid="room-card"]'];
       const seen = new Set();
-      for (const selector of selectors) {
-        for (const row of Array.from(document.querySelectorAll(selector)).slice(0, 60)) {
-          const text = (row.innerText || '').replace(/\s+/g,' ').trim();
-          if (!text || text.length < 20 || seen.has(text)) continue;
-          seen.add(text);
-          const nameNode = row.querySelector('.hprt-roomtype-link, [data-testid="room-name"], h3, h4');
-          const priceNode = row.querySelector('.bui-price-display__value, [data-testid="price-and-discounted-price"], [data-testid*="price"]');
-          result.push({
-            text: text.slice(0, 1600),
-            room: (nameNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 220),
-            price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 120)
-          });
+      const add = (node, priceNode = null) => {
+        if (!node) return;
+        const text = (node.innerText || node.textContent || '').replace(/\s+/g,' ').trim();
+        if (!text || text.length < 15 || seen.has(text)) return;
+        const nameNode = node.querySelector(
+          '.hprt-roomtype-link, [data-testid="room-name"], [data-testid*="room-name"], h2, h3, h4, strong'
+        );
+        const ownPrice = priceNode || node.querySelector(
+          '.bui-price-display__value, [data-testid="price-and-discounted-price"], [data-testid*="price"], [class*="price"]'
+        );
+        seen.add(text);
+        result.push({
+          text: text.slice(0, 2200),
+          room: (nameNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 240),
+          price: (ownPrice?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 180)
+        });
+      };
+
+      const rowSelectors = [
+        '#hprt-table tbody tr',
+        '#hprt-form tbody tr',
+        '[data-testid="room-list"] > *',
+        '[data-testid="room-card"]',
+        '[data-testid*="room-card"]',
+        '[data-testid="availability-block"]',
+        '[data-testid*="availability"]'
+      ];
+      for (const selector of rowSelectors) {
+        for (const row of Array.from(document.querySelectorAll(selector)).slice(0, 80)) add(row);
+      }
+
+      const priceSelectors = [
+        '[data-testid="price-and-discounted-price"]',
+        '[data-testid*="price"]',
+        '.bui-price-display__value',
+        '.prco-valign-middle-helper'
+      ];
+      for (const selector of priceSelectors) {
+        for (const priceNode of Array.from(document.querySelectorAll(selector)).slice(0, 100)) {
+          const container = priceNode.closest(
+            'tr, [data-testid="room-card"], [data-testid*="room-card"], [data-testid="availability-block"], [data-testid*="room"]'
+          ) || priceNode.parentElement?.parentElement || priceNode.parentElement;
+          add(container, priceNode);
         }
       }
-      return result;
+      return result.slice(0, 100);
     }""")
     out = []
     for row in rows:
         text = str(row.get("text", ""))
-        room = str(row.get("room", "")).strip()
+        room = str(row.get("room", "")).strip() or "Tipologia camera da verificare"
         price_text = str(row.get("price", "")).strip() or text
         total = _money_value(price_text)
-        if not room or total is None:
+        if total is None:
             continue
         low = text.lower()
         board = "Colazione inclusa" if any(x in low for x in ("colazione inclusa", "breakfast included")) else "Trattamento da verificare"
@@ -808,10 +838,40 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
             "refund": refund,
             "audience": "Pubblico senza login",
             "taxes": "Da verificare nel dettaglio del preventivo",
-            "verified": bool(total_is_explicit),
-            "evidence": text[:700],
+            "verified": bool(total_is_explicit and room != "Tipologia camera da verificare"),
+            "evidence": text[:900],
         })
-    return out[:12]
+    # Deduplica per camera/prezzo/testo simile.
+    unique=[]
+    seen=set()
+    for item in out:
+        key=(item["roomType"].lower(), item["total"], item["evidence"][:180].lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique[:20]
+
+
+def booking_unavailability_message(text: str) -> str:
+    lowered=re.sub(r"\s+", " ", (text or "").lower())
+    patterns=(
+        "non disponibile per le date selezionate",
+        "non disponibile nelle date selezionate",
+        "non ci sono camere disponibili",
+        "nessuna camera disponibile",
+        "nessuna disponibilità",
+        "al momento non disponibile",
+        "struttura al completo",
+        "completamente prenotata",
+        "sold out",
+        "not available for your dates",
+        "not available on our site",
+        "no rooms available",
+        "no availability",
+        "fully booked",
+    )
+    return next((pattern for pattern in patterns if pattern in lowered), "")
 
 
 def write_result(path: Path, result: dict) -> None:
@@ -1049,10 +1109,26 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             )
         else:
             if channel == "booking":
-                candidates = await booking_quote_candidates(page, stay)
+                unavailable_hit = booking_unavailability_message(body)
+                if unavailable_hit:
+                    record.update(
+                        status="no_public_rate",
+                        evidence=(
+                            f"Date confermate ({date_confirmation_mode or 'pagina renderizzata'}): "
+                            f"{stay['checkin']} → {stay['checkout']}. "
+                            f"Booking mostra un messaggio di indisponibilità («{unavailable_hit}»). "
+                            "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date; "
+                            "la causa non è determinabile automaticamente."
+                        )[:900],
+                    )
+                    candidates = []
+                else:
+                    candidates = await booking_quote_candidates(page, stay)
                 record["quotes"] = candidates
                 verified = [item for item in candidates if item.get("verified")]
-                if verified:
+                if unavailable_hit:
+                    pass
+                elif verified:
                     first = verified[0]
                     record.update(
                         status="quote_candidates",
@@ -1072,7 +1148,15 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )
                     )
                 else:
-                    record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
+                    excerpt=re.sub(r"\s+", " ", body)[:500]
+                    record.update(
+                        status="needs_human_review",
+                        evidence=(
+                            "Date confermate, ma nessun prezzo e nessun messaggio esplicito di indisponibilità sono stati "
+                            "attribuiti automaticamente con sufficiente certezza nella scheda struttura. "
+                            f"Estratto osservato: {excerpt}"
+                        )[:900],
+                    )
             else:
                 record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
