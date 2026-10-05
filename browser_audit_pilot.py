@@ -2356,6 +2356,26 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         )
         return record
 
+    # v9: se la pagina datata ha identificato con certezza la card ma la card non espone il prezzo,
+    # apri proprio quel link (non la source pulita) e conserva il contesto di ricerca/date.
+    if dates_ok and exact_path:
+        detail=await booking_follow_matched_listing(page,source,item,stay,robots)
+        record["finalUrl"]=str(detail.get("finalUrl") or record.get("finalUrl") or "")
+        record["title"]=str(detail.get("title") or record.get("title") or "")[:200]
+        record["quotes"]=detail.get("quotes") or []
+        detail_status=str(detail.get("status") or "dated_search_inconclusive")
+        if detail_status in {
+            "quote_candidates","quote_candidates_unverified","no_public_rate",
+            "needs_human_review","rate_limited","http_error"
+        }:
+            record["status"]=detail_status
+            record["evidence"]=(
+                f"{canonical_evidence} {route_label}: scheda esatta «{item.get('title','')}» trovata "
+                f"(URL listing identico) con date confermate ({date_mode}). "
+                f"Follow-through scheda: {detail.get('evidence','')}"
+            )[:900]
+            return record
+
     record["evidence"]=(
         f"{canonical_evidence} {route_label}: scheda «{item.get('title','')}» individuata "
         f"(match {score:.0%}; {'URL listing identico' if exact_path else 'match nome/località'}). "
@@ -2363,6 +2383,145 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         "nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
     )[:900]
     return record
+
+async def booking_follow_matched_listing(page, source: str, item: dict, stay: dict, robots: dict) -> dict:
+    """Booking v9: apre la card esatta trovata nella ricerca datata e verifica la scheda struttura con le stesse date."""
+    href=str(item.get("href") or "").strip()
+    if not href:
+        return {"status":"dated_search_inconclusive","evidence":"Card Booking esatta trovata, ma senza URL apribile.","quotes":[]}
+    source_path=booking_path_key(source)
+    href_path=booking_path_key(href)
+    if not source_path or href_path != source_path:
+        return {"status":"dated_search_inconclusive","evidence":"La card Booking trovata non coincide con la scheda già verificata.","quotes":[]}
+
+    target=dated_url("booking",href,stay) or href
+    permission=await asyncio.to_thread(allowed_by_robots,target,robots)
+    if permission is not True:
+        return {
+            "status":"dated_search_inconclusive",
+            "evidence":"Scheda Booking datata non aperta: robots.txt non consente o non chiarisce l'accesso.",
+            "quotes":[],
+        }
+
+    try:
+        response=await page.goto(target,wait_until="domcontentloaded",timeout=25000)
+        await dismiss_cookie(page)
+        try:
+            await page.locator("body").wait_for(state="visible",timeout=5000)
+            await page.wait_for_timeout(1800)
+        except PlaywrightTimeout:
+            pass
+        final_url=page.url
+        title=(await page.title())[:200]
+        body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+
+        if response and response.status==429:
+            return {
+                "status":"rate_limited","finalUrl":final_url,"title":title,"quotes":[],
+                "evidence":"Scheda Booking datata: HTTP 429; il portale limita temporaneamente le richieste automatiche.",
+            }
+        if response and response.status>=400:
+            return {
+                "status":"http_error","finalUrl":final_url,"title":title,"quotes":[],
+                "evidence":f"Scheda Booking datata: HTTP {response.status}.",
+            }
+
+        dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+        ui_evidence=""
+        if not dates_ok:
+            applied,ui_evidence=await booking_apply_dates_via_ui(page,stay)
+            if applied:
+                final_url=page.url
+                title=(await page.title())[:200]
+                body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                if dates_ok and not date_mode:
+                    date_mode="ui-date-picker"
+
+        if not dates_ok:
+            return {
+                "status":"dated_search_inconclusive","finalUrl":final_url,"title":title,"quotes":[],
+                "evidence":(
+                    "La card esatta è stata aperta, ma la scheda struttura non conferma ancora le date richieste. "
+                    + (f"Tentativo date picker: {ui_evidence}." if ui_evidence else "")
+                )[:900],
+            }
+
+        render_diag=await booking_settle_render(page)
+        final_url=page.url
+        title=(await page.title())[:200]
+        body=(await page.locator("body").inner_text(timeout=7000))[:16000]
+        # Ricontrolla le date dopo l'idratazione/reload prudente.
+        dates_ok_after,date_mode_after=await booking_page_dates_confirmed(page,stay,body)
+        if dates_ok_after:
+            date_mode=date_mode_after or date_mode
+
+        unavailable_hit=booking_unavailability_message(body)
+        if unavailable_hit:
+            return {
+                "status":"no_public_rate","finalUrl":final_url,"title":title,"quotes":[],
+                "evidence":(
+                    f"Card Booking esatta aperta; date confermate ({date_mode or 'pagina renderizzata'}) "
+                    f"{stay['checkin']} → {stay['checkout']}. "
+                    f"Booking mostra indisponibilità («{unavailable_hit}»). "
+                    "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date."
+                )[:900],
+            }
+
+        candidates=await booking_quote_candidates(page,stay)
+        verified=[item for item in candidates if item.get("verified")]
+        if verified:
+            first=verified[0]
+            return {
+                "status":"quote_candidates","finalUrl":final_url,"title":title,"quotes":candidates,
+                "evidence":(
+                    f"Card Booking esatta aperta; date confermate ({date_mode or 'pagina renderizzata'}). "
+                    f"Rilevati {len(candidates)} candidati camera/prezzo; {len(verified)} hanno un riferimento compatibile "
+                    f"con il totale soggiorno. Esempio: {first['roomType']} · €{first['total']:.2f} per {stay['nights']} notti."
+                )[:900],
+            }
+        if candidates:
+            first=candidates[0]
+            return {
+                "status":"quote_candidates_unverified","finalUrl":final_url,"title":title,"quotes":candidates,
+                "evidence":(
+                    f"Card Booking esatta aperta; date confermate ({date_mode or 'pagina renderizzata'}). "
+                    f"Rilevati {len(candidates)} candidati prezzo. Esempio €{first['total']:.2f}; "
+                    "camera, tasse e condizioni restano da verificare."
+                )[:900],
+            }
+
+        diag=(
+            f"DOM: testo {render_diag.get('bodyLength',len(body))} caratteri, "
+            f"prezzi {render_diag.get('priceNodes',0)}, camere {render_diag.get('roomNodes',0)}, "
+            f"blocchi disponibilità {render_diag.get('availabilityNodes',0)}, "
+            f"reload {'sì' if render_diag.get('reloaded') else 'no'}."
+        )
+        debug_path=""
+        try:
+            debug_dir=Path(__file__).resolve().parent/"tmp"
+            debug_dir.mkdir(parents=True,exist_ok=True)
+            debug_file=debug_dir/f"booking-v9-detail-{stay['month']}.png"
+            await page.screenshot(path=str(debug_file),full_page=False)
+            debug_path=str(debug_file)
+        except Exception:
+            pass
+        return {
+            "status":"needs_human_review","finalUrl":final_url,"title":title,"quotes":[],
+            "evidence":(
+                f"Card Booking esatta aperta e date confermate ({date_mode or 'pagina renderizzata'}), "
+                "ma nessun prezzo o messaggio esplicito di indisponibilità è stato attribuito automaticamente. "
+                + diag + " "
+                + (f"Screenshot diagnostico: {debug_path}. " if debug_path else "")
+                + f"Estratto: {re.sub(r'\\s+',' ',body)[:300]}"
+            )[:900],
+        }
+    except Exception as exc:
+        return {
+            "status":"navigation_error","quotes":[],
+            "evidence":f"Apertura della card Booking esatta non completata: {type(exc).__name__}: {str(exc)[:180]}",
+        }
+
 
 async def booking_settle_render(page) -> dict:
     """Attende e stimola il rendering della sezione disponibilita' senza aggirare blocchi."""
@@ -2963,7 +3122,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 f"{str(dated_record.get('evidence') or '')[:260]}",
                                 flush=True,
                             )
-                            if dated_record.get("status") in {"quote_candidates_unverified", "no_public_rate"}:
+                            if dated_record.get("status") in {"quote_candidates", "quote_candidates_unverified", "no_public_rate", "needs_human_review"}:
                                 record = dated_record
                             else:
                                 page = await context.new_page()
