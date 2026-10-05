@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import re
 import unicodedata
@@ -468,26 +469,151 @@ async def discover_booking_via_direct_candidates(context, property_name: str, ci
 
 
 def booking_candidate_from_search_href(href: str, base_url: str) -> str:
+    """Estrae URL Booking diretti anche da redirect Google/Bing."""
     try:
-        absolute = href if href.startswith(("http://", "https://")) else ""
-        parsed = urlparse(absolute or href)
-        if not absolute and href.startswith("/url?"):
-            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-            absolute = query.get("q") or query.get("url") or ""
-        if not absolute and href.startswith("/link?"):
-            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-            absolute = query.get("url") or query.get("u") or ""
-        if not absolute:
-            return ""
-        absolute = unquote(absolute)
-        parsed = urlparse(absolute)
-        host = (parsed.hostname or "").lower()
-        if host == "booking.com" or host.endswith(".booking.com"):
+        raw=str(href or "").strip()
+        absolute=raw if raw.startswith(("http://","https://")) else ""
+        parsed=urlparse(absolute or raw)
+
+        if not absolute and raw.startswith(("/url?","/link?")):
+            query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+            absolute=query.get("q") or query.get("url") or query.get("u") or ""
+
+        if absolute:
+            parsed=urlparse(absolute)
+            host=(parsed.hostname or "").lower()
+            query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+
+            # Google redirect/click wrapper.
+            if "google." in host and parsed.path in {"/url","/aclk"}:
+                absolute=query.get("q") or query.get("url") or query.get("adurl") or absolute
+
+            # Bing /ck/a spesso codifica il target in u=a1<base64>.
+            if host.endswith("bing.com") and parsed.path.startswith("/ck/"):
+                encoded=query.get("u") or ""
+                if encoded.startswith("a1"):
+                    token=encoded[2:]
+                    token += "=" * (-len(token) % 4)
+                    try:
+                        absolute=base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8","ignore")
+                    except Exception:
+                        pass
+
+        absolute=unquote(str(absolute or ""))
+        parsed=urlparse(absolute)
+        host=(parsed.hostname or "").lower()
+        if host=="booking.com" or host.endswith(".booking.com"):
             if "/hotel/" in parsed.path:
-                return urlunparse(parsed._replace(query="", fragment=""))
+                return urlunparse(parsed._replace(query="",fragment=""))
     except Exception:
         return ""
     return ""
+
+
+async def discover_booking_from_official_site(context, website: str, robots: dict) -> dict:
+    """Prima strategia: cerca una scheda Booking esplicitamente collegata dal sito ufficiale."""
+    if not website:
+        return {"status":"not_found","url":"","title":"","score":0.0,"evidence":"Sito ufficiale non disponibile.","discoveryMode":"official-site-links"}
+    permission=await asyncio.to_thread(allowed_by_robots,website,robots)
+    if permission is not True:
+        return {"status":"not_found","url":"","title":"","score":0.0,"evidence":"Sito ufficiale non esaminato per link OTA: robots.txt non consente o non chiarisce l'accesso.","discoveryMode":"official-site-links"}
+    page=await context.new_page()
+    try:
+        response=await page.goto(website,wait_until="domcontentloaded",timeout=25000)
+        if not response or response.status>=400:
+            return {"status":"not_found","url":"","title":"","score":0.0,"evidence":"Sito ufficiale non leggibile per cercare link Booking.","discoveryMode":"official-site-links"}
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(700)
+        links=await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,600).map(a => ({
+          href: a.href || '',
+          text: (a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,240)
+        }))""")
+        candidates=[]
+        for item in links:
+            url=booking_candidate_from_search_href(str(item.get("href") or ""),page.url)
+            if url:
+                candidates.append((url,str(item.get("text") or "")))
+        seen=set()
+        unique=[]
+        for url,text_value in candidates:
+            if url in seen:
+                continue
+            seen.add(url)
+            unique.append((url,text_value))
+        if len(unique)==1:
+            url,text_value=unique[0]
+            return {
+                "status":"found","url":url,"title":text_value[:220],"score":1.0,
+                "evidence":f"Il sito ufficiale contiene un collegamento diretto a Booking.com: {url}",
+                "searchUrl":website,"discoveryMode":"official-site-direct-link",
+            }
+        if len(unique)>1:
+            return {
+                "status":"needs_review","url":unique[0][0],"title":unique[0][1][:220],"score":0.5,
+                "evidence":f"Il sito ufficiale contiene {len(unique)} collegamenti Booking; serve verificarne l'identità prima di scegliere.",
+                "searchUrl":website,"discoveryMode":"official-site-multiple-links",
+            }
+        return {"status":"not_found","url":"","title":"","score":0.0,"evidence":"Nessun link Booking diretto osservato sul sito ufficiale.","searchUrl":website,"discoveryMode":"official-site-links"}
+    except Exception as exc:
+        return {"status":"not_found","url":"","title":"","score":0.0,"evidence":f"Ricerca link Booking sul sito ufficiale non completata: {type(exc).__name__}.","searchUrl":website,"discoveryMode":"official-site-links"}
+    finally:
+        await page.close()
+
+
+async def verify_booking_candidate_page(context, url: str, property_name: str, city: str, address: str, robots: dict) -> dict:
+    """Verifica semanticamente una pagina candidata Booking prima di accettarla."""
+    permission=await asyncio.to_thread(allowed_by_robots,url,robots)
+    if permission is not True:
+        return {"ok":False,"score":0.0,"title":"","evidence":"Pagina candidata non verificata per robots.txt."}
+    page=await context.new_page()
+    try:
+        response=await page.goto(url,wait_until="domcontentloaded",timeout=25000)
+        if not response or response.status>=400:
+            return {"ok":False,"score":0.0,"title":"","evidence":f"Pagina candidata HTTP {response.status if response else 'n.d.'}."}
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(900)
+        body=(await page.locator("body").inner_text(timeout=6500))[:16000]
+        title=""
+        for selector in ('[data-testid="title"]','[data-testid="property-title"]','.pp-header__title','h1'):
+            try:
+                loc=page.locator(selector).first
+                if await loc.count():
+                    title=re.sub(r"\s+"," ",(await loc.inner_text(timeout=500)) or "").strip()
+                    if title:
+                        break
+            except Exception:
+                pass
+        observed=title or (await page.title())
+        score=_name_similarity(property_name,observed)
+        reasons=[f"nome pagina {score:.0%}"]
+        norm_body=_norm_name(body)
+        city_norm=_norm_name(city)
+        if city_norm and city_norm in norm_body:
+            score=min(1.0,score+0.08)
+            reasons.append("città presente")
+        address_norm=_norm_name(address)
+        if address_norm:
+            tokens={t for t in address_norm.split() if len(t)>=3 or t.isdigit()}
+            body_tokens=set(norm_body.split())
+            ratio=len(tokens & body_tokens)/max(1,len(tokens))
+            if ratio>=0.60:
+                score=min(1.0,score+0.16)
+                reasons.append(f"indirizzo {ratio:.0%}")
+            elif ratio>=0.30:
+                score=min(1.0,score+0.07)
+                reasons.append(f"indirizzo {ratio:.0%}")
+        clean_url=urlunparse(urlparse(page.url)._replace(query="",fragment=""))
+        return {
+            "ok":score>=0.68,
+            "score":round(score,3),
+            "title":observed[:220],
+            "url":clean_url,
+            "evidence":", ".join(reasons),
+        }
+    except Exception as exc:
+        return {"ok":False,"score":0.0,"title":"","evidence":f"Verifica pagina candidata fallita: {type(exc).__name__}."}
+    finally:
+        await page.close()
 
 
 def _identity_match_score(property_name: str, city: str, address: str, title: str, snippet: str, url: str):
@@ -518,7 +644,10 @@ def _identity_match_score(property_name: str, city: str, address: str, title: st
     return score,path_slug,name_text_score,name_slug_score,", ".join(reasons)
 
 
-async def discover_booking_via_search_engine(context, property_name: str, city: str, address: str = "", website: str = "") -> dict:
+async def discover_booking_via_search_engine(context, property_name: str, city: str, address: str = "", website: str = "", robots: dict | None = None) -> dict:
+    robots = robots if robots is not None else {}
+    weak=[]
+    seen_urls=set()
     for engine_name, search_url in external_search_urls(property_name, city, address, website):
         page = await context.new_page()
         try:
@@ -531,71 +660,93 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
                 continue
             if any(word in lowered for word in BLOCK_WORDS):
                 continue
-            links = await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,500).map(a => {
+            links = await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,700).map(a => {
               const box=a.closest('li, article, [data-testid], div') || a.parentElement;
               return {
                 href: a.getAttribute('href') || '',
                 text: (a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,320),
-                context: (box?.innerText || '').replace(/\s+/g,' ').trim().slice(0,900)
+                context: (box?.innerText || '').replace(/\s+/g,' ').trim().slice(0,1100)
               };
             })""")
-            candidates = []
+            candidates=[]
             for item in links:
-                url = booking_candidate_from_search_href(str(item.get("href", "")), page.url)
-                if not url:
+                url=booking_candidate_from_search_href(str(item.get("href","")),page.url)
+                if not url or url in seen_urls:
                     continue
-                text = str(item.get("text", ""))
-                context_text = str(item.get("context", ""))
-                score,path_slug,text_score,url_score,reasons = _identity_match_score(
-                    property_name,city,address,text,context_text,url
+                seen_urls.add(url)
+                text_value=str(item.get("text",""))
+                context_text=str(item.get("context",""))
+                score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                    property_name,city,address,text_value,context_text,url
                 )
-                candidates.append((score, url, text, path_slug, text_score, url_score, reasons))
-            candidates.sort(key=lambda row: row[0], reverse=True)
-            if not candidates:
-                continue
-            score, url, text, path_slug, text_score, url_score, reasons = candidates[0]
-            display_title = text.strip() if text.strip() and text.strip().lower() not in {"hotel", "booking.com"} else path_slug
-            if score >= 0.70:
-                return {
-                    "status": "found",
-                    "url": url,
-                    "title": display_title[:220],
-                    "score": round(score, 3),
-                    "evidence": (
-                        f"{engine_name}: trovata una pagina Booking.com compatibile con «{property_name}{' ' + city if city else ''}». "
-                        f"Match identità {score:.0%}: {reasons}. URL osservato: {url}"
-                    )[:900],
-                    "searchUrl": search_url,
-                    "discoveryMode": f"{engine_name} site-search",
-                }
-            return {
-                "status": "needs_review",
-                "url": url,
-                "title": text[:220],
-                "score": round(score, 3),
-                "evidence": (
-                    f"{engine_name}: risultato Booking.com trovato, ma match identità {score:.0%} ({reasons}) non sufficiente "
-                    "per attribuirlo automaticamente alla struttura."
-                )[:900],
-                "searchUrl": search_url,
-                "discoveryMode": f"{engine_name} site-search",
-            }
+                candidates.append((score,url,text_value,path_slug,reasons,engine_name,search_url))
+            candidates.sort(key=lambda row:row[0],reverse=True)
+            for score,url,text_value,path_slug,reasons,engine_name,current_search in candidates[:5]:
+                generic=path_slug.lower() in {"","index","hotel","searchresults"}
+                if generic:
+                    weak.append((score,url,text_value,path_slug,reasons,engine_name,current_search))
+                    continue
+                if score>=0.70:
+                    verify=await verify_booking_candidate_page(context,url,property_name,city,address,robots)
+                    if verify.get("ok"):
+                        return {
+                            "status":"found","url":verify.get("url") or url,
+                            "title":verify.get("title") or (text_value.strip() or path_slug),
+                            "score":verify.get("score",score),
+                            "evidence":(
+                                f"{engine_name}: candidato trovato e verificato aprendo la pagina Booking. "
+                                f"Ricerca {score:.0%} ({reasons}); verifica pagina {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                            )[:900],
+                            "searchUrl":current_search,
+                            "discoveryMode":f"{engine_name} search + page verification",
+                        }
+                weak.append((score,url,text_value,path_slug,reasons,engine_name,current_search))
         except Exception:
             pass
         finally:
             await page.close()
+
+    # Prova a verificare anche i migliori candidati deboli invece di fermarsi al primo snippet.
+    weak.sort(key=lambda row:row[0],reverse=True)
+    for score,url,text_value,path_slug,reasons,engine_name,current_search in weak[:6]:
+        if path_slug.lower() in {"","index","hotel","searchresults"}:
+            continue
+        verify=await verify_booking_candidate_page(context,url,property_name,city,address,robots)
+        if verify.get("ok"):
+            return {
+                "status":"found","url":verify.get("url") or url,
+                "title":verify.get("title") or (text_value.strip() or path_slug),
+                "score":verify.get("score",score),
+                "evidence":(
+                    f"{engine_name}: snippet debole ({score:.0%}) ma pagina Booking verificata direttamente "
+                    f"con match {verify.get('score',0):.0%}: {verify.get('evidence','')}."
+                )[:900],
+                "searchUrl":current_search,
+                "discoveryMode":f"{engine_name} weak-result page verification",
+            }
+
+    if weak:
+        score,url,text_value,path_slug,reasons,engine_name,current_search=weak[0]
+        return {
+            "status":"needs_review","url":url,"title":(text_value.strip() or path_slug)[:220],"score":round(score,3),
+            "evidence":(
+                f"Ricerca esterna completata su tutte le varianti. Miglior candidato Booking: "
+                f"{score:.0%} ({reasons}), ma la pagina non è stata verificata con sufficiente certezza."
+            )[:900],
+            "searchUrl":current_search,"discoveryMode":"all-search-variants-exhausted",
+        }
+
     return {
-        "status": "not_found_in_search",
-        "url": "",
-        "title": "",
-        "score": 0.0,
-        "evidence": "Né la ricerca interna Booking.com né i motori di ricerca pubblici hanno restituito una scheda attribuibile con sufficiente certezza.",
-        "searchUrl": "",
-        "discoveryMode": "fallback exhausted",
+        "status":"not_found_in_search","url":"","title":"","score":0.0,
+        "evidence":"Tutte le varianti di ricerca pubblica sono state provate senza trovare una pagina Booking verificabile.",
+        "searchUrl":"","discoveryMode":"fallback exhausted",
     }
 
 
 async def discover_booking_source(context, property_name: str, city: str, robots: dict, address: str = "", website: str = "") -> dict:
+    official = await discover_booking_from_official_site(context, website, robots)
+    if official.get("status") == "found":
+        return official
     search_url = booking_search_url(property_name, city)
     permission = await asyncio.to_thread(allowed_by_robots, search_url, robots)
     if permission is not True:
@@ -606,7 +757,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 + str(direct.get("evidence") or "")
             )[:900]
             return direct
-        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
+        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website, robots)
         if fallback.get("status") == "found":
             fallback["evidence"] = (
                 "La ricerca interna Booking.com non è stata usata perché robots.txt non ne consente o non chiarisce l'accesso automatico. "
@@ -681,7 +832,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                     + str(direct.get("evidence") or "")
                 )[:900]
                 return direct
-            fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
+            fallback = await discover_booking_via_search_engine(context, property_name, city, address, website, robots)
             if fallback.get("status") == "found":
                 fallback["evidence"] = (
                     f"Ricerca Booking.com eseguita per «{property_name}{' ' + city if city else ''}» senza scheda riconoscibile; "
@@ -723,7 +874,7 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 + str(direct.get("evidence") or "")
             )[:900]
             return direct
-        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website)
+        fallback = await discover_booking_via_search_engine(context, property_name, city, address, website, robots)
         if fallback.get("status") == "found":
             fallback["evidence"] = (
                 f"Il miglior risultato della ricerca Booking aveva match identità {score:.0%} ({reasons}); "
