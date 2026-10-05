@@ -25,7 +25,11 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from browser_audit_pilot import CHANNELS, run
+import browser_audit_pilot as browser_pilot
+
+CHANNELS=browser_pilot.CHANNELS
+run=browser_pilot.run
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v22"
 from playwright.async_api import async_playwright
 from site_audit_builder import build_site_audit, public_url as validate_site_url
 
@@ -623,7 +627,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v21",
+                "agentVersion":"velora-local-agent-v22",
                 "catalog":catalog_public_summary(),
                 "aiWebSearch":{
                     "configured":False,
