@@ -3725,10 +3725,35 @@ function monthlyAvailabilitySummary(probes: AvailabilityProbe[], month: string, 
   return [counts["no-rate"] && `Prezzo non mostrato: ${counts["no-rate"]} data/e`, counts["calendar-closed"] && `Calendario non aperto: ${counts["calendar-closed"]} data/e`, counts.blocked && `Verifica impedita: ${counts.blocked} data/e`].filter(Boolean).join("; ");
 }
 
-function monthlyCoverageSummary(quotes: RateQuote[], probes: AvailabilityProbe[], month: string, otaId: string): string {
+function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, month: string, otaId: string): string {
+  const entries = (result?.observations || []).filter((item) => item.month === month && item.otaId === otaId);
+  if (!entries.length) return "";
+  const item = entries[entries.length - 1];
+  const quoteCount = Array.isArray(item.quotes) ? item.quotes.length : 0;
+  const labels: Record<string, string> = {
+    quote_candidates: quoteCount ? `Tariffa rilevata: ${quoteCount} candidato/i · condizioni da validare` : "Tariffa rilevata · condizioni da validare",
+    quote_candidates_unverified: quoteCount ? `Candidati prezzo: ${quoteCount} · da verificare` : "Candidati prezzo da verificare",
+    no_public_rate: "Nessuna tariffa pubblica rilevata sulle date testate",
+    needs_human_review: "Preventivo da verificare manualmente",
+    dates_unconfirmed: "Date non confermate dal portale",
+    date_adapter_missing: "Date non applicate automaticamente",
+    source_not_retested: "Scheda non ritestata nel test rapido",
+    source_missing: "Scheda OTA non trovata con certezza",
+    rate_limited: "Portale limita temporaneamente la verifica",
+    blocked: "Verifica impedita dal portale",
+    http_error: "Errore HTTP durante la verifica",
+    navigation_error: "Errore di navigazione durante la verifica",
+    empty_page: "Pagina senza contenuto tariffario leggibile",
+    dated_search_inconclusive: "Ricerca datata non conclusiva",
+  };
+  return labels[item.status] || item.status || "";
+}
+
+function monthlyCoverageSummary(quotes: RateQuote[], probes: AvailabilityProbe[], month: string, otaId: string, pilotResult?: BrowserPilotResult | null): string {
   const priceCount = monthlyRateCell(quotes, month, otaId).count;
   const probeSummary = monthlyAvailabilitySummary(probes, month, otaId);
-  return [priceCount && `Prezzo visibile: ${priceCount} data/e`, probeSummary !== "Non verificato" && probeSummary].filter(Boolean).join("; ") || "Non verificato";
+  const manualSummary = [priceCount && `Prezzo visibile: ${priceCount} data/e`, probeSummary !== "Non verificato" && probeSummary].filter(Boolean).join("; ");
+  return manualSummary || pilotCoverageSummary(pilotResult, month, otaId) || "Non verificato";
 }
 
 function promotionSummary(quote: RateQuote): string {
@@ -5889,7 +5914,7 @@ export default function App() {
     const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. Questi esiti <b>non sono preventivi</b>: nessun prezzo o delta è stato aggiunto automaticamente senza conferma di date, camera e condizioni. “Non verificato” non indica disponibilità chiusa.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table><p>Il file JSON locale conserva date e URL di ogni controllo. Le tariffe storiche riportate nelle tabelle precedenti sono indipendenti da questa prova.</p></section>` : "";
 
     const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
-      const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id);
+      const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id, browserPilotResult);
       return '<td>' + safe(status) + '</td>';
     }).join('') + '</tr>').join('') + '</tbody></table>';
     const futurePromotions = rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !['Non verificata', 'Nessuna visibile'].includes(quote.promotionKind));
@@ -7019,11 +7044,11 @@ export default function App() {
               <thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese futuro</th>{activeAuditData.otaPresence.map((channel) => <th key={`coverage-head-${channel.id}`} className="p-2 text-left">{channel.platform}</th>)}</tr></thead>
               <tbody>{rateMonths.map((month) => <tr key={`coverage-${month}`} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]">
                 <th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>
-                {activeAuditData.otaPresence.map((channel) => <td key={`coverage-${month}-${channel.id}`} className="p-2 text-[#23124A]">{monthlyCoverageSummary(comparableQuotes, availabilityProbes, month, channel.id)}</td>)}
+                {activeAuditData.otaPresence.map((channel) => <td key={`coverage-${month}-${channel.id}`} className="p-2 text-[#23124A]">{monthlyCoverageSummary(comparableQuotes, availabilityProbes, month, channel.id, browserPilotResult)}</td>)}
               </tr>)}</tbody>
             </table>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-[#50627F]">“Non verificato” significa che non è stata registrata una prova per quel mese, non che il canale sia inattivo. “Prezzo non mostrato” riguarda solo le date provate. Se il calendario futuro non è aperto su più canali e date, verificare in extranet finestra di vendita, tariffe 2027, restrizioni e sincronizzazione: possibile intervento commerciale prioritario.</p>
+          <p className="mt-2 text-[10px] leading-4 text-[#50627F]">Gli esiti della prova locale compaiono ora direttamente nella tabella: “Date non confermate”, “Preventivo da verificare” o “Candidati prezzo” non equivalgono a una tariffa valida. “Non verificato” resta solo quando non esiste alcuna prova per quel mese e canale. Se il calendario futuro non è aperto su più canali e date, verificare in extranet finestra di vendita, tariffe 2027, restrizioni e sincronizzazione.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Annota esempi specifici, non soltanto il voto medio. Un campione pubblico non equivale all'analisi di tutte le recensioni. Valuta le foto da 1 a 10 rispetto a uno shooting alberghiero professionale.</p>
