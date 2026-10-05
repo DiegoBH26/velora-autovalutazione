@@ -81,8 +81,15 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
     parsed = urlparse(base)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if channel == "booking":
-        query.update(checkin=stay["checkin"], checkout=stay["checkout"],
-                     group_adults="2", no_rooms="1", group_children="0")
+        checkin=date.fromisoformat(stay["checkin"])
+        checkout=date.fromisoformat(stay["checkout"])
+        query.update(
+            checkin=stay["checkin"], checkout=stay["checkout"],
+            checkin_year=str(checkin.year), checkin_month=str(checkin.month), checkin_monthday=str(checkin.day),
+            checkout_year=str(checkout.year), checkout_month=str(checkout.month), checkout_monthday=str(checkout.day),
+            group_adults="2", no_rooms="1", group_children="0",
+            selected_currency="EUR", lang="it-it",
+        )
     elif channel == "airbnb":
         query.update(check_in=stay["checkin"], check_out=stay["checkout"], adults="2")
     elif channel in {"expedia", "hotels"}:
@@ -214,7 +221,24 @@ def booking_url_dates_confirmed(url: str, stay: dict) -> bool:
         return False
     checkin=query.get("checkin") or query.get("check_in") or ""
     checkout=query.get("checkout") or query.get("check_out") or ""
-    return checkin==stay["checkin"] and checkout==stay["checkout"]
+    if checkin==stay["checkin"] and checkout==stay["checkout"]:
+        return True
+    try:
+        start=date.fromisoformat(stay["checkin"])
+        end=date.fromisoformat(stay["checkout"])
+        legacy_start=(
+            query.get("checkin_year")==str(start.year)
+            and query.get("checkin_month")==str(start.month)
+            and query.get("checkin_monthday")==str(start.day)
+        )
+        legacy_end=(
+            query.get("checkout_year")==str(end.year)
+            and query.get("checkout_month")==str(end.month)
+            and query.get("checkout_monthday")==str(end.day)
+        )
+        return legacy_start and legacy_end
+    except Exception:
+        return False
 
 
 async def booking_property_rate_context(page) -> tuple[bool, str]:
@@ -1154,6 +1178,40 @@ async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
             "verified":False,
             "evidence":str(text_value)[:900] + (" | Totale soggiorno esplicito." if explicit else ""),
         })
+    if not out:
+        # Fallback conservativo: cerca righe visibili con valuta e contesto tariffario.
+        try:
+            text_rows=await page.evaluate(r"""() => {
+              const body=(document.body?.innerText || '');
+              const lines=body.split(/\n+/).map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean);
+              const out=[]; const seen=new Set();
+              for (let i=0;i<lines.length;i++) {
+                const line=lines[i];
+                const low=line.toLowerCase();
+                if (!/(€|eur|\$|usd|£|gbp)/i.test(line)) continue;
+                const context=[lines[i-1]||'',line,lines[i+1]||''].join(' ').replace(/\s+/g,' ').trim();
+                const c=context.toLowerCase();
+                if (!/(notte|notti|night|nights|totale|total|soggiorno|stay|camera|room|prezzo|price)/i.test(c)) continue;
+                if (seen.has(context)) continue;
+                seen.add(context); out.push(context.slice(0,1200));
+              }
+              return out.slice(0,80);
+            }""")
+            for text_value in text_rows:
+                total=_money_value(str(text_value))
+                if total is None:
+                    continue
+                out.append({
+                    "roomType":"Tipologia camera da verificare",
+                    "total":round(total,2),"currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+                    "board":"Trattamento da verificare","refund":"Cancellazione da verificare",
+                    "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
+                    "verified":False,
+                    "evidence":"Fallback testo visibile: "+str(text_value)[:850],
+                })
+        except Exception:
+            pass
+
     unique=[]; seen=set()
     for item in out:
         key=(item["total"],item["evidence"][:180])
@@ -2279,7 +2337,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         text = (record["title"] + " " + body).lower()
         if response and response.status >= 400:
-            record.update(status="http_error", evidence=f"HTTP {response.status}")
+            record.update(status="http_error", evidence=f"HTTP {response.status} · URL finale: {page.url}")
         elif any(word in text for word in BLOCK_WORDS):
             record.update(status="blocked", evidence="Il portale ha mostrato una pagina di verifica/blocco; nessun prezzo acquisito.")
         elif not body.strip():
@@ -2721,13 +2779,10 @@ async def run(args: argparse.Namespace) -> dict:
                                 await page.close()
                     result["observations"].append(record)
                     write_result(output, result)
-                    if channel == "booking":
-                        print(
-                            f"{stay['month']} {channel}: {record['status']} · {str(record.get('evidence') or '')[:220]}",
-                            flush=True,
-                        )
-                    else:
-                        print(f"{stay['month']} {channel}: {record['status']}", flush=True)
+                    print(
+                        f"{stay['month']} {channel}: {record['status']} · {str(record.get('evidence') or '')[:240]}",
+                        flush=True,
+                    )
                     await asyncio.sleep(1)
         finally:
             await browser.close()
