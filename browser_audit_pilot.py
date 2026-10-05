@@ -1267,6 +1267,169 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
     return record
 
 
+def _is_generic_property_name(value: str) -> bool:
+    norm=_norm_name(value)
+    return not norm or norm in {"hotel","struttura","property","accommodation","alloggio"}
+
+
+async def resolve_identity_from_official_site(context, data: dict, robots: dict) -> dict:
+    """Arricchisce l'identita' dal sito ufficiale quando il catalogo Excel non basta o non contiene la struttura."""
+    sources=data.get("sources") or {}
+    official_url=((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or ""
+    result={
+        "source":"input",
+        "officialUrl":official_url,
+        "status":"input_only",
+        "observed":{},
+        "evidence":"Identità disponibile dai dati inseriti.",
+    }
+    if not official_url:
+        result["evidence"]="Sito ufficiale non disponibile: uso i dati inseriti."
+        return result
+
+    catalog_match=data.get("catalogMatch") if isinstance(data.get("catalogMatch"),dict) else {}
+    if catalog_match and catalog_match.get("score") == 1.0:
+        result.update(
+            source="catalog",
+            status="catalog_match",
+            evidence=(
+                f"Identità confermata dal database locale: {data.get('name','')} · {data.get('city','')} · "
+                f"{data.get('address','')} · {catalog_match.get('reason','')}"
+            )[:900],
+        )
+        return result
+
+    permission=await asyncio.to_thread(allowed_by_robots, official_url, robots)
+    if permission is not True:
+        result.update(
+            status="official_site_not_read",
+            evidence="Sito ufficiale non letto per la risoluzione identità: robots.txt nega o non chiarisce l'accesso automatico.",
+        )
+        return result
+
+    page=await context.new_page()
+    try:
+        response=await page.goto(official_url,wait_until="domcontentloaded",timeout=25000)
+        await dismiss_cookie(page)
+        try:
+            await page.locator("body").wait_for(state="visible",timeout=5000)
+            await page.wait_for_timeout(900)
+        except Exception:
+            pass
+        if response and response.status >= 400:
+            result.update(status="official_site_http_error",evidence=f"Sito ufficiale: HTTP {response.status}.")
+            return result
+
+        observed=await page.evaluate(r"""() => {
+          const text = (value) => (value || '').replace(/\s+/g,' ').trim();
+          const out = {
+            title: text(document.title),
+            h1: text(document.querySelector('h1')?.textContent),
+            siteName: text(document.querySelector('meta[property="og:site_name"]')?.content),
+            name: '',
+            streetAddress: '',
+            city: '',
+            region: '',
+            postalCode: '',
+            telephone: '',
+            email: '',
+            latitude: '',
+            longitude: ''
+          };
+          const types = new Set([
+            'hotel','lodgingbusiness','bedandbreakfast','hostel','motel','resort',
+            'localbusiness','organization','apartment','accommodation'
+          ]);
+          const candidates = [];
+          const walk = (value) => {
+            if (!value) return;
+            if (Array.isArray(value)) { for (const item of value) walk(item); return; }
+            if (typeof value !== 'object') return;
+            if (Array.isArray(value['@graph'])) walk(value['@graph']);
+            const rawType=value['@type'];
+            const allTypes=(Array.isArray(rawType)?rawType:[rawType]).filter(Boolean).map(v=>String(v).toLowerCase());
+            if (allTypes.some(t=>types.has(t))) candidates.push(value);
+          };
+          for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0,30)) {
+            try { walk(JSON.parse(script.textContent || 'null')); } catch {}
+          }
+          const node=candidates[0] || {};
+          const address=(node.address && typeof node.address === 'object') ? node.address : {};
+          const geo=(node.geo && typeof node.geo === 'object') ? node.geo : {};
+          out.name=text(node.name);
+          out.streetAddress=text(address.streetAddress);
+          out.city=text(address.addressLocality);
+          out.region=text(address.addressRegion);
+          out.postalCode=text(address.postalCode);
+          out.telephone=text(node.telephone);
+          out.email=text(node.email);
+          out.latitude=text(geo.latitude);
+          out.longitude=text(geo.longitude);
+
+          if (!out.email) {
+            const mail=document.querySelector('a[href^="mailto:"]')?.getAttribute('href') || '';
+            out.email=text(mail.replace(/^mailto:/i,'').split('?')[0]);
+          }
+          if (!out.telephone) {
+            const tel=document.querySelector('a[href^="tel:"]')?.getAttribute('href') || '';
+            out.telephone=text(tel.replace(/^tel:/i,''));
+          }
+          return out;
+        }""")
+
+        result["observed"]=observed
+        changed=[]
+        if _is_generic_property_name(str(data.get("name") or "")):
+            candidate=str(observed.get("name") or observed.get("siteName") or observed.get("h1") or "").strip()
+            if candidate:
+                data["name"]=candidate[:180]
+                changed.append("nome")
+        if not str(data.get("city") or "").strip() and observed.get("city"):
+            data["city"]=str(observed["city"])[:100]
+            changed.append("città")
+        if not str(data.get("province") or "").strip() and observed.get("region"):
+            data["province"]=str(observed["region"])[:20]
+            changed.append("provincia")
+        if not str(data.get("address") or "").strip() and observed.get("streetAddress"):
+            address=str(observed["streetAddress"])
+            if observed.get("postalCode"):
+                address += f", {observed['postalCode']}"
+            if observed.get("city"):
+                address += f" {observed['city']}"
+            data["address"]=address[:240]
+            changed.append("indirizzo")
+        if not str(data.get("email") or "").strip() and observed.get("email"):
+            data["email"]=str(observed["email"])[:180]
+            changed.append("email")
+        if observed.get("telephone"):
+            data["phone"]=str(observed["telephone"])[:80]
+        if observed.get("latitude") and observed.get("longitude"):
+            data["geo"]={"lat":observed["latitude"],"lng":observed["longitude"]}
+
+        signals=[]
+        for key,label in (("name","nome"),("city","città"),("streetAddress","indirizzo"),("telephone","telefono"),("email","email")):
+            if observed.get(key):
+                signals.append(f"{label}: {observed[key]}")
+        result.update(
+            source="official_site",
+            status="resolved_from_official_site",
+            evidence=(
+                "Struttura non dipendente dal database Excel. Identità osservata sul sito ufficiale. "
+                + ("; ".join(signals[:5]) if signals else f"titolo: {observed.get('title') or observed.get('h1') or 'n.d.'}")
+                + (f". Campi arricchiti: {', '.join(changed)}." if changed else ". I dati inseriti erano già sufficienti.")
+            )[:900],
+        )
+        return result
+    except Exception as exc:
+        result.update(
+            status="official_site_error",
+            evidence=f"Risoluzione identità dal sito ufficiale non completata: {type(exc).__name__}: {str(exc)[:180]}",
+        )
+        return result
+    finally:
+        await page.close()
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -1280,7 +1443,7 @@ async def run(args: argparse.Namespace) -> dict:
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
-              "discoveredSources": {}, "observations": []}
+              "identityResolution": {}, "discoveredSources": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -1290,6 +1453,22 @@ async def run(args: argparse.Namespace) -> dict:
         browser = await playwright.chromium.launch(channel="chrome", headless=True)
         context = await browser.new_context(locale="it-IT", timezone_id="Europe/Rome")
         try:
+            identity = await resolve_identity_from_official_site(context, data, robots)
+            result["identityResolution"] = identity
+            print(
+                f"identity resolved: {identity.get('source')} · {data.get('name','')} · {data.get('city','')} · "
+                f"{data.get('address','')} · {identity.get('status','')}",
+                flush=True,
+            )
+            try:
+                property_path=Path(args.property)
+                if property_path.parent.name=="runtime-properties":
+                    tmp_property=property_path.with_suffix(".tmp")
+                    tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                    tmp_property.replace(property_path)
+            except OSError:
+                pass
+
             if not sources.get("booking", {}).get("url"):
                 official_identity_url=(sources.get("sito") or {}).get("url","")
                 catalog_match=data.get("catalogMatch") if isinstance(data.get("catalogMatch"),dict) else {}
