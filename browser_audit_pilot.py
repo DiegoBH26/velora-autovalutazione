@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v29"
+PILOT_BUILD = "velora-browser-pilot-v30"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2495,7 +2495,7 @@ async def booking_page_dates_confirmed(page, stay: dict, body: str = "") -> tupl
     return False,dom_evidence[:260]
 
 
-async def booking_select_exact_destination(page, property_name: str, city: str) -> tuple[bool, str]:
+async def booking_select_exact_destination(page, property_name: str, city: str) -> tuple[bool, str, str]:
     """Prova a selezionare la struttura dal suggeritore destinazione di Booking."""
     field, selector = await _first_visible_locator(page, (
         'input[name="ss"]',
@@ -2504,14 +2504,14 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
         'input[placeholder*="destination" i]',
     ))
     if field is None:
-        return False, "campo destinazione Booking non trovato"
+        return False, "campo destinazione Booking non trovato", ""
 
     try:
         await field.click(timeout=1800)
         await field.fill(property_name)
         await page.wait_for_timeout(900)
     except Exception as exc:
-        return False, f"campo destinazione non compilabile: {type(exc).__name__}"
+        return False, f"campo destinazione non compilabile: {type(exc).__name__}", ""
 
     options=[]
     selectors=(
@@ -2540,7 +2540,7 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
             break
 
     if not options:
-        return False, "nessun suggerimento destinazione visibile"
+        return False, "nessun suggerimento destinazione visibile", ""
 
     ranked=[]
     for loc,txt,opt_selector in options:
@@ -2553,14 +2553,60 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
     score,loc,txt,opt_selector=ranked[0]
     if score < 0.58:
         preview=" | ".join(item[2][:90] for item in ranked[:3])
-        return False,f"suggerimenti trovati ma nessun match sicuro; migliori: {preview[:280]}"
+        return False,f"suggerimenti trovati ma nessun match sicuro; migliori: {preview[:280]}",""
 
     try:
         await loc.click(timeout=2200)
         await page.wait_for_timeout(900)
-        return True,f"selezionato suggerimento «{txt[:140]}» (match {score:.0%}) con {opt_selector}"
+        return True,f"selezionato suggerimento «{txt[:140]}» (match {score:.0%}) con {opt_selector}",txt[:300]
     except Exception as exc:
-        return False,f"suggerimento esatto trovato ma non cliccabile: {type(exc).__name__}"
+        return False,f"suggerimento esatto trovato ma non cliccabile: {type(exc).__name__}",""
+
+
+async def booking_search_form_diagnostics(page) -> str:
+    """Raccoglie solo i campi ricerca Booking utili a capire cosa verrà inviato."""
+    try:
+        data=await page.evaluate(r"""() => {
+          const submit=document.querySelector(
+            '[data-testid="searchbox-submit-button"], [data-testid="searchbox-layout-wide"] button[type="submit"], form[role="search"] button[type="submit"]'
+          );
+          const form=submit?.closest('form') || document.querySelector('form[role="search"], form[action*="searchresults"]');
+          const names=[
+            'ss','dest_id','dest_type','latitude','longitude',
+            'checkin','checkout',
+            'checkin_year','checkin_month','checkin_monthday',
+            'checkout_year','checkout_month','checkout_monthday',
+            'group_adults','no_rooms','group_children'
+          ];
+          const values={};
+          for (const name of names) {
+            const nodes=Array.from((form || document).querySelectorAll('[name="'+name+'"]')).slice(0,8);
+            if (!nodes.length) continue;
+            values[name]=nodes.map(el => ({
+              value: String(el.value ?? el.getAttribute('value') ?? '').slice(0,120),
+              type: String(el.type || '').slice(0,30),
+              disabled: !!el.disabled
+            }));
+          }
+          return {
+            action: form ? String(form.action || form.getAttribute('action') || '').slice(0,220) : '',
+            method: form ? String(form.method || '').slice(0,20) : '',
+            values
+          };
+        }""")
+        compact=[]
+        for key,items in (data.get("values") or {}).items():
+            vals="|".join(
+                str(item.get("value") or "") + ("[disabled]" if item.get("disabled") else "")
+                for item in items
+            )
+            compact.append(f"{key}={vals[:180]}")
+        return (
+            f"action={data.get('action') or 'n.d.'} · method={data.get('method') or 'n.d.'} · "
+            + " · ".join(compact)
+        )[:1400]
+    except Exception as exc:
+        return f"diagnostica form fallita: {type(exc).__name__}"
 
 
 async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
@@ -2638,8 +2684,9 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         break
 
             destination_evidence=""
+            destination_text=""
             if label.startswith("searchresults Booking") and (not best or not best[1]):
-                dest_ok,destination_evidence=await booking_select_exact_destination(page,canonical_name or property_name,city)
+                dest_ok,destination_evidence,destination_text=await booking_select_exact_destination(page,canonical_name or property_name,city)
                 print(
                     f"{stay['month']} booking-destination-picker [{label}]: "
                     f"{'applied' if dest_ok else 'failed'} · {destination_evidence}",
@@ -2656,6 +2703,12 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         f"{'applied' if applied2 else 'failed'} · {ui_evidence2}",
                         flush=True,
                     )
+                    if not applied2:
+                        form_diag=await booking_search_form_diagnostics(page)
+                        print(
+                            f"{stay['month']} booking-search-form-diagnostics [{label}]: {form_diag}",
+                            flush=True,
+                        )
                     if ui_evidence2:
                         ui_evidence=(ui_evidence+" | "+ui_evidence2).strip(" |")
 
@@ -2750,6 +2803,40 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                                     f"failed · {type(exc).__name__}: {str(exc)[:120]}",
                                     flush=True,
                                 )
+
+                    # Secondo tentativo: usa il testo ESATTO restituito
+                    # dall'autocomplete Booking come ss, mantenendo le date nella URL.
+                    # È diverso dal nome catalogo abbreviato usato nel primo search.
+                    if not dates_ok and destination_text:
+                        suggestion_url=booking_dated_search_url(destination_text,"",stay)
+                        try:
+                            response3=await page.goto(
+                                suggestion_url,
+                                wait_until="domcontentloaded",
+                                timeout=25000,
+                            )
+                            await dismiss_cookie(page)
+                            await page.wait_for_timeout(1800)
+                            try:
+                                body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                            except Exception:
+                                body=""
+                            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                            cards=await booking_result_cards(page)
+                            best=booking_best_card(cards,source,property_name,canonical_name,city)
+                            print(
+                                f"{stay['month']} booking-exact-suggestion-dated-search [{label}]: "
+                                f"status={getattr(response3,'status',None)} · dates={dates_ok} · "
+                                f"exact_url={bool(best and best[1])} · cards={len(cards)} · "
+                                f"url={page.url[:320]}",
+                                flush=True,
+                            )
+                        except Exception as exc:
+                            print(
+                                f"{stay['month']} booking-exact-suggestion-dated-search [{label}]: "
+                                f"failed · {type(exc).__name__}: {str(exc)[:120]}",
+                                flush=True,
+                            )
 
                     # Fallback: solo se la URL datata non ha funzionato, prova ancora
                     # il calendario sulla searchresults esatta.
