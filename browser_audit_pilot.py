@@ -2395,9 +2395,10 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         )
         return record
 
-    # v9: se la pagina datata ha identificato con certezza la card ma la card non espone il prezzo,
-    # apri proprio quel link (non la source pulita) e conserva il contesto di ricerca/date.
-    if dates_ok and exact_path:
+    # v13: se abbiamo identificato con certezza la card esatta, aprila comunque.
+    # Se la pagina elenco non ha mantenuto le date, il follow-through le applica
+    # direttamente sulla scheda struttura tramite il date picker Booking.
+    if exact_path:
         detail=await booking_follow_matched_listing(page,source,item,stay,robots)
         record["finalUrl"]=str(detail.get("finalUrl") or record.get("finalUrl") or "")
         record["title"]=str(detail.get("title") or record.get("title") or "")[:200]
@@ -2410,8 +2411,9 @@ async def booking_dated_search_observation(page, source: str, property_name: str
             record["status"]=detail_status
             record["evidence"]=(
                 f"{canonical_evidence} {route_label}: scheda esatta «{item.get('title','')}» trovata "
-                f"(URL listing identico) con date confermate ({date_mode}). "
-                f"Follow-through scheda: {detail.get('evidence','')}"
+                f"(URL listing identico). "
+                f"Date nella pagina elenco: {'confermate (' + date_mode + ')' if dates_ok else 'non confermate'}; "
+                f"follow-through scheda: {detail.get('evidence','')}"
             )[:900]
             return record
 
