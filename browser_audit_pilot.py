@@ -174,10 +174,10 @@ def visible_dates_confirmed(text: str, stay: dict) -> bool:
 
 
 async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
-    """Conferma le date solo da controlli Booking visibili o realmente selezionati.
+    """Conferma Booking solo se le date compaiono nei CAMPI VISIBILI della searchbox.
 
-    Un semplice elemento [data-date] non è una prova: il calendario può contenere
-    tutte le date del mese nel DOM anche quando i campi mostrano ancora "Seleziona date".
+    Le celle del calendario, anche selezionate, non valgono come prova: possono restare
+    nel DOM mentre il box in alto mostra ancora "Data check-in — Data check-out".
     """
     start, end = date.fromisoformat(stay["checkin"]), date.fromisoformat(stay["checkout"])
     try:
@@ -185,45 +185,43 @@ async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
           const selectors = [
             '[data-testid="date-display-field-start"]',
             '[data-testid="date-display-field-end"]',
+            '[data-testid="searchbox-dates-container"]',
             'input[name="checkin"]',
-            'input[name="checkout"]',
-            '[aria-label*="check-in" i]',
-            '[aria-label*="check-out" i]',
-            '[aria-label*="arrivo" i]',
-            '[aria-label*="partenza" i]',
-            '[data-date][aria-pressed="true"]',
-            '[data-date][aria-selected="true"]'
+            'input[name="checkout"]'
           ];
-          const isVisible = (el) => {
+          const visible = (el) => {
             if (!el || el.getAttribute('aria-hidden') === 'true') return false;
-            const style = getComputedStyle(el);
-            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) return false;
-            const rect = el.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
+            const st=getComputedStyle(el);
+            if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
           };
-          const out = [];
-          const seen = new Set();
+          const out=[];
+          const seen=new Set();
           for (const selector of selectors) {
-            for (const el of Array.from(document.querySelectorAll(selector)).slice(0, 80)) {
-              if (!isVisible(el)) continue;
+            for (const el of Array.from(document.querySelectorAll(selector)).slice(0,30)) {
+              if (!visible(el)) continue;
               if (el instanceof HTMLInputElement && el.type === 'hidden') continue;
-              const parts = [
+              const value=[
                 el.textContent || '',
                 el.getAttribute('value') || '',
-                el.getAttribute('data-date') || '',
-                el.getAttribute('aria-label') || '',
-                el.getAttribute('placeholder') || ''
-              ];
-              const value = parts.join(' ').replace(/\s+/g,' ').trim();
-              if (value && !seen.has(value)) { seen.add(value); out.push(value.slice(0,300)); }
+                el.getAttribute('aria-label') || ''
+              ].join(' ').replace(/\s+/g,' ').trim();
+              if (value && !seen.has(value)) {
+                seen.add(value);
+                out.push(value.slice(0,300));
+              }
             }
           }
           return out;
         }""")
     except Exception:
         return False, ""
-    combined = " | ".join(str(value) for value in values).lower()
-    confirmed = any(value in combined for value in _date_forms(start)) and any(value in combined for value in _date_forms(end))
+    combined=" | ".join(str(value) for value in values).lower()
+    confirmed=(
+        any(value in combined for value in _date_forms(start))
+        and any(value in combined for value in _date_forms(end))
+    )
     return confirmed, combined[:700]
 
 def booking_url_dates_confirmed(url: str, stay: dict) -> bool:
@@ -419,10 +417,21 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
     # i campi visibili del searchbox devono davvero contenere entrambe le date.
     pre_ok,pre_state=await booking_dom_dates_confirmed(page,stay)
     if not pre_ok:
+        debug_path=""
+        try:
+            debug_dir=Path(__file__).resolve().parent/"tmp"
+            debug_dir.mkdir(parents=True,exist_ok=True)
+            debug_file=debug_dir/f"booking-v15-after-date-clicks-{stay['month']}.png"
+            await page.screenshot(path=str(debug_file),full_page=False)
+            debug_path=str(debug_file)
+        except Exception:
+            pass
         evidence.append("date cliccate ma campi Booking non aggiornati")
         evidence.append("campi visibili: " + (pre_state or await visible_date_state() or "n.d."))
+        if debug_path:
+            evidence.append("screenshot: " + debug_path)
         return False, "; ".join(filter(None,evidence))
-    evidence.append("date confermate nei campi prima di Cerca")
+    evidence.append("date confermate nei campi visibili prima di Cerca")
 
     submit, submit_selector = await _first_visible_locator(page, (
         '[data-testid="date-submit-button"]',
@@ -458,12 +467,23 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
     post_url=booking_url_dates_confirmed(page.url,stay)
     post_text=visible_dates_confirmed(body,stay)
     if not (post_dom or post_url or post_text):
+        debug_path=""
+        try:
+            debug_dir=Path(__file__).resolve().parent/"tmp"
+            debug_dir.mkdir(parents=True,exist_ok=True)
+            debug_file=debug_dir/f"booking-v15-after-search-{stay['month']}.png"
+            await page.screenshot(path=str(debug_file),full_page=False)
+            debug_path=str(debug_file)
+        except Exception:
+            pass
         evidence.append("Booking ha perso le date dopo Cerca")
         evidence.append("campi finali: " + (post_state or await visible_date_state() or "n.d."))
         evidence.append("URL finale: " + page.url[:350])
+        if debug_path:
+            evidence.append("screenshot: " + debug_path)
         return False, "; ".join(filter(None,evidence))
 
-    mode="DOM" if post_dom else "URL" if post_url else "testo visibile"
+    mode="campi visibili" if post_dom else "URL" if post_url else "testo visibile"
     evidence.append(f"date confermate dopo Cerca via {mode}")
     return True, "; ".join(filter(None,evidence))
 
