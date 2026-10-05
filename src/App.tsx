@@ -3593,6 +3593,48 @@ type BrowserPilotQuoteCandidate = {
   evidence?: string;
 };
 
+type BrowserPilotReviewTheme = {
+  theme: string;
+  count: number;
+  weight?: string;
+  examples?: string[];
+  action?: string;
+};
+
+type BrowserPilotReputation = {
+  status: string;
+  source?: string;
+  url?: string;
+  name?: string;
+  rating?: number | null;
+  reviewCount?: number | null;
+  sampleSize?: number;
+  sampleAverage?: number | null;
+  responseCount?: number;
+  responseRate?: number;
+  strengths?: BrowserPilotReviewTheme[];
+  weaknesses?: BrowserPilotReviewTheme[];
+  isolatedSignals?: BrowserPilotReviewTheme[];
+  keywords?: { word: string; count: number }[];
+  evidence?: string;
+};
+
+type BrowserPilotPhotoAudit = {
+  status: string;
+  source?: string;
+  url?: string;
+  score?: number;
+  imageCount?: number;
+  highResolutionCount?: number;
+  altTextCount?: number;
+  categoryCounts?: Record<string, number>;
+  components?: Record<string, number>;
+  strengths?: string[];
+  gaps?: string[];
+  actions?: string[];
+  evidence?: string;
+};
+
 type BrowserPilotObservation = {
   otaId: string;
   month: string;
@@ -3621,6 +3663,8 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   discoveredSources?: Record<string, DiscoveredPilotSource>;
+  reputation?: BrowserPilotReputation;
+  photoAudit?: BrowserPilotPhotoAudit;
   observations: BrowserPilotObservation[];
 };
 
@@ -4718,6 +4762,8 @@ export default function App() {
         discoveredSources: parsed.discoveredSources && typeof parsed.discoveredSources === "object"
           ? parsed.discoveredSources
           : undefined,
+        reputation: parsed.reputation && typeof parsed.reputation === "object" ? parsed.reputation : undefined,
+        photoAudit: parsed.photoAudit && typeof parsed.photoAudit === "object" ? parsed.photoAudit : undefined,
         observations: parsed.observations
           .filter((item) => item && typeof item.otaId === "string" && typeof item.month === "string" && typeof item.status === "string")
           .slice(0, 500)
@@ -4786,7 +4832,55 @@ export default function App() {
       updateAnswer("audit-policy-booking", {
         note:
           evidence +
-          "\nI valori restano candidati di quotazione e non entrano automaticamente nel delta finché tasse, condizioni e identità della stessa unità fisica non sono confermate.",
+          "\nI valori restano separati dal delta finché tasse, condizioni e identità della stessa unità fisica non sono confermate.",
+      });
+    }
+
+    const reputation = result.reputation;
+    if (reputation?.status === "sampled") {
+      const strengths = (reputation.strengths || []).map((entry) => {
+        const examples = (entry.examples || []).slice(0, 3).map((value) => "“" + value + "”").join(" · ");
+        return entry.theme + " — ricorrenza " + entry.count + " recensioni" + (entry.weight ? " (" + entry.weight + ")" : "") + (examples ? ". Esempi: " + examples : "");
+      }).join("\n");
+
+      const weaknesses = (reputation.weaknesses || []).map((entry) => {
+        const examples = (entry.examples || []).slice(0, 3).map((value) => "“" + value + "”").join(" · ");
+        return entry.theme + " — ricorrenza " + entry.count + " recensioni" + (entry.weight ? " (" + entry.weight + ")" : "") + (examples ? ". Esempi: " + examples : "");
+      }).join("\n");
+
+      const isolated = (reputation.isolatedSignals || []).map((entry) => {
+        const examples = (entry.examples || []).slice(0, 2).map((value) => "“" + value + "”").join(" · ");
+        return entry.theme + " — segnalazione isolata" + (examples ? ". Esempio: " + examples : "");
+      }).join("\n");
+
+      const actions = (reputation.weaknesses || []).map((entry) =>
+        entry.theme + ": " + (entry.action || "Approfondire il tema e definire un intervento misurabile.")
+      ).join("\n");
+
+      const keywords = (reputation.keywords || []).slice(0, 15)
+        .map((entry) => entry.word + " (" + entry.count + ")").join(" · ");
+
+      updateAnswer("audit-google-strengths", { note: strengths || "Nessun punto di forza ricorrente classificato nel campione disponibile." });
+      updateAnswer("audit-google-weaknesses", { note: weaknesses || "Nessuna criticità ricorrente classificata nel campione disponibile." });
+      updateAnswer("audit-google-isolated", { note: isolated || "Nessuna segnalazione isolata significativa nel campione disponibile." });
+      updateAnswer("audit-google-keywords", { note: keywords || "Parole ricorrenti non sufficienti per una sintesi affidabile." });
+      updateAnswer("audit-google-actions", { note: actions || "Nessuna azione prioritaria derivata da criticità ricorrenti nel campione." });
+    }
+
+    const photo = result.photoAudit;
+    if (photo?.status === "sampled") {
+      const categories = Object.entries(photo.categoryCounts || {})
+        .map(([name, count]) => name + ": " + count).join(" · ");
+      const note = [
+        photo.evidence || "",
+        (photo.strengths || []).length ? "Punti di forza: " + (photo.strengths || []).join(" ") : "",
+        (photo.gaps || []).length ? "Gap: " + (photo.gaps || []).join(" ") : "",
+        categories ? "Copertura categorie: " + categories + "." : "",
+        (photo.actions || []).length ? "Azioni: " + (photo.actions || []).join(" ") : "",
+      ].filter(Boolean).join("\n");
+      updateAnswer("audit-photo-score", {
+        current: Number(photo.score || 0),
+        note,
       });
     }
   }
