@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v42"
+PILOT_BUILD = "velora-browser-pilot-v43"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -4641,35 +4641,91 @@ async def google_reputation_observation(context, data: dict) -> dict:
             digits=re.sub(r"\D+","",str(meta["reviews"]))
             review_count=int(digits) if digits else None
 
-        # Apri esplicitamente la sezione/pannello recensioni.
+        # Apri esplicitamente la sezione/pannello recensioni e verifica che
+        # il click abbia realmente esposto contenuto recensioni.
         review_button=None
         review_button_label=""
-        for selector in (
-            "button[jsaction*='moreReviews']",
+        review_open_evidence=""
+        try:
+            baseline=await page.evaluate(r"""() => ({
+              reviewId:document.querySelectorAll('[data-review-id]').length,
+              articles:document.querySelectorAll('[role="article"]').length,
+              stars:document.querySelectorAll('[role="img"][aria-label*="stell" i], [role="img"][aria-label*="star" i]').length,
+              sorters:document.querySelectorAll('button[aria-label*="ordina recensioni" i],button[aria-label*="sort reviews" i]').length
+            })""")
+        except Exception:
+            baseline={"reviewId":0,"articles":0,"stars":0,"sorters":0}
+
+        review_selectors=(
+            "[role='tab']:has-text('Recensioni')",
+            "[role='tab']:has-text('Reviews')",
             "[role='tab'][aria-label*='recension' i]",
             "[role='tab'][aria-label*='review' i]",
+            "button[jsaction*='moreReviews']",
             "button[aria-label*='recension' i]",
             "button[aria-label*='review' i]",
             "button:has-text('recensioni')",
             "button:has-text('reviews')",
-        ):
+        )
+        opened=False
+        for selector in review_selectors:
             try:
                 locs=page.locator(selector)
                 count=min(await locs.count(),25)
-                for idx in range(count):
-                    item=locs.nth(idx)
-                    if await item.is_visible(timeout=250):
-                        review_button=item
-                        review_button_label=re.sub(r"\s+"," ",(await item.get_attribute("aria-label") or await item.inner_text(timeout=350) or selector)).strip()[:180]
-                        break
-                if review_button is not None:
-                    break
             except Exception:
                 continue
-        if review_button is not None:
+            for idx in range(count):
+                item=locs.nth(idx)
+                try:
+                    if not await item.is_visible(timeout=250):
+                        continue
+                    label=re.sub(r"\s+"," ",(
+                        await item.get_attribute("aria-label")
+                        or await item.inner_text(timeout=350)
+                        or selector
+                    )).strip()[:180]
+                    try:
+                        await item.click(timeout=2200)
+                    except Exception:
+                        await item.click(timeout=1600,force=True)
+                    await page.wait_for_timeout(1800)
+                    try:
+                        state=await page.evaluate(r"""() => ({
+                          reviewId:document.querySelectorAll('[data-review-id]').length,
+                          articles:document.querySelectorAll('[role="article"]').length,
+                          stars:document.querySelectorAll('[role="img"][aria-label*="stell" i], [role="img"][aria-label*="star" i]').length,
+                          sorters:document.querySelectorAll('button[aria-label*="ordina recensioni" i],button[aria-label*="sort reviews" i]').length,
+                          recentText:/più recenti|most recent|newest/i.test(document.body.innerText||'')
+                        })""")
+                    except Exception:
+                        state={}
+                    review_button=item
+                    review_button_label=label
+                    review_open_evidence=(
+                        f"{selector} → reviewId={state.get('reviewId',0)}, "
+                        f"articles={state.get('articles',0)}, stars={state.get('stars',0)}, "
+                        f"sort={state.get('sorters',0)}"
+                    )
+                    opened=bool(
+                        state.get("reviewId",0)>baseline.get("reviewId",0)
+                        or state.get("articles",0)>baseline.get("articles",0)
+                        or state.get("stars",0)>baseline.get("stars",0)+1
+                        or state.get("sorters",0)>0
+                        or state.get("recentText")
+                    )
+                    if opened:
+                        break
+                except Exception:
+                    continue
+            if opened:
+                break
+
+        if review_button is not None and not opened:
             try:
-                await review_button.click(timeout=2400)
-                await page.wait_for_timeout(2200)
+                await review_button.focus(timeout=1000)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(1600)
+                review_open_evidence += " · retry Enter"
             except Exception:
                 pass
 
@@ -4768,8 +4824,24 @@ async def google_reputation_observation(context, data: dict) -> dict:
                 const id=card.getAttribute('data-review-id') || clean(card.textContent).slice(0,120);
                 if (!id || seen.has(id)) continue;
                 seen.add(id);
-                const textNode=card.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"],.MyEned');
-                const text=clean(textNode?.textContent || '');
+                const textNode=card.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"],.MyEned,[class*="review-text"]');
+                let text=clean(textNode?.textContent || '');
+                if (!text) {
+                  const rawLines=String(card.innerText || card.textContent || '').split(/\n+/).map(clean).filter(Boolean);
+                  const filtered=rawLines.filter((line) => {
+                    const low=line.toLowerCase();
+                    if (line.length<4) return false;
+                    if (/^\d(?:[.,]\d)?$/.test(line)) return false;
+                    if (/^\d+\s*(?:recensioni|reviews)$/i.test(line)) return false;
+                    if (/(?:stella|stelle|star|stars)$/i.test(line)) return false;
+                    if (/^(?:local guide|guida locale)$/i.test(line)) return false;
+                    if (/^(?:altro|more|condividi|share|mi piace|like)$/i.test(line)) return false;
+                    if (/^(?:\d+|una|un)\s+(?:giorn|settiman|mes|ann|day|week|month|year)/i.test(low)) return false;
+                    return true;
+                  });
+                  if (filtered.length>2) filtered.shift();
+                  text=clean(filtered.join(' '));
+                }
                 if (!text) continue;
                 const starNode=card.querySelector('span[role="img"][aria-label*="stell" i],span[role="img"][aria-label*="star" i],[role="img"][aria-label*="stell" i],[role="img"][aria-label*="star" i]');
                 const starAria=clean(starNode?.getAttribute('aria-label'));
@@ -4804,10 +4876,15 @@ async def google_reputation_observation(context, data: dict) -> dict:
             )
         except Exception:
             pass
+        preview=" | ".join(_review_snippet(str(item.get("text") or ""),110) for item in reviews[:2])
+        print(
+            f"reputation open: {review_open_evidence or 'nessun cambio DOM confermato'}",
+            flush=True,
+        )
         print(
             f"reputation diagnostics: name={observed_name or name} · button={review_button_label or 'n.d.'} · "
             f"rating={rating if rating is not None else 'n.d.'} · reviews={review_count if review_count is not None else 'n.d.'} · "
-            f"cards={len(reviews)} · url={page.url[:260]}",
+            f"cards={len(reviews)} · preview={preview[:260]} · url={page.url[:260]}",
             flush=True,
         )
         return {
@@ -4932,8 +5009,13 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
                 response,payload=await inspect_page(norm)
             except Exception:
                 continue
-            page_summaries.append({"url":page.url,"title":str(payload.get("title") or "")[:180],"status":getattr(response,"status",None)})
-            collected.extend(payload.get("images") or [])
+            page_title=str(payload.get("title") or "")[:180]
+            page_summaries.append({"url":page.url,"title":page_title,"status":getattr(response,"status",None)})
+            for image_item in (payload.get("images") or []):
+                enriched=dict(image_item)
+                enriched["pageUrl"]=page.url
+                enriched["pageTitle"]=page_title
+                collected.append(enriched)
 
             ranked=[]
             for link in payload.get("links") or []:
@@ -4993,7 +5075,10 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
         }
         category_counts={key:0 for key in categories}
         for img in relevant:
-            hay=_review_norm((img.get("alt") or "")+" "+(img.get("src") or ""))
+            hay=_review_norm(
+                (img.get("alt") or "")+" "+(img.get("src") or "")+" "+
+                (img.get("pageTitle") or "")+" "+(img.get("pageUrl") or "")
+            )
             for key,words in categories.items():
                 if any(_review_norm(word) in hay for word in words):
                     category_counts[key]+=1
@@ -5007,13 +5092,20 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
         # Punteggio solo su segnali effettivamente osservabili. Se le dimensioni
         # naturali non sono disponibili, la componente risoluzione pesa meno.
         volume_score=min(1.0,total/24) * 2.0
-        coverage_score=(covered/max(1,len(categories))) * 3.5
+        semantic_evidence=sum(
+            1 for img in relevant
+            if len(str(img.get("alt") or "").strip())>=4
+            or any(word in _review_norm((img.get("pageTitle") or "")+" "+(img.get("pageUrl") or ""))
+                   for words in categories.values() for word in map(_review_norm,words))
+        )
+        coverage_weight=3.5 if semantic_evidence>=max(3,min(6,total//3 if total else 0)) else 0.0
+        coverage_score=(covered/max(1,len(categories))) * coverage_weight if coverage_weight else 0.0
         metadata_score=min(1.0,alt_ratio/0.7) * 1.5
         resolution_weight=2.0 if known_ratio>=0.35 else 0.8
         resolution_score=min(1.0,highres_ratio/0.65) * resolution_weight
         visual_presence=sum(1 for img in relevant if int(img.get("displayedWidth") or 0)>=900 or str(img.get("kind")) in {"background","meta"})
         hero_score=min(1.0,visual_presence/4) * 1.0
-        max_score=2.0+3.5+1.5+resolution_weight+1.0
+        max_score=2.0+coverage_weight+1.5+resolution_weight+1.0
         raw=volume_score+coverage_score+metadata_score+resolution_score+hero_score
         score=round(10*raw/max_score,1) if total else 0.0
 
@@ -5032,7 +5124,11 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
             else: gaps.append(f"Alt text assente o poco descrittivo su molte immagini ({len(alt_ok)}/{total} utili).")
         missing=[key for key,value in category_counts.items() if value==0]
         if covered>=4: strengths.append("Il campione copre più aree dell'esperienza, non soltanto le camere.")
-        if missing: gaps.append("Categorie non chiaramente riconoscibili da metadati/URL: "+", ".join(missing)+".")
+        if missing:
+            if coverage_weight:
+                gaps.append("Categorie non chiaramente riconoscibili da metadati/URL/pagina: "+", ".join(missing)+".")
+            else:
+                gaps.append("Copertura semantica delle immagini non valutabile con sufficiente certezza: metadati e contesto pagina sono troppo poveri per penalizzare la gallery.")
 
         actions=[]
         if "esperienza/lifestyle" in missing: actions.append("Integrare immagini lifestyle con persone e momenti d'uso reali.")
@@ -5059,7 +5155,8 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
             "evidence":(
                 f"Audit fotografico frontend multi-pagina: {len(page_summaries)} pagine, {total} immagini rilevanti, "
                 f"{len(dimension_known)} con dimensioni naturali note, {len(highres)} ad alta risoluzione, "
-                f"{len(alt_ok)} con alt text utile, {covered}/{len(categories)} categorie riconoscibili. "
+                f"{len(alt_ok)} con alt text utile, {covered}/{len(categories)} categorie riconoscibili "
+                f"(copertura {'conteggiata' if coverage_weight else 'non penalizzata per bassa confidenza semantica'}). "
                 "Il punteggio usa solo segnali frontend osservabili; luce, composizione e styling richiedono lettura visiva."
             )[:900],
         }
