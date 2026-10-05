@@ -623,7 +623,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v17",
+                "agentVersion":"velora-local-agent-v18",
                 "catalog":catalog_public_summary(),
                 "aiWebSearch":{
                     "configured":False,
@@ -754,7 +754,7 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=="__main__":
     if not (DIST/"index.html").exists():
         print("Build locale non presente: va bene se usi Velora online; restano attive le API locali.",flush=True)
-    print("Versione agente: velora-local-agent-v17 · Booking riapertura check-out attiva",flush=True)
+    print("Versione agente: velora-local-agent-v18 · Booking controllo visibile e navigazione calendario corretti",flush=True)
     print(f"Agente Velora: http://{HOST}:{PORT}/  (Ctrl+C per fermare)",flush=True)
     print("Puoi continuare a usare Velora online: il browser pubblico si colleghera' a questo agente locale.",flush=True)
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
