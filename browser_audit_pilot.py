@@ -429,10 +429,50 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
         evidence.append("campi visibili: " + (await visible_date_state() or "n.d."))
         return False, "; ".join(filter(None,evidence))
 
-    ok_end, ev_end = await pick(checkout)
+    # Booking, sulla scheda struttura, può impostare automaticamente il giorno
+    # successivo come check-out e chiudere il calendario dopo il check-in.
+    # Prima di navigare tra i mesi, prova quindi a riaprire esplicitamente
+    # il campo check-out e selezionare la data richiesta.
+    direct_end, direct_end_ev = await click_visible_date(checkout)
+    if direct_end:
+        ok_end, ev_end = True, direct_end_ev
+    else:
+        end_opener, end_selector = await _first_visible_locator(page, (
+            '[data-testid="date-display-field-end"]',
+            'button[data-testid="date-display-field-end"]',
+            'button[aria-label*="check-out" i]',
+            'button[aria-label*="partenza" i]',
+            '[data-testid="searchbox-dates-container"]',
+            '[data-testid="date-display-field-start"]',
+        ))
+        if end_opener is not None:
+            try:
+                await end_opener.click(timeout=2200)
+                await page.wait_for_timeout(550)
+                evidence.append(f"calendario riaperto per check-out con {end_selector}")
+            except Exception as exc:
+                evidence.append(f"riapertura check-out fallita: {type(exc).__name__}")
+
+        direct_end, direct_end_ev = await click_visible_date(checkout)
+        if direct_end:
+            ok_end, ev_end = True, direct_end_ev
+        else:
+            ok_end, ev_end = await pick(checkout)
+
     evidence.append(ev_end)
     if not ok_end:
+        debug_path=""
+        try:
+            debug_dir=Path(__file__).resolve().parent/"tmp"
+            debug_dir.mkdir(parents=True,exist_ok=True)
+            debug_file=debug_dir/f"booking-v17-checkout-failed-{stay['month']}.png"
+            await page.screenshot(path=str(debug_file),full_page=False)
+            debug_path=str(debug_file)
+        except Exception:
+            pass
         evidence.append("campi visibili: " + (await visible_date_state() or "n.d."))
+        if debug_path:
+            evidence.append("screenshot: " + debug_path)
         return False, "; ".join(filter(None,evidence))
 
     # NON dichiarare successo perché i nodi data-date sono stati cliccati:
