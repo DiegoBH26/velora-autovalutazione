@@ -14,6 +14,7 @@ import base64
 import json
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -743,7 +744,122 @@ async def discover_booking_via_search_engine(context, property_name: str, city: 
     }
 
 
-async def discover_booking_source(context, property_name: str, city: str, robots: dict, address: str = "", website: str = "") -> dict:
+
+def _rss_search_queries(property_name: str, city: str = "", address: str = "", website: str = "", phone: str = "", email: str = "") -> list[str]:
+    queries=[]
+    exact_name=f'"{property_name.strip()}"' if property_name.strip() else ""
+    if exact_name:
+        queries.append(" ".join(part for part in (exact_name, f'"{city.strip()}"' if city.strip() else "", "Booking.com") if part))
+        queries.append(" ".join(part for part in ("site:booking.com/hotel/", exact_name, city.strip()) if part))
+    if address.strip():
+        queries.append(" ".join(part for part in (exact_name, f'"{address.strip()}"', "Booking.com") if part))
+    if phone.strip():
+        queries.append(f'"{phone.strip()}" Booking.com')
+    if email.strip():
+        queries.append(f'"{email.strip()}" Booking.com')
+    try:
+        host=(urlparse(website).hostname or "").lower().removeprefix("www.")
+    except Exception:
+        host=""
+    if host:
+        queries.append(f'"{host}" Booking.com')
+    out=[]
+    seen=set()
+    for query in queries:
+        query=" ".join(query.split())
+        if query and query not in seen:
+            seen.add(query)
+            out.append(query)
+    return out
+
+
+def _bing_rss_items(query: str) -> list[dict]:
+    try:
+        response=requests.get(
+            "https://www.bing.com/search",
+            params={"q":query,"format":"rss","setlang":"it"},
+            headers={"Accept":"application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8"},
+            impersonate="chrome",
+            timeout=12,
+        )
+        if response.status_code >= 400:
+            return []
+        root=ET.fromstring(response.text)
+        items=[]
+        for item in root.findall(".//item")[:20]:
+            title=(item.findtext("title") or "").strip()
+            link=(item.findtext("link") or "").strip()
+            description=(item.findtext("description") or "").strip()
+            items.append({"title":title,"link":link,"description":description})
+        return items
+    except Exception:
+        return []
+
+
+async def discover_booking_via_rss(context, property_name: str, city: str, address: str, website: str, phone: str, email: str, robots: dict) -> dict:
+    """Fallback testuale: usa risultati RSS pubblici e poi verifica la pagina Booking reale."""
+    weak=[]
+    seen=set()
+    for query in _rss_search_queries(property_name,city,address,website,phone,email):
+        items=await asyncio.to_thread(_bing_rss_items,query)
+        for item in items:
+            raw_link=str(item.get("link") or "")
+            candidate=booking_candidate_from_search_href(raw_link,"https://www.bing.com/")
+            if not candidate:
+                # Alcuni feed mostrano l'URL Booking nella descrizione.
+                desc=unquote(str(item.get("description") or ""))
+                match=re.search(r'https?://[^\s<>"\']*booking\.com/hotel/[^\s<>"\']+',desc,re.I)
+                if match:
+                    candidate=booking_candidate_from_search_href(match.group(0),"https://www.bing.com/")
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            title=str(item.get("title") or "")
+            description=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                property_name,city,address,title,description,candidate
+            )
+            generic=path_slug.lower() in {"","index","hotel","searchresults"}
+            if generic:
+                weak.append((score,candidate,title,path_slug,reasons,query))
+                continue
+            verify=await verify_booking_candidate_page(context,candidate,property_name,city,address,robots)
+            if verify.get("ok"):
+                return {
+                    "status":"found",
+                    "url":verify.get("url") or candidate,
+                    "title":verify.get("title") or title or path_slug,
+                    "score":verify.get("score",score),
+                    "evidence":(
+                        f"Bing RSS: candidato trovato con query «{query}» e verificato aprendo Booking. "
+                        f"Match ricerca {score:.0%} ({reasons}); verifica pagina {verify.get('score',0):.0%} "
+                        f"({verify.get('evidence','')})."
+                    )[:900],
+                    "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
+                    "discoveryMode":"Bing RSS + page verification",
+                }
+            weak.append((score,candidate,title,path_slug,reasons,query))
+
+    weak.sort(key=lambda row:row[0],reverse=True)
+    if weak:
+        score,candidate,title,path_slug,reasons,query=weak[0]
+        return {
+            "status":"needs_review","url":candidate,"title":(title or path_slug)[:220],"score":round(score,3),
+            "evidence":(
+                f"Bing RSS ha trovato candidati Booking ma nessuno verificabile con sufficiente certezza. "
+                f"Migliore: {score:.0%} ({reasons}) con query «{query}»."
+            )[:900],
+            "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
+            "discoveryMode":"Bing RSS exhausted",
+        }
+    return {
+        "status":"not_found_in_rss","url":"","title":"","score":0.0,
+        "evidence":"Le ricerche RSS pubbliche non hanno restituito una pagina Booking verificabile.",
+        "searchUrl":"","discoveryMode":"Bing RSS exhausted",
+    }
+
+
+async def discover_booking_source(context, property_name: str, city: str, robots: dict, address: str = "", website: str = "", phone: str = "", email: str = "") -> dict:
     official = await discover_booking_from_official_site(context, website, robots)
     if official.get("status") == "found":
         return official
@@ -764,6 +880,13 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 + str(fallback.get("evidence") or "")
             )[:900]
             return fallback
+        rss = await discover_booking_via_rss(context, property_name, city, address, website, phone, email, robots)
+        if rss.get("status") == "found":
+            rss["evidence"] = (
+                "La ricerca interna Booking.com non era utilizzabile; fallback RSS pubblico. "
+                + str(rss.get("evidence") or "")
+            )[:900]
+            return rss
         return {
             "status": "robots_denied" if permission is False else "robots_unavailable",
             "url": "", "title": "", "score": 0.0,
@@ -839,6 +962,13 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                     + str(fallback.get("evidence") or "")
                 )[:900]
                 return fallback
+            rss = await discover_booking_via_rss(context, property_name, city, address, website, phone, email, robots)
+            if rss.get("status") == "found":
+                rss["evidence"] = (
+                    f"Ricerca Booking interna e browser-search non conclusive per «{property_name}»; "
+                    + str(rss.get("evidence") or "")
+                )[:900]
+                return rss
             return {
                 "status": "not_found_in_search", "url": "", "title": "", "score": 0.0,
                 "evidence": (
@@ -881,6 +1011,13 @@ async def discover_booking_source(context, property_name: str, city: str, robots
                 + str(fallback.get("evidence") or "")
             )[:900]
             return fallback
+        rss = await discover_booking_via_rss(context, property_name, city, address, website, phone, email, robots)
+        if rss.get("status") == "found":
+            rss["evidence"] = (
+                f"Il candidato interno Booking era generico/debole ({score:.0%}); fallback RSS pubblico. "
+                + str(rss.get("evidence") or "")
+            )[:900]
+            return rss
         return {
             "status": "needs_review", "url": clean_url, "title": display_title[:220],
             "score": round(score, 3),
@@ -1636,6 +1773,8 @@ async def run(args: argparse.Namespace) -> dict:
                     robots,
                     address=data.get("address", ""),
                     website=official_identity_url,
+                    phone=data.get("phone", ""),
+                    email=data.get("email", ""),
                 )
                 result["discoveredSources"]["booking"] = discovery
                 print(
