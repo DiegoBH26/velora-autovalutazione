@@ -3,6 +3,8 @@ import santantonioAudit from "./santantonio-audit.json";
 import santantonioReportUrl from "./santantonio-report.pdf?url";
 import perlaAudit from "./perla-saracena-audit.json";
 import perlaReportUrl from "./perla-saracena-report.pdf?url";
+import braAudit from "./bra-hotel-audit.json";
+import braReportUrl from "./bra-hotel-report.pdf?url";
 import { buildRateComparisonRows } from "./rate-comparison";
 
 declare global {
@@ -17,7 +19,7 @@ declare global {
 }
 
 type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
-type AuditData = typeof santantonioAudit | typeof perlaAudit;
+type AuditData = typeof santantonioAudit | typeof perlaAudit | typeof braAudit;
 
 const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
 function localAgentUrl(path: string): string {
@@ -3826,6 +3828,7 @@ function santantonioStructure(): AnalyzedStructure {
 function knownAuditData(id: string | null | undefined): AuditData | null {
   if (id === santantonioAudit.id) return santantonioAudit;
   if (id === perlaAudit.id) return perlaAudit;
+  if (id === braAudit.id) return braAudit;
   return null;
 }
 
@@ -3879,10 +3882,11 @@ function isAuditData(value: unknown): value is AuditData {
 function loadAnalyzedStructures(): AnalyzedStructure[] {
   const seed = santantonioStructure();
   const perlaSeed = auditSeedStructure(perlaAudit);
+  const braSeed = auditSeedStructure(braAudit);
   const deleted = loadDeletedStructureIds();
   try {
     const saved = JSON.parse(window.localStorage.getItem(STRUCTURES_KEY) || "[]");
-    if (!Array.isArray(saved)) return [seed, perlaSeed].filter((item) => !deleted.has(item.id));
+    if (!Array.isArray(saved)) return [seed, perlaSeed, braSeed].filter((item) => !deleted.has(item.id));
     const existing = saved.filter((item): item is AnalyzedStructure =>
       Boolean(item && typeof item.id === "string" && item.ownerInfo && item.answers && !deleted.has(item.id))
     );
@@ -3902,11 +3906,14 @@ function loadAnalyzedStructures(): AnalyzedStructure[] {
     const withSantAntonio = deleted.has(seed.id) || migrated.some((item) => item.id === seed.id)
       ? migrated
       : [seed, ...migrated];
-    return deleted.has(perlaSeed.id) || withSantAntonio.some((item) => item.id === perlaSeed.id)
+    const withPerla = deleted.has(perlaSeed.id) || withSantAntonio.some((item) => item.id === perlaSeed.id)
       ? withSantAntonio
       : [...withSantAntonio, perlaSeed];
+    return deleted.has(braSeed.id) || withPerla.some((item) => item.id === braSeed.id)
+      ? withPerla
+      : [...withPerla, braSeed];
   } catch {
-    return [seed, perlaSeed].filter((item) => !deleted.has(item.id));
+    return [seed, perlaSeed, braSeed].filter((item) => !deleted.has(item.id));
   }
 }
 
@@ -5010,6 +5017,8 @@ export default function App() {
       ? santantonioReportUrl
       : structure.id === perlaAudit.id
         ? perlaReportUrl
+      : structure.id === braAudit.id
+        ? braReportUrl
       : `${import.meta.env.BASE_URL}${structure.reportPath}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -5842,7 +5851,7 @@ export default function App() {
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
-    const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Due adulti, tre notti per mese salvo agosto (cinque). Estremi delle tipologie quotate al piano meno caro del campione; non ADR, non media di tutte le date. Una sola villa su Booking non è un range dell'hotel.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, cancellazione, trattamento, imposte e pubblico. La data senza prezzo non prova chiusura stagionale; il campione diretto di agosto incontra un minimo di sette notti.</p>` : "";
+    const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Campioni pubblici con date e durata indicati in tabella. Gli estremi riguardano soltanto le tipologie e i piani effettivamente quotati; non sono ADR realizzato né media mensile. Una tariffa di calendario priva di preventivo confermato è soltanto indicativa.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, date, cancellazione, trattamento, imposte e pubblico. L'assenza di un prezzo nel campione non prova la chiusura stagionale.</p>` : "";
     const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
     const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${safe(activeAuditData.pricingAudit.method)}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
     const bookingStatus = answers["audit-booking-engine"]?.auditStatus || "unverified";
@@ -6939,7 +6948,7 @@ export default function App() {
           {publishedMonthlySamples.length > 0 && <div className="mt-4 overflow-x-auto rounded-xl border border-[#E5DDF1]">
             <table className="min-w-[1000px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese / date campione</th><th className="p-2 text-left">Sito diretto · range tipologie</th><th className="p-2 text-left">Booking · range tipologie</th><th className="p-2 text-left">Altri portali · copertura parziale</th><th className="p-2 text-left">Delta omogeneo</th></tr></thead><tbody>{publishedMonthlySamples.map((sample) => <tr key={sample.month} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{sample.month}<span className="block font-medium text-[#50627F]">{sample.stay} · {sample.nights} notti</span></th><td className="p-2">{publishedRange(sample.direct)}</td><td className="p-2">{publishedRange(sample.booking)}</td><td className="p-2">{sample.other}</td><td className="p-2">{sample.delta}</td></tr>)}</tbody></table>
           </div>}
-          {publishedMonthlySamples.length > 0 && <p className="mt-2 text-[10px] leading-4 text-[#50627F]">Rilevazioni del 01/10/2026, due adulti. Il prezzo Booking visualizzato richiede iscrizione; una sola villa quotata non è il range dell'intero hotel. Agosto sul diretto richiede almeno 7 notti per molte unità nel campione di 5. I mesi senza prezzo non provano chiusura stagionale.</p>}
+          {publishedMonthlySamples.length > 0 && <p className="mt-2 text-[10px] leading-4 text-[#50627F]">{activeAuditData.pricingAudit.method} I mesi senza prezzo verificato non provano chiusura stagionale; i delta richiedono preventivi omogenei.</p>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
             <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
