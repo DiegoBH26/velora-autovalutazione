@@ -3597,6 +3597,8 @@ type BrowserPilotReviewTheme = {
   theme: string;
   count: number;
   weight?: string;
+  sentiment?: string;
+  phrases?: string[];
   examples?: string[];
   action?: string;
 };
@@ -3615,6 +3617,7 @@ type BrowserPilotReputation = {
   strengths?: BrowserPilotReviewTheme[];
   weaknesses?: BrowserPilotReviewTheme[];
   isolatedSignals?: BrowserPilotReviewTheme[];
+  recurringThemes?: BrowserPilotReviewTheme[];
   keywords?: { word: string; count: number }[];
   evidence?: string;
 };
@@ -4834,32 +4837,47 @@ export default function App() {
 
     const reputation = result.reputation;
     if (reputation?.status === "sampled") {
-      const strengths = (reputation.strengths || []).map((entry) => {
-        const examples = (entry.examples || []).slice(0, 3).map((value) => "“" + value + "”").join(" · ");
-        return entry.theme + " — ricorrenza " + entry.count + " recensioni" + (entry.weight ? " (" + entry.weight + ")" : "") + (examples ? ". Esempi: " + examples : "");
-      }).join("\n");
+      const formatTheme = (entry: BrowserPilotReviewTheme, kind: "forza" | "criticita") => {
+        const phrases = (entry.phrases || []).slice(0, 4).map((value) => "“" + value + "”").join(" · ");
+        const examples = (entry.examples || []).slice(0, 2).map((value) => "“" + value + "”").join(" · ");
+        const lead = entry.theme + " — " + entry.count + " recensioni" + (entry.weight ? " · ricorrenza " + entry.weight : "");
+        return [
+          lead,
+          phrases ? "Espressioni rilevate: " + phrases : "",
+          examples ? "Esempi dal campione: " + examples : "",
+          kind === "criticita" && entry.action ? "Azione: " + entry.action : "",
+        ].filter(Boolean).join("\n");
+      };
 
-      const weaknesses = (reputation.weaknesses || []).map((entry) => {
-        const examples = (entry.examples || []).slice(0, 3).map((value) => "“" + value + "”").join(" · ");
-        return entry.theme + " — ricorrenza " + entry.count + " recensioni" + (entry.weight ? " (" + entry.weight + ")" : "") + (examples ? ". Esempi: " + examples : "");
-      }).join("\n");
+      const strengths = (reputation.strengths || []).map((entry) => formatTheme(entry, "forza")).join("\n\n");
+      const weaknesses = (reputation.weaknesses || []).map((entry) => formatTheme(entry, "criticita")).join("\n\n");
 
       const isolated = (reputation.isolatedSignals || []).map((entry) => {
-        const examples = (entry.examples || []).slice(0, 2).map((value) => "“" + value + "”").join(" · ");
-        return entry.theme + " — segnalazione isolata" + (examples ? ". Esempio: " + examples : "");
-      }).join("\n");
+        const phrases = (entry.phrases || []).slice(0, 3).map((value) => "“" + value + "”").join(" · ");
+        const examples = (entry.examples || []).slice(0, 1).map((value) => "“" + value + "”").join(" · ");
+        return [
+          entry.theme + " — 1 segnalazione isolata",
+          phrases ? "Espressione: " + phrases : "",
+          examples ? "Esempio: " + examples : "",
+        ].filter(Boolean).join("\n");
+      }).join("\n\n");
 
       const actions = (reputation.weaknesses || []).map((entry) =>
         entry.theme + ": " + (entry.action || "Approfondire il tema e definire un intervento misurabile.")
       ).join("\n");
 
-      const keywords = (reputation.keywords || []).slice(0, 15)
-        .map((entry) => entry.word + " (" + entry.count + ")").join(" · ");
+      const recurringThemes = (reputation.recurringThemes || []).map((entry) => {
+        const phrases = (entry.phrases || []).slice(0, 4).map((value) => "“" + value + "”").join(" · ");
+        return [
+          entry.theme + " — " + (entry.sentiment === "negativo" ? "NEGATIVO" : "POSITIVO") + " · " + entry.count + " recensioni",
+          phrases ? "Espressioni: " + phrases : "",
+        ].filter(Boolean).join("\n");
+      }).join("\n\n");
 
       updateAnswer("audit-google-strengths", { note: strengths || "Nessun punto di forza ricorrente classificato nel campione disponibile." });
       updateAnswer("audit-google-weaknesses", { note: weaknesses || "Nessuna criticità ricorrente classificata nel campione disponibile." });
       updateAnswer("audit-google-isolated", { note: isolated || "Nessuna segnalazione isolata significativa nel campione disponibile." });
-      updateAnswer("audit-google-keywords", { note: keywords || "Parole ricorrenti non sufficienti per una sintesi affidabile." });
+      updateAnswer("audit-google-keywords", { note: recurringThemes || "Nessun tema ripetuto in almeno due recensioni del campione." });
       updateAnswer("audit-google-actions", { note: actions || "Nessuna azione prioritaria derivata da criticità ricorrenti nel campione." });
     }
 
@@ -6014,20 +6032,23 @@ export default function App() {
     const reputation = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.reputation : undefined;
     const photoAudit = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.photoAudit : undefined;
     const reputationStrengthRows = (reputation?.strengths || []).map((entry) =>
-      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td></tr>`
+      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.phrases || []).slice(0, 3).join(" · ") || "—")}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td></tr>`
     ).join("");
     const reputationWeakRows = (reputation?.weaknesses || []).map((entry) =>
-      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td><td>${safe(entry.action || "Approfondire il tema")}</td></tr>`
+      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.phrases || []).slice(0, 3).join(" · ") || "—")}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td><td>${safe(entry.action || "Approfondire il tema")}</td></tr>`
     ).join("");
-    const reputationKeywords = (reputation?.keywords || []).slice(0, 15).map((entry) => `${entry.word} (${entry.count})`).join(" · ");
+    const reputationRecurringThemes = (reputation?.recurringThemes || []).map((entry) => {
+      const phrases = (entry.phrases || []).slice(0, 3).join(" · ");
+      return `${entry.theme} — ${entry.sentiment === "negativo" ? "negativo" : "positivo"} · ${entry.count} recensioni${phrases ? " · " + phrases : ""}`;
+    }).join(" | ");
     const isolatedSignals = (reputation?.isolatedSignals || []).map((entry) => entry.theme + (entry.examples?.length ? ": " + entry.examples[0] : "")).join(" · ");
     const reputationReportHtml = isWebAudit ? `<section class="page-break"><h2>Reputazione online e qualità fotografica</h2>
       <p><b>Google:</b> ${reputation?.rating ? safe(String(reputation.rating) + "/5") : "rating non rilevato"}${reputation?.reviewCount ? " · " + safe(String(reputation.reviewCount)) + " recensioni visibili" : ""}. Campione qualitativo: ${safe(String(reputation?.sampleSize || 0))} recensioni. Le ricorrenze descrivono il campione pubblico analizzato, non l\'intero corpus.</p>
-      ${reputationKeywords ? `<p><b>Parole ricorrenti:</b> ${safe(reputationKeywords)}</p>` : ""}
+      ${reputationRecurringThemes ? `<p><b>Temi e aspetti ricorrenti:</b> ${safe(reputationRecurringThemes)}</p>` : ""}
       <h3>Punti di forza ricorrenti</h3>
-      ${reputationStrengthRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Esempi dal campione</th></tr></thead><tbody>${reputationStrengthRows}</tbody></table>` : "<p>Nessun tema positivo ricorrente classificato automaticamente.</p>"}
+      ${reputationStrengthRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Espressioni ricorrenti</th><th>Esempi dal campione</th></tr></thead><tbody>${reputationStrengthRows}</tbody></table>` : "<p>Nessun tema positivo ricorrente classificato automaticamente.</p>"}
       <h3>Criticità ricorrenti</h3>
-      ${reputationWeakRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Esempi dal campione</th><th>Azione operativa</th></tr></thead><tbody>${reputationWeakRows}</tbody></table>` : "<p>Nessuna criticità ricorrente classificata automaticamente.</p>"}
+      ${reputationWeakRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Espressioni ricorrenti</th><th>Esempi dal campione</th><th>Azione operativa</th></tr></thead><tbody>${reputationWeakRows}</tbody></table>` : "<p>Nessuna criticità ricorrente classificata automaticamente.</p>"}
       <h3>Segnalazioni isolate da monitorare</h3>
       <p>${safe(isolatedSignals || "Nessuna segnalazione isolata significativa nel campione.")}</p>
       <h3>Audit fotografico frontend</h3>
@@ -7226,7 +7247,7 @@ export default function App() {
           <p className="mt-2 text-[10px] leading-4 text-[#50627F]"><b>Come leggere la tabella:</b> “Tariffe rilevate” significa che Velora ha letto importi reali sulla scheda OTA per le date testate. “Camera e prezzo validati” significa che il parser ha associato l’importo alla relativa camera; il confronto tra OTA richiede ancora condizioni omogenee, tasse e stessa unità. “Prezzi rilevati · attribuzione da verificare” significa che gli importi sono presenti, ma non sono ancora collegati con sufficiente certezza a camera e piano tariffario. “Non verificato” compare solo quando quel mese/canale non è stato ancora controllato.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
-          <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti, segnalazioni isolate, parole frequenti ed esempi del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
+          <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
           {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
             <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Google</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.rating ?? "n.d."}/5</div></div>
             <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.reviewCount ?? "n.d."}</div></div>
@@ -7241,7 +7262,7 @@ export default function App() {
               ["audit-google-weaknesses", "Criticità ricorrenti"],
               ["audit-google-isolated", "Segnalazioni isolate da monitorare"],
               ["audit-google-actions", "Azioni operative dalle recensioni"],
-              ["audit-google-keywords", "Parole e temi ricorrenti"],
+              ["audit-google-keywords", "Temi e aspetti ricorrenti"],
             ] as const).map(([id, label]) => <label key={id} className="block text-[11px] font-black text-[#23124A]">{label}
               <textarea value={answers[id]?.note ?? ""} onChange={(event) => updateAnswer(id, { note: event.target.value })} placeholder="Tema, ricorrenza, esempi concreti e fonte" className="mt-1.5 min-h-[105px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
             </label>)}
