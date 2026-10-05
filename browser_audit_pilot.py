@@ -2693,14 +2693,33 @@ async def run(args: argparse.Namespace) -> dict:
                 pass
 
             official_identity_url=(sources.get("sito") or {}).get("url","")
-            master_discoveries,master_diag=await discover_all_ota_sources(context,data,robots)
+            known_ota_sources=[
+                ota_id for ota_id in OTA_DISCOVERY_ORDER
+                if ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
+            ]
+            quick_retest=bool(args.months == 1 and known_ota_sources)
+            if quick_retest:
+                master_discoveries={}
+                master_diag={
+                    "status":"reused_sources_quick_test",
+                    "queries":[],
+                    "candidates":len(known_ota_sources),
+                    "knownSources":known_ota_sources,
+                }
+                print(
+                    "master search: riuso schede OTA già verificate per il test di un mese · "
+                    f"fonti note={','.join(known_ota_sources)}",
+                    flush=True,
+                )
+            else:
+                master_discoveries,master_diag=await discover_all_ota_sources(context,data,robots)
+                query_preview=" | ".join((master_diag.get("queries") or [])[:3])
+                print(
+                    f"master search: {master_diag.get('status')} · varianti={len(master_diag.get('queries') or [])} · "
+                    f"candidati OTA={master_diag.get('candidates',0)} · prime query: {query_preview[:240]}",
+                    flush=True,
+                )
             result["masterSearch"]=master_diag
-            query_preview=" | ".join((master_diag.get("queries") or [])[:3])
-            print(
-                f"master search: {master_diag.get('status')} · varianti={len(master_diag.get('queries') or [])} · "
-                f"candidati OTA={master_diag.get('candidates',0)} · prime query: {query_preview[:240]}",
-                flush=True,
-            )
 
             unresolved=[
                 ota_id for ota_id in OTA_DISCOVERY_ORDER
@@ -2713,9 +2732,14 @@ async def run(args: argparse.Namespace) -> dict:
                 "discoveries":{},
                 "evidence":"Velora usa esclusivamente ricerca web pubblica gratuita e browser locale.",
             }
-            if unresolved:
+            if unresolved and not quick_retest:
                 print(
                     f"free discovery: OTA ancora irrisolte={len(unresolved)} · nessuna API a pagamento utilizzata",
+                    flush=True,
+                )
+            elif quick_retest:
+                print(
+                    f"quick test: discovery saltata; scraping delle {len(known_ota_sources)} OTA già note",
                     flush=True,
                 )
 
@@ -2788,8 +2812,12 @@ async def run(args: argparse.Namespace) -> dict:
                     if not source:
                         discovery = result.get("discoveredSources", {}).get(channel, {})
                         evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
-                        record = {"otaId": channel, **stay, "status": "source_missing", "quotes": [],
-                                  "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
+                        if quick_retest and channel in OTA_DISCOVERY_ORDER:
+                            record = {"otaId": channel, **stay, "status": "source_not_retested", "quotes": [],
+                                      "evidence": "Test rapido: discovery non ripetuta; questa OTA non ha ancora una scheda verificata salvata."}
+                        else:
+                            record = {"otaId": channel, **stay, "status": "source_missing", "quotes": [],
+                                      "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
                         if channel == "booking":
                             search_page = await context.new_page()
