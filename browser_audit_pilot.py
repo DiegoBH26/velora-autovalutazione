@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import base64
 import json
+import os
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -753,6 +754,172 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         "evidence":f"Ricerca mirata {meta['label']} completata su {len(queries)} varianti senza una scheda verificabile.",
         "searchUrl":"","discoveryMode":"progressive targeted search exhausted",
     }
+
+
+def _openai_api_key() -> str:
+    return str(os.environ.get("VELORA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def _extract_response_output_text(payload: dict) -> str:
+    parts=[]
+    for item in payload.get("output") or []:
+        if not isinstance(item,dict) or item.get("type")!="message":
+            continue
+        for content in item.get("content") or []:
+            if isinstance(content,dict) and content.get("type")=="output_text":
+                parts.append(str(content.get("text") or ""))
+    return "\n".join(parts).strip()
+
+
+def _ai_discovery_schema() -> dict:
+    return {
+        "type":"object",
+        "properties":{
+            "property_match":{
+                "type":"object",
+                "properties":{
+                    "canonical_name":{"type":"string"},
+                    "city":{"type":"string"},
+                    "address":{"type":"string"},
+                    "summary":{"type":"string"},
+                },
+                "required":["canonical_name","city","address","summary"],
+                "additionalProperties":False,
+            },
+            "listings":{
+                "type":"array",
+                "items":{
+                    "type":"object",
+                    "properties":{
+                        "ota_id":{"type":"string","enum":list(OTA_DISCOVERY_ORDER)},
+                        "status":{"type":"string","enum":["found","not_found","uncertain"]},
+                        "url":{"type":"string"},
+                        "title":{"type":"string"},
+                        "confidence":{"type":"number","minimum":0,"maximum":1},
+                        "evidence":{"type":"string"},
+                    },
+                    "required":["ota_id","status","url","title","confidence","evidence"],
+                    "additionalProperties":False,
+                },
+            },
+        },
+        "required":["property_match","listings"],
+        "additionalProperties":False,
+    }
+
+
+def _run_ai_web_search(data: dict) -> dict:
+    """Fallback agentico: OpenAI web_search live. La chiave resta solo nell'ambiente locale."""
+    api_key=_openai_api_key()
+    if not api_key:
+        return {"status":"not_configured","discoveries":{},"evidence":"VELORA_OPENAI_API_KEY non configurata sul PC."}
+
+    sources=data.get("sources") or {}
+    official=((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or ""
+    identity={
+        "name":str(data.get("name") or ""),
+        "city":str(data.get("city") or ""),
+        "province":str(data.get("province") or ""),
+        "address":str(data.get("address") or ""),
+        "phone":str(data.get("phone") or ""),
+        "email":str(data.get("email") or ""),
+        "official_website":official,
+    }
+    prompt=(
+        "You are the web-discovery layer of Velora, a hospitality audit system. "
+        "Use live web search to identify the exact public OTA listing pages belonging to ONE lodging property. "
+        "The property name may contain typos or differ from OTA naming, so reason across name variants, physical address, city, "
+        "official website, phone, email, snippets, and other public corroborating signals. "
+        "Search broadly first, then use targeted searches for Booking.com, Airbnb, Expedia, Hotels.com, Vrbo, Agoda, Trip.com and HolidayCheck. "
+        "Return FOUND only when the URL is a specific listing/profile page attributable to this exact property; never return a homepage, search page, "
+        "destination page or guessed URL. If evidence is insufficient, return uncertain/not_found instead of inventing. "
+        "Do not report Google Hotels as one of the OTA ids in the schema. "
+        "Property identity JSON: " + json.dumps(identity,ensure_ascii=False)
+    )
+    payload={
+        "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-5.5"),
+        "tools":[{"type":"web_search"}],
+        "tool_choice":"required",
+        "input":prompt,
+        "text":{
+            "format":{
+                "type":"json_schema",
+                "name":"velora_ota_discovery",
+                "strict":True,
+                "schema":_ai_discovery_schema(),
+            }
+        },
+        "max_output_tokens":3500,
+    }
+    try:
+        response=requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization":f"Bearer {api_key}",
+                "Content-Type":"application/json",
+            },
+            json=payload,
+            timeout=90,
+        )
+        if response.status_code>=400:
+            detail=re.sub(r"\s+"," ",response.text or "")[:300]
+            return {"status":"api_error","discoveries":{},"evidence":f"OpenAI API HTTP {response.status_code}: {detail}"}
+        raw=response.json()
+        text=_extract_response_output_text(raw)
+        if not text:
+            return {"status":"empty_response","discoveries":{},"evidence":"OpenAI web search non ha restituito output strutturato."}
+        parsed=json.loads(text)
+        discoveries={}
+        for item in parsed.get("listings") or []:
+            ota_id=str(item.get("ota_id") or "")
+            status=str(item.get("status") or "")
+            url=str(item.get("url") or "").strip()
+            confidence=float(item.get("confidence") or 0)
+            classified=_classify_ota_url(url) if url else ""
+            if ota_id not in OTA_META:
+                continue
+            if status=="found" and url and classified==ota_id and confidence>=0.78:
+                discoveries[ota_id]={
+                    "status":"found",
+                    "url":url,
+                    "title":str(item.get("title") or "")[:220],
+                    "score":round(confidence,3),
+                    "evidence":(
+                        "Fallback AI web search: scheda individuata tramite ricerca web live e attribuita alla struttura. "
+                        + str(item.get("evidence") or "")
+                    )[:900],
+                    "searchUrl":"",
+                    "discoveryMode":"OpenAI web_search fallback",
+                    "verification":"web_search_evidence",
+                }
+            elif status in {"found","uncertain"} and url and classified==ota_id:
+                discoveries[ota_id]={
+                    "status":"needs_review",
+                    "url":url,
+                    "title":str(item.get("title") or "")[:220],
+                    "score":round(confidence,3),
+                    "evidence":(
+                        "Fallback AI web search: candidato trovato ma confidenza insufficiente per accettarlo automaticamente. "
+                        + str(item.get("evidence") or "")
+                    )[:900],
+                    "searchUrl":"",
+                    "discoveryMode":"OpenAI web_search fallback",
+                }
+        return {
+            "status":"ok",
+            "discoveries":discoveries,
+            "propertyMatch":parsed.get("property_match") or {},
+            "evidence":f"OpenAI web search completata; {len(discoveries)} OTA candidate/risolte.",
+        }
+    except Exception as exc:
+        return {
+            "status":"error","discoveries":{},
+            "evidence":f"OpenAI web search non completata: {type(exc).__name__}: {str(exc)[:220]}"
+        }
+
+
+async def discover_otas_with_ai_web_search(data: dict) -> dict:
+    return await asyncio.to_thread(_run_ai_web_search,data)
 
 
 async def discover_all_ota_sources(context, data: dict, robots: dict) -> tuple[dict,dict]:
@@ -2210,7 +2377,7 @@ async def run(args: argparse.Namespace) -> dict:
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
-              "identityResolution": {}, "discoveredSources": {}, "observations": []}
+              "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -2245,6 +2412,29 @@ async def run(args: argparse.Namespace) -> dict:
                 f"candidati OTA={master_diag.get('candidates',0)} · prime query: {query_preview[:240]}",
                 flush=True,
             )
+
+            unresolved=[
+                ota_id for ota_id in OTA_DISCOVERY_ORDER
+                if (master_discoveries.get(ota_id) or {}).get("status")!="found"
+                and not ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
+            ]
+            ai_result={"status":"not_needed","discoveries":{}}
+            if unresolved:
+                ai_result=await discover_otas_with_ai_web_search(data)
+                result["aiWebSearch"]=ai_result
+                print(
+                    f"ai web search: {ai_result.get('status')} · unresolved={len(unresolved)} · "
+                    f"risolte={len(ai_result.get('discoveries') or {})} · {str(ai_result.get('evidence') or '')[:180]}",
+                    flush=True,
+                )
+                for ota_id,discovery in (ai_result.get("discoveries") or {}).items():
+                    current=master_discoveries.get(ota_id) or {}
+                    if discovery.get("status")=="found" and current.get("status")!="found":
+                        master_discoveries[ota_id]=discovery
+                    elif ota_id not in master_discoveries:
+                        master_discoveries[ota_id]=discovery
+            else:
+                result["aiWebSearch"]=ai_result
 
             for ota_id in OTA_DISCOVERY_ORDER:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
