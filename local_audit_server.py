@@ -33,8 +33,8 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v34"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/307d3f6053805a91d4e26c9cec963ddbb68c57c9/browser_audit_pilot.py"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v35"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/c0cccc932dd67c528b6b6aa900f57b54f793b8a8/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
@@ -704,7 +704,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v34",
+                "agentVersion":"velora-local-agent-v35",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -851,7 +851,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v34 · Booking home input destinazione robusto",flush=True)
+    print("Versione agente: velora-local-agent-v35 · Chrome persistente visibile",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
