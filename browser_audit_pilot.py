@@ -174,55 +174,77 @@ def visible_dates_confirmed(text: str, stay: dict) -> bool:
 
 
 async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
-    """Conferma Booking solo se le date compaiono nei CAMPI VISIBILI della searchbox.
-
-    Le celle del calendario, anche selezionate, non valgono come prova: possono restare
-    nel DOM mentre il box in alto mostra ancora "Data check-in — Data check-out".
-    """
+    """Conferma Booking solo se check-in e check-out sono nei rispettivi campi visibili."""
     start, end = date.fromisoformat(stay["checkin"]), date.fromisoformat(stay["checkout"])
     try:
-        values = await page.evaluate(r"""() => {
-          const selectors = [
-            '[data-testid="date-display-field-start"]',
-            '[data-testid="date-display-field-end"]',
-            '[data-testid="searchbox-dates-container"]',
-            'input[name="checkin"]',
-            'input[name="checkout"]'
-          ];
+        state = await page.evaluate(r"""() => {
           const visible = (el) => {
             if (!el || el.getAttribute('aria-hidden') === 'true') return false;
             const st=getComputedStyle(el);
             if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
             const r=el.getBoundingClientRect();
-            return r.width>0 && r.height>0;
+            return r.width>0 && r.height>0 && r.bottom>0 && r.right>0 && r.top<innerHeight && r.left<innerWidth;
           };
-          const out=[];
-          const seen=new Set();
-          for (const selector of selectors) {
-            for (const el of Array.from(document.querySelectorAll(selector)).slice(0,30)) {
-              if (!visible(el)) continue;
-              if (el instanceof HTMLInputElement && el.type === 'hidden') continue;
-              const value=[
-                el.textContent || '',
-                el.getAttribute('value') || '',
-                el.getAttribute('aria-label') || ''
-              ].join(' ').replace(/\s+/g,' ').trim();
-              if (value && !seen.has(value)) {
-                seen.add(value);
-                out.push(value.slice(0,300));
+          const textOf = (el) => [
+            el?.textContent || '',
+            el?.getAttribute?.('value') || '',
+            el?.getAttribute?.('aria-label') || '',
+            el?.getAttribute?.('placeholder') || ''
+          ].join(' ').replace(/\s+/g,' ').trim();
+
+          const firstVisible = (selectors) => {
+            for (const selector of selectors) {
+              for (const el of Array.from(document.querySelectorAll(selector)).slice(0,20)) {
+                if (visible(el)) return {selector, text:textOf(el), top:Math.round(el.getBoundingClientRect().top)};
               }
             }
-          }
-          return out;
+            return null;
+          };
+
+          return {
+            start: firstVisible([
+              '[data-testid="date-display-field-start"]',
+              'input[name="checkin"]',
+              'button[aria-label*="check-in" i]',
+              'button[aria-label*="arrivo" i]'
+            ]),
+            end: firstVisible([
+              '[data-testid="date-display-field-end"]',
+              'input[name="checkout"]',
+              'button[aria-label*="check-out" i]',
+              'button[aria-label*="partenza" i]'
+            ]),
+            container: firstVisible([
+              '[data-testid="searchbox-dates-container"]'
+            ])
+          };
         }""")
     except Exception:
         return False, ""
-    combined=" | ".join(str(value) for value in values).lower()
-    confirmed=(
-        any(value in combined for value in _date_forms(start))
-        and any(value in combined for value in _date_forms(end))
+
+    start_text=str((state.get("start") or {}).get("text") or "").lower()
+    end_text=str((state.get("end") or {}).get("text") or "").lower()
+    container_text=str((state.get("container") or {}).get("text") or "").lower()
+
+    start_ok=any(value in start_text for value in _date_forms(start))
+    end_ok=any(value in end_text for value in _date_forms(end))
+
+    # Fallback solo se Booking usa un unico controllo date: nello stesso container
+    # devono comparire entrambe le date, non una generica cella calendario.
+    if not (start_ok and end_ok) and container_text:
+        both=(
+            any(value in container_text for value in _date_forms(start))
+            and any(value in container_text for value in _date_forms(end))
+        )
+        if both and (not state.get("start") or not state.get("end")):
+            start_ok=end_ok=True
+
+    evidence=(
+        f"start={start_text[:220] or 'n.d.'} | "
+        f"end={end_text[:220] or 'n.d.'} | "
+        f"container={container_text[:300] or 'n.d.'}"
     )
-    return confirmed, combined[:700]
+    return bool(start_ok and end_ok), evidence[:800]
 
 def booking_url_dates_confirmed(url: str, stay: dict) -> bool:
     """Conferma che Booking abbia mantenuto esattamente le date richieste nella URL finale."""
@@ -2658,7 +2680,7 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
         try:
             debug_dir=Path(__file__).resolve().parent/"tmp"
             debug_dir.mkdir(parents=True,exist_ok=True)
-            debug_file=debug_dir/f"booking-v10-detail-{stay['month']}.png"
+            debug_file=debug_dir/f"booking-v16-date-failed-{stay['month']}.png"
             await page.screenshot(path=str(debug_file),full_page=False)
             debug_path=str(debug_file)
         except Exception:
@@ -2725,11 +2747,16 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
         f"blocchi disponibilità {render_diag.get('availabilityNodes',0)}, "
         f"reload {'sì' if render_diag.get('reloaded') else 'no'}."
     )
+    field_ok,field_state=await booking_dom_dates_confirmed(page,stay)
+    print(
+        f"{stay['month']} booking-final-diagnostics: dates={field_ok} · {field_state} · {diag} · URL={page.url[:320]}",
+        flush=True,
+    )
     debug_path=""
     try:
         debug_dir=Path(__file__).resolve().parent/"tmp"
         debug_dir.mkdir(parents=True,exist_ok=True)
-        debug_file=debug_dir/f"booking-v10-detail-{stay['month']}.png"
+        debug_file=debug_dir/f"booking-v16-final-{stay['month']}.png"
         await page.screenshot(path=str(debug_file),full_page=False)
         debug_path=str(debug_file)
     except Exception:
@@ -2789,8 +2816,7 @@ async def booking_settle_render(page) -> dict:
 
     diagnostics.update(await inspect())
     meaningful = (
-        diagnostics["bodyLength"] >= 500
-        or diagnostics["priceNodes"] > 0
+        diagnostics["priceNodes"] > 0
         or diagnostics["roomNodes"] > 0
         or diagnostics["availabilityNodes"] > 0
     )
