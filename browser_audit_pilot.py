@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v38"
+PILOT_BUILD = "velora-browser-pilot-v39"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2233,73 +2233,112 @@ def _money_value(text: str) -> float | None:
 
 
 async def booking_quote_candidates(page, stay: dict) -> list[dict]:
-    """Raccoglie candidati camera/prezzo dalla scheda Booking, senza trasformarli automaticamente in ADR."""
+    """Raccoglie camera, piano e prezzo dalla scheda Booking con date già confermate."""
     rows = await page.evaluate(r"""() => {
       const result = [];
       const seen = new Set();
-      const add = (node, priceNode = null) => {
+      const clean = (value) => String(value || '').replace(/\s+/g,' ').trim();
+
+      const priceSelector =
+        '.bui-price-display__value, [data-testid="price-and-discounted-price"], ' +
+        '[data-testid*="price"], .prco-valign-middle-helper, [class*="price"]';
+
+      const explicitRoom = (node) => {
+        if (!node) return '';
+        const direct=node.querySelector(
+          '.hprt-roomtype-link, [data-testid="room-name"], [data-testid*="room-name"]'
+        );
+        if (direct) return clean(direct.textContent).slice(0,240);
+        const heading=node.querySelector('h2,h3,h4');
+        const headingText=clean(heading?.textContent);
+        if (/\b(camera|room|suite|appartamento|apartment|monolocale|studio|matrimoniale|tripla|quadrupla|singola|double|triple|family)\b/i.test(headingText)) {
+          return headingText.slice(0,240);
+        }
+        return '';
+      };
+
+      const add = (node, priceNode = null, inheritedRoom = '') => {
         if (!node) return;
-        const text = (node.innerText || node.textContent || '').replace(/\s+/g,' ').trim();
-        if (!text || text.length < 15) return;
-        const nameNode = node.querySelector(
-          '.hprt-roomtype-link, [data-testid="room-name"], [data-testid*="room-name"], h2, h3, h4, strong'
-        );
-        const ownPrice = priceNode || node.querySelector(
-          '.bui-price-display__value, [data-testid="price-and-discounted-price"], [data-testid*="price"], [class*="price"]'
-        );
-        const priceText=(ownPrice?.textContent || '').replace(/\s+/g,' ').trim().slice(0,180);
-        const dedupeKey=(text.slice(0,900) + '|' + priceText).toLowerCase();
+        const text = clean(node.innerText || node.textContent);
+        if (!text || text.length < 10) return;
+        const ownPrice = priceNode || node.querySelector(priceSelector);
+        const priceText = clean(ownPrice?.textContent).slice(0,180);
+        if (!priceText) return;
+        const room = explicitRoom(node) || clean(inheritedRoom).slice(0,240);
+        const dedupeKey=(room+'|'+priceText+'|'+text.slice(0,700)).toLowerCase();
         if (seen.has(dedupeKey)) return;
         seen.add(dedupeKey);
         result.push({
-          text: text.slice(0, 2200),
-          room: (nameNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 240),
-          price: priceText
+          text: text.slice(0,2400),
+          room,
+          price: priceText,
+          priceIsolated: true
         });
       };
 
-      const rowSelectors = [
-        '#hprt-table tbody tr',
-        '#hprt-form tbody tr',
-        '[data-testid="room-list"] > *',
-        '[data-testid="room-card"]',
-        '[data-testid*="room-card"]',
-        '[data-testid="availability-block"]',
-        '[data-testid*="availability"]'
-      ];
-      for (const selector of rowSelectors) {
-        for (const row of Array.from(document.querySelectorAll(selector)).slice(0, 80)) add(row);
-      }
-
-      const priceSelectors = [
-        '[data-testid="price-and-discounted-price"]',
-        '[data-testid*="price"]',
-        '.bui-price-display__value',
-        '.prco-valign-middle-helper'
-      ];
-      for (const selector of priceSelectors) {
-        for (const priceNode of Array.from(document.querySelectorAll(selector)).slice(0, 100)) {
-          const container = priceNode.closest(
-            'tr, [data-testid="room-card"], [data-testid*="room-card"], [data-testid="availability-block"], [data-testid*="room"]'
-          ) || priceNode.parentElement?.parentElement || priceNode.parentElement;
-          add(container, priceNode);
+      // Layout classico Booking: la cella col nome camera può avere rowspan,
+      // quindi le righe tariffarie successive ereditano la stessa camera.
+      for (const tableSelector of ['#hprt-table tbody tr','#hprt-form tbody tr']) {
+        let currentRoom='';
+        for (const row of Array.from(document.querySelectorAll(tableSelector)).slice(0,120)) {
+          const foundRoom=explicitRoom(row);
+          if (foundRoom) currentRoom=foundRoom;
+          const prices=Array.from(row.querySelectorAll(priceSelector)).filter((node,index,arr) => arr.indexOf(node)===index);
+          if (prices.length) {
+            for (const priceNode of prices.slice(0,8)) add(row,priceNode,currentRoom);
+          } else {
+            add(row,null,currentRoom);
+          }
         }
       }
-      return result.slice(0, 100);
+
+      // Layout moderno a card.
+      const cards=Array.from(document.querySelectorAll(
+        '[data-testid="room-card"], [data-testid*="room-card"], [data-testid="room-list"] > *, ' +
+        '[data-testid="availability-block"], [data-testid*="availability"]'
+      )).slice(0,100);
+      for (const card of cards) {
+        const room=explicitRoom(card);
+        const prices=Array.from(card.querySelectorAll(priceSelector));
+        if (prices.length) {
+          for (const priceNode of prices.slice(0,10)) {
+            const container=priceNode.closest(
+              'tr, [data-testid="room-card"], [data-testid*="room-card"], ' +
+              '[data-testid="availability-block"], [data-testid*="room"]'
+            ) || card;
+            add(container,priceNode,room);
+          }
+        } else {
+          add(card,null,room);
+        }
+      }
+
+      return result.slice(0,140);
     }""")
+
     out = []
     for row in rows:
         text = str(row.get("text", ""))
         room = str(row.get("room", "")).strip() or "Tipologia camera da verificare"
-        price_text = str(row.get("price", "")).strip() or text
+        price_text = str(row.get("price", "")).strip()
         total = _money_value(price_text)
         if total is None:
             continue
+
         low = text.lower()
-        board = "Colazione inclusa" if any(x in low for x in ("colazione inclusa", "breakfast included")) else "Trattamento da verificare"
-        refund = "Cancellazione gratuita" if any(x in low for x in ("cancellazione gratuita", "free cancellation")) else (
-            "Non rimborsabile" if any(x in low for x in ("non rimborsabile", "non-refundable")) else "Cancellazione da verificare"
-        )
+        board = "Colazione inclusa" if any(x in low for x in (
+            "colazione inclusa", "breakfast included", "colazione compresa"
+        )) else "Trattamento da verificare"
+
+        if any(x in low for x in ("cancellazione gratuita", "free cancellation")):
+            refund = "Cancellazione gratuita"
+        elif any(x in low for x in ("parzialmente rimborsabile", "partially refundable")):
+            refund = "Parzialmente rimborsabile"
+        elif any(x in low for x in ("non rimborsabile", "non-refundable", "non refundable")):
+            refund = "Non rimborsabile"
+        else:
+            refund = "Cancellazione da verificare"
+
         plan_parts=[]
         if refund != "Cancellazione da verificare":
             plan_parts.append(refund)
@@ -2310,9 +2349,16 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
         if any(x in low for x in ("genius", "mobile rate", "tariffa mobile")):
             plan_parts.append("Promozione visibile")
         rate_plan=" · ".join(dict.fromkeys(plan_parts)) or "Piano tariffario da verificare"
-        total_is_explicit = any(x in low for x in (
-            f"{stay['nights']} nott", "prezzo per", "price for", "totale", "total",
-        ))
+
+        # Questa funzione viene chiamata soltanto sulla scheda Booking esatta
+        # con le date già confermate. Un nodo prezzo isolato + una camera
+        # identificata è sufficiente per considerare la riga letta dal parser;
+        # tasse e confrontabilità tra OTA restano comunque separate.
+        parser_verified = bool(
+            row.get("priceIsolated")
+            and room != "Tipologia camera da verificare"
+        )
+
         out.append({
             "roomType": room,
             "ratePlan": rate_plan,
@@ -2324,19 +2370,24 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
             "refund": refund,
             "audience": "Pubblico senza login",
             "taxes": "Da verificare nel dettaglio del preventivo",
-            "verified": bool(total_is_explicit and room != "Tipologia camera da verificare"),
-            "evidence": text[:900],
+            "verified": parser_verified,
+            "evidence": text[:1100],
         })
-    # Deduplica per camera/prezzo/testo simile.
+
+    # Deduplica per camera + piano + prezzo.
     unique=[]
     seen=set()
     for item in out:
-        key=(item["roomType"].lower(), item["total"], item["evidence"][:180].lower())
+        key=(
+            item["roomType"].lower(),
+            item.get("ratePlan","").lower(),
+            item["total"],
+        )
         if key in seen:
             continue
         seen.add(key)
         unique.append(item)
-    return unique[:20]
+    return unique[:40]
 
 
 def booking_unavailability_message(text: str) -> str:
