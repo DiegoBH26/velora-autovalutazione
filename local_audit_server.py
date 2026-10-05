@@ -31,6 +31,7 @@ ROOT=Path(__file__).resolve().parent
 DIST=ROOT/"dist"
 RUNTIME_PROPERTIES=ROOT/"tmp"/"runtime-properties"
 RUNTIME_AUDITS=ROOT/"tmp"/"runtime-audits"
+OTA_SOURCE_CACHE=ROOT/"tmp"/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
 RUNTIME_PROPERTIES.mkdir(parents=True,exist_ok=True)
 RUNTIME_AUDITS.mkdir(parents=True,exist_ok=True)
@@ -273,6 +274,112 @@ def enrich_from_catalog(payload):
     return enriched,match
 
 
+def _site_host(url):
+    try:
+        return (urlparse(str(url or "")).hostname or "").lower().removeprefix("www.")
+    except Exception:
+        return ""
+
+
+def _identity_key(payload):
+    sources=payload.get("sources") if isinstance(payload,dict) else {}
+    site_url=""
+    if isinstance(sources,dict):
+        site_url=((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or ""
+    site_url=site_url or str((payload or {}).get("website") or "")
+    host=_site_host(site_url)
+    name=_norm((payload or {}).get("name") or "")
+    return f"{host}|{name}" if host or name else ""
+
+
+def _read_ota_cache():
+    try:
+        data=json.loads(OTA_SOURCE_CACHE.read_text(encoding="utf-8"))
+        return data if isinstance(data,dict) else {}
+    except (OSError,json.JSONDecodeError):
+        return {}
+
+
+def _write_ota_cache(data):
+    OTA_SOURCE_CACHE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=OTA_SOURCE_CACHE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+    tmp.replace(OTA_SOURCE_CACHE)
+
+
+def cache_ota_sources(property_data):
+    if not isinstance(property_data,dict):
+        return
+    key=_identity_key(property_data)
+    if not key:
+        return
+    sources=property_data.get("sources") or {}
+    ota_sources={}
+    for source_id,source in sources.items():
+        if source_id=="sito" or not isinstance(source,dict) or not source.get("url"):
+            continue
+        try:
+            url=public_http_url(source.get("url"))
+        except Exception:
+            continue
+        ota_sources[source_id]={
+            "label":str(source.get("label") or source_id)[:160],
+            "url":url,
+        }
+    if not ota_sources:
+        return
+    cache=_read_ota_cache()
+    entry=cache.get(key) if isinstance(cache.get(key),dict) else {}
+    merged=dict(entry.get("sources") or {})
+    merged.update(ota_sources)
+    cache[key]={
+        "name":str(property_data.get("name") or "")[:180],
+        "site":((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or "",
+        "sources":merged,
+        "updatedAt":datetime.now(timezone.utc).isoformat(),
+    }
+    _write_ota_cache(cache)
+
+
+def recover_cached_ota_sources(payload):
+    recovered={}
+    key=_identity_key(payload)
+    cache=_read_ota_cache()
+    if key and isinstance(cache.get(key),dict):
+        recovered.update(cache[key].get("sources") or {})
+
+    # Migrazione automatica: recupera fonti da vecchi runtime con stessa identità.
+    wanted_host=_site_host(((payload.get("sources") or {}).get("sito") or {}).get("url") if isinstance(payload.get("sources"),dict) else payload.get("website"))
+    wanted_name=_norm(payload.get("name") or "")
+    for path in RUNTIME_PROPERTIES.glob("*.json"):
+        try:
+            item=json.loads(path.read_text(encoding="utf-8"))
+        except (OSError,json.JSONDecodeError):
+            continue
+        if wanted_host and _site_host(((item.get("sources") or {}).get("sito") or {}).get("url")) != wanted_host:
+            continue
+        if wanted_name and _norm(item.get("name") or "") != wanted_name:
+            continue
+        for source_id,source in (item.get("sources") or {}).items():
+            if source_id=="sito" or not isinstance(source,dict) or not source.get("url"):
+                continue
+            recovered.setdefault(source_id,source)
+
+    # Seconda migrazione: vecchi risultati pilot che avevano una discovery verificata.
+    for path in ROOT.glob("dati_strutture_pilot_*.json"):
+        try:
+            item=json.loads(path.read_text(encoding="utf-8"))
+        except (OSError,json.JSONDecodeError):
+            continue
+        if wanted_name and _norm(item.get("propertyName") or "") != wanted_name:
+            continue
+        discovery=(item.get("discoveredSources") or {}).get("booking")
+        if isinstance(discovery,dict) and discovery.get("status") in {"found","existing"} and discovery.get("url"):
+            recovered.setdefault("booking",{"label":"Booking.com","url":discovery.get("url")})
+
+    return recovered
+
+
 def safe_property_id(value):
     value=str(value or "").strip().lower()
     if not PROPERTY_ID_RE.fullmatch(value):
@@ -334,6 +441,20 @@ def prepare_runtime_property(payload):
     if "sito" not in cleaned:
         raise ValueError("La fonte sito con URL pubblico e' obbligatoria")
 
+    # Recupera fonti OTA già verificate anche se l'ID runtime è cambiato.
+    recovery_payload={**payload,"sources":cleaned}
+    for source_id,source in recover_cached_ota_sources(recovery_payload).items():
+        if source_id in cleaned or not isinstance(source,dict) or not source.get("url"):
+            continue
+        try:
+            url=public_http_url(source.get("url"))
+        except ValueError:
+            continue
+        cleaned[source_id[:60]]={
+            "label":str(source.get("label") or source_id)[:160],
+            "url":url,
+        }
+
     # Mantiene le OTA già scoperte dal pilota quando il frontend reinvia solo il sito ufficiale.
     existing_path=runtime_property_path(property_id)
     if existing_path.exists():
@@ -378,6 +499,7 @@ def prepare_runtime_property(payload):
     tmp=path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
     tmp.replace(path)
+    cache_ota_sources(data)
     return property_id,path
 
 
@@ -422,6 +544,11 @@ def run_pilot(property_id,property_path,months):
             dry_run=False,
         )
         asyncio.run(run(args))
+        try:
+            latest=json.loads(Path(property_path).read_text(encoding="utf-8"))
+            cache_ota_sources(latest)
+        except (OSError,json.JSONDecodeError):
+            pass
     except Exception as exc:
         with STATE.lock:
             STATE.error=f"{type(exc).__name__}: {str(exc)[:240]}"
