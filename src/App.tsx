@@ -7225,7 +7225,7 @@ export default function App() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Nuovo audit automatico</p>
                 <h2 className="mt-1 text-2xl font-black text-[#23124A]">Parti dal sito ufficiale</h2>
                 <p className="mt-2 text-sm leading-6 text-[#50627F]">
-                  Velora online invia il sito all'agente gratuito sul tuo PC. Il browser locale legge le pagine pubbliche, crea la nuova struttura e compila automaticamente i riscontri dimostrabili. OTA, recensioni e prezzi futuri restano separati finche' non vengono verificati.
+                  Velora online invia il sito all'agente gratuito sul tuo PC. Il database Excel, quando contiene la struttura, accelera il riconoscimento ma non e' obbligatorio: per strutture esterne al database Velora ricostruisce l'identita' dal sito ufficiale e usa quei segnali per cercare e verificare le schede OTA. OTA, recensioni e prezzi futuri restano separati finche' non vengono verificati.
                 </p>
               </div>
               <div className={"rounded-full px-3 py-1.5 text-xs font-black " + (localPilotToken ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
