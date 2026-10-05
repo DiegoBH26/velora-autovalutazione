@@ -174,7 +174,11 @@ def visible_dates_confirmed(text: str, stay: dict) -> bool:
 
 
 async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
-    """Conferma le date nello stato DOM Booking senza affidarsi ai soli parametri URL."""
+    """Conferma le date solo da controlli Booking visibili o realmente selezionati.
+
+    Un semplice elemento [data-date] non è una prova: il calendario può contenere
+    tutte le date del mese nel DOM anche quando i campi mostrano ancora "Seleziona date".
+    """
     start, end = date.fromisoformat(stay["checkin"]), date.fromisoformat(stay["checkout"])
     try:
         values = await page.evaluate(r"""() => {
@@ -183,16 +187,26 @@ async def booking_dom_dates_confirmed(page, stay: dict) -> tuple[bool, str]:
             '[data-testid="date-display-field-end"]',
             'input[name="checkin"]',
             'input[name="checkout"]',
-            '[data-date]',
             '[aria-label*="check-in" i]',
             '[aria-label*="check-out" i]',
             '[aria-label*="arrivo" i]',
-            '[aria-label*="partenza" i]'
+            '[aria-label*="partenza" i]',
+            '[data-date][aria-pressed="true"]',
+            '[data-date][aria-selected="true"]'
           ];
+          const isVisible = (el) => {
+            if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+            const style = getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          };
           const out = [];
           const seen = new Set();
           for (const selector of selectors) {
             for (const el of Array.from(document.querySelectorAll(selector)).slice(0, 80)) {
+              if (!isVisible(el)) continue;
+              if (el instanceof HTMLInputElement && el.type === 'hidden') continue;
               const parts = [
                 el.textContent || '',
                 el.getAttribute('value') || '',
@@ -2481,6 +2495,10 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
     ui_evidence=""
     if not dates_ok:
         applied,ui_evidence=await booking_apply_dates_via_ui(page,stay)
+        print(
+            f"{stay['month']} booking-detail-date-picker: {'applied' if applied else 'failed'} · {ui_evidence}",
+            flush=True,
+        )
         if applied:
             final_url=page.url
             title=(await page.title())[:200]
