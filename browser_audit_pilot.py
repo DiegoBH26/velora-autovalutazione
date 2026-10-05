@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v34"
+PILOT_BUILD = "velora-browser-pilot-v35"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2705,7 +2705,61 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
             break
 
     if not options:
-        return False, "nessun suggerimento destinazione visibile", ""
+        # Booking home può accettare .fill() ma non attivare il suggeritore.
+        # Riprova con veri eventi tastiera, carattere per carattere.
+        try:
+            try:
+                await field.click(timeout=1600,force=True)
+            except Exception:
+                await field.focus(timeout=1600)
+            try:
+                await field.press("Control+A",timeout=1000)
+                await field.press("Backspace",timeout=1000)
+            except Exception:
+                pass
+            await field.type(property_name,delay=85,timeout=8000)
+            input_method=(input_method+"→keyboard-retry").strip("→")
+            await page.wait_for_timeout(2200)
+        except Exception:
+            pass
+
+        retry_selectors=(
+            '[data-testid="autocomplete-result"]',
+            '[data-testid="autocomplete-results"] li',
+            '[data-testid*="autocomplete"] [role="option"]',
+            '[data-testid*="autocomplete"] li',
+            '[role="listbox"] [role="option"]',
+            '[role="option"]',
+            'li[data-i]',
+        )
+        for opt_selector in retry_selectors:
+            try:
+                locs=page.locator(opt_selector)
+                count=min(await locs.count(),40)
+                for idx in range(count):
+                    loc=locs.nth(idx)
+                    try:
+                        if not await loc.is_visible(timeout=220):
+                            continue
+                        txt=re.sub(r"\s+"," ",(await loc.inner_text(timeout=600)) or "").strip()
+                        if txt:
+                            options.append((loc,txt,opt_selector))
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            if options:
+                break
+
+    if not options:
+        try:
+            current_value=await field.input_value(timeout=1000)
+        except Exception:
+            current_value=""
+        return False,(
+            f"nessun suggerimento destinazione visibile; "
+            f"input={input_method or 'n.d.'}; valore=«{current_value[:100]}»"
+        ), ""
 
     ranked=[]
     for loc,txt,opt_selector in options:
@@ -4123,8 +4177,23 @@ async def run(args: argparse.Namespace) -> dict:
         return result
     robots: dict[str, RobotFileParser | bool | None] = {}
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(channel="chrome", headless=True)
-        context = await browser.new_context(locale="it-IT", timezone_id="Europe/Rome")
+        # Usa un profilo Chrome dedicato e persistente, in modalità visibile:
+        # è molto più vicino al comportamento di un agente browser reale rispetto
+        # a una nuova sessione headless vuota a ogni audit.
+        profile_dir=Path(__file__).resolve().parent/"velora-browser-profile"
+        profile_dir.mkdir(parents=True,exist_ok=True)
+        context = await playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            channel="chrome",
+            headless=False,
+            locale="it-IT",
+            timezone_id="Europe/Rome",
+            viewport={"width":1440,"height":1000},
+        )
+        print(
+            f"browser mode: Chrome persistente visibile · profilo={profile_dir}",
+            flush=True,
+        )
         try:
             identity = await resolve_identity_from_official_site(context, data, robots)
             result["identityResolution"] = identity
@@ -4315,7 +4384,7 @@ async def run(args: argparse.Namespace) -> dict:
                     )
                     await asyncio.sleep(1)
         finally:
-            await browser.close()
+            await context.close()
     return result
 
 
