@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import ipaddress
 import json
+import importlib
 import os
 import sys
 import re
@@ -32,13 +33,14 @@ import browser_audit_pilot as browser_pilot
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
 EXPECTED_PILOT_BUILD="velora-browser-pilot-v24"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/78b643d910f31dab223b15ea88ecb0361d6879a1/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
+    global browser_pilot, CHANNELS, run
     current=getattr(browser_pilot,"PILOT_BUILD","legacy")
     if current == EXPECTED_PILOT_BUILD:
-        return current,False
+        return current
 
     target=Path(__file__).resolve().parent/"browser_audit_pilot.py"
     temporary=target.with_suffix(".py.update")
@@ -57,13 +59,33 @@ def ensure_pilot_sync():
         marker=f'PILOT_BUILD = "{EXPECTED_PILOT_BUILD}"'
         if marker not in text:
             raise RuntimeError("la versione scaricata non corrisponde a quella attesa")
+
         temporary.write_text(text,encoding="utf-8")
         os.replace(temporary,target)
+
+        # Elimina eventuali bytecode vecchi e ricarica il modulo NELLO STESSO
+        # processo: niente piu' riavvii automatici o loop su Windows.
+        pycache=target.parent/"__pycache__"
+        if pycache.exists():
+            for cached in pycache.glob("browser_audit_pilot*.pyc"):
+                try:
+                    cached.unlink()
+                except Exception:
+                    pass
+        importlib.invalidate_caches()
+        browser_pilot=importlib.reload(browser_pilot)
+        CHANNELS=browser_pilot.CHANNELS
+        run=browser_pilot.run
+
+        loaded=getattr(browser_pilot,"PILOT_BUILD","legacy")
+        if loaded != EXPECTED_PILOT_BUILD:
+            raise RuntimeError(f"pilot ricaricato come {loaded}, atteso {EXPECTED_PILOT_BUILD}")
+
         print(
-            f"Sincronizzazione automatica pilot completata: {current} -> {EXPECTED_PILOT_BUILD}",
+            f"Sincronizzazione automatica pilot completata: {current} -> {loaded}",
             flush=True,
         )
-        return EXPECTED_PILOT_BUILD,True
+        return loaded
     except Exception as exc:
         try:
             temporary.unlink(missing_ok=True)
@@ -73,7 +95,7 @@ def ensure_pilot_sync():
             f"ATTENZIONE: sincronizzazione automatica pilot fallita: {type(exc).__name__}: {str(exc)[:180]}",
             flush=True,
         )
-        return current,False
+        return getattr(browser_pilot,"PILOT_BUILD",current)
 
 from playwright.async_api import async_playwright
 from site_audit_builder import build_site_audit, public_url as validate_site_url
@@ -817,10 +839,7 @@ if __name__=="__main__":
     if not (DIST/"index.html").exists():
         print("Build locale non presente: va bene se usi Velora online; restano attive le API locali.",flush=True)
 
-    pilot_build,restart_needed=ensure_pilot_sync()
-    if restart_needed:
-        print("Riavvio automatico dell'agente per caricare il pilot sincronizzato...",flush=True)
-        os.execv(sys.executable,[sys.executable,*sys.argv])
+    pilot_build=ensure_pilot_sync()
 
     print("Versione agente: velora-local-agent-v24 · Booking invio ricerca dopo selezione destinazione",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
