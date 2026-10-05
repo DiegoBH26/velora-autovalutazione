@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v28"
+PILOT_BUILD = "velora-browser-pilot-v29"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2311,34 +2311,48 @@ def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
 
 
 def booking_exact_results_dated_url(current_url: str, stay: dict) -> str:
-    """Normalizza la destinazione scelta da Booking e aggiunge date con parametri separati.
+    """Mantiene il blocco destinazione Booking esattamente come il portale lo genera.
 
-    Booking può restituire searchresults con una query del tipo
+    Per alcune destinazioni Booking usa una query non standard:
     dest_id=...;dest_type=latlong;latitude=...;longitude=...
-    dove i separatori sono ';'. parse_qsl la interpreta come un unico dest_id:
-    qui separiamo prima quei campi e poi costruiamo una query standard con '&'.
+    I punti e virgola fanno parte del blocco destinazione atteso dal portale.
+    Non vanno trasformati in '&' né percent-encoded. Le date invece vengono
+    aggiunte come normali parametri '&checkin=...&checkout=...'.
     """
     parsed=urlparse(current_url)
     if "/searchresults" not in parsed.path:
         return ""
 
-    raw_query=(parsed.query or "").replace(";", "&")
-    pairs=parse_qsl(raw_query,keep_blank_values=True)
-    query={}
-    for key,value in pairs:
-        if key and key not in query:
-            query[key]=value
+    raw_query=parsed.query or ""
+    if not raw_query:
+        return ""
 
-    # Conserva l'identità destinazione osservata da Booking, ma rimuove
-    # eventuali date/occupazione vecchie o parametri vuoti che possono
-    # interferire con la nuova ricerca.
-    keep_keys=(
-        "dest_id","dest_type","latitude","longitude","ss",
-        "place_id","region","district",
+    # Preferisci il blocco destinazione osservato direttamente dopo la
+    # selezione autocomplete. Include i ';' così come Booking li ha emessi.
+    destination_blob=""
+    match=re.search(
+        r"(dest_id=[^&]+(?:;dest_type=[^&;]+)?(?:;latitude=[^&;]+)?(?:;longitude=[^&;]+)?)",
+        raw_query,
+        flags=re.I,
     )
-    cleaned={key:query[key] for key in keep_keys if query.get(key)}
+    if match:
+        destination_blob=match.group(1)
+    else:
+        # Fallback conservativo per eventuali searchresults con ss=...
+        pairs=parse_qsl(raw_query,keep_blank_values=True)
+        query=dict(pairs)
+        if query.get("ss"):
+            destination_blob=urlencode({"ss":query["ss"]})
+        elif query.get("dest_id"):
+            destination_blob=urlencode({
+                key:query[key] for key in ("dest_id","dest_type","latitude","longitude")
+                if query.get(key)
+            })
 
-    cleaned.update({
+    if not destination_blob:
+        return ""
+
+    date_query=urlencode({
         "checkin":stay["checkin"],
         "checkout":stay["checkout"],
         "group_adults":str(stay.get("adults") or 2),
@@ -2347,7 +2361,9 @@ def booking_exact_results_dated_url(current_url: str, stay: dict) -> str:
         "selected_currency":"EUR",
         "lang":"it-it",
     })
-    return urlunparse(parsed._replace(query=urlencode(cleaned),fragment=""))
+    base=urlunparse(parsed._replace(query="",fragment=""))
+    return f"{base}?{destination_blob}&{date_query}"
+
 
 
 def booking_hotel_dated_url(hotel_id: str, stay: dict) -> str:
