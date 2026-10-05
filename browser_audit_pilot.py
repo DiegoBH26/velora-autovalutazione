@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v30"
+PILOT_BUILD = "velora-browser-pilot-v31"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -3067,6 +3067,120 @@ async def booking_dated_search_observation(page, source: str, property_name: str
     )[:900]
     return record
 
+async def booking_probe_direct_dated_detail(page, source: str, stay: dict, robots: dict) -> dict | None:
+    """Prova la scheda Booking esatta con date direttamente nella URL, su una nuova tab.
+
+    La pagina risultati ha già confermato l'identità della struttura. Questa prova
+    evita di dipendere dal trasferimento JS/sessione della searchresults alla scheda.
+    """
+    target=dated_url("booking",source,stay) or ""
+    if not target:
+        return None
+    permission=await asyncio.to_thread(allowed_by_robots,target,robots)
+    if permission is not True:
+        return None
+
+    probe=None
+    try:
+        probe=await page.context.new_page()
+        response=await probe.goto(target,wait_until="domcontentloaded",timeout=25000)
+        await dismiss_cookie(probe)
+        try:
+            await probe.locator("body").wait_for(state="visible",timeout=5000)
+        except Exception:
+            pass
+        await probe.wait_for_timeout(1800)
+
+        if response and response.status==429:
+            return {
+                "status":"rate_limited","finalUrl":probe.url,"title":(await probe.title())[:200],
+                "quotes":[],"evidence":"Scheda Booking diretta datata: HTTP 429."
+            }
+        if response and response.status>=400:
+            return None
+
+        try:
+            body=(await probe.locator("body").inner_text(timeout=7000))[:16000]
+        except Exception:
+            body=""
+        dates_ok,date_mode=await booking_page_dates_confirmed(probe,stay,body)
+        print(
+            f"{stay['month']} booking-direct-dated-detail: "
+            f"status={getattr(response,'status',None)} · dates={dates_ok} · "
+            f"url={probe.url[:340]} · requested={target[:340]}",
+            flush=True,
+        )
+        if not dates_ok:
+            return None
+
+        render_diag=await booking_settle_render(probe)
+        try:
+            body=(await probe.locator("body").inner_text(timeout=7000))[:18000]
+        except Exception:
+            body=""
+
+        unavailable_hit=booking_unavailability_message(body)
+        if unavailable_hit:
+            return {
+                "status":"no_public_rate","finalUrl":probe.url,"title":(await probe.title())[:200],
+                "quotes":[],
+                "evidence":(
+                    f"Scheda Booking esatta aperta direttamente con date confermate "
+                    f"({date_mode or 'pagina renderizzata'}) {stay['checkin']} → {stay['checkout']}. "
+                    f"Booking mostra indisponibilità («{unavailable_hit}»)."
+                )[:900],
+            }
+
+        candidates=await booking_quote_candidates(probe,stay)
+        verified=[item for item in candidates if item.get("verified")]
+        if verified:
+            first=verified[0]
+            return {
+                "status":"quote_candidates","finalUrl":probe.url,"title":(await probe.title())[:200],
+                "quotes":candidates,
+                "evidence":(
+                    f"Scheda Booking esatta aperta direttamente con date confermate "
+                    f"({date_mode or 'pagina renderizzata'}). Rilevati {len(candidates)} candidati "
+                    f"camera/prezzo; esempio {first['roomType']} · €{first['total']:.2f}."
+                )[:900],
+            }
+        if candidates:
+            first=candidates[0]
+            return {
+                "status":"quote_candidates_unverified","finalUrl":probe.url,"title":(await probe.title())[:200],
+                "quotes":candidates,
+                "evidence":(
+                    f"Scheda Booking esatta aperta direttamente con date confermate "
+                    f"({date_mode or 'pagina renderizzata'}). Rilevati {len(candidates)} candidati "
+                    f"prezzo; esempio €{first['total']:.2f}; camera/tasse/condizioni da verificare."
+                )[:900],
+            }
+
+        return {
+            "status":"needs_human_review","finalUrl":probe.url,"title":(await probe.title())[:200],
+            "quotes":[],
+            "evidence":(
+                f"Scheda Booking esatta aperta direttamente con date confermate "
+                f"({date_mode or 'pagina renderizzata'}), ma nessun prezzo o messaggio di "
+                f"indisponibilità attribuibile con certezza. DOM: prezzi {render_diag.get('priceNodes',0)}, "
+                f"camere {render_diag.get('roomNodes',0)}, disponibilità {render_diag.get('availabilityNodes',0)}."
+            )[:900],
+        }
+    except Exception as exc:
+        print(
+            f"{stay['month']} booking-direct-dated-detail: failed · "
+            f"{type(exc).__name__}: {str(exc)[:140]}",
+            flush=True,
+        )
+        return None
+    finally:
+        if probe is not None:
+            try:
+                await probe.close()
+            except Exception:
+                pass
+
+
 async def booking_follow_matched_listing(page, source: str, item: dict, stay: dict, robots: dict) -> dict:
     """Booking v10: clicca la card esatta dalla pagina datata, preservando sessione e date."""
     href=str(item.get("href") or "").strip()
@@ -3076,6 +3190,13 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
     href_path=booking_path_key(href)
     if not source_path or href_path != source_path:
         return {"status":"needs_human_review","evidence":"La card Booking trovata non coincide con la scheda già verificata.","quotes":[]}
+
+    # Prima prova la scheda esatta con le date direttamente nella URL, ma in
+    # una nuova tab: se Booking le mantiene, possiamo leggere disponibilità
+    # senza dipendere dal fragile trasferimento di stato della searchresults.
+    direct=await booking_probe_direct_dated_detail(page,source,stay,robots)
+    if direct is not None:
+        return direct
 
     # Siamo ancora sulla pagina Booking datata che ha confermato le date.
     # Prima scelta: cliccare la card reale, così Booking può trasferire il contesto tramite sessione/JS.
