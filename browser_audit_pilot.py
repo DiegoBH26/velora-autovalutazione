@@ -354,7 +354,10 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
 
     submit, submit_selector = await _first_visible_locator(page, (
         '[data-testid="date-submit-button"]',
+        '[data-testid="searchbox-submit-button"]',
         '[data-testid="searchbox-layout-wide"] button[type="submit"]',
+        '[data-testid="searchbox-layout-wide"] button:has-text("Cerca")',
+        '[data-testid="searchbox-layout-wide"] button:has-text("Search")',
         'form[role="search"] button[type="submit"]',
         'form[action*="searchresults"] button[type="submit"]',
     ))
@@ -2258,13 +2261,35 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                     "finalUrl":page.url,"title":title,"body":body,
                     "evidence":f"{label}: HTTP {response.status}."
                 }
+            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+            ui_evidence=""
+            if not dates_ok:
+                applied,ui_evidence=await booking_apply_dates_via_ui(page,stay)
+                print(
+                    f"{stay['month']} booking-search-date-picker [{label}]: {'applied' if applied else 'failed'} · {ui_evidence}",
+                    flush=True,
+                )
+                if applied:
+                    try:
+                        await page.wait_for_timeout(1200)
+                        title=(await page.title())[:200]
+                        body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                        dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                        if dates_ok and not date_mode:
+                            date_mode="ui-date-picker"
+                    except Exception:
+                        pass
             cards=await booking_result_cards(page)
             best=booking_best_card(cards,source,property_name,canonical_name,city)
-            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
             return {
                 "ok":True,"label":label,"status":"ok","finalUrl":page.url,"title":title,
                 "body":body,"cards":cards,"best":best,"datesOk":dates_ok,"dateMode":date_mode,
-                "evidence":f"{label}: {len(cards)} card; date {'confermate' if dates_ok else 'non confermate'} ({date_mode or 'n.d.'}).",
+                "datePickerEvidence":ui_evidence,
+                "evidence":(
+                    f"{label}: {len(cards)} card; date {'confermate' if dates_ok else 'non confermate'} "
+                    f"({date_mode or 'n.d.'}). "
+                    + (f"Date picker: {ui_evidence}." if ui_evidence else "")
+                )[:900],
             }
         except Exception as exc:
             return {
@@ -2390,11 +2415,14 @@ async def booking_dated_search_observation(page, source: str, property_name: str
             )[:900]
             return record
 
+    if exact_path and not dates_ok:
+        record["status"]="needs_human_review"
     record["evidence"]=(
         f"{canonical_evidence} {route_label}: scheda «{item.get('title','')}» individuata "
         f"(match {score:.0%}; {'URL listing identico' if exact_path else 'match nome/località'}). "
         f"Date {'confermate' if dates_ok else 'non confermate'} ({date_mode or 'n.d.'}); "
-        "nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
+        + (f"Tentativo date picker: {chosen.get('datePickerEvidence','')}. " if chosen.get('datePickerEvidence') else "")
+        + "Nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
     )[:900]
     return record
 
