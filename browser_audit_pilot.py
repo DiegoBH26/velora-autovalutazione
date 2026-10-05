@@ -299,11 +299,18 @@ async def booking_property_rate_context(page) -> tuple[bool, str]:
 
 
 async def _first_visible_locator(page, selectors):
+    """Restituisce il primo nodo realmente visibile, anche quando il DOM contiene duplicati nascosti."""
     for selector in selectors:
         try:
-            loc=page.locator(selector).first
-            if await loc.count() and await loc.is_visible(timeout=350):
-                return loc, selector
+            matches=page.locator(selector)
+            count=min(await matches.count(),30)
+            for idx in range(count):
+                loc=matches.nth(idx)
+                try:
+                    if await loc.is_visible(timeout=350):
+                        return loc, selector
+                except Exception:
+                    continue
         except Exception:
             pass
     return None, ""
@@ -405,12 +412,11 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
             if clicked:
                 return True, clicked_ev
             next_button, next_selector = await _first_visible_locator(page, (
-                'button[aria-label*="mese successivo" i]',
-                'button[aria-label*="successivo" i]',
-                'button[aria-label*="next month" i]',
-                'button[aria-label*="next" i]',
                 '[data-testid="calendar-next-button"]',
                 '[data-testid*="next-month"]',
+                'button[aria-label*="mese successivo" i]',
+                'button[aria-label*="mese seguente" i]',
+                'button[aria-label*="next month" i]',
             ))
             if next_button is None:
                 return False, f"{target_iso} non visibile e navigazione calendario non trovata"
@@ -447,9 +453,16 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
         ))
         if end_opener is not None:
             try:
+                end_label=re.sub(r"\s+"," ",(await end_opener.inner_text(timeout=500)) or "").strip()[:120]
+            except Exception:
+                end_label=""
+            try:
                 await end_opener.click(timeout=2200)
-                await page.wait_for_timeout(550)
-                evidence.append(f"calendario riaperto per check-out con {end_selector}")
+                await page.wait_for_timeout(650)
+                evidence.append(
+                    f"calendario riaperto per check-out con {end_selector}"
+                    + (f" («{end_label}»)" if end_label else "")
+                )
             except Exception as exc:
                 evidence.append(f"riapertura check-out fallita: {type(exc).__name__}")
 
