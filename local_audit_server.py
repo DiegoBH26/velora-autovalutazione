@@ -623,11 +623,12 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v5",
+                "agentVersion":"velora-local-agent-v6",
                 "catalog":catalog_public_summary(),
                 "aiWebSearch":{
-                    "configured":bool(str(os.environ.get("VELORA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()),
-                    "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-6-luna"),
+                    "configured":False,
+                    "model":"free-multi-engine",
+                    "mode":"free",
                 },
             })
             return
