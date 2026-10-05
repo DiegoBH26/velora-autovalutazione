@@ -290,10 +290,47 @@ async def _first_visible_locator(page, selectors):
 
 
 async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
-    """Prova a impostare check-in/check-out usando il date picker pubblico di Booking."""
+    """Imposta realmente check-in/check-out nel date picker Booking e verifica che restino applicati."""
     checkin=stay["checkin"]
     checkout=stay["checkout"]
     evidence=[]
+
+    async def visible_date_state() -> str:
+        try:
+            values=await page.evaluate(r"""() => {
+              const selectors = [
+                '[data-testid="date-display-field-start"]',
+                '[data-testid="date-display-field-end"]',
+                '[data-testid="searchbox-dates-container"]',
+                'input[name="checkin"]',
+                'input[name="checkout"]'
+              ];
+              const visible = (el) => {
+                if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+                const st=getComputedStyle(el);
+                if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+                const r=el.getBoundingClientRect();
+                return r.width>0 && r.height>0;
+              };
+              const out=[];
+              for (const selector of selectors) {
+                for (const el of Array.from(document.querySelectorAll(selector)).slice(0,20)) {
+                  if (!visible(el)) continue;
+                  const value=[
+                    el.textContent || '',
+                    el.getAttribute('value') || '',
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('placeholder') || ''
+                  ].join(' ').replace(/\s+/g,' ').trim();
+                  if (value) out.push(value.slice(0,240));
+                }
+              }
+              return [...new Set(out)];
+            }""")
+            return " | ".join(str(v) for v in values)[:700]
+        except Exception:
+            return ""
+
     opener, opener_selector = await _first_visible_locator(page, (
         '[data-testid="date-display-field-start"]',
         'button[data-testid="date-display-field-start"]',
@@ -303,27 +340,50 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
     ))
     if opener is None:
         return False, "date picker Booking non individuato"
+
     try:
-        await opener.click(timeout=1800)
-        await page.wait_for_timeout(350)
+        await opener.click(timeout=2200)
+        await page.wait_for_timeout(450)
         evidence.append(f"aperto con {opener_selector}")
     except Exception as exc:
         return False, f"date picker non apribile: {type(exc).__name__}"
 
-    async def pick(target_iso: str) -> tuple[bool, str]:
-        target_selector=f'[data-date="{target_iso}"]'
-        for step in range(20):
+    async def click_visible_date(target_iso: str) -> tuple[bool, str]:
+        selector=f'[data-date="{target_iso}"]'
+        try:
+            matches=page.locator(selector)
+            count=min(await matches.count(),40)
+        except Exception:
+            count=0
+        for idx in range(count):
+            node=matches.nth(idx)
             try:
-                target=page.locator(target_selector).first
-                if await target.count() and await target.is_visible(timeout=250):
-                    disabled = await target.get_attribute("aria-disabled")
-                    if disabled == "true":
-                        return False, f"{target_iso} presente ma non selezionabile"
-                    await target.click(timeout=1800)
-                    await page.wait_for_timeout(250)
-                    return True, f"{target_iso} selezionata"
+                if not await node.is_visible(timeout=250):
+                    continue
+                if (await node.get_attribute("aria-disabled")) == "true":
+                    continue
+                # Booking può mettere data-date su uno span interno: prova prima il vero controllo cliccabile.
+                clickable=node.locator("xpath=ancestor-or-self::*[self::button or @role='button'][1]")
+                if await clickable.count() and await clickable.is_visible(timeout=250):
+                    await clickable.click(timeout=2200)
+                else:
+                    await node.click(timeout=2200)
+                await page.wait_for_timeout(420)
+                return True, f"{target_iso} selezionata"
             except Exception:
-                pass
+                try:
+                    await node.click(timeout=1800, force=True)
+                    await page.wait_for_timeout(420)
+                    return True, f"{target_iso} selezionata (click forzato)"
+                except Exception:
+                    continue
+        return False, ""
+
+    async def pick(target_iso: str) -> tuple[bool, str]:
+        for step in range(22):
+            clicked, clicked_ev = await click_visible_date(target_iso)
+            if clicked:
+                return True, clicked_ev
             next_button, next_selector = await _first_visible_locator(page, (
                 'button[aria-label*="mese successivo" i]',
                 'button[aria-label*="successivo" i]',
@@ -335,22 +395,34 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
             if next_button is None:
                 return False, f"{target_iso} non visibile e navigazione calendario non trovata"
             try:
-                await next_button.click(timeout=1500)
-                await page.wait_for_timeout(220)
+                await next_button.click(timeout=1700)
+                await page.wait_for_timeout(280)
                 if step == 0:
                     evidence.append(f"navigazione calendario con {next_selector}")
             except Exception as exc:
                 return False, f"navigazione calendario fallita: {type(exc).__name__}"
-        return False, f"{target_iso} non raggiunta entro 20 mesi"
+        return False, f"{target_iso} non raggiunta entro 22 mesi"
 
     ok_start, ev_start = await pick(checkin)
     evidence.append(ev_start)
     if not ok_start:
-        return False, "; ".join(evidence)
+        evidence.append("campi visibili: " + (await visible_date_state() or "n.d."))
+        return False, "; ".join(filter(None,evidence))
+
     ok_end, ev_end = await pick(checkout)
     evidence.append(ev_end)
     if not ok_end:
-        return False, "; ".join(evidence)
+        evidence.append("campi visibili: " + (await visible_date_state() or "n.d."))
+        return False, "; ".join(filter(None,evidence))
+
+    # NON dichiarare successo perché i nodi data-date sono stati cliccati:
+    # i campi visibili del searchbox devono davvero contenere entrambe le date.
+    pre_ok,pre_state=await booking_dom_dates_confirmed(page,stay)
+    if not pre_ok:
+        evidence.append("date cliccate ma campi Booking non aggiornati")
+        evidence.append("campi visibili: " + (pre_state or await visible_date_state() or "n.d."))
+        return False, "; ".join(filter(None,evidence))
+    evidence.append("date confermate nei campi prima di Cerca")
 
     submit, submit_selector = await _first_visible_locator(page, (
         '[data-testid="date-submit-button"]',
@@ -361,18 +433,39 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
         'form[role="search"] button[type="submit"]',
         'form[action*="searchresults"] button[type="submit"]',
     ))
-    if submit is not None:
-        try:
-            await submit.click(timeout=1800)
-            evidence.append(f"ricerca inviata con {submit_selector}")
-        except Exception:
-            evidence.append("date selezionate; pulsante ricerca non cliccabile")
+    if submit is None:
+        return False, "; ".join(evidence + ["date impostate ma pulsante Cerca non individuato"])
+
     try:
-        await page.wait_for_load_state("domcontentloaded", timeout=8000)
+        await submit.click(timeout=2400)
+        evidence.append(f"ricerca inviata con {submit_selector}")
+    except Exception as exc:
+        return False, "; ".join(evidence + [f"pulsante Cerca non cliccabile: {type(exc).__name__}"])
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=9000)
     except Exception:
         pass
-    await page.wait_for_timeout(1200)
-    return True, "; ".join(evidence)
+    await page.wait_for_timeout(1700)
+
+    # Conferma finale: dopo Cerca le date devono essere ancora leggibili nei campi, nella URL
+    # o nel testo renderizzato. Se Booking le azzera, il tentativo NON è riuscito.
+    try:
+        body=(await page.locator("body").inner_text(timeout=6000))[:12000]
+    except Exception:
+        body=""
+    post_dom,post_state=await booking_dom_dates_confirmed(page,stay)
+    post_url=booking_url_dates_confirmed(page.url,stay)
+    post_text=visible_dates_confirmed(body,stay)
+    if not (post_dom or post_url or post_text):
+        evidence.append("Booking ha perso le date dopo Cerca")
+        evidence.append("campi finali: " + (post_state or await visible_date_state() or "n.d."))
+        evidence.append("URL finale: " + page.url[:350])
+        return False, "; ".join(filter(None,evidence))
+
+    mode="DOM" if post_dom else "URL" if post_url else "testo visibile"
+    evidence.append(f"date confermate dopo Cerca via {mode}")
+    return True, "; ".join(filter(None,evidence))
 
 def _norm_name(value: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii").lower()
