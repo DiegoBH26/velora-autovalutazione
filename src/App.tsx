@@ -6009,6 +6009,32 @@ export default function App() {
     const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Campioni pubblici con date e durata indicati in tabella. Gli estremi riguardano soltanto le tipologie e i piani effettivamente quotati; non sono ADR realizzato né media mensile. Una tariffa di calendario priva di preventivo confermato è soltanto indicativa.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, date, cancellazione, trattamento, imposte e pubblico. L'assenza di un prezzo nel campione non prova la chiusura stagionale.</p>` : "";
     const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
     const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${safe(activeAuditData.pricingAudit.method)}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
+    const reputation = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.reputation : undefined;
+    const photoAudit = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.photoAudit : undefined;
+    const reputationStrengthRows = (reputation?.strengths || []).map((entry) =>
+      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td></tr>`
+    ).join("");
+    const reputationWeakRows = (reputation?.weaknesses || []).map((entry) =>
+      `<tr><td><b>${safe(entry.theme)}</b></td><td>${entry.count}</td><td>${safe((entry.examples || []).slice(0, 2).join(" · ") || "Nessun esempio disponibile")}</td><td>${safe(entry.action || "Approfondire il tema")}</td></tr>`
+    ).join("");
+    const reputationKeywords = (reputation?.keywords || []).slice(0, 15).map((entry) => `${entry.word} (${entry.count})`).join(" · ");
+    const isolatedSignals = (reputation?.isolatedSignals || []).map((entry) => entry.theme + (entry.examples?.length ? ": " + entry.examples[0] : "")).join(" · ");
+    const reputationReportHtml = isWebAudit ? `<section class="page-break"><h2>Reputazione online e qualità fotografica</h2>
+      <p><b>Google:</b> ${reputation?.rating ? safe(String(reputation.rating) + "/5") : "rating non rilevato"}${reputation?.reviewCount ? " · " + safe(String(reputation.reviewCount)) + " recensioni visibili" : ""}. Campione qualitativo: ${safe(String(reputation?.sampleSize || 0))} recensioni. Le ricorrenze descrivono il campione pubblico analizzato, non l\'intero corpus.</p>
+      ${reputationKeywords ? `<p><b>Parole ricorrenti:</b> ${safe(reputationKeywords)}</p>` : ""}
+      <h3>Punti di forza ricorrenti</h3>
+      ${reputationStrengthRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Esempi dal campione</th></tr></thead><tbody>${reputationStrengthRows}</tbody></table>` : "<p>Nessun tema positivo ricorrente classificato automaticamente.</p>"}
+      <h3>Criticità ricorrenti</h3>
+      ${reputationWeakRows ? `<table><thead><tr><th>Tema</th><th>Ricorrenze</th><th>Esempi dal campione</th><th>Azione operativa</th></tr></thead><tbody>${reputationWeakRows}</tbody></table>` : "<p>Nessuna criticità ricorrente classificata automaticamente.</p>"}
+      <h3>Segnalazioni isolate da monitorare</h3>
+      <p>${safe(isolatedSignals || "Nessuna segnalazione isolata significativa nel campione.")}</p>
+      <h3>Audit fotografico frontend</h3>
+      <p><b>Indice tecnico/editoriale:</b> ${photoAudit?.score ? safe(String(photoAudit.score) + "/10") : "non rilevato"}${photoAudit?.imageCount !== undefined ? " · " + safe(String(photoAudit.imageCount)) + " immagini rilevanti" : ""}${photoAudit?.highResolutionCount !== undefined ? " · " + safe(String(photoAudit.highResolutionCount)) + " ad alta risoluzione" : ""}.</p>
+      <p>${safe(photoAudit?.evidence || answers["audit-photo-score"]?.note || "Audit fotografico non ancora disponibile.")}</p>
+      ${(photoAudit?.strengths || []).length ? `<p><b>Punti di forza fotografici:</b> ${safe((photoAudit?.strengths || []).join(" "))}</p>` : ""}
+      ${(photoAudit?.gaps || []).length ? `<p><b>Gap fotografici:</b> ${safe((photoAudit?.gaps || []).join(" "))}</p>` : ""}
+      ${(photoAudit?.actions || []).length ? `<p><b>Azioni consigliate:</b> ${safe((photoAudit?.actions || []).join(" "))}</p>` : ""}
+    </section>` : "";
     const bookingStatus = answers["audit-booking-engine"]?.auditStatus || "unverified";
     const bookingProvider = answers["audit-booking-engine-provider"]?.note || browserPilotResult?.bookingEngine?.provider || "Fornitore non identificato";
     const bookingUrl = answers["audit-booking-engine-url"]?.note || browserPilotResult?.bookingEngine?.url || "URL non disponibile";
@@ -6582,6 +6608,7 @@ export default function App() {
 
           ${commercialReportHtml}
           ${bookingEngineReportHtml}
+          ${reputationReportHtml}
           ${pilotReportHtml}
           ${coverageReportHtml}
 
