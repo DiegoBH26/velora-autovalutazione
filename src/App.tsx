@@ -3730,12 +3730,32 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
   const entries = (result?.observations || []).filter((item) => item.month === month && item.otaId === otaId);
   if (!entries.length) return "";
   const item = entries[entries.length - 1];
-  const quoteCount = Array.isArray(item.quotes) ? item.quotes.length : 0;
+  const quotes = Array.isArray(item.quotes) ? item.quotes : [];
+  const quoteCount = quotes.length;
+  const verifiedCount = quotes.filter((quote) => quote.verified).length;
+
+  if (item.status === "quote_candidates") {
+    if (!quoteCount) return "Tariffe rilevate";
+    if (otaId === "booking") {
+      if (verifiedCount === quoteCount) return `Tariffe rilevate: ${quoteCount} · camera e prezzo validati`;
+      if (verifiedCount > 0) return `Tariffe rilevate: ${quoteCount} · ${verifiedCount} validate · confronto OTA da completare`;
+      return `Tariffe rilevate: ${quoteCount} · condizioni da completare`;
+    }
+    return verifiedCount
+      ? `Tariffe rilevate: ${quoteCount} · ${verifiedCount} validate`
+      : `Prezzi rilevati: ${quoteCount} · attribuzione camera/piano da verificare`;
+  }
+
+  if (item.status === "quote_candidates_unverified") {
+    if (!quoteCount) return "Prezzi rilevati · attribuzione da verificare";
+    return otaId === "booking"
+      ? `Tariffe rilevate: ${quoteCount} · associazione camera/piano non ancora validata`
+      : `Prezzi rilevati: ${quoteCount} · attribuzione camera/piano da verificare`;
+  }
+
   const labels: Record<string, string> = {
-    quote_candidates: quoteCount ? `Tariffa rilevata: ${quoteCount} candidato/i · condizioni da validare` : "Tariffa rilevata · condizioni da validare",
-    quote_candidates_unverified: quoteCount ? `Candidati prezzo: ${quoteCount} · da verificare` : "Candidati prezzo da verificare",
     no_public_rate: "Nessuna tariffa pubblica rilevata sulle date testate",
-    needs_human_review: "Preventivo da verificare manualmente",
+    needs_human_review: "Pagina letta · prezzo non attribuibile con certezza",
     dates_unconfirmed: "Date non confermate dal portale",
     date_adapter_missing: "Date non applicate automaticamente",
     source_not_retested: "Scheda non ritestata nel test rapido",
@@ -5903,7 +5923,7 @@ export default function App() {
     const bookingStatusLabel = bookingStatus === "present" ? bookingProvider === "Fornitore non identificato" ? "Percorso di prenotazione rilevato; fornitore non confermato" : "Fornitore identificato" : bookingStatus === "partial" ? "Percorso di prenotazione rilevato; fornitore non confermato" : bookingStatus === "missing" ? "Percorso di prenotazione non rilevato nel campione" : "Non verificato";
     const bookingEngineReportHtml = isWebAudit ? `<section><h2>Booking engine e fornitore del canale diretto</h2><table><tbody><tr><th style="width:25%">Esito</th><td>${safe(bookingStatusLabel)}</td></tr><tr><th>Fornitore</th><td><b>${safe(bookingProvider)}</b></td></tr><tr><th>Percorso</th><td>${safe(bookingMode)}</td></tr><tr><th>URL di prova</th><td>${safe(bookingUrl)}</td></tr><tr><th>Riscontro</th><td>${safe(bookingEvidence)}</td></tr></tbody></table><p>Un dominio riconosciuto identifica il fornitore del percorso pubblico, ma non prova che disponibilità, pagamento e checkout funzionino. Un sito ospitato direttamente dal fornitore va registrato anche se non esiste un dominio ufficiale separato.</p></section>` : "";
     const pilotObservations = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.observations : [];
-    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", source_not_retested: "Scheda non ritestata nel test rapido", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", rate_limited: "Portale temporaneamente limitato", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", dated_search_inconclusive: "Ricerca datata non conclusiva", no_public_rate: "Nessuna tariffa pubblica rilevata", needs_human_review: "Preventivo da verificare", quote_candidates: "Candidati tariffari rilevati", quote_candidates_unverified: "Righe camera/prezzo da verificare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
+    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", source_not_retested: "Scheda non ritestata nel test rapido", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", rate_limited: "Portale temporaneamente limitato", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", dated_search_inconclusive: "Ricerca datata non conclusiva", no_public_rate: "Nessuna tariffa pubblica rilevata", needs_human_review: "Preventivo da verificare", quote_candidates: "Tariffe rilevate e strutturate", quote_candidates_unverified: "Prezzi rilevati, attribuzione da completare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
     const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
     const pilotRows = pilotChannelIds.map((otaId) => {
       const entries = pilotObservations.filter((item) => item.otaId === otaId);
@@ -5920,7 +5940,7 @@ export default function App() {
           const platform = reportChannels.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId;
           const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes].filter(Boolean).join(" · ");
           const roomAndPlan = [quote.roomType || "Da verificare", quote.ratePlan].filter(Boolean).join(" · ");
-          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Riga tariffaria verificata dal parser" : "Candidato tariffario da verificare"}</td></tr>`;
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Camera e prezzo validati dal parser" : "Prezzo rilevato · attribuzione da completare"}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
     const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
@@ -7080,7 +7100,7 @@ export default function App() {
               </tr>)}</tbody>
             </table>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-[#50627F]">Gli esiti della prova locale compaiono ora direttamente nella tabella: “Date non confermate”, “Preventivo da verificare” o “Candidati prezzo” non equivalgono a una tariffa valida. “Non verificato” resta solo quando non esiste alcuna prova per quel mese e canale. Se il calendario futuro non è aperto su più canali e date, verificare in extranet finestra di vendita, tariffe 2027, restrizioni e sincronizzazione.</p>
+          <p className="mt-2 text-[10px] leading-4 text-[#50627F]"><b>Come leggere la tabella:</b> “Tariffe rilevate” significa che Velora ha letto importi reali sulla scheda OTA per le date testate. “Camera e prezzo validati” significa che il parser ha associato l’importo alla relativa camera; il confronto tra OTA richiede ancora condizioni omogenee, tasse e stessa unità. “Prezzi rilevati · attribuzione da verificare” significa che gli importi sono presenti, ma non sono ancora collegati con sufficiente certezza a camera e piano tariffario. “Non verificato” compare solo quando quel mese/canale non è stato ancora controllato.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Annota esempi specifici, non soltanto il voto medio. Un campione pubblico non equivale all'analisi di tutte le recensioni. Valuta le foto da 1 a 10 rispetto a uno shooting alberghiero professionale.</p>
