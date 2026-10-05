@@ -29,7 +29,18 @@ from booking_engine import detect_booking_engine
 
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
-DATE_URL_ADAPTERS = {"booking", "airbnb"}
+OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
+OTA_META = {
+    "booking": {"label": "Booking.com", "domains": ("booking.com",)},
+    "airbnb": {"label": "Airbnb", "domains": ("airbnb.com", "airbnb.it")},
+    "expedia": {"label": "Expedia", "domains": ("expedia.com", "expedia.it")},
+    "hotels": {"label": "Hotels.com", "domains": ("hotels.com",)},
+    "vrbo": {"label": "Vrbo", "domains": ("vrbo.com", "vrbo.it")},
+    "agoda": {"label": "Agoda", "domains": ("agoda.com",)},
+    "trip": {"label": "Trip.com", "domains": ("trip.com",)},
+    "holidaycheck": {"label": "HolidayCheck", "domains": ("holidaycheck.com", "holidaycheck.it")},
+}
+DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck"}
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -72,6 +83,14 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
                      group_adults="2", no_rooms="1", group_children="0")
     elif channel == "airbnb":
         query.update(check_in=stay["checkin"], check_out=stay["checkout"], adults="2")
+    elif channel in {"expedia", "hotels"}:
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2")
+    elif channel == "vrbo":
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2")
+    elif channel == "agoda":
+        query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0")
+    elif channel == "trip":
+        query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1")
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
@@ -345,6 +364,376 @@ async def dismiss_cookie(page) -> str:
         except Exception:
             pass
     return ""
+
+
+
+def _decode_search_target(href: str) -> str:
+    """Decodifica link diretti o redirect di Google/Bing senza limitarsi a Booking."""
+    try:
+        raw=str(href or "").strip()
+        if not raw:
+            return ""
+        absolute=raw if raw.startswith(("http://","https://")) else ""
+        parsed=urlparse(absolute or raw)
+        if not absolute and raw.startswith(("/url?","/link?")):
+            query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+            absolute=query.get("q") or query.get("url") or query.get("u") or ""
+        if not absolute:
+            return ""
+        parsed=urlparse(absolute)
+        host=(parsed.hostname or "").lower()
+        query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+        if "google." in host and parsed.path in {"/url","/aclk"}:
+            absolute=query.get("q") or query.get("url") or query.get("adurl") or ""
+        elif host.endswith("bing.com") and parsed.path.startswith("/ck/"):
+            encoded=query.get("u") or ""
+            if encoded.startswith("a1"):
+                token=encoded[2:] + "=" * (-len(encoded[2:]) % 4)
+                try:
+                    absolute=base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8","ignore")
+                except Exception:
+                    pass
+        absolute=unquote(str(absolute or ""))
+        parsed=urlparse(absolute)
+        if parsed.scheme not in {"http","https"} or not parsed.hostname:
+            return ""
+        return urlunparse(parsed._replace(fragment=""))
+    except Exception:
+        return ""
+
+
+def _classify_ota_url(url: str) -> str:
+    try:
+        host=(urlparse(url).hostname or "").lower().removeprefix("www.")
+        path=(urlparse(url).path or "").lower()
+    except Exception:
+        return ""
+    for ota_id,meta in OTA_META.items():
+        if any(host==domain or host.endswith("." + domain) for domain in meta["domains"]):
+            # Esclude home e pagine di ricerca chiaramente generiche.
+            if path in {"","/"}:
+                return ""
+            if ota_id=="booking" and "/hotel/" not in path:
+                return ""
+            if ota_id=="airbnb" and not any(token in path for token in ("/rooms/","/hotel/")):
+                return ""
+            if ota_id in {"expedia","hotels"} and any(token in path.lower() for token in ("/hotel-search","/search")):
+                return ""
+            return ota_id
+    return ""
+
+
+def _master_identity_query(property_name: str, city: str, address: str) -> str:
+    parts=[]
+    if property_name.strip():
+        parts.append(f'"{property_name.strip()}"')
+    if address.strip():
+        parts.append(f'"{address.strip()}"')
+    elif city.strip():
+        parts.append(f'"{city.strip()}"')
+    return " ".join(parts)
+
+
+async def _search_result_links(page, query: str, engine: str = "Google") -> tuple[list[dict], str]:
+    if engine=="Google":
+        url="https://www.google.com/search?" + urlencode({"q":query,"hl":"it","num":"20"})
+    else:
+        url="https://www.bing.com/search?" + urlencode({"q":query,"setlang":"it"})
+    response=await page.goto(url,wait_until="domcontentloaded",timeout=30000)
+    await page.wait_for_timeout(1200)
+    await dismiss_cookie(page)
+    body=(await page.locator("body").inner_text(timeout=7000))[:20000]
+    if response and response.status>=400:
+        return [],f"{engine}: HTTP {response.status}"
+    if any(word in body.lower() for word in BLOCK_WORDS):
+        return [],f"{engine}: pagina di verifica/blocco"
+    links=await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,900).map(a => {
+      const box=a.closest('div,li,article,[data-testid]') || a.parentElement;
+      return {
+        href:a.getAttribute('href') || '',
+        text:(a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,360),
+        context:(box?.innerText || '').replace(/\s+/g,' ').trim().slice(0,1300)
+      };
+    })""")
+    return links,url
+
+
+async def verify_ota_candidate_page(context, ota_id: str, url: str, property_name: str, city: str, address: str, robots: dict) -> dict:
+    permission=await asyncio.to_thread(allowed_by_robots,url,robots)
+    if permission is not True:
+        return {"ok":False,"score":0.0,"title":"","evidence":"Pagina candidata non verificata: robots.txt non consente o non chiarisce l'accesso."}
+    page=await context.new_page()
+    try:
+        response=await page.goto(url,wait_until="domcontentloaded",timeout=25000)
+        if not response or response.status>=400:
+            return {"ok":False,"score":0.0,"title":"","evidence":f"Pagina candidata HTTP {response.status if response else 'n.d.'}."}
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(900)
+        body=(await page.locator("body").inner_text(timeout=6500))[:18000]
+        if any(word in body.lower() for word in BLOCK_WORDS):
+            return {"ok":False,"score":0.0,"title":"","evidence":"Il portale ha mostrato una verifica/blocco; nessun aggiramento tentato."}
+        title=(await page.title())[:260]
+        try:
+            h1=page.locator("h1").first
+            if await h1.count():
+                h1_text=re.sub(r"\s+"," ",(await h1.inner_text(timeout=500)) or "").strip()
+                if h1_text:
+                    title=h1_text
+        except Exception:
+            pass
+        score,path_slug,text_score,url_score,reasons=_identity_match_score(
+            property_name,city,address,title,body[:2500],page.url
+        )
+        # La pagina candidata proviene già dal dominio OTA corretto: città/indirizzo sono segnali forti.
+        ok=score>=0.70
+        return {
+            "ok":ok,"score":round(score,3),"title":title[:220],
+            "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+            "evidence":reasons,
+            "otaId":ota_id,
+        }
+    except Exception as exc:
+        return {"ok":False,"score":0.0,"title":"","evidence":f"Verifica pagina fallita: {type(exc).__name__}: {str(exc)[:120]}"}
+    finally:
+        await page.close()
+
+
+async def discover_otas_from_master_search(context, data: dict, robots: dict) -> tuple[dict, dict]:
+    """FIRST/SECOND STEP: una ricerca master, poi analisi dei risultati OTA trovati."""
+    name=str(data.get("name") or "")
+    city=str(data.get("city") or "")
+    address=str(data.get("address") or "")
+    query=_master_identity_query(name,city,address)
+    diagnostics={"query":query,"engine":"Google","status":"pending","candidates":0}
+    if not query:
+        diagnostics.update(status="missing_identity")
+        return {},diagnostics
+
+    discoveries={}
+    raw_candidates={ota_id:[] for ota_id in OTA_DISCOVERY_ORDER}
+    page=await context.new_page()
+    try:
+        links,search_url=await _search_result_links(page,query,"Google")
+        diagnostics["searchUrl"]=search_url
+        if not links:
+            diagnostics["status"]="google_no_results"
+        else:
+            diagnostics["status"]="google_results"
+        for item in links:
+            target=_decode_search_target(str(item.get("href") or ""))
+            ota_id=_classify_ota_url(target)
+            if not ota_id:
+                continue
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+            )
+            raw_candidates[ota_id].append((score,target,str(item.get("text") or ""),reasons))
+            diagnostics["candidates"]+=1
+    except Exception as exc:
+        diagnostics.update(status="google_error",error=f"{type(exc).__name__}: {str(exc)[:160]}")
+    finally:
+        await page.close()
+
+    # Se Google non espone link leggibili, usa lo stesso concetto con il feed pubblico Bing.
+    if diagnostics["candidates"]==0:
+        diagnostics["fallback"]="Bing RSS"
+        items=await asyncio.to_thread(_bing_rss_items,query)
+        for item in items:
+            target=_decode_search_target(str(item.get("link") or ""))
+            ota_id=_classify_ota_url(target)
+            if not ota_id:
+                desc=unquote(str(item.get("description") or ""))
+                for match in re.findall(r'https?://[^\s<>"\']+',desc,re.I):
+                    candidate=_decode_search_target(match)
+                    channel=_classify_ota_url(candidate)
+                    if channel:
+                        target,ota_id=candidate,channel
+                        break
+            if not ota_id:
+                continue
+            context_text=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("title") or ""),context_text,target
+            )
+            raw_candidates[ota_id].append((score,target,str(item.get("title") or ""),reasons))
+            diagnostics["candidates"]+=1
+
+    for ota_id in OTA_DISCOVERY_ORDER:
+        candidates=raw_candidates.get(ota_id) or []
+        # dedup e ordina per qualità del risultato master
+        best_by_url={}
+        for row in candidates:
+            if row[1] not in best_by_url or row[0]>best_by_url[row[1]][0]:
+                best_by_url[row[1]]=row
+        candidates=sorted(best_by_url.values(),key=lambda row:row[0],reverse=True)
+        weak=[]
+        for score,url,title,reasons in candidates[:6]:
+            verify=await verify_ota_candidate_page(context,ota_id,url,name,city,address,robots)
+            if verify.get("ok"):
+                discoveries[ota_id]={
+                    "status":"found",
+                    "url":verify.get("url") or url,
+                    "title":verify.get("title") or title,
+                    "score":verify.get("score",score),
+                    "evidence":(
+                        f"Ricerca master Google/Bing «{query}»: risultato {OTA_META[ota_id]['label']} trovato e verificato aprendo la pagina. "
+                        f"Match risultato {score:.0%} ({reasons}); verifica pagina {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                    )[:900],
+                    "searchUrl":diagnostics.get("searchUrl",""),
+                    "discoveryMode":"master search + page verification",
+                }
+                break
+            weak.append((score,url,title,reasons,verify.get("evidence","")))
+        if ota_id not in discoveries and weak:
+            score,url,title,reasons,verify_evidence=weak[0]
+            discoveries[ota_id]={
+                "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
+                "evidence":(
+                    f"Ricerca master: candidato {OTA_META[ota_id]['label']} trovato ({score:.0%}, {reasons}) "
+                    f"ma non verificato con sufficiente certezza sulla pagina reale. {verify_evidence}"
+                )[:900],
+                "searchUrl":diagnostics.get("searchUrl",""),
+                "discoveryMode":"master search candidate",
+            }
+    return discoveries,diagnostics
+
+
+async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
+    """THIRD STEP: ricerca mirata sul singolo portale se la master search non basta."""
+    meta=OTA_META[ota_id]
+    name=str(data.get("name") or "")
+    city=str(data.get("city") or "")
+    address=str(data.get("address") or "")
+    base_domain=meta["domains"][0]
+    query=" ".join(part for part in (
+        f"site:{base_domain}",
+        f'"{name}"' if name else "",
+        f'"{address}"' if address else (f'"{city}"' if city else ""),
+    ) if part)
+    weak=[]
+    page=await context.new_page()
+    try:
+        links,search_url=await _search_result_links(page,query,"Google")
+        for item in links:
+            target=_decode_search_target(str(item.get("href") or ""))
+            if _classify_ota_url(target)!=ota_id:
+                continue
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+            )
+            verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
+            if verify.get("ok"):
+                return {
+                    "status":"found","url":verify.get("url") or target,
+                    "title":verify.get("title") or str(item.get("text") or ""),
+                    "score":verify.get("score",score),
+                    "evidence":(
+                        f"Ricerca mirata Google su {meta['label']}: «{query}». "
+                        f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                    )[:900],
+                    "searchUrl":search_url,"discoveryMode":"targeted Google + page verification",
+                }
+            weak.append((score,target,str(item.get("text") or ""),reasons,verify.get("evidence","")))
+    except Exception:
+        pass
+    finally:
+        await page.close()
+
+    # fallback RSS per la stessa OTA
+    items=await asyncio.to_thread(_bing_rss_items,query)
+    for item in items:
+        target=_decode_search_target(str(item.get("link") or ""))
+        if _classify_ota_url(target)!=ota_id:
+            continue
+        desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
+        score,path_slug,text_score,url_score,reasons=_identity_match_score(name,city,address,str(item.get("title") or ""),desc,target)
+        verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
+        if verify.get("ok"):
+            return {
+                "status":"found","url":verify.get("url") or target,
+                "title":verify.get("title") or str(item.get("title") or ""),
+                "score":verify.get("score",score),
+                "evidence":(
+                    f"Ricerca mirata {meta['label']} con fallback Bing RSS: «{query}». "
+                    f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                )[:900],
+                "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
+                "discoveryMode":"targeted Bing RSS + page verification",
+            }
+        weak.append((score,target,str(item.get("title") or ""),reasons,verify.get("evidence","")))
+
+    weak.sort(key=lambda row:row[0],reverse=True)
+    if weak:
+        score,url,title,reasons,verify_evidence=weak[0]
+        return {
+            "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
+            "evidence":(
+                f"Ricerca mirata {meta['label']} completata. Miglior candidato {score:.0%} ({reasons}) "
+                f"ma pagina non verificata con sufficiente certezza. {verify_evidence}"
+            )[:900],
+            "searchUrl":"","discoveryMode":"targeted search exhausted",
+        }
+    return {
+        "status":"not_found_in_search","url":"","title":"","score":0.0,
+        "evidence":f"Ricerca mirata {meta['label']} completata senza una scheda verificabile.",
+        "searchUrl":"","discoveryMode":"targeted search exhausted",
+    }
+
+
+async def discover_all_ota_sources(context, data: dict, robots: dict) -> tuple[dict,dict]:
+    """Pipeline: master search -> analisi risultati -> ricerca mirata delle OTA mancanti."""
+    discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots)
+    for ota_id in OTA_DISCOVERY_ORDER:
+        current=discoveries.get(ota_id)
+        if current and current.get("status")=="found":
+            continue
+        targeted=await discover_single_ota_targeted(context,ota_id,data,robots)
+        if targeted.get("status")=="found":
+            discoveries[ota_id]=targeted
+        elif ota_id not in discoveries:
+            discoveries[ota_id]=targeted
+    return discoveries,diagnostics
+
+
+async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
+    """FOURTH STEP: estrae prezzi visibili dal portale trovato, senza inventare condizioni."""
+    rows=await page.evaluate(r"""() => {
+      const selectors=[
+        '[data-testid*="price"]','[class*="price"]','[data-stid*="price"]',
+        '[data-testid*="room"]','[class*="room"]'
+      ];
+      const result=[]; const seen=new Set();
+      for (const selector of selectors) {
+        for (const node of Array.from(document.querySelectorAll(selector)).slice(0,160)) {
+          const container=node.closest('article,li,tr,[data-testid*="room"],[class*="room"],div') || node;
+          const text=(container.innerText || container.textContent || '').replace(/\s+/g,' ').trim();
+          if (!text || text.length<8 || seen.has(text)) continue;
+          seen.add(text); result.push(text.slice(0,1800));
+        }
+      }
+      return result.slice(0,100);
+    }""")
+    out=[]
+    for text_value in rows:
+        total=_money_value(str(text_value))
+        if total is None:
+            continue
+        low=str(text_value).lower()
+        explicit=any(token in low for token in (f"{stay['nights']} nott","totale","total","price for","prezzo per"))
+        out.append({
+            "roomType":"Tipologia camera da verificare",
+            "total":round(total,2),"currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":"Trattamento da verificare","refund":"Cancellazione da verificare",
+            "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
+            "verified":False,
+            "evidence":str(text_value)[:900] + (" | Totale soggiorno esplicito." if explicit else ""),
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["total"],item["evidence"][:180])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:12]
 
 
 def booking_search_url(property_name: str, city: str = "") -> str:
@@ -1547,7 +1936,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
             else:
-                record.update(status="needs_human_review", evidence="Date visibili, ma camera/piano/tasse/prezzo finale non attribuibili automaticamente con sicurezza.")
+                candidates=await generic_ota_quote_candidates(page,stay)
+                record["quotes"]=candidates
+                if candidates:
+                    first=candidates[0]
+                    record.update(
+                        status="quote_candidates_unverified",
+                        evidence=(
+                            f"Date confermate nel portale. Rilevati {len(candidates)} candidati prezzo visibili. "
+                            f"Esempio €{first['total']:.2f}; camera, tasse e condizioni restano da verificare prima del confronto."
+                        )[:900],
+                    )
+                else:
+                    record.update(
+                        status="needs_human_review",
+                        evidence="Date visibili, ma nessun prezzo attribuibile automaticamente con sufficiente certezza nella pagina OTA."
+                    )
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
         record["visibleExcerpt"] = re.sub(r"\s+", " ", body)[:350]
     except Exception as exc:
@@ -1757,49 +2161,59 @@ async def run(args: argparse.Namespace) -> dict:
             except OSError:
                 pass
 
-            if not sources.get("booking", {}).get("url"):
-                official_identity_url=(sources.get("sito") or {}).get("url","")
-                catalog_match=data.get("catalogMatch") if isinstance(data.get("catalogMatch"),dict) else {}
-                if catalog_match:
-                    print(
-                        f"catalog identity: {data.get('name','')} · {data.get('city','')} · "
-                        f"{data.get('address','')} · match {catalog_match.get('score','')} · {catalog_match.get('reason','')}",
-                        flush=True,
+            official_identity_url=(sources.get("sito") or {}).get("url","")
+            master_discoveries,master_diag=await discover_all_ota_sources(context,data,robots)
+            result["masterSearch"]=master_diag
+            print(
+                f"master search: {master_diag.get('status')} · query={master_diag.get('query','')} · "
+                f"candidati OTA={master_diag.get('candidates',0)}",
+                flush=True,
+            )
+
+            for ota_id in OTA_DISCOVERY_ORDER:
+                existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
+                if existing_url:
+                    result["discoveredSources"][ota_id]={
+                        "status":"existing","url":existing_url,"title":"","score":1.0,
+                        "evidence":f"{OTA_META[ota_id]['label']}: scheda già registrata nella struttura.",
+                        "discoveryMode":"existing source",
+                    }
+                    continue
+                discovery=master_discoveries.get(ota_id) or {}
+                # Booking mantiene il proprio fallback specializzato se la pipeline master non chiude il match.
+                if ota_id=="booking" and discovery.get("status")!="found":
+                    specialized=await discover_booking_source(
+                        context,
+                        data.get("name",""),
+                        data.get("city",""),
+                        robots,
+                        address=data.get("address",""),
+                        website=official_identity_url,
+                        phone=data.get("phone",""),
+                        email=data.get("email",""),
                     )
-                discovery = await discover_booking_source(
-                    context,
-                    data.get("name", ""),
-                    data.get("city", ""),
-                    robots,
-                    address=data.get("address", ""),
-                    website=official_identity_url,
-                    phone=data.get("phone", ""),
-                    email=data.get("email", ""),
-                )
-                result["discoveredSources"]["booking"] = discovery
+                    if specialized.get("status")=="found" or not discovery:
+                        discovery=specialized
+                result["discoveredSources"][ota_id]=discovery
                 print(
-                    f"booking discovery: {discovery.get('status')} · {discovery.get('title','')} · "
-                    f"{discovery.get('evidence','')[:220]}",
+                    f"{ota_id} discovery: {discovery.get('status','n.d.')} · {discovery.get('title','')} · "
+                    f"{str(discovery.get('evidence') or '')[:220]}",
                     flush=True,
                 )
-                if discovery.get("status") == "found" and discovery.get("url"):
-                    sources["booking"] = {"label": "Booking.com", "url": discovery["url"]}
-                    try:
-                        property_path=Path(args.property)
-                        if property_path.parent.name=="runtime-properties":
-                            data["sources"]=sources
-                            tmp_property=property_path.with_suffix(".tmp")
-                            tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
-                            tmp_property.replace(property_path)
-                            discovery["saved"]=True
-                            discovery["evidence"]=(str(discovery.get("evidence") or "")+" Scheda Booking registrata localmente per i controlli successivi.")[:900]
-                    except OSError:
-                        discovery["saved"]=False
-            else:
-                result["discoveredSources"]["booking"] = {
-                    "status": "existing", "url": sources["booking"]["url"], "title": "",
-                    "score": 1.0, "evidence": "Scheda Booking.com già registrata nella struttura."
-                }
+                if discovery.get("status")=="found" and discovery.get("url"):
+                    sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":discovery["url"]}
+
+            # Salva tutte le schede OTA trovate insieme, non soltanto Booking.
+            try:
+                property_path=Path(args.property)
+                if property_path.parent.name=="runtime-properties":
+                    data["sources"]=sources
+                    tmp_property=property_path.with_suffix(".tmp")
+                    tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                    tmp_property.replace(property_path)
+            except OSError:
+                pass
+
 
             official_url = sources.get("sito", {}).get("url", "")
             if official_url:
