@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import ipaddress
 import json
+import os
 import re
 import secrets
 import threading
@@ -622,8 +623,12 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v4",
+                "agentVersion":"velora-local-agent-v5",
                 "catalog":catalog_public_summary(),
+                "aiWebSearch":{
+                    "configured":bool(str(os.environ.get("VELORA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()),
+                    "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-5.5"),
+                },
             })
             return
         if route=="/api/pilot/status":
