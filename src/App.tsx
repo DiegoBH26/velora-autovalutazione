@@ -4475,7 +4475,7 @@ export default function App() {
   const initialUiState = useMemo(() => loadUiState(), []);
   const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
   const [activeStructureId, setActiveStructureId] = useState<string | null>(null);
-  const [showStructures, setShowStructures] = useState(initialUiState.showStructures === true);
+  const [showStructures, setShowStructures] = useState(true);
   const [hydrated, setHydrated] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
@@ -4558,11 +4558,9 @@ export default function App() {
   useEffect(() => {
     const saveUiState = () => {
       const payload: PersistedUiState = {
-        showStructures,
         activeMacroId,
         searchTerm,
         auditSourceFilter,
-        scrollY: window.scrollY,
         autoAuditDraft,
       };
       window.sessionStorage.setItem(UI_STATE_KEY, JSON.stringify(payload));
@@ -4576,14 +4574,12 @@ export default function App() {
       window.removeEventListener("pagehide", saveUiState);
       window.removeEventListener("beforeunload", saveUiState);
     };
-  }, [showStructures, activeMacroId, searchTerm, auditSourceFilter, autoAuditDraft]);
+  }, [activeMacroId, searchTerm, auditSourceFilter, autoAuditDraft]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    const y = Number(initialUiState.scrollY || 0);
-    if (!Number.isFinite(y) || y <= 0) return;
-    window.requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
-  }, [hydrated]);
+    if (!hydrated || !showStructures) return;
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+  }, [hydrated, showStructures]);
 
   useEffect(() => {
     if (!localPilotToken) return;
@@ -5108,6 +5104,12 @@ export default function App() {
 
   function updateOwnerInfo<K extends keyof OwnerInfo>(key: K, value: OwnerInfo[K]) {
     setOwnerInfo((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function openStructuresHome() {
+    setIsCustomizingInterview(false);
+    setShowStructures(true);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   }
 
   function openStructure(structure: AnalyzedStructure) {
@@ -7442,7 +7444,7 @@ export default function App() {
                 <p className="text-[11px] font-black uppercase tracking-[0.22em] text-[#C8A96B]">Archivio consulenziale</p>
                 <h1 className="mt-2 text-3xl font-black">Strutture analizzate</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-[#50627F]">
-                  Apri la scheda compilata per consultare o aggiornare i riscontri. Il PDF disponibile è il report alla data indicata.
+                  Questa è la home dell'audit: da qui apri volontariamente una struttura, avvii una nuova analisi o consulti i report. Rientrando in Velora tornerai sempre a questo elenco.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -7450,9 +7452,9 @@ export default function App() {
                   Importa audit JSON
                   <input type="file" accept=".json,application/json" onChange={importAuditDataset} className="sr-only" />
                 </label>
-                <button type="button" onClick={() => setShowStructures(false)} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
-                  Torna al questionario
-                </button>
+                {activeStructureId && <button type="button" onClick={() => { setShowStructures(false); window.scrollTo({ top: 0, behavior: "auto" }); }} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-5 py-3 text-sm font-black hover:bg-[#F3EEF9]">
+                  Torna alla scheda aperta
+                </button>}
               </div>
             </div>
           </section>
@@ -7775,7 +7777,7 @@ export default function App() {
                 Apri report PDF originale
               </button>
             )}
-            <button type="button" onClick={() => setShowStructures(true)} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+            <button type="button" onClick={openStructuresHome} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
               Strutture analizzate
             </button>
           </div>
