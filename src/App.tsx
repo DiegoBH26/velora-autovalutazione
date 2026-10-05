@@ -4691,37 +4691,52 @@ export default function App() {
   }
 
   function applyPilotEvidence(result: BrowserPilotResult) {
-    const bookingDiscovery = result.discoveredSources?.booking;
-    if (bookingDiscovery?.status === "found" && bookingDiscovery.url) {
-      updateAnswer("audit-ota-booking", {
-        auditStatus: "present",
-        note:
-          "Esito: Presente\n" +
-          "Riscontro osservato: è stata individuata una scheda Booking.com attribuibile alla struttura.\n" +
-          "Motivo dell'esito: la ricerca pubblica ha restituito una corrispondenza con similarità sufficiente.\n" +
-          "Scheda rilevata: " + (bookingDiscovery.title || "titolo non disponibile") + "\n" +
-          "Fonte: " + bookingDiscovery.url + "\n" +
-          "Dettaglio tecnico: " + (bookingDiscovery.evidence || "nessun dettaglio aggiuntivo"),
-      });
-    } else if (bookingDiscovery && bookingDiscovery.status !== "existing") {
-      updateAnswer("audit-ota-booking", {
-        auditStatus: "unverified",
-        note:
-          "Esito: Da verificare\n" +
-          "Riscontro osservato: la ricerca automatica Booking.com non ha prodotto una scheda attribuibile con sufficiente certezza.\n" +
-          "Motivo dell'esito: " + (bookingDiscovery.evidence || bookingDiscovery.status) + "\n" +
-          "Questo non prova che la struttura sia assente da Booking.com.",
-      });
-    }
+    const otaLabels: Record<string, string> = {
+      booking: "Booking.com",
+      airbnb: "Airbnb",
+      expedia: "Expedia",
+      hotels: "Hotels.com",
+      vrbo: "Vrbo",
+      agoda: "Agoda",
+      trip: "Trip.com",
+      holidaycheck: "HolidayCheck",
+    };
+
+    Object.entries(result.discoveredSources || {}).forEach(([otaId, discovery]) => {
+      if (!otaLabels[otaId] || !discovery) return;
+      const answerId = `audit-ota-${otaId}`;
+      if (discovery.status === "found" && discovery.url) {
+        updateAnswer(answerId, {
+          auditStatus: "present",
+          note:
+            "Esito: Presente\n" +
+            `Riscontro osservato: Velora ha individuato una scheda ${otaLabels[otaId]} attribuibile alla struttura.\n` +
+            "Motivo dell'esito: la ricerca master e/o la ricerca mirata hanno prodotto un candidato verificato sulla pagina reale.\n" +
+            "Scheda rilevata: " + (discovery.title || "titolo non disponibile") + "\n" +
+            "Fonte: " + discovery.url + "\n" +
+            "Dettaglio tecnico: " + (discovery.evidence || "nessun dettaglio aggiuntivo"),
+        });
+      } else if (discovery.status !== "existing") {
+        updateAnswer(answerId, {
+          auditStatus: "unverified",
+          note:
+            "Esito: Da verificare\n" +
+            `Riscontro osservato: la ricerca automatica ${otaLabels[otaId]} non ha prodotto una scheda attribuibile con sufficiente certezza.\n` +
+            "Motivo dell'esito: " + (discovery.evidence || discovery.status) + "\n" +
+            `Questo non prova che la struttura sia assente da ${otaLabels[otaId]}.`,
+        });
+      }
+    });
 
     const bookingObs = result.observations.filter((item) => item.otaId === "booking");
     if (bookingObs.length) {
       const withQuotes = bookingObs.filter((item) => Array.isArray(item.quotes) && item.quotes.length);
       const verifiedCandidates = withQuotes.flatMap((item) => (item.quotes || []).filter((quote) => quote.verified));
+      const noRate = bookingObs.filter((item) => item.status === "no_public_rate").length;
       const evidence =
         "Campionamento futuro Booking.com: " + bookingObs.length + " date/mese controllati. " +
         "Righe camera/prezzo rilevate in " + withQuotes.length + " controlli; candidati con riferimento esplicito a totale/soggiorno: " +
-        verifiedCandidates.length + ".";
+        verifiedCandidates.length + "; date con nessuna tariffa pubblica esplicitamente rilevata: " + noRate + ".";
       updateAnswer("audit-policy-booking", {
         note:
           evidence +
