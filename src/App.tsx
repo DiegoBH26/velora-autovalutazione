@@ -5911,7 +5911,17 @@ export default function App() {
       const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || (otaId === "sito" ? "Sito diretto" : otaId);
       return `<tr><td><b>${safe(platform)}</b></td><td class="center">${entries.length}</td><td>${safe(counts)}</td><td>${safe(example)}</td></tr>`;
     });
-    const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. Questi esiti <b>non sono preventivi</b>: nessun prezzo o delta è stato aggiunto automaticamente senza conferma di date, camera e condizioni. “Non verificato” non indica disponibilità chiusa.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table><p>Il file JSON locale conserva date e URL di ogni controllo. Le tariffe storiche riportate nelle tabelle precedenti sono indipendenti da questa prova.</p></section>` : "";
+    const pilotQuoteRows = pilotObservations.flatMap((observation) =>
+      (observation.quotes || []).map((quote) => ({ observation, quote }))
+    );
+    const pilotQuoteTableHtml = pilotQuoteRows.length
+      ? `<h3>Tariffe rilevate automaticamente</h3><p>Queste righe sono state lette direttamente dalle pagine OTA sulle date indicate. Restano separate dai calcoli di delta finché camera, tasse e condizioni non sono confermate come perfettamente comparabili.</p><table><thead><tr><th>Canale</th><th>Date</th><th>Camera / piano</th><th>Totale</th><th>Condizioni</th><th>Stato</th></tr></thead><tbody>${pilotQuoteRows.slice(0,120).map(({ observation, quote }) => {
+          const platform = reportChannels.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId;
+          const conditions = [quote.board, quote.refund, quote.taxes].filter(Boolean).join(" · ");
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(quote.roomType || "Da verificare")}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Riga tariffaria verificata dal parser" : "Candidato tariffario da verificare"}</td></tr>`;
+        }).join("")}</tbody></table>`
+      : "";
+    const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
 
     const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
       const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id, browserPilotResult);
@@ -6976,7 +6986,27 @@ export default function App() {
             </div>}
             {localPilotMessage && <p className="mt-2 text-[11px] font-semibold text-[#23124A]" role="status">{localPilotMessage}</p>}
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
-            {browserPilotResult?.propertyId === activeAuditData.id && <p className="mt-2 text-[11px] font-semibold text-[#23124A]">{browserPilotResult.observations.length} controlli importati · nessun prezzo aggiunto automaticamente · esiti inclusi nel prossimo report PDF.</p>}
+            {browserPilotResult?.propertyId === activeAuditData.id && <>
+              <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
+                {browserPilotResult.observations.length} controlli importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe tariffarie memorizzate · esiti inclusi nel prossimo report PDF.
+              </p>
+              {browserPilotResult.observations.some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
+                <table className="w-full border-collapse text-[10px]">
+                  <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">Totale</th><th className="p-2 text-left">Condizioni</th></tr></thead>
+                  <tbody>
+                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
+                      <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className="border-t border-[#EEE8F4] align-top">
+                        <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
+                        <td className="p-2">{observation.checkin} → {observation.checkout}</td>
+                        <td className="p-2">{quote.roomType}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span></td>
+                        <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}</td>
+                        <td className="p-2">{[quote.board, quote.refund].filter(Boolean).join(" · ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>}
+            </>}
           </div>
           <h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Ogni cifra è un preventivo datato diviso per le notti. Δ = (prezzo OTA / prezzo Booking − 1) × 100. Un numero nella colonna Δ compare solo con unità fisica e condizioni identiche, rilevate lo stesso giorno; altrimenti n.d. La tabella descrittiva delle politiche commerciali resta invariata.</p>
