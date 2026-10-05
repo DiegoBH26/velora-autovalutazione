@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v35"
+PILOT_BUILD = "velora-browser-pilot-v36"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -3465,20 +3465,29 @@ async def booking_probe_direct_dated_detail(page, source: str, stay: dict, robot
         except Exception:
             body=""
 
+        candidates=await booking_quote_candidates(probe,stay)
+        verified=[item for item in candidates if item.get("verified")]
         unavailable_hit=booking_unavailability_message(body)
-        if unavailable_hit:
+        print(
+            f"{stay['month']} booking-rate-diagnostics [direct detail]: "
+            f"candidates={len(candidates)} · verified={len(verified)} · "
+            f"unavailable={unavailable_hit or 'no'}",
+            flush=True,
+        )
+
+        # Un messaggio generico di indisponibilità può convivere nella pagina con
+        # camere/tariffe realmente prenotabili (es. una tipologia o un piano non
+        # disponibile). Se ci sono prezzi attribuibili, prevalgono le tariffe.
+        if not candidates and unavailable_hit:
             return {
                 "status":"no_public_rate","finalUrl":probe.url,"title":(await probe.title())[:200],
                 "quotes":[],
                 "evidence":(
                     f"Scheda Booking esatta aperta direttamente con date confermate "
                     f"({date_mode or 'pagina renderizzata'}) {stay['checkin']} → {stay['checkout']}. "
-                    f"Booking mostra indisponibilità («{unavailable_hit}»)."
+                    f"Nessuna riga camera/prezzo rilevata e Booking mostra indisponibilità («{unavailable_hit}»)."
                 )[:900],
             }
-
-        candidates=await booking_quote_candidates(probe,stay)
-        verified=[item for item in candidates if item.get("verified")]
         if verified:
             first=verified[0]
             return {
@@ -3677,20 +3686,25 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
     if dates_ok_after:
         date_mode=date_mode_after or date_mode
 
+    candidates=await booking_quote_candidates(page,stay)
+    verified=[item for item in candidates if item.get("verified")]
     unavailable_hit=booking_unavailability_message(body)
-    if unavailable_hit:
+    print(
+        f"{stay['month']} booking-rate-diagnostics [follow listing]: "
+        f"candidates={len(candidates)} · verified={len(verified)} · "
+        f"unavailable={unavailable_hit or 'no'}",
+        flush=True,
+    )
+    if not candidates and unavailable_hit:
         return {
             "status":"no_public_rate","finalUrl":final_url,"title":title,"quotes":[],
             "evidence":(
                 f"{click_evidence or 'scheda esatta aperta'}; date confermate ({date_mode or 'pagina renderizzata'}) "
                 f"{stay['checkin']} → {stay['checkout']}. "
-                f"Booking mostra indisponibilità («{unavailable_hit}»). "
+                f"Nessuna riga camera/prezzo rilevata e Booking mostra indisponibilità («{unavailable_hit}»). "
                 "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date."
             )[:900],
         }
-
-    candidates=await booking_quote_candidates(page,stay)
-    verified=[item for item in candidates if item.get("verified")]
     if verified:
         first=verified[0]
         return {
@@ -3905,25 +3919,26 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             )
         else:
             if channel == "booking":
+                candidates = await booking_quote_candidates(page, stay)
+                record["quotes"] = candidates
+                verified = [item for item in candidates if item.get("verified")]
                 unavailable_hit = booking_unavailability_message(body)
-                if unavailable_hit:
+                print(
+                    f"{stay['month']} booking-rate-diagnostics [observe]: "
+                    f"candidates={len(candidates)} · verified={len(verified)} · "
+                    f"unavailable={unavailable_hit or 'no'}",
+                    flush=True,
+                )
+                if not candidates and unavailable_hit:
                     record.update(
                         status="no_public_rate",
                         evidence=(
                             f"Date confermate ({date_confirmation_mode or 'pagina renderizzata'}): "
                             f"{stay['checkin']} → {stay['checkout']}. "
-                            f"Booking mostra un messaggio di indisponibilità («{unavailable_hit}»). "
-                            "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date; "
-                            "la causa non è determinabile automaticamente."
+                            f"Nessuna riga camera/prezzo rilevata e Booking mostra un messaggio di indisponibilità («{unavailable_hit}»). "
+                            "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date."
                         )[:900],
                     )
-                    candidates = []
-                else:
-                    candidates = await booking_quote_candidates(page, stay)
-                record["quotes"] = candidates
-                verified = [item for item in candidates if item.get("verified")]
-                if unavailable_hit:
-                    pass
                 elif verified:
                     first = verified[0]
                     record.update(
