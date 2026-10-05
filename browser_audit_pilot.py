@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v39"
+PILOT_BUILD = "velora-browser-pilot-v40"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -4397,6 +4397,436 @@ async def resolve_identity_from_official_site(context, data: dict, robots: dict)
         await page.close()
 
 
+
+REVIEW_THEME_RULES = {
+    "Posizione": ("posizione","location","centro","centrale","mare","spiaggia","beach","vicino","walking","a piedi"),
+    "Pulizia": ("pulizia","pulito","pulita","clean","cleanliness","igiene","sporco","sporca","polvere"),
+    "Accoglienza e staff": ("staff","personale","host","proprietario","accoglienza","gentile","disponibile","friendly","helpful","reception"),
+    "Colazione": ("colazione","breakfast","buffet","cornetto","caffè","caffe"),
+    "Camera e comfort": ("camera","room","letto","bed","materasso","comfort","spaziosa","spazioso","piccola","small"),
+    "Bagno": ("bagno","bathroom","doccia","shower","wc","toilet"),
+    "Climatizzazione": ("aria condizionata","condizionatore","air conditioning","a/c","ventilatore","caldo","hot"),
+    "Rumore": ("rumore","rumoroso","rumorosa","noise","noisy","insonorizz","silenzio","quiet"),
+    "Parcheggio": ("parcheggio","parking","posto auto","garage"),
+    "Wi-Fi": ("wifi","wi-fi","internet","connessione"),
+    "Rapporto qualità/prezzo": ("qualità prezzo","qualita prezzo","value for money","prezzo","price","costoso","expensive"),
+    "Servizi e dotazioni": ("piscina","pool","spa","jacuzzi","servizi","services","dotazioni","amenities","ristorante","restaurant"),
+    "Manutenzione": ("manutenzione","maintenance","rotto","rotta","broken","vecchio","vecchia","datato","datata","malfunzion"),
+}
+
+REVIEW_STOPWORDS = {
+    "che","con","per","una","uno","un","del","della","delle","dei","degli","nel","nella","nelle","non","sono","era","molto",
+    "anche","più","piu","come","ma","si","sì","the","and","for","was","were","very","with","this","that","from","have","had",
+    "our","your","you","they","their","hotel","struttura","camera","room","posto","place","stay","soggiorno","giorni","night","nights",
+}
+
+def _review_norm(value: str) -> str:
+    text=unicodedata.normalize("NFKD",str(value or "")).encode("ascii","ignore").decode("ascii").lower()
+    return re.sub(r"\s+"," ",text).strip()
+
+def _review_snippet(value: str, limit: int = 180) -> str:
+    text=re.sub(r"\s+"," ",str(value or "")).strip()
+    if len(text)<=limit:
+        return text
+    cut=text[:limit].rsplit(" ",1)[0].rstrip(" ,;:-")
+    return cut+"…"
+
+def analyze_review_sample(reviews: list[dict]) -> dict:
+    theme_stats={theme:{"positive":0,"negative":0,"neutral":0,"examplesPositive":[],"examplesNegative":[]} for theme in REVIEW_THEME_RULES}
+    words={}
+    stars=[]
+    responses=0
+
+    for review in reviews:
+        text=str(review.get("text") or "").strip()
+        norm=_review_norm(text)
+        star=review.get("stars")
+        if isinstance(star,(int,float)) and star>0:
+            stars.append(float(star))
+        if review.get("hasResponse"):
+            responses+=1
+        sentiment="positive" if isinstance(star,(int,float)) and star>=4 else "negative" if isinstance(star,(int,float)) and star<=3 else "neutral"
+
+        tokens=re.findall(r"[a-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ'-]{2,}",text.lower())
+        for token in tokens:
+            base=_review_norm(token)
+            if len(base)<4 or base in REVIEW_STOPWORDS:
+                continue
+            words[base]=words.get(base,0)+1
+
+        for theme,keywords in REVIEW_THEME_RULES.items():
+            if any(_review_norm(keyword) in norm for keyword in keywords):
+                stat=theme_stats[theme]
+                stat[sentiment]+=1
+                if sentiment=="positive" and len(stat["examplesPositive"])<3:
+                    stat["examplesPositive"].append(_review_snippet(text))
+                elif sentiment=="negative" and len(stat["examplesNegative"])<3:
+                    stat["examplesNegative"].append(_review_snippet(text))
+
+    strengths=[]
+    weaknesses=[]
+    isolated=[]
+    for theme,stat in theme_stats.items():
+        pos=int(stat["positive"])
+        neg=int(stat["negative"])
+        if pos>=2:
+            strengths.append({
+                "theme":theme,
+                "count":pos,
+                "weight":"alta" if pos>=5 else "media",
+                "examples":stat["examplesPositive"][:3],
+            })
+        if neg>=2:
+            weaknesses.append({
+                "theme":theme,
+                "count":neg,
+                "weight":"alta" if neg>=4 else "media",
+                "examples":stat["examplesNegative"][:3],
+            })
+        elif neg==1:
+            isolated.append({
+                "theme":theme,
+                "count":1,
+                "examples":stat["examplesNegative"][:2],
+            })
+
+    strengths.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
+    weaknesses.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
+    isolated.sort(key=lambda item:item["theme"])
+    keywords=sorted(words.items(),key=lambda item:(item[1],item[0]),reverse=True)[:18]
+    average=round(sum(stars)/len(stars),2) if stars else None
+    return {
+        "sampleSize":len(reviews),
+        "sampleAverage":average,
+        "responseCount":responses,
+        "responseRate":round(100*responses/len(reviews),1) if reviews else 0,
+        "strengths":strengths[:8],
+        "weaknesses":weaknesses[:8],
+        "isolatedSignals":isolated[:8],
+        "keywords":[{"word":word,"count":count} for word,count in keywords],
+    }
+
+async def google_reputation_observation(context, data: dict) -> dict:
+    """Campione pubblico Google Maps: rating, recensioni, temi ricorrenti ed esempi brevi."""
+    name=str(data.get("name") or "").strip()
+    city=str(data.get("city") or "").strip()
+    if not name:
+        return {"status":"missing_identity","evidence":"Nome struttura non disponibile per la ricerca Google."}
+
+    query=" ".join(part for part in (name,city) if part).strip()
+    url="https://www.google.com/maps/search/?" + urlencode({"api":"1","query":query})
+    page=await context.new_page()
+    try:
+        await page.goto(url,wait_until="domcontentloaded",timeout=30000)
+        for selector in (
+            "button:has-text('Accetta tutto')","button:has-text('Accetta')",
+            "button:has-text('Accept all')","button:has-text('Accept')",
+            "button:has-text('Rifiuta tutto')","button:has-text('Reject all')",
+        ):
+            try:
+                loc=page.locator(selector).first
+                if await loc.count() and await loc.is_visible(timeout=300):
+                    await loc.click(timeout=1200)
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception:
+                pass
+        await page.wait_for_timeout(2600)
+
+        # Se Maps mostra un elenco, scegli il risultato col nome più simile.
+        try:
+            candidates=page.locator('a[href*="/maps/place/"]')
+            count=min(await candidates.count(),30)
+            ranked=[]
+            for idx in range(count):
+                loc=candidates.nth(idx)
+                try:
+                    txt=re.sub(r"\s+"," ",(await loc.get_attribute("aria-label") or await loc.inner_text(timeout=400) or "")).strip()
+                    href=await loc.get_attribute("href") or ""
+                    if txt:
+                        ranked.append((_name_similarity(name,txt),loc,txt,href))
+                except Exception:
+                    continue
+            if ranked:
+                ranked.sort(key=lambda item:item[0],reverse=True)
+                score,loc,txt,_=ranked[0]
+                if score>=0.52:
+                    await loc.click(timeout=2200)
+                    await page.wait_for_timeout(2300)
+        except Exception:
+            pass
+
+        observed_name=""
+        for selector in ("h1","[role='main'] h1"):
+            try:
+                loc=page.locator(selector).first
+                if await loc.count():
+                    observed_name=re.sub(r"\s+"," ",await loc.inner_text(timeout=700)).strip()
+                    if observed_name:
+                        break
+            except Exception:
+                pass
+
+        rating=None
+        review_count=None
+        try:
+            meta=await page.evaluate(r"""() => {
+              const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
+              const texts=Array.from(document.querySelectorAll('button,span,div')).slice(0,2500).map(el=>({
+                text:clean(el.textContent),
+                aria:clean(el.getAttribute('aria-label'))
+              }));
+              let rating='';
+              let reviews='';
+              for (const item of texts) {
+                const hay=(item.aria+' '+item.text).toLowerCase();
+                if (!rating) {
+                  const m=hay.match(/\b([1-5](?:[.,]\d)?)\s*(?:stelle|stars?)\b/);
+                  if (m) rating=m[1];
+                }
+                if (!reviews) {
+                  const m=hay.match(/([\d.\s]+)\s*(?:recensioni|reviews)\b/);
+                  if (m) reviews=m[1];
+                }
+                if (rating && reviews) break;
+              }
+              return {rating,reviews};
+            }""")
+            if meta.get("rating"):
+                rating=float(str(meta["rating"]).replace(",","."))
+            if meta.get("reviews"):
+                digits=re.sub(r"\D+","",str(meta["reviews"]))
+                review_count=int(digits) if digits else None
+        except Exception:
+            pass
+
+        # Apri il pannello recensioni.
+        review_button=None
+        for selector in (
+            "button[aria-label*='recension' i]","button[aria-label*='review' i]",
+            "button:has-text('recensioni')","button:has-text('reviews')",
+        ):
+            try:
+                loc=page.locator(selector)
+                count=min(await loc.count(),20)
+                for idx in range(count):
+                    item=loc.nth(idx)
+                    if await item.is_visible(timeout=250):
+                        review_button=item
+                        break
+                if review_button is not None:
+                    break
+            except Exception:
+                continue
+        if review_button is not None:
+            try:
+                await review_button.click(timeout=2200)
+                await page.wait_for_timeout(1800)
+            except Exception:
+                pass
+
+        # Prova a ordinare per più recenti, senza fallire se l'interfaccia cambia.
+        try:
+            sort_button=None
+            for selector in (
+                "button[aria-label*='ordina recensioni' i]","button[aria-label*='sort reviews' i]",
+                "button:has-text('Ordina')","button:has-text('Sort')",
+            ):
+                loc=page.locator(selector).first
+                if await loc.count() and await loc.is_visible(timeout=250):
+                    sort_button=loc; break
+            if sort_button is not None:
+                await sort_button.click(timeout=1600)
+                await page.wait_for_timeout(500)
+                for selector in (
+                    "[role='menuitemradio']:has-text('Più recenti')",
+                    "[role='menuitemradio']:has-text('Newest')",
+                    "div[role='menuitemradio']:has-text('Più recenti')",
+                ):
+                    opt=page.locator(selector).first
+                    if await opt.count() and await opt.is_visible(timeout=250):
+                        await opt.click(timeout=1600)
+                        await page.wait_for_timeout(1200)
+                        break
+        except Exception:
+            pass
+
+        # Carica un campione più ampio scorrendo l'ultima recensione.
+        for _ in range(7):
+            cards=page.locator("div[data-review-id]")
+            try:
+                count=await cards.count()
+                if count:
+                    await cards.nth(count-1).scroll_into_view_if_needed(timeout=1200)
+                await page.wait_for_timeout(650)
+            except Exception:
+                break
+
+        reviews=[]
+        try:
+            reviews=await page.evaluate(r"""() => {
+              const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
+              const cards=Array.from(document.querySelectorAll('div[data-review-id]')).slice(0,60);
+              return cards.map(card => {
+                const textNode=card.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"]');
+                const text=clean(textNode?.textContent || '');
+                const starNode=card.querySelector('[role="img"][aria-label*="stell"],[role="img"][aria-label*="star"]');
+                const starAria=clean(starNode?.getAttribute('aria-label'));
+                const starMatch=starAria.match(/([1-5](?:[.,]\d)?)/);
+                const dateNode=card.querySelector('.rsqaWe,.xRkPPb');
+                const hasResponse=!!card.querySelector('.CDe7pd,[data-review-owner-response]');
+                return {
+                  text:text.slice(0,1800),
+                  stars:starMatch ? Number(starMatch[1].replace(',','.')) : null,
+                  date:clean(dateNode?.textContent).slice(0,100),
+                  hasResponse
+                };
+              }).filter(item => item.text);
+            }""")
+        except Exception:
+            reviews=[]
+
+        analysis=analyze_review_sample(reviews)
+        return {
+            "status":"sampled" if reviews else "listing_found_no_reviews",
+            "source":"Google Maps pubblico",
+            "url":page.url,
+            "name":observed_name or name,
+            "rating":rating,
+            "reviewCount":review_count,
+            **analysis,
+            "evidence":(
+                f"Google Maps: scheda «{observed_name or name}»; "
+                f"rating {rating if rating is not None else 'n.d.'}; "
+                f"recensioni totali {review_count if review_count is not None else 'n.d.'}; "
+                f"campione testuale analizzato {len(reviews)}."
+            )[:900],
+        }
+    except Exception as exc:
+        return {
+            "status":"error","source":"Google Maps pubblico","url":page.url if page else url,
+            "evidence":f"Analisi Google non completata: {type(exc).__name__}: {str(exc)[:180]}",
+            "sampleSize":0,"strengths":[],"weaknesses":[],"isolatedSignals":[],"keywords":[],
+        }
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
+
+async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
+    """Audit fotografico frontend basato su immagini pubbliche del sito ufficiale."""
+    source=((data.get("sources") or {}).get("sito") or {}).get("url","")
+    if not source:
+        return {"status":"source_missing","score":0,"evidence":"Sito ufficiale non disponibile."}
+    permission=await asyncio.to_thread(allowed_by_robots,source,robots)
+    if permission is not True:
+        return {"status":"robots_denied","score":0,"evidence":"Sito ufficiale non analizzato per immagini: robots.txt non consente o non chiarisce l'accesso."}
+
+    page=await context.new_page()
+    try:
+        await page.goto(source,wait_until="domcontentloaded",timeout=25000)
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(1500)
+        data_images=await page.evaluate(r"""() => {
+          const abs=(u)=>{try{return new URL(u,location.href).href}catch{return ''}};
+          const imgs=Array.from(document.images).slice(0,300).map(img=>({
+            src:abs(img.currentSrc||img.src||''),
+            alt:String(img.alt||'').replace(/\s+/g,' ').trim().slice(0,180),
+            naturalWidth:Number(img.naturalWidth||0),
+            naturalHeight:Number(img.naturalHeight||0),
+            displayedWidth:Number(img.clientWidth||0),
+            displayedHeight:Number(img.clientHeight||0)
+          })).filter(i=>i.src && !i.src.startsWith('data:'));
+          return imgs;
+        }""")
+        unique={}
+        for item in data_images:
+            src=str(item.get("src") or "")
+            key=re.sub(r"[?#].*$","",src).lower()
+            if key and key not in unique:
+                unique[key]=item
+        images=list(unique.values())
+        relevant=[img for img in images if max(int(img.get("naturalWidth") or 0),int(img.get("displayedWidth") or 0))>=500]
+        highres=[img for img in relevant if int(img.get("naturalWidth") or 0)>=1200 and int(img.get("naturalHeight") or 0)>=700]
+        alt_ok=[img for img in relevant if len(str(img.get("alt") or "").strip())>=4]
+
+        categories={
+            "camere":("camera","room","suite","bed","letto"),
+            "bagni":("bagno","bathroom","doccia","shower"),
+            "esterni":("esterno","exterior","facciata","garden","giardino","terrazza","terrace"),
+            "piscina/wellness":("piscina","pool","spa","wellness","jacuzzi","idromassaggio"),
+            "colazione/food":("colazione","breakfast","restaurant","ristorante","food","cucina"),
+            "esperienza/lifestyle":("ospiti","guest","couple","coppia","family","famiglia","experience","lifestyle"),
+        }
+        category_counts={key:0 for key in categories}
+        for img in relevant:
+            hay=_review_norm((img.get("alt") or "")+" "+(img.get("src") or ""))
+            for key,words in categories.items():
+                if any(_review_norm(word) in hay for word in words):
+                    category_counts[key]+=1
+
+        total=len(relevant)
+        highres_ratio=(len(highres)/total) if total else 0
+        alt_ratio=(len(alt_ok)/total) if total else 0
+        covered=sum(1 for value in category_counts.values() if value>0)
+        volume_score=min(1.0,total/24) * 1.5
+        resolution_score=min(1.0,highres_ratio/0.65) * 2.5
+        alt_score=min(1.0,alt_ratio/0.75) * 1.0
+        coverage_score=(covered/max(1,len(categories))) * 3.5
+        hero_like=sum(1 for img in relevant if int(img.get("displayedWidth") or 0)>=900 or int(img.get("naturalWidth") or 0)>=1600)
+        hero_score=min(1.0,hero_like/4) * 1.5
+        score=round(min(10.0,volume_score+resolution_score+alt_score+coverage_score+hero_score),1)
+
+        strengths=[]
+        gaps=[]
+        if total>=20: strengths.append(f"Buona ampiezza del campione fotografico ({total} immagini rilevanti).")
+        else: gaps.append(f"Copertura fotografica limitata nel campione del sito ({total} immagini rilevanti).")
+        if highres_ratio>=0.6: strengths.append(f"Buona quota di immagini ad alta risoluzione ({len(highres)}/{total}).")
+        else: gaps.append(f"Solo {len(highres)}/{total} immagini rilevanti raggiungono almeno 1200×700 px.")
+        if alt_ratio>=0.65: strengths.append(f"Alt text presente su una quota significativa delle immagini ({len(alt_ok)}/{total}).")
+        else: gaps.append(f"Alt text assente o poco descrittivo su molte immagini ({len(alt_ok)}/{total} adeguate).")
+        missing=[key for key,value in category_counts.items() if value==0]
+        if covered>=4: strengths.append("La gallery copre più aree dell'esperienza, non solo le camere.")
+        if missing: gaps.append("Categorie non chiaramente rappresentate tramite metadati/URL: "+", ".join(missing)+".")
+
+        actions=[]
+        if "esperienza/lifestyle" in missing: actions.append("Integrare immagini lifestyle con persone e momenti d'uso reali.")
+        if "bagni" in missing: actions.append("Assicurare almeno una fotografia chiara del bagno per ogni tipologia.")
+        if highres_ratio<0.6: actions.append("Sostituire le immagini a bassa risoluzione nelle posizioni principali.")
+        if alt_ratio<0.65: actions.append("Scrivere alt text descrittivi e coerenti con tipologie e servizi.")
+        if total<20: actions.append("Ampliare la copertura fotografica di camere, servizi, esterni e dettagli.")
+        if not actions: actions.append("Verificare ora ordine gallery, luce, styling e coerenza visiva tra sito e OTA.")
+
+        return {
+            "status":"sampled","source":"Sito ufficiale","url":page.url,"score":score,
+            "imageCount":total,"highResolutionCount":len(highres),"altTextCount":len(alt_ok),
+            "categoryCounts":category_counts,
+            "components":{
+                "volume":round(volume_score,1),
+                "resolution":round(resolution_score,1),
+                "metadata":round(alt_score,1),
+                "coverage":round(coverage_score,1),
+                "hero":round(hero_score,1),
+            },
+            "strengths":strengths,
+            "gaps":gaps,
+            "actions":actions,
+            "evidence":(
+                f"Audit fotografico frontend: {total} immagini rilevanti, {len(highres)} ad alta risoluzione, "
+                f"{len(alt_ok)} con alt text utile, {covered}/{len(categories)} categorie coperte. "
+                "Il punteggio è tecnico/editoriale sui segnali osservabili; luce e styling richiedono successiva lettura visiva."
+            )[:900],
+        }
+    except Exception as exc:
+        return {"status":"error","score":0,"evidence":f"Audit fotografico non completato: {type(exc).__name__}: {str(exc)[:180]}"}
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -4410,7 +4840,8 @@ async def run(args: argparse.Namespace) -> dict:
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
-              "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "observations": []}
+              "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {},
+              "reputation": {}, "photoAudit": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -4450,6 +4881,26 @@ async def run(args: argparse.Namespace) -> dict:
                     tmp_property.replace(property_path)
             except OSError:
                 pass
+
+            reputation=await google_reputation_observation(context,data)
+            result["reputation"]=reputation
+            print(
+                f"reputation: {reputation.get('status','n.d.')} · "
+                f"rating={reputation.get('rating','n.d.')} · reviews={reputation.get('reviewCount','n.d.')} · "
+                f"sample={reputation.get('sampleSize',0)} · strengths={len(reputation.get('strengths') or [])} · "
+                f"weaknesses={len(reputation.get('weaknesses') or [])}",
+                flush=True,
+            )
+            write_result(output,result)
+
+            photo_audit=await frontend_photo_audit(context,data,robots)
+            result["photoAudit"]=photo_audit
+            print(
+                f"photo audit: {photo_audit.get('status','n.d.')} · score={photo_audit.get('score',0)} · "
+                f"images={photo_audit.get('imageCount',0)} · highres={photo_audit.get('highResolutionCount',0)}",
+                flush=True,
+            )
+            write_result(output,result)
 
             official_identity_url=(sources.get("sito") or {}).get("url","")
             known_ota_sources=[
