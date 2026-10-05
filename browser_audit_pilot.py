@@ -24,6 +24,7 @@ from urllib.robotparser import RobotFileParser
 
 from curl_cffi import requests
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from selectolax.parser import HTMLParser
 
 from booking_engine import detect_booking_engine
 
@@ -395,6 +396,14 @@ def _decode_search_target(href: str) -> str:
                     absolute=base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8","ignore")
                 except Exception:
                     pass
+        elif host.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+            absolute=query.get("uddg") or query.get("rut") or ""
+        elif host.endswith("yahoo.com"):
+            absolute=query.get("RU") or query.get("url") or absolute
+            if absolute == raw:
+                match=re.search(r"/RU=([^/]+)/RK=",parsed.path,re.I)
+                if match:
+                    absolute=unquote(match.group(1))
         absolute=unquote(str(absolute or ""))
         parsed=urlparse(absolute)
         if parsed.scheme not in {"http","https"} or not parsed.hostname:
@@ -500,6 +509,99 @@ async def _search_result_links(page, query: str, engine: str = "Google") -> tupl
       };
     })""")
     return links,url
+
+
+
+def _safe_node_text(node, limit: int = 1400) -> str:
+    try:
+        return re.sub(r"\s+"," ",node.text(separator=" ",strip=True) or "").strip()[:limit]
+    except Exception:
+        try:
+            return re.sub(r"\s+"," ",node.text() or "").strip()[:limit]
+        except Exception:
+            return ""
+
+
+def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
+    """Metasearch gratuita: prova pagine pubbliche HTML di più motori senza API a pagamento."""
+    engines=(
+        ("Google HTTP","https://www.google.com/search",{"q":query,"hl":"it","num":"20","filter":"0"}),
+        ("Bing HTTP","https://www.bing.com/search",{"q":query,"setlang":"it","count":"20"}),
+        ("DuckDuckGo HTML","https://html.duckduckgo.com/html/",{"q":query}),
+        ("Yahoo HTTP","https://search.yahoo.com/search",{"p":query}),
+    )
+    out=[]
+    stats=[]
+    seen=set()
+    for engine,url,params in engines:
+        try:
+            response=requests.get(
+                url,
+                params=params,
+                headers={
+                    "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language":"it-IT,it;q=0.9,en;q=0.7",
+                },
+                impersonate="chrome",
+                timeout=15,
+                allow_redirects=True,
+            )
+            body=response.text or ""
+            if response.status_code>=400:
+                stats.append({"engine":engine,"query":query,"status":f"HTTP {response.status_code}","links":0})
+                continue
+            lowered=body.lower()
+            if any(word in lowered for word in BLOCK_WORDS):
+                stats.append({"engine":engine,"query":query,"status":"blocked","links":0})
+                continue
+            tree=HTMLParser(body)
+            count=0
+            for node in tree.css("a[href]")[:1400]:
+                href=str((node.attributes or {}).get("href") or "")
+                target=_decode_search_target(href)
+                if not target:
+                    continue
+                parsed=urlparse(target)
+                host=(parsed.hostname or "").lower()
+                if any(token in host for token in ("google.com","google.it","bing.com","duckduckgo.com","yahoo.com")):
+                    continue
+                key=(engine,target)
+                if key in seen:
+                    continue
+                seen.add(key)
+                text_value=_safe_node_text(node,420)
+                parent=node.parent
+                context=_safe_node_text(parent,1500) if parent is not None else text_value
+                out.append({
+                    "url":target,
+                    "text":text_value,
+                    "context":context,
+                    "engine":engine,
+                    "query":query,
+                })
+                count+=1
+            stats.append({"engine":engine,"query":query,"status":"ok","links":count})
+        except Exception as exc:
+            stats.append({"engine":engine,"query":query,"status":f"{type(exc).__name__}","links":0})
+    return out,stats
+
+
+def _clean_listing_url(url: str) -> str:
+    try:
+        parsed=urlparse(url)
+        return urlunparse(parsed._replace(query="",fragment=""))
+    except Exception:
+        return url
+
+
+def _strong_search_evidence(score: float, reasons: str, engines: set[str]) -> bool:
+    reasons=(reasons or "").lower()
+    location_signal=("citta coincidente" in reasons) or ("indirizzo" in reasons)
+    if score>=0.90 and location_signal:
+        return True
+    if score>=0.84 and location_signal and len(engines)>=2:
+        return True
+    return False
 
 
 async def verify_ota_candidate_page(context, ota_id: str, url: str, property_name: str, city: str, address: str, robots: dict) -> dict:
@@ -613,17 +715,44 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
             "otaCandidates":diagnostics["candidates"]-before,
         })
 
+    # HTTP metasearch multi-engine: spesso restituisce i link OTA anche quando il browser automatico
+    # riceve una SERP incompleta o una pagina di consenso.
+    for query in queries:
+        http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
+        diagnostics["queryStats"].extend(http_stats)
+        for item in http_items:
+            target=str(item.get("url") or "")
+            ota_id=_classify_ota_url(target)
+            if not ota_id:
+                continue
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+            )
+            raw_candidates[ota_id].append((
+                score,target,str(item.get("text") or ""),reasons,query,str(item.get("engine") or "HTTP search")
+            ))
+            diagnostics["candidates"]+=1
+
     diagnostics["status"]="results_collected" if diagnostics["candidates"] else "no_ota_candidates"
 
     for ota_id in OTA_DISCOVERY_ORDER:
         candidates=raw_candidates.get(ota_id) or []
-        best_by_url={}
-        for row in candidates:
-            if row[1] not in best_by_url or row[0]>best_by_url[row[1]][0]:
-                best_by_url[row[1]]=row
-        candidates=sorted(best_by_url.values(),key=lambda row:row[0],reverse=True)
+        grouped={}
+        for score,url,title,reasons,query,engine in candidates:
+            clean=_clean_listing_url(url)
+            entry=grouped.setdefault(clean,{
+                "score":score,"url":url,"title":title,"reasons":reasons,
+                "queries":set(),"engines":set(),
+            })
+            if score>entry["score"]:
+                entry.update(score=score,url=url,title=title,reasons=reasons)
+            entry["queries"].add(query)
+            entry["engines"].add(engine)
+        ordered=sorted(grouped.values(),key=lambda row:row["score"],reverse=True)
         weak=[]
-        for score,url,title,reasons,query,engine in candidates[:8]:
+        for entry in ordered[:10]:
+            score=entry["score"]; url=entry["url"]; title=entry["title"]; reasons=entry["reasons"]
+            engines=entry["engines"]; queries_used=entry["queries"]
             verify=await verify_ota_candidate_page(context,ota_id,url,name,city,address,robots)
             if verify.get("ok"):
                 discoveries[ota_id]={
@@ -632,24 +761,45 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
                     "title":verify.get("title") or title,
                     "score":verify.get("score",score),
                     "evidence":(
-                        f"Ricerca master {engine} «{query}»: risultato {OTA_META[ota_id]['label']} trovato e verificato aprendo la pagina. "
-                        f"Match risultato {score:.0%} ({reasons}); verifica pagina {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                        f"Ricerca master gratuita: {OTA_META[ota_id]['label']} trovato tramite "
+                        f"{', '.join(sorted(engines))}; match ricerca {score:.0%} ({reasons}). "
+                        f"Pagina OTA verificata direttamente: {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                     )[:900],
                     "searchUrl":"",
-                    "discoveryMode":"progressive master search + page verification",
+                    "discoveryMode":"free multi-engine search + page verification",
+                    "verification":"page",
                 }
                 break
-            weak.append((score,url,title,reasons,query,engine,verify.get("evidence","")))
+            if _strong_search_evidence(score,reasons,engines):
+                discoveries[ota_id]={
+                    "status":"found",
+                    "url":_clean_listing_url(url),
+                    "title":title[:220],
+                    "score":round(score,3),
+                    "evidence":(
+                        f"Ricerca master gratuita: scheda {OTA_META[ota_id]['label']} attribuita tramite evidenza "
+                        f"convergente nei risultati pubblici ({', '.join(sorted(engines))}). "
+                        f"Match {score:.0%} ({reasons}); query: {' | '.join(sorted(queries_used))[:260]}. "
+                        f"La pagina OTA non è stata validata direttamente ({verify.get('evidence','')}); "
+                        "la successiva fase di scraping la controllerà senza aggirare eventuali blocchi."
+                    )[:900],
+                    "searchUrl":"",
+                    "discoveryMode":"free multi-engine correlated search evidence",
+                    "verification":"search_evidence",
+                }
+                break
+            weak.append((score,url,title,reasons,engines,queries_used,verify.get("evidence","")))
         if ota_id not in discoveries and weak:
-            score,url,title,reasons,query,engine,verify_evidence=weak[0]
+            score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
             discoveries[ota_id]={
                 "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
                 "evidence":(
-                    f"Ricerca master {engine} «{query}»: candidato {OTA_META[ota_id]['label']} trovato "
-                    f"({score:.0%}, {reasons}) ma non verificato con sufficiente certezza sulla pagina reale. {verify_evidence}"
+                    f"Ricerca master gratuita: candidato {OTA_META[ota_id]['label']} trovato tramite "
+                    f"{', '.join(sorted(engines))} ({score:.0%}, {reasons}) ma non abbastanza forte per "
+                    f"attribuirlo automaticamente. {verify_evidence}"
                 )[:900],
                 "searchUrl":"",
-                "discoveryMode":"progressive master search candidate",
+                "discoveryMode":"free multi-engine candidate",
             }
     return discoveries,diagnostics
 
@@ -715,6 +865,40 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             pass
         finally:
             await page.close()
+
+        http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
+        for item in http_items:
+            target=str(item.get("url") or "")
+            if _classify_ota_url(target)!=ota_id:
+                continue
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+            )
+            verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
+            if verify.get("ok"):
+                return {
+                    "status":"found","url":verify.get("url") or target,
+                    "title":verify.get("title") or str(item.get("text") or ""),
+                    "score":verify.get("score",score),
+                    "evidence":(
+                        f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
+                        f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                    )[:900],
+                    "searchUrl":"","discoveryMode":"free targeted multi-engine + page verification",
+                }
+            if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
+                return {
+                    "status":"found","url":_clean_listing_url(target),
+                    "title":str(item.get("text") or "")[:220],"score":round(score,3),
+                    "evidence":(
+                        f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: "
+                        f"candidato con match {score:.0%} ({reasons}). La pagina non è stata verificata direttamente; "
+                        "viene accettata come fonte da controllare nella fase di scraping."
+                    )[:900],
+                    "searchUrl":"","discoveryMode":"free targeted search evidence",
+                    "verification":"search_evidence",
+                }
+            weak.append((score,target,str(item.get("text") or ""),reasons,query,str(item.get("engine") or "HTTP search"),verify.get("evidence","")))
 
         items=await asyncio.to_thread(_bing_rss_items,query)
         for item in items:
@@ -2418,23 +2602,17 @@ async def run(args: argparse.Namespace) -> dict:
                 if (master_discoveries.get(ota_id) or {}).get("status")!="found"
                 and not ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
             ]
-            ai_result={"status":"not_needed","discoveries":{}}
+            # Modalità gratuita: nessuna API a pagamento viene chiamata.
+            result["aiWebSearch"]={
+                "status":"disabled_free_mode",
+                "discoveries":{},
+                "evidence":"Velora usa esclusivamente ricerca web pubblica gratuita e browser locale.",
+            }
             if unresolved:
-                ai_result=await discover_otas_with_ai_web_search(data)
-                result["aiWebSearch"]=ai_result
                 print(
-                    f"ai web search: {ai_result.get('status')} · unresolved={len(unresolved)} · "
-                    f"risolte={len(ai_result.get('discoveries') or {})} · {str(ai_result.get('evidence') or '')[:180]}",
+                    f"free discovery: OTA ancora irrisolte={len(unresolved)} · nessuna API a pagamento utilizzata",
                     flush=True,
                 )
-                for ota_id,discovery in (ai_result.get("discoveries") or {}).items():
-                    current=master_discoveries.get(ota_id) or {}
-                    if discovery.get("status")=="found" and current.get("status")!="found":
-                        master_discoveries[ota_id]=discovery
-                    elif ota_id not in master_discoveries:
-                        master_discoveries[ota_id]=discovery
-            else:
-                result["aiWebSearch"]=ai_result
 
             for ota_id in OTA_DISCOVERY_ORDER:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
