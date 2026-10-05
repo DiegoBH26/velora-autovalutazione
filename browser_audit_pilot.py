@@ -2073,9 +2073,19 @@ async def booking_source_title(page, source: str, robots: dict, fallback: str) -
                         break
             except Exception:
                 pass
+        if not observed:
+            try:
+                observed=await page.evaluate(r"""() => (
+                  document.querySelector('meta[property="og:title"]')?.content ||
+                  document.querySelector('meta[name="twitter:title"]')?.content ||
+                  document.title || ''
+                ).replace(/\s+/g,' ').trim()""")
+            except Exception:
+                observed=""
         observed=observed or (await page.title())
-        cleaned=re.sub(r"\s*[-|]\s*Booking\.com.*$","",observed,flags=re.I).strip()
-        if cleaned and len(cleaned)>=3:
+        cleaned=re.sub(r"\s*[-|–—]\s*Booking\.com.*$","",observed,flags=re.I).strip()
+        cleaned=re.sub(r"^Booking\.com\s*[:|–—-]\s*","",cleaned,flags=re.I).strip()
+        if cleaned and len(cleaned)>=3 and _norm_name(cleaned) not in {"booking com","booking"}:
             return cleaned,f"Titolo canonico Booking osservato: «{cleaned}»."
         return fallback,"Titolo canonico Booking non ricavato; uso il nome struttura."
     except Exception as exc:
@@ -2094,7 +2104,102 @@ def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
     })
 
 
+def booking_city_dated_url(city: str, stay: dict) -> str:
+    """Fallback Booking v8: pagina destinazione datata, utile quando searchresults non rende le card."""
+    slug=_slugify_booking(city)
+    if not slug:
+        return ""
+    return "https://www.booking.com/city/it/" + slug + ".it.html?" + urlencode({
+        "checkin": stay["checkin"],
+        "checkout": stay["checkout"],
+        "group_adults": str(stay.get("adults") or 2),
+        "no_rooms": "1",
+        "group_children": "0",
+        "selected_currency": "EUR",
+        "lang": "it-it",
+    })
+
+
+async def booking_result_cards(page) -> list[dict]:
+    return await page.evaluate(r"""() => {
+      const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
+      const result = [];
+      const seen = new Set();
+      const cardNodes = Array.from(document.querySelectorAll(
+        '[data-testid="property-card"], [data-testid*="property-card"], article'
+      )).slice(0, 100);
+      for (const card of cardNodes) {
+        const link = card.querySelector(
+          'a[data-testid="title-link"], a[href*="/hotel/"]'
+        );
+        const href = link ? abs(link.getAttribute('href') || '') : '';
+        if (!href || !href.includes('/hotel/') || seen.has(href)) continue;
+        seen.add(href);
+        const titleNode = card.querySelector(
+          '[data-testid="title"], [data-testid="property-title"], h2, h3'
+        );
+        const priceNode = card.querySelector(
+          '[data-testid="price-and-discounted-price"], [data-testid*="price"], [class*="price"]'
+        );
+        result.push({
+          href,
+          title: (titleNode?.textContent || link?.textContent || '').replace(/\s+/g,' ').trim().slice(0,240),
+          text: (card.innerText || card.textContent || '').replace(/\s+/g,' ').trim().slice(0,2200),
+          price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0,200)
+        });
+      }
+      if (!result.length) {
+        for (const link of Array.from(document.querySelectorAll('a[href*="/hotel/"]')).slice(0,120)) {
+          const href=abs(link.getAttribute('href') || '');
+          if (!href || seen.has(href)) continue;
+          seen.add(href);
+          const box=link.closest('li,article,[data-testid],div') || link.parentElement;
+          result.push({
+            href,
+            title:(link.textContent || link.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,240),
+            text:(box?.innerText || box?.textContent || '').replace(/\s+/g,' ').trim().slice(0,2200),
+            price:''
+          });
+        }
+      }
+      return result;
+    }""")
+
+
+def booking_best_card(cards: list[dict], source: str, property_name: str, canonical_name: str, city: str):
+    source_path=booking_path_key(source)
+    best=None
+    for item in cards:
+        href=str(item.get("href") or "")
+        candidate_path=booking_path_key(href)
+        exact_path=bool(source_path and candidate_path and source_path==candidate_path)
+        score=max(
+            _name_similarity(property_name, str(item.get("title") or "")),
+            _name_similarity(canonical_name, str(item.get("title") or "")),
+        )
+        if exact_path:
+            score=1.0
+        elif city and city.lower() in str(item.get("text") or "").lower():
+            score=min(1.0, score+0.08)
+        row=(score, exact_path, item)
+        if best is None or row[0]>best[0]:
+            best=row
+    return best
+
+
+async def booking_page_dates_confirmed(page, stay: dict, body: str = "") -> tuple[bool,str]:
+    if booking_url_dates_confirmed(page.url,stay):
+        return True,"url"
+    if visible_dates_confirmed(body,stay):
+        return True,"visible-text"
+    dom_ok,dom_evidence=await booking_dom_dates_confirmed(page,stay)
+    if dom_ok:
+        return True,"dom-fields"
+    return False,dom_evidence[:260]
+
+
 async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
+    """Booking v8: searchresults; se inconclusiva, pagina città datata e match sull'URL listing già noto."""
     canonical_name,canonical_evidence = await booking_source_title(page,source,robots,property_name)
     requested = booking_dated_search_url(canonical_name, city, stay)
     record = {
@@ -2109,134 +2214,155 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         "evidence": "",
         "quotes": [],
     }
-    permission = await asyncio.to_thread(allowed_by_robots, requested, robots)
-    if permission is not True:
-        record["evidence"] = "Ricerca Booking con date non eseguita: robots.txt non consente o non chiarisce l'accesso automatico."
-        return record
-    try:
-        response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
-        await dismiss_cookie(page)
-        try:
-            await page.locator("body").wait_for(state="visible", timeout=5000)
-            await page.wait_for_timeout(1600)
-        except PlaywrightTimeout:
-            pass
-        record["finalUrl"] = page.url
-        record["title"] = (await page.title())[:200]
-        if response and response.status >= 400:
-            record.update(status="http_error", evidence=f"Ricerca Booking con date: HTTP {response.status}.")
-            return record
 
-        final_dates_ok = booking_url_dates_confirmed(page.url, stay)
-        cards = await page.evaluate(r"""() => {
-          const abs = (u) => { try { return new URL(u, location.href).href; } catch { return ''; } };
-          const result = [];
-          for (const card of Array.from(document.querySelectorAll('[data-testid="property-card"]')).slice(0, 60)) {
-            const link = card.querySelector('a[data-testid="title-link"], a[href*="/hotel/"]');
-            const titleNode = card.querySelector('[data-testid="title"], [data-testid="property-title"], h3');
-            const priceNode = card.querySelector('[data-testid="price-and-discounted-price"], [data-testid*="price"]');
-            result.push({
-              href: link ? abs(link.getAttribute('href') || '') : '',
-              title: (titleNode?.textContent || link?.textContent || '').replace(/\s+/g,' ').trim().slice(0,240),
-              text: (card.innerText || '').replace(/\s+/g,' ').trim().slice(0,1800),
-              price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0,160)
-            });
-          }
-          return result;
-        }""")
-
-        source_path=booking_path_key(source)
-        best=None
-        for item in cards:
-            href=str(item.get("href") or "")
-            candidate_path=booking_path_key(href)
-            exact_path=bool(source_path and candidate_path and source_path==candidate_path)
-            score=max(
-                _name_similarity(property_name, str(item.get("title") or "")),
-                _name_similarity(canonical_name, str(item.get("title") or "")),
-            )
-            if exact_path:
-                score=1.0
-            elif city and city.lower() in str(item.get("text") or "").lower():
-                score=min(1.0, score+0.08)
-            row=(score, exact_path, item)
-            if best is None or row[0]>best[0]:
-                best=row
-
-        if not best or best[0] < 0.68:
-            body=(await page.locator("body").inner_text(timeout=7000))[:9000]
-            record["evidence"]=(
-                f"{canonical_evidence} Ricerca Booking con date {stay['checkin']} → {stay['checkout']} eseguita usando «{canonical_name}», "
-                "ma la scheda esatta della struttura non è stata isolata con sufficiente certezza. "
-                f"Date nella URL finale: {'sì' if final_dates_ok else 'no'}. "
-                f"Estratto: {re.sub(r'\s+', ' ', body)[:280]}"
-            )[:900]
-            return record
-
-        score, exact_path, item = best
-        card_text=str(item.get("text") or "")
-        low=card_text.lower()
-        unavailable_terms=(
-            "non disponibile per le date selezionate",
-            "non disponibile nelle date selezionate",
-            "nessuna disponibilità",
-            "nessuna camera disponibile",
-            "sold out",
-            "not available for your dates",
-            "no availability",
-            "no rooms available",
-        )
-        unavailable_hit=next((term for term in unavailable_terms if term in low), "")
-        total=_money_value(str(item.get("price") or "") or card_text)
-
-        if final_dates_ok and unavailable_hit:
-            record.update(
-                status="no_public_rate",
-                evidence=(
-                    f"{canonical_evidence} Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
-                    f"Scheda esatta {'per URL' if exact_path else 'per nome'}: «{item.get('title','')}». "
-                    f"Il portale mostra un messaggio di indisponibilità («{unavailable_hit}»). "
-                    "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date; la causa non è determinabile automaticamente."
-                )[:900],
-            )
-            return record
-
-        if final_dates_ok and total is not None:
-            quote={
-                "roomType": "Tipologia camera da verificare",
-                "total": round(total,2),
-                "currency": "EUR",
-                "nights": stay["nights"],
-                "guests": stay["adults"],
-                "board": "Trattamento da verificare",
-                "refund": "Cancellazione da verificare",
-                "audience": "Pubblico senza login",
-                "taxes": "Da verificare nel dettaglio del preventivo",
-                "verified": False,
-                "evidence": card_text[:700],
+    async def inspect_target(target_url: str, label: str) -> dict:
+        permission=await asyncio.to_thread(allowed_by_robots,target_url,robots)
+        if permission is not True:
+            return {
+                "ok":False,"label":label,"reason":"robots",
+                "evidence":f"{label}: robots.txt non consente o non chiarisce l'accesso."
             }
-            record["quotes"]=[quote]
-            record.update(
-                status="quote_candidates_unverified",
-                evidence=(
-                    f"Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
-                    f"Scheda esatta {'per URL' if exact_path else 'per nome'}: «{item.get('title','')}». "
-                    f"Prezzo totale visibile nel risultato: €{total:.2f}. "
-                    "La tipologia fisica della camera e le condizioni restano da verificare prima di usare il dato nel delta."
-                )[:900],
-            )
-            return record
+        try:
+            response=await page.goto(target_url,wait_until="domcontentloaded",timeout=25000)
+            await dismiss_cookie(page)
+            try:
+                await page.locator("body").wait_for(state="visible",timeout=5000)
+                await page.wait_for_timeout(1800)
+            except PlaywrightTimeout:
+                pass
+            title=(await page.title())[:200]
+            body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+            if response and response.status==429:
+                return {
+                    "ok":False,"label":label,"reason":"rate_limited","status":"rate_limited",
+                    "finalUrl":page.url,"title":title,"body":body,
+                    "evidence":f"{label}: HTTP 429."
+                }
+            if response and response.status>=400:
+                return {
+                    "ok":False,"label":label,"reason":"http_error","status":"http_error",
+                    "finalUrl":page.url,"title":title,"body":body,
+                    "evidence":f"{label}: HTTP {response.status}."
+                }
+            cards=await booking_result_cards(page)
+            best=booking_best_card(cards,source,property_name,canonical_name,city)
+            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+            return {
+                "ok":True,"label":label,"status":"ok","finalUrl":page.url,"title":title,
+                "body":body,"cards":cards,"best":best,"datesOk":dates_ok,"dateMode":date_mode,
+                "evidence":f"{label}: {len(cards)} card; date {'confermate' if dates_ok else 'non confermate'} ({date_mode or 'n.d.'}).",
+            }
+        except Exception as exc:
+            return {
+                "ok":False,"label":label,"reason":"navigation_error","status":"navigation_error",
+                "evidence":f"{label}: {type(exc).__name__}: {str(exc)[:160]}",
+            }
 
+    primary=await inspect_target(requested,"searchresults Booking")
+    chosen=primary
+    best=primary.get("best") if primary.get("ok") else None
+
+    # Se la ricerca interna non isola la scheda, usa la pagina della città con le stesse date.
+    # Il match principale non dipende dal nome: confronta il path /hotel/... con la scheda Booking già verificata.
+    if not best or best[0] < 0.68:
+        city_url=booking_city_dated_url(city,stay)
+        if city_url:
+            city_result=await inspect_target(city_url,"pagina città Booking")
+            city_best=city_result.get("best") if city_result.get("ok") else None
+            if city_best and city_best[0] >= 0.68:
+                chosen=city_result
+                best=city_best
+                record["requestedUrl"]=city_url
+            elif city_result.get("ok") and (not chosen.get("ok") or len(city_result.get("cards") or []) > len(chosen.get("cards") or [])):
+                chosen=city_result
+                best=city_best
+
+    record["finalUrl"]=str(chosen.get("finalUrl") or "")
+    record["title"]=str(chosen.get("title") or "")[:200]
+
+    if chosen.get("status") in {"rate_limited","http_error","navigation_error"} and not chosen.get("ok"):
+        record.update(
+            status=chosen.get("status") or "dated_search_inconclusive",
+            evidence=(f"{canonical_evidence} {chosen.get('evidence','')}")[:900],
+        )
+        return record
+
+    if not best or best[0] < 0.68:
+        body=str(chosen.get("body") or "")
+        primary_ev=str(primary.get("evidence") or "")
+        chosen_ev=str(chosen.get("evidence") or "")
         record["evidence"]=(
-            f"Ricerca Booking con date {stay['checkin']} → {stay['checkout']} e scheda «{item.get('title','')}» individuata "
-            f"(match {score:.0%}); date nella URL finale: {'sì' if final_dates_ok else 'no'}. "
-            "Nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
+            f"{canonical_evidence} Ricerca Booking con date {stay['checkin']} → {stay['checkout']} usando «{canonical_name}». "
+            f"La scheda esatta non è stata isolata. {primary_ev} "
+            + (f"Fallback: {chosen_ev}. " if chosen_ev and chosen_ev!=primary_ev else "")
+            + f"Estratto: {re.sub(r'\s+', ' ', body)[:280]}"
         )[:900]
         return record
-    except Exception as exc:
-        record.update(status="navigation_error", evidence=f"Ricerca Booking con date non completata: {type(exc).__name__}: {str(exc)[:180]}")
+
+    score,exact_path,item=best
+    card_text=str(item.get("text") or "")
+    low=card_text.lower()
+    dates_ok=bool(chosen.get("datesOk"))
+    date_mode=str(chosen.get("dateMode") or "")
+    unavailable_terms=(
+        "non disponibile per le date selezionate",
+        "non disponibile nelle date selezionate",
+        "nessuna disponibilità",
+        "nessuna camera disponibile",
+        "sold out",
+        "not available for your dates",
+        "no availability",
+        "no rooms available",
+    )
+    unavailable_hit=next((term for term in unavailable_terms if term in low),"")
+    total=_money_value(str(item.get("price") or "") or card_text)
+    route_label=str(chosen.get("label") or "Booking")
+
+    if dates_ok and unavailable_hit:
+        record.update(
+            status="no_public_rate",
+            evidence=(
+                f"{canonical_evidence} Date confermate ({date_mode}) {stay['checkin']} → {stay['checkout']} tramite {route_label}. "
+                f"Scheda esatta {'per URL listing già noto' if exact_path else 'per nome'}: «{item.get('title','')}». "
+                f"Il portale mostra indisponibilità («{unavailable_hit}»). "
+                "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date."
+            )[:900],
+        )
         return record
 
+    if dates_ok and total is not None:
+        quote={
+            "roomType":"Tipologia camera da verificare",
+            "total":round(total,2),
+            "currency":"EUR",
+            "nights":stay["nights"],
+            "guests":stay["adults"],
+            "board":"Trattamento da verificare",
+            "refund":"Cancellazione da verificare",
+            "audience":"Pubblico senza login",
+            "taxes":"Da verificare nel dettaglio del preventivo",
+            "verified":False,
+            "evidence":card_text[:700],
+        }
+        record["quotes"]=[quote]
+        record.update(
+            status="quote_candidates_unverified",
+            evidence=(
+                f"Date confermate ({date_mode}) tramite {route_label}: {stay['checkin']} → {stay['checkout']}. "
+                f"Scheda esatta {'per URL listing già noto' if exact_path else 'per nome'}: «{item.get('title','')}». "
+                f"Prezzo visibile nella card: €{total:.2f}. "
+                "Camera, tasse e condizioni restano da verificare prima del confronto."
+            )[:900],
+        )
+        return record
+
+    record["evidence"]=(
+        f"{canonical_evidence} {route_label}: scheda «{item.get('title','')}» individuata "
+        f"(match {score:.0%}; {'URL listing identico' if exact_path else 'match nome/località'}). "
+        f"Date {'confermate' if dates_ok else 'non confermate'} ({date_mode or 'n.d.'}); "
+        "nessun prezzo o messaggio di indisponibilità attribuibile con sufficiente certezza nella card."
+    )[:900]
+    return record
 
 async def booking_settle_render(page) -> dict:
     """Attende e stimola il rendering della sezione disponibilita' senza aggirare blocchi."""
