@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v24"
+PILOT_BUILD = "velora-browser-pilot-v25"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2665,6 +2665,33 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         best=booking_best_card(cards,source,property_name,canonical_name,city)
                         if best and best[1]:
                             break
+
+                    # La selezione della destinazione può mantenere la card esatta ma
+                    # perdere le date al submit. Se ora abbiamo l'URL esatto, restiamo
+                    # sulla searchresults corretta e riapplichiamo le date qui, senza
+                    # entrare nella scheda dettaglio.
+                    if best and best[1] and not dates_ok:
+                        applied3,ui_evidence3=await booking_apply_dates_via_ui(page,stay)
+                        print(
+                            f"{stay['month']} booking-search-date-picker-on-exact-results [{label}]: "
+                            f"{'applied' if applied3 else 'failed'} · {ui_evidence3}",
+                            flush=True,
+                        )
+                        if ui_evidence3:
+                            ui_evidence=(ui_evidence+" | "+ui_evidence3).strip(" |")
+                        if applied3:
+                            try:
+                                await page.wait_for_timeout(1400)
+                                body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                                dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                            except Exception:
+                                pass
+                            for _ in range(8):
+                                await page.wait_for_timeout(650)
+                                cards=await booking_result_cards(page)
+                                best=booking_best_card(cards,source,property_name,canonical_name,city)
+                                if best and best[1]:
+                                    break
 
             best_score=best[0] if best else 0.0
             best_exact=best[1] if best else False
