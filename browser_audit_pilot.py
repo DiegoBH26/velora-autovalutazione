@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v36"
+PILOT_BUILD = "velora-browser-pilot-v37"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2240,18 +2240,21 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
       const add = (node, priceNode = null) => {
         if (!node) return;
         const text = (node.innerText || node.textContent || '').replace(/\s+/g,' ').trim();
-        if (!text || text.length < 15 || seen.has(text)) return;
+        if (!text || text.length < 15) return;
         const nameNode = node.querySelector(
           '.hprt-roomtype-link, [data-testid="room-name"], [data-testid*="room-name"], h2, h3, h4, strong'
         );
         const ownPrice = priceNode || node.querySelector(
           '.bui-price-display__value, [data-testid="price-and-discounted-price"], [data-testid*="price"], [class*="price"]'
         );
-        seen.add(text);
+        const priceText=(ownPrice?.textContent || '').replace(/\s+/g,' ').trim().slice(0,180);
+        const dedupeKey=(text.slice(0,900) + '|' + priceText).toLowerCase();
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
         result.push({
           text: text.slice(0, 2200),
           room: (nameNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 240),
-          price: (ownPrice?.textContent || '').replace(/\s+/g,' ').trim().slice(0, 180)
+          price: priceText
         });
       };
 
@@ -2297,11 +2300,22 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
         refund = "Cancellazione gratuita" if any(x in low for x in ("cancellazione gratuita", "free cancellation")) else (
             "Non rimborsabile" if any(x in low for x in ("non rimborsabile", "non-refundable")) else "Cancellazione da verificare"
         )
+        plan_parts=[]
+        if refund != "Cancellazione da verificare":
+            plan_parts.append(refund)
+        if board != "Trattamento da verificare":
+            plan_parts.append(board)
+        if any(x in low for x in ("paga in anticipo", "pay in advance", "pagamento anticipato")):
+            plan_parts.append("Pagamento anticipato")
+        if any(x in low for x in ("genius", "mobile rate", "tariffa mobile")):
+            plan_parts.append("Promozione visibile")
+        rate_plan=" · ".join(dict.fromkeys(plan_parts)) or "Piano tariffario da verificare"
         total_is_explicit = any(x in low for x in (
             f"{stay['nights']} nott", "prezzo per", "price for", "totale", "total",
         ))
         out.append({
             "roomType": room,
+            "ratePlan": rate_plan,
             "total": round(total, 2),
             "currency": "EUR",
             "nights": stay["nights"],
@@ -2330,6 +2344,8 @@ def booking_unavailability_message(text: str) -> str:
     patterns=(
         "non disponibile per le date selezionate",
         "non disponibile nelle date selezionate",
+        "non disponibile sul nostro sito nelle tue date",
+        "questa struttura non è disponibile sul nostro sito nelle tue date",
         "non ci sono camere disponibili",
         "nessuna camera disponibile",
         "nessuna disponibilità",
@@ -3339,8 +3355,39 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         "no rooms available",
     )
     unavailable_hit=next((term for term in unavailable_terms if term in low),"")
-    total=_money_value(str(item.get("price") or "") or card_text)
+    # La card può contenere importi promozionali o testi non riferiti al
+    # preventivo della struttura. Considera prezzo-card solo il nodo prezzo
+    # esplicitamente isolato dal parser; per la scheda esatta prevale sempre
+    # il dettaglio Booking.
+    total=_money_value(str(item.get("price") or ""))
     route_label=str(chosen.get("label") or "Booking")
+
+    # Quando la card è quella esatta e le date sono confermate, la scheda
+    # dettaglio è la fonte primaria per camere, piani tariffari e prezzi.
+    # Non fermarti su testi generici della card risultati.
+    if exact_path and dates_ok:
+        detail=await booking_follow_matched_listing(page,source,item,stay,robots)
+        detail_status=str(detail.get("status") or "dated_search_inconclusive")
+        print(
+            f"{stay['month']} booking-exact-detail-first: "
+            f"status={detail_status} · quotes={len(detail.get('quotes') or [])} · "
+            f"url={str(detail.get('finalUrl') or '')[:300]}",
+            flush=True,
+        )
+        if detail_status in {
+            "quote_candidates","quote_candidates_unverified","no_public_rate",
+            "needs_human_review","rate_limited","http_error","navigation_error"
+        }:
+            record["finalUrl"]=str(detail.get("finalUrl") or chosen.get("finalUrl") or "")
+            record["title"]=str(detail.get("title") or chosen.get("title") or "")[:200]
+            record["quotes"]=detail.get("quotes") or []
+            record["status"]=detail_status
+            record["evidence"]=(
+                f"{canonical_evidence} {route_label}: scheda esatta «{item.get('title','')}» trovata "
+                f"(URL listing identico); date confermate ({date_mode or 'n.d.'}). "
+                f"Dettaglio scheda: {detail.get('evidence','')}"
+            )[:900]
+            return record
 
     if dates_ok and unavailable_hit:
         record.update(
@@ -3474,6 +3521,15 @@ async def booking_probe_direct_dated_detail(page, source: str, stay: dict, robot
             f"unavailable={unavailable_hit or 'no'}",
             flush=True,
         )
+        if candidates:
+            preview=" | ".join(
+                f"{item.get('roomType','')[:45]} / {item.get('ratePlan','')[:55]} / €{item.get('total')}"
+                for item in candidates[:6]
+            )
+            print(
+                f"{stay['month']} booking-rate-preview [direct detail]: {preview[:900]}",
+                flush=True,
+            )
 
         # Un messaggio generico di indisponibilità può convivere nella pagina con
         # camere/tariffe realmente prenotabili (es. una tipologia o un piano non
