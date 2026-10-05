@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v37"
+PILOT_BUILD = "velora-browser-pilot-v38"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -3506,6 +3506,11 @@ async def booking_probe_direct_dated_detail(page, source: str, stay: dict, robot
         if not dates_ok:
             return None
 
+        reveal_evidence=await booking_reveal_rates(probe,stay)
+        print(
+            f"{stay['month']} booking-reveal-rates [direct detail]: {reveal_evidence}",
+            flush=True,
+        )
         render_diag=await booking_settle_render(probe)
         try:
             body=(await probe.locator("body").inner_text(timeout=7000))[:18000]
@@ -3687,6 +3692,11 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
         pass
     final_url=page.url
     title=(await page.title())[:200]
+    reveal_evidence=await booking_reveal_rates(page,stay)
+    print(
+        f"{stay['month']} booking-reveal-rates [follow listing]: {reveal_evidence}",
+        flush=True,
+    )
     try:
         body=(await page.locator("body").inner_text(timeout=7000))[:14000]
     except Exception:
@@ -3812,6 +3822,114 @@ async def booking_follow_matched_listing(page, source: str, item: dict, stay: di
             + f"Estratto: {re.sub(r'\\s+',' ',body)[:300]}"
         )[:900],
     }
+
+async def booking_reveal_rates(page, stay: dict) -> str:
+    """Porta la scheda Booking fino alla sezione camere/tariffe come farebbe un utente.
+
+    Non esegue prenotazioni: clicca al massimo un controllo di disponibilità/prezzi
+    e poi si ferma sulla tabella/lista camere.
+    """
+    try:
+        existing=await page.evaluate(r"""() => {
+          const visible=(el) => {
+            if (!el) return false;
+            const st=getComputedStyle(el);
+            if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
+          };
+          const selectors=[
+            '#hprt-table','#hprt-form','[data-testid="room-list"]',
+            '[data-testid="room-card"]','[data-testid*="room-card"]',
+            '[data-testid="availability-block"]'
+          ];
+          return selectors.some(sel => Array.from(document.querySelectorAll(sel)).some(visible));
+        }""")
+        if existing:
+            target,_=await _first_visible_locator(page,(
+                '#hprt-table','#hprt-form','[data-testid="room-list"]',
+                '[data-testid="room-card"]','[data-testid*="room-card"]',
+                '[data-testid="availability-block"]',
+            ))
+            if target is not None:
+                try:
+                    await target.scroll_into_view_if_needed(timeout=1600)
+                    await page.wait_for_timeout(900)
+                except Exception:
+                    pass
+            return "tariffe già visibili; sezione camere portata in vista"
+
+        # Individua un CTA che apra/scorra alla disponibilità. Evita pulsanti di
+        # acquisto/finalizzazione: qui ci fermiamo alla visualizzazione delle tariffe.
+        candidate=await page.evaluate(r"""() => {
+          const visible=(el) => {
+            if (!el) return false;
+            const st=getComputedStyle(el);
+            if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
+          };
+          const good=[
+            'vedi disponibilità','verifica disponibilità','mostra disponibilità',
+            'mostra prezzi','vedi prezzi','controlla disponibilità',
+            'seleziona le camere','scegli la camera','scegli una camera',
+            'see availability','check availability','show prices',
+            'select rooms','choose a room'
+          ];
+          const bad=[
+            'prenota ora','book now','conferma','confirm','paga','pay',
+            'completa','complete booking','finalizza'
+          ];
+          const nodes=Array.from(document.querySelectorAll('button,a,[role="button"]')).filter(visible);
+          for (let i=0;i<nodes.length;i++) {
+            const el=nodes[i];
+            const txt=(el.innerText || el.textContent || el.getAttribute('aria-label') || '')
+              .replace(/\s+/g,' ').trim().toLowerCase();
+            if (!txt || bad.some(term => txt.includes(term))) continue;
+            if (good.some(term => txt.includes(term))) {
+              el.setAttribute('data-velora-rate-cta','1');
+              return {text:txt.slice(0,140),tag:el.tagName};
+            }
+          }
+          return null;
+        }""")
+        if candidate:
+            cta=page.locator('[data-velora-rate-cta="1"]').first
+            await cta.scroll_into_view_if_needed(timeout=1500)
+            await page.wait_for_timeout(300)
+            await cta.click(timeout=2600)
+            await page.wait_for_timeout(1800)
+            try:
+                await page.wait_for_load_state("domcontentloaded",timeout=7000)
+            except Exception:
+                pass
+            target,_=await _first_visible_locator(page,(
+                '#hprt-table','#hprt-form','[data-testid="room-list"]',
+                '[data-testid="room-card"]','[data-testid*="room-card"]',
+                '[data-testid="availability-block"]',
+            ))
+            if target is not None:
+                try:
+                    await target.scroll_into_view_if_needed(timeout=1600)
+                    await page.wait_for_timeout(1200)
+                except Exception:
+                    pass
+            return f"CTA tariffe cliccata: {candidate.get('text') or candidate.get('tag')}"
+
+        # Ultimo tentativo non invasivo: usa un'ancora/elemento disponibilità già presente.
+        target,_=await _first_visible_locator(page,(
+            '#availability','#hprt-table','#hprt-form',
+            '[data-testid="availability-block"]','[data-testid="room-list"]',
+        ))
+        if target is not None:
+            await target.scroll_into_view_if_needed(timeout=1600)
+            await page.wait_for_timeout(1000)
+            return "sezione disponibilità raggiunta senza CTA"
+
+        return "nessun CTA tariffe individuato"
+    except Exception as exc:
+        return f"apertura tariffe fallita: {type(exc).__name__}"
+
 
 async def booking_settle_render(page) -> dict:
     """Attende e stimola il rendering della sezione disponibilita' senza aggirare blocchi."""
