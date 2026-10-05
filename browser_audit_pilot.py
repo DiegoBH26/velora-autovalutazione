@@ -2469,6 +2469,13 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         pass
             cards=await booking_result_cards(page)
             best=booking_best_card(cards,source,property_name,canonical_name,city)
+            if label == "searchresults Booking" and (not best or not best[1]):
+                for _ in range(6):
+                    await page.wait_for_timeout(700)
+                    cards=await booking_result_cards(page)
+                    best=booking_best_card(cards,source,property_name,canonical_name,city)
+                    if best and best[1]:
+                        break
             return {
                 "ok":True,"label":label,"status":"ok","finalUrl":page.url,"title":title,
                 "body":body,"cards":cards,"best":best,"datesOk":dates_ok,"dateMode":date_mode,
