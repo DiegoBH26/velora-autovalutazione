@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v25"
+PILOT_BUILD = "velora-browser-pilot-v26"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2666,10 +2666,44 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         if best and best[1]:
                             break
 
-                    # La selezione della destinazione può mantenere la card esatta ma
-                    # perdere le date al submit. Se ora abbiamo l'URL esatto, restiamo
-                    # sulla searchresults corretta e riapplichiamo le date qui, senza
-                    # entrare nella scheda dettaglio.
+                    # La destinazione esatta ora è presente nei risultati. Prima di
+                    # riaprire il calendario, conserva il contesto destinazione della
+                    # searchresults corrente e aggiungi le date direttamente alla sua URL.
+                    # Così evitiamo il date picker che Booking rende instabile dopo il submit.
+                    if best and best[1] and not dates_ok:
+                        exact_results_url=dated_url("booking",page.url,stay) or ""
+                        if exact_results_url and "/searchresults" in exact_results_url:
+                            try:
+                                response2=await page.goto(
+                                    exact_results_url,
+                                    wait_until="domcontentloaded",
+                                    timeout=25000,
+                                )
+                                await dismiss_cookie(page)
+                                await page.wait_for_timeout(1800)
+                                try:
+                                    body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                                except Exception:
+                                    body=""
+                                dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                                cards=await booking_result_cards(page)
+                                best=booking_best_card(cards,source,property_name,canonical_name,city)
+                                print(
+                                    f"{stay['month']} booking-exact-results-dated-url [{label}]: "
+                                    f"status={getattr(response2,'status',None)} · "
+                                    f"dates={dates_ok} · exact_url={bool(best and best[1])} · "
+                                    f"url={page.url[:320]}",
+                                    flush=True,
+                                )
+                            except Exception as exc:
+                                print(
+                                    f"{stay['month']} booking-exact-results-dated-url [{label}]: "
+                                    f"failed · {type(exc).__name__}: {str(exc)[:120]}",
+                                    flush=True,
+                                )
+
+                    # Fallback: solo se la URL datata non ha funzionato, prova ancora
+                    # il calendario sulla searchresults esatta.
                     if best and best[1] and not dates_ok:
                         applied3,ui_evidence3=await booking_apply_dates_via_ui(page,stay)
                         print(
