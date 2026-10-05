@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v22"
+PILOT_BUILD = "velora-browser-pilot-v23"
 PILOT_BUILD = "velora-browser-pilot-v22"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
@@ -2581,6 +2581,44 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                     best=booking_best_card(cards,source,property_name,canonical_name,city)
                     if best and best[1]:
                         break
+
+            destination_evidence=""
+            if label.startswith("searchresults Booking") and (not best or not best[1]):
+                dest_ok,destination_evidence=await booking_select_exact_destination(page,canonical_name or property_name,city)
+                print(
+                    f"{stay['month']} booking-destination-picker [{label}]: "
+                    f"{'applied' if dest_ok else 'failed'} · {destination_evidence}",
+                    flush=True,
+                )
+                if dest_ok:
+                    try:
+                        body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                    except Exception:
+                        body=""
+                    dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                    if not dates_ok:
+                        applied2,ui_evidence2=await booking_apply_dates_via_ui(page,stay)
+                        print(
+                            f"{stay['month']} booking-search-date-picker-after-destination [{label}]: "
+                            f"{'applied' if applied2 else 'failed'} · {ui_evidence2}",
+                            flush=True,
+                        )
+                        if ui_evidence2:
+                            ui_evidence=(ui_evidence+" | "+ui_evidence2).strip(" |")
+                        if applied2:
+                            try:
+                                await page.wait_for_timeout(1200)
+                                body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                                dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                            except Exception:
+                                pass
+                    for _ in range(8):
+                        await page.wait_for_timeout(650)
+                        cards=await booking_result_cards(page)
+                        best=booking_best_card(cards,source,property_name,canonical_name,city)
+                        if best and best[1]:
+                            break
+
             best_score=best[0] if best else 0.0
             best_exact=best[1] if best else False
             best_title=str((best[2] if best else {}).get("title") or "")
@@ -2599,7 +2637,8 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                 "evidence":(
                     f"{label}: {len(cards)} card; date {'confermate' if dates_ok else 'non confermate'} "
                     f"({date_mode or 'n.d.'}). "
-                    + (f"Date picker: {ui_evidence}." if ui_evidence else "")
+                    + (f"Date picker: {ui_evidence}. " if ui_evidence else "")
+                    + (f"Destinazione: {destination_evidence}." if destination_evidence else "")
                 )[:900],
             }
         except Exception as exc:
