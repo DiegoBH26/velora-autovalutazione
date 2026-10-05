@@ -3580,6 +3580,7 @@ type RateQuote = {
 
 type BrowserPilotQuoteCandidate = {
   roomType: string;
+  ratePlan?: string;
   total: number;
   currency: string;
   nights: number;
@@ -5917,8 +5918,9 @@ export default function App() {
     const pilotQuoteTableHtml = pilotQuoteRows.length
       ? `<h3>Tariffe rilevate automaticamente</h3><p>Queste righe sono state lette direttamente dalle pagine OTA sulle date indicate. Restano separate dai calcoli di delta finché camera, tasse e condizioni non sono confermate come perfettamente comparabili.</p><table><thead><tr><th>Canale</th><th>Date</th><th>Camera / piano</th><th>Totale</th><th>Condizioni</th><th>Stato</th></tr></thead><tbody>${pilotQuoteRows.slice(0,120).map(({ observation, quote }) => {
           const platform = reportChannels.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId;
-          const conditions = [quote.board, quote.refund, quote.taxes].filter(Boolean).join(" · ");
-          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(quote.roomType || "Da verificare")}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Riga tariffaria verificata dal parser" : "Candidato tariffario da verificare"}</td></tr>`;
+          const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes].filter(Boolean).join(" · ");
+          const roomAndPlan = [quote.roomType || "Da verificare", quote.ratePlan].filter(Boolean).join(" · ");
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Riga tariffaria verificata dal parser" : "Candidato tariffario da verificare"}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
     const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
@@ -6998,9 +7000,9 @@ export default function App() {
                       <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className="border-t border-[#EEE8F4] align-top">
                         <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                         <td className="p-2">{observation.checkin} → {observation.checkout}</td>
-                        <td className="p-2">{quote.roomType}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span></td>
+                        <td className="p-2">{quote.roomType}{quote.ratePlan && <span className="block text-[9px] font-semibold text-[#7A5B96]">{quote.ratePlan}</span>}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span></td>
                         <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}</td>
-                        <td className="p-2">{[quote.board, quote.refund].filter(Boolean).join(" · ")}</td>
+                        <td className="p-2">{[quote.ratePlan, quote.board, quote.refund].filter(Boolean).join(" · ")}</td>
                       </tr>
                     ))}
                   </tbody>
