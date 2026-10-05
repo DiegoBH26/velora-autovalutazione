@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v43"
+PILOT_BUILD = "velora-browser-pilot-v44"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -4412,41 +4412,58 @@ async def resolve_identity_from_official_site(context, data: dict, robots: dict)
 
 
 REVIEW_THEME_RULES = {
-    "Posizione": ("posizione","location","centro","centrale","mare","spiaggia","beach","vicino","walking","a piedi"),
-    "Pulizia": ("pulizia","pulito","pulita","clean","cleanliness","igiene","sporco","sporca","polvere"),
+    "Mare e posizione": ("posizione","location","mare","spiaggia","beach","vicino al mare","a piedi","walking","centrale","centro"),
+    "Pulizia": ("pulizia","pulito","pulita","clean","cleanliness","igiene","sporco","sporca","sporchi","muffa","polvere"),
     "Accoglienza e staff": ("staff","personale","host","proprietario","accoglienza","gentile","disponibile","friendly","helpful","reception"),
     "Colazione": ("colazione","breakfast","buffet","cornetto","caffè","caffe"),
-    "Camera e comfort": ("camera","room","letto","bed","materasso","comfort","spaziosa","spazioso","piccola","small"),
-    "Bagno": ("bagno","bathroom","doccia","shower","wc","toilet"),
-    "Climatizzazione": ("aria condizionata","condizionatore","air conditioning","a/c","ventilatore","caldo","hot"),
-    "Rumore": ("rumore","rumoroso","rumorosa","noise","noisy","insonorizz","silenzio","quiet"),
+    "Camera e comfort": ("camera","room","letto","bed","materasso","comfort","confort","spaziosa","spazioso","piccola","small"),
+    "Bagno e doccia": ("bagno","bathroom","doccia","shower","wc","toilet"),
+    "Acqua calda": ("acqua fredda","acqua calda","hot water","cold water","acqua tiepida"),
+    "Climatizzazione": ("aria condizionata","condizionatore","air conditioning","a/c","ventilatore","climatizzazione"),
+    "Tranquillità e rumore": ("tranquillità","tranquillita","silenzio","quiet","rumore","rumoroso","rumorosa","noise","noisy","insonorizz"),
     "Parcheggio": ("parcheggio","parking","posto auto","garage"),
     "Wi-Fi": ("wifi","wi-fi","internet","connessione"),
     "Rapporto qualità/prezzo": ("qualità prezzo","qualita prezzo","value for money","prezzo","price","costoso","expensive"),
-    "Servizi e dotazioni": ("piscina","pool","spa","jacuzzi","servizi","services","dotazioni","amenities","ristorante","restaurant"),
+    "Piscina e area relax": ("piscina","pool","spa","jacuzzi","idromassaggio","wellness","relax"),
+    "Servizi e dotazioni": ("servizi","services","dotazioni","amenities","ristorante","restaurant"),
     "Manutenzione": ("manutenzione","maintenance","rotto","rotta","broken","vecchio","vecchia","datato","datata","malfunzion"),
 }
 
 REVIEW_ACTIONS = {
-    "Posizione": "Rendere il vantaggio logistico esplicito in schede, mappe, tempi a piedi e contenuti pre-arrivo.",
-    "Pulizia": "Verificare standard, checklist e controllo qualità; valorizzare pubblicamente il tema se è un punto di forza ricorrente.",
-    "Accoglienza e staff": "Formalizzare standard di benvenuto, risposta ai reclami e tempi di presa in carico.",
+    "Mare e posizione": "Valorizzare il vantaggio logistico con distanze reali, mappe e tempi a piedi nei canali di vendita.",
+    "Pulizia": "Verificare standard, checklist e controllo qualità; se il tema è positivo e ricorrente, valorizzarlo nella comunicazione.",
+    "Accoglienza e staff": "Formalizzare standard di benvenuto, tempi di risposta e gestione delle richieste degli ospiti.",
     "Colazione": "Allineare promessa, fotografie, orari e composizione reale della colazione sui diversi canali.",
     "Camera e comfort": "Verificare stanza per stanza dotazioni, comfort e corrispondenza tra descrizione, foto e aspettative.",
-    "Bagno": "Controllare manutenzione, dimensioni percepite, dotazioni e qualità fotografica dei bagni per tipologia.",
-    "Climatizzazione": "Esplicitare con precisione quali camere dispongono di climatizzazione e verificare efficienza/manutenzione.",
-    "Rumore": "Identificare le camere più esposte e intervenire su informazione preventiva, assegnazione e insonorizzazione dove possibile.",
+    "Bagno e doccia": "Controllare manutenzione, dimensioni percepite, pressione, dotazioni e qualità fotografica dei bagni.",
+    "Acqua calda": "Verificare produzione, temperatura e continuità dell'acqua calda nelle fasce di maggiore utilizzo.",
+    "Climatizzazione": "Verificare efficienza, manutenzione e corretta comunicazione della climatizzazione per ogni tipologia.",
+    "Tranquillità e rumore": "Individuare le camere più esposte e intervenire su insonorizzazione, assegnazione e informazione preventiva.",
     "Parcheggio": "Chiarire disponibilità, costi, distanza e modalità di accesso su sito, OTA e messaggi pre-arrivo.",
     "Wi-Fi": "Verificare copertura reale per aree/camere e allineare la promessa sui canali.",
     "Rapporto qualità/prezzo": "Confrontare prezzo, dotazioni e promessa percepita; intervenire su pricing o presentazione dove il valore non è chiaro.",
+    "Piscina e area relax": "Verificare stato, temperatura, pulizia e comunicazione della piscina; valorizzarla se emerge come elemento distintivo.",
     "Servizi e dotazioni": "Allineare servizi realmente disponibili, stagionalità, costi e fotografie su sito e OTA.",
     "Manutenzione": "Aprire una checklist per camera/area con priorità, responsabile e tempi di chiusura dei difetti ricorrenti.",
 }
+
+REVIEW_POSITIVE_CUES = (
+    "ottim","eccellent","stupend","fantastic","perfett","bellissim","bello","bella","gradevol","piacevol",
+    "pulit","impeccabil","curat","comodo","comoda","spazios","tranquill","silenzios","gentil","disponibil",
+    "consigliat","buon","buona","super","facile","vicin","relax","meravigli","accoglient","top"
+)
+
+REVIEW_NEGATIVE_CUES = (
+    "sporco","sporca","sporchi","muffa","fredd","rumoros","rotto","rotta","non funz","malfunzion","assente",
+    "manca","mancava","mancante","scomodo","scomoda","vecchio","vecchia","deludent","pessim","male","difficil",
+    "odore","costos","caro","cara","lontan","piccol","strett","caldo eccessivo","problema","problemi","peccato"
+)
 
 REVIEW_STOPWORDS = {
     "che","con","per","una","uno","un","del","della","delle","dei","degli","nel","nella","nelle","non","sono","era","molto",
     "anche","più","piu","come","ma","si","sì","the","and","for","was","were","very","with","this","that","from","have","had",
     "our","your","you","they","their","hotel","struttura","camera","room","posto","place","stay","soggiorno","giorni","night","nights",
+    "altro","alla","tutto","tutti","valutare","viaggio","viaggiovacanza","tornerai","tornerei"
 }
 
 def _review_norm(value: str) -> str:
@@ -4460,21 +4477,70 @@ def _review_snippet(value: str, limit: int = 180) -> str:
     cut=text[:limit].rsplit(" ",1)[0].rstrip(" ,;:-")
     return cut+"…"
 
+def _review_fragments(text: str) -> list[str]:
+    pieces=re.split(r"(?<=[.!?;])\s+|\n+",str(text or ""))
+    return [re.sub(r"\s+"," ",piece).strip() for piece in pieces if piece and piece.strip()]
+
+def _local_review_sentiment(fragment: str, star) -> str:
+    norm=_review_norm(fragment)
+    neg=sum(1 for cue in REVIEW_NEGATIVE_CUES if _review_norm(cue) in norm)
+    pos=sum(1 for cue in REVIEW_POSITIVE_CUES if _review_norm(cue) in norm)
+    if neg and neg>=pos:
+        return "negative"
+    if pos:
+        return "positive"
+    if isinstance(star,(int,float)):
+        if star>=4:
+            return "positive"
+        if star<=3:
+            return "negative"
+    return "neutral"
+
+def _signal_phrase(fragment: str, keywords: tuple[str,...], sentiment: str) -> str:
+    """Restituisce una breve espressione concreta, non una parola generica."""
+    clean=re.sub(r"\s+"," ",str(fragment or "")).strip()
+    if not clean:
+        return ""
+    words=clean.split()
+    norm_words=[_review_norm(word.strip(".,;:!?()[]{}\"'")) for word in words]
+    keyword_tokens=[]
+    for keyword in keywords:
+        first=_review_norm(keyword).split(" ")[0]
+        if first:
+            keyword_tokens.append(first)
+    hit=None
+    for idx,word in enumerate(norm_words):
+        if any(token and (token in word or word in token) for token in keyword_tokens):
+            hit=idx
+            break
+    if hit is None:
+        return _review_snippet(clean,90)
+    lo=max(0,hit-3)
+    hi=min(len(words),hit+5)
+    phrase=" ".join(words[lo:hi]).strip(" ,;:-")
+    return _review_snippet(phrase,100)
+
 def analyze_review_sample(reviews: list[dict]) -> dict:
-    theme_stats={theme:{"positive":0,"negative":0,"neutral":0,"examplesPositive":[],"examplesNegative":[]} for theme in REVIEW_THEME_RULES}
+    theme_stats={
+        theme:{
+            "positive":0,"negative":0,"neutral":0,
+            "examplesPositive":[],"examplesNegative":[],
+            "phrasesPositive":[],"phrasesNegative":[]
+        } for theme in REVIEW_THEME_RULES
+    }
     words={}
     stars=[]
     responses=0
 
     for review in reviews:
         text=str(review.get("text") or "").strip()
-        norm=_review_norm(text)
+        if not text:
+            continue
         star=review.get("stars")
         if isinstance(star,(int,float)) and star>0:
             stars.append(float(star))
         if review.get("hasResponse"):
             responses+=1
-        sentiment="positive" if isinstance(star,(int,float)) and star>=4 else "negative" if isinstance(star,(int,float)) and star<=3 else "neutral"
 
         tokens=re.findall(r"[a-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ'-]{2,}",text.lower())
         for token in tokens:
@@ -4483,47 +4549,89 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
                 continue
             words[base]=words.get(base,0)+1
 
+        fragments=_review_fragments(text) or [text]
         for theme,keywords in REVIEW_THEME_RULES.items():
-            if any(_review_norm(keyword) in norm for keyword in keywords):
-                stat=theme_stats[theme]
-                stat[sentiment]+=1
-                if sentiment=="positive" and len(stat["examplesPositive"])<3:
-                    stat["examplesPositive"].append(_review_snippet(text))
-                elif sentiment=="negative" and len(stat["examplesNegative"])<3:
-                    stat["examplesNegative"].append(_review_snippet(text))
+            matched=[]
+            for fragment in fragments:
+                norm=_review_norm(fragment)
+                if any(_review_norm(keyword) in norm for keyword in keywords):
+                    matched.append(fragment)
+            if not matched:
+                continue
+
+            # Un tema conta al massimo una volta per recensione. La polarità è
+            # determinata prima dal contesto locale e solo in fallback dalle stelle.
+            sentiments=[_local_review_sentiment(fragment,star) for fragment in matched]
+            if "negative" in sentiments:
+                sentiment="negative"
+                chosen=matched[sentiments.index("negative")]
+            elif "positive" in sentiments:
+                sentiment="positive"
+                chosen=matched[sentiments.index("positive")]
+            else:
+                sentiment=_local_review_sentiment(text,star)
+                chosen=matched[0]
+
+            stat=theme_stats[theme]
+            stat[sentiment]+=1
+            phrase=_signal_phrase(chosen,keywords,sentiment)
+            if sentiment=="positive":
+                if len(stat["examplesPositive"])<4:
+                    stat["examplesPositive"].append(_review_snippet(chosen))
+                if phrase and phrase not in stat["phrasesPositive"] and len(stat["phrasesPositive"])<6:
+                    stat["phrasesPositive"].append(phrase)
+            elif sentiment=="negative":
+                if len(stat["examplesNegative"])<4:
+                    stat["examplesNegative"].append(_review_snippet(chosen))
+                if phrase and phrase not in stat["phrasesNegative"] and len(stat["phrasesNegative"])<6:
+                    stat["phrasesNegative"].append(phrase)
 
     strengths=[]
     weaknesses=[]
     isolated=[]
+    recurring_themes=[]
     for theme,stat in theme_stats.items():
         pos=int(stat["positive"])
         neg=int(stat["negative"])
+
         if pos>=2:
-            strengths.append({
+            item={
                 "theme":theme,
                 "count":pos,
-                "weight":"alta" if pos>=5 else "media",
+                "weight":"alta" if pos>=4 else "media",
+                "phrases":stat["phrasesPositive"][:4],
                 "examples":stat["examplesPositive"][:3],
-            })
+            }
+            strengths.append(item)
+            recurring_themes.append({**item,"sentiment":"positivo"})
+
         if neg>=2:
-            weaknesses.append({
+            item={
                 "theme":theme,
                 "count":neg,
-                "weight":"alta" if neg>=4 else "media",
+                "weight":"alta" if neg>=3 else "media",
+                "phrases":stat["phrasesNegative"][:4],
                 "examples":stat["examplesNegative"][:3],
                 "action":REVIEW_ACTIONS.get(theme,"Verificare il tema nel dettaglio e definire un intervento misurabile."),
-            })
+            }
+            weaknesses.append(item)
+            recurring_themes.append({**item,"sentiment":"negativo"})
         elif neg==1:
             isolated.append({
                 "theme":theme,
                 "count":1,
+                "phrases":stat["phrasesNegative"][:3],
                 "examples":stat["examplesNegative"][:2],
                 "action":"Monitorare il tema prima di classificarlo come criticità ricorrente.",
             })
 
     strengths.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
     weaknesses.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
+    recurring_themes.sort(key=lambda item:(item["count"],item["sentiment"]=="negativo",item["theme"]),reverse=True)
     isolated.sort(key=lambda item:item["theme"])
+
+    # Le parole singole restano solo come supporto diagnostico. Nel frontend
+    # mostreremo i temi ricorrenti, che sono molto più utili commercialmente.
     keywords=sorted(words.items(),key=lambda item:(item[1],item[0]),reverse=True)[:18]
     average=round(sum(stars)/len(stars),2) if stars else None
     return {
@@ -4531,9 +4639,10 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
         "sampleAverage":average,
         "responseCount":responses,
         "responseRate":round(100*responses/len(reviews),1) if reviews else 0,
-        "strengths":strengths[:8],
-        "weaknesses":weaknesses[:8],
-        "isolatedSignals":isolated[:8],
+        "strengths":strengths[:10],
+        "weaknesses":weaknesses[:10],
+        "isolatedSignals":isolated[:10],
+        "recurringThemes":recurring_themes[:14],
         "keywords":[{"word":word,"count":count} for word,count in keywords],
     }
 
