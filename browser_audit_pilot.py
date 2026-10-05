@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v26"
+PILOT_BUILD = "velora-browser-pilot-v27"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2590,74 +2590,67 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                     flush=True,
                 )
                 if dest_ok:
-                    try:
-                        body=(await page.locator("body").inner_text(timeout=7000))[:14000]
-                    except Exception:
-                        body=""
-                    dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
-                    submitted_after_destination=False
+                    # Dopo la scelta della destinazione Booking può mostrare ancora
+                    # le date vecchie ma azzerarle internamente al submit. Per evitare
+                    # questo falso stato, reimpostiamo SEMPRE le date dopo aver scelto
+                    # il suggerimento esatto; l'helper preme già Cerca.
+                    applied2,ui_evidence2=await booking_apply_dates_via_ui(page,stay)
+                    print(
+                        f"{stay['month']} booking-search-date-picker-after-destination [{label}]: "
+                        f"{'applied' if applied2 else 'failed'} · {ui_evidence2}",
+                        flush=True,
+                    )
+                    if ui_evidence2:
+                        ui_evidence=(ui_evidence+" | "+ui_evidence2).strip(" |")
 
-                    if not dates_ok:
-                        # Questo helper imposta le date e preme già Cerca.
-                        applied2,ui_evidence2=await booking_apply_dates_via_ui(page,stay)
-                        submitted_after_destination=bool(applied2)
-                        print(
-                            f"{stay['month']} booking-search-date-picker-after-destination [{label}]: "
-                            f"{'applied' if applied2 else 'failed'} · {ui_evidence2}",
-                            flush=True,
-                        )
-                        if ui_evidence2:
-                            ui_evidence=(ui_evidence+" | "+ui_evidence2).strip(" |")
-                        if applied2:
-                            try:
-                                await page.wait_for_timeout(1200)
-                                body=(await page.locator("body").inner_text(timeout=7000))[:14000]
-                                dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
-                            except Exception:
-                                pass
-
-                    # Se le date erano già valide, dopo aver scelto il suggerimento
-                    # destinazione dobbiamo comunque inviare la nuova ricerca.
-                    if dates_ok and not submitted_after_destination:
-                        submit,submit_selector=await _first_visible_locator(page,(
-                            '[data-testid="searchbox-submit-button"]',
-                            '[data-testid="searchbox-layout-wide"] button[type="submit"]',
-                            '[data-testid="searchbox-layout-wide"] button:has-text("Cerca")',
-                            '[data-testid="searchbox-layout-wide"] button:has-text("Search")',
-                            'form[role="search"] button[type="submit"]',
-                            'form[action*="searchresults"] button[type="submit"]',
-                        ))
-                        if submit is not None:
-                            try:
-                                await submit.click(timeout=2400)
-                                try:
-                                    await page.wait_for_load_state("domcontentloaded",timeout=9000)
-                                except Exception:
-                                    pass
-                                await page.wait_for_timeout(1600)
-                                print(
-                                    f"{stay['month']} booking-destination-search-submit [{label}]: "
-                                    f"applied · {submit_selector}",
-                                    flush=True,
-                                )
-                            except Exception as exc:
-                                print(
-                                    f"{stay['month']} booking-destination-search-submit [{label}]: "
-                                    f"failed · {type(exc).__name__}",
-                                    flush=True,
-                                )
-                        else:
-                            print(
-                                f"{stay['month']} booking-destination-search-submit [{label}]: "
-                                "failed · pulsante Cerca non trovato",
-                                flush=True,
-                            )
-
-                    try:
-                        body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                    if applied2:
+                        try:
+                            await page.wait_for_timeout(1400)
+                            body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                        except Exception:
+                            dates_ok=False
+                    else:
+                        # Fallback: se il date picker non è riapribile ma i campi
+                        # risultano già validi, invia comunque la ricerca una volta.
+                        try:
+                            body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                        except Exception:
+                            body=""
                         dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
-                    except Exception:
-                        pass
+                        if dates_ok:
+                            submit,submit_selector=await _first_visible_locator(page,(
+                                '[data-testid="searchbox-submit-button"]',
+                                '[data-testid="searchbox-layout-wide"] button[type="submit"]',
+                                '[data-testid="searchbox-layout-wide"] button:has-text("Cerca")',
+                                '[data-testid="searchbox-layout-wide"] button:has-text("Search")',
+                                'form[role="search"] button[type="submit"]',
+                                'form[action*="searchresults"] button[type="submit"]',
+                            ))
+                            if submit is not None:
+                                try:
+                                    await submit.click(timeout=2400)
+                                    try:
+                                        await page.wait_for_load_state("domcontentloaded",timeout=9000)
+                                    except Exception:
+                                        pass
+                                    await page.wait_for_timeout(1600)
+                                    print(
+                                        f"{stay['month']} booking-destination-search-submit [{label}]: "
+                                        f"applied · {submit_selector}",
+                                        flush=True,
+                                    )
+                                except Exception as exc:
+                                    print(
+                                        f"{stay['month']} booking-destination-search-submit [{label}]: "
+                                        f"failed · {type(exc).__name__}",
+                                        flush=True,
+                                    )
+                        try:
+                            body=(await page.locator("body").inner_text(timeout=7000))[:14000]
+                            dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+                        except Exception:
+                            pass
 
                     for _ in range(10):
                         await page.wait_for_timeout(650)
