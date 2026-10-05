@@ -2469,13 +2469,23 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                         pass
             cards=await booking_result_cards(page)
             best=booking_best_card(cards,source,property_name,canonical_name,city)
-            if label == "searchresults Booking" and (not best or not best[1]):
+            if label.startswith("searchresults Booking") and (not best or not best[1]):
                 for _ in range(6):
                     await page.wait_for_timeout(700)
                     cards=await booking_result_cards(page)
                     best=booking_best_card(cards,source,property_name,canonical_name,city)
                     if best and best[1]:
                         break
+            best_score=best[0] if best else 0.0
+            best_exact=best[1] if best else False
+            best_title=str((best[2] if best else {}).get("title") or "")
+            best_price=str((best[2] if best else {}).get("price") or "")
+            print(
+                f"{stay['month']} booking-card-diagnostics [{label}]: "
+                f"cards={len(cards)} · best={best_score:.0%} · exact_url={best_exact} · "
+                f"title={best_title[:120]} · price={best_price[:80]}",
+                flush=True,
+            )
             return {
                 "ok":True,"label":label,"status":"ok","finalUrl":page.url,"title":title,
                 "body":body,"cards":cards,"best":best,"datesOk":dates_ok,"dateMode":date_mode,
@@ -2510,6 +2520,31 @@ async def booking_dated_search_observation(page, source: str, property_name: str
             elif city_result.get("ok") and (not chosen.get("ok") or len(city_result.get("cards") or []) > len(chosen.get("cards") or [])):
                 chosen=city_result
                 best=city_best
+
+    # Se il fallback città trova l'URL esatto ma perde le date, riprova la
+    # searchresults usando il titolo realmente osservato sulla card Booking.
+    if chosen.get("label") == "pagina città Booking" and best and best[1] and not chosen.get("datesOk"):
+        observed_title=str((best[2] or {}).get("title") or "").strip()
+        retry_name=observed_title or canonical_name
+        if city and retry_name.lower().endswith(city.lower()):
+            retry_name=retry_name[:-len(city)].strip()
+        retry_url=booking_dated_search_url(retry_name,city,stay)
+        retry=await inspect_target(retry_url,"searchresults Booking titolo osservato")
+        retry_best=retry.get("best") if retry.get("ok") else None
+        if retry_best and retry_best[1]:
+            chosen=retry
+            best=retry_best
+            record["requestedUrl"]=retry_url
+            print(
+                f"{stay['month']} booking-observed-title-retry: exact_url=True · "
+                f"name={retry_name} · dates={bool(retry.get('datesOk'))}",
+                flush=True,
+            )
+        else:
+            print(
+                f"{stay['month']} booking-observed-title-retry: exact_url=False · name={retry_name}",
+                flush=True,
+            )
 
     record["finalUrl"]=str(chosen.get("finalUrl") or "")
     record["title"]=str(chosen.get("title") or "")[:200]
