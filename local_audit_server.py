@@ -18,6 +18,7 @@ import sys
 import re
 import secrets
 import threading
+import types
 import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
@@ -63,8 +64,25 @@ def ensure_pilot_sync():
         temporary.write_text(text,encoding="utf-8")
         os.replace(temporary,target)
 
-        # Elimina eventuali bytecode vecchi e ricarica il modulo NELLO STESSO
-        # processo: niente piu' riavvii automatici o loop su Windows.
+        # Su alcuni PC Windows importlib può continuare a usare bytecode vecchio.
+        # Carichiamo quindi direttamente il sorgente appena scaricato, senza
+        # dipendere dalla cache Python.
+        namespace={
+            "__name__":"browser_audit_pilot_live",
+            "__file__":str(target),
+            "__package__":None,
+        }
+        exec(compile(text,str(target),"exec"),namespace)
+        loaded=str(namespace.get("PILOT_BUILD") or "legacy")
+        if loaded != EXPECTED_PILOT_BUILD:
+            raise RuntimeError(f"pilot caricato come {loaded}, atteso {EXPECTED_PILOT_BUILD}")
+
+        live=types.SimpleNamespace(**namespace)
+        browser_pilot=live
+        CHANNELS=namespace["CHANNELS"]
+        run=namespace["run"]
+
+        # Rimuove anche il vecchio bytecode per il prossimo avvio.
         pycache=target.parent/"__pycache__"
         if pycache.exists():
             for cached in pycache.glob("browser_audit_pilot*.pyc"):
@@ -72,14 +90,6 @@ def ensure_pilot_sync():
                     cached.unlink()
                 except Exception:
                     pass
-        importlib.invalidate_caches()
-        browser_pilot=importlib.reload(browser_pilot)
-        CHANNELS=browser_pilot.CHANNELS
-        run=browser_pilot.run
-
-        loaded=getattr(browser_pilot,"PILOT_BUILD","legacy")
-        if loaded != EXPECTED_PILOT_BUILD:
-            raise RuntimeError(f"pilot ricaricato come {loaded}, atteso {EXPECTED_PILOT_BUILD}")
 
         print(
             f"Sincronizzazione automatica pilot completata: {current} -> {loaded}",
