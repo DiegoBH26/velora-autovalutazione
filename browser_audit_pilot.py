@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v40"
+PILOT_BUILD = "velora-browser-pilot-v41"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2239,9 +2239,28 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
       const seen = new Set();
       const clean = (value) => String(value || '').replace(/\s+/g,' ').trim();
 
-      const priceSelector =
-        '.bui-price-display__value, [data-testid="price-and-discounted-price"], ' +
-        '[data-testid*="price"], .prco-valign-middle-helper, [class*="price"]';
+      const primaryPriceSelectors = [
+        '[data-testid="price-and-discounted-price"]',
+        '[data-testid="price-for-x-nights"]',
+        '.bui-price-display__value',
+        '.prco-valign-middle-helper'
+      ];
+      const visible=(el) => {
+        if (!el) return false;
+        const st=getComputedStyle(el);
+        if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity||'1')===0) return false;
+        if (st.textDecorationLine && st.textDecorationLine.includes('line-through')) return false;
+        const r=el.getBoundingClientRect();
+        return r.width>0 && r.height>0;
+      };
+      const pickPrice=(node) => {
+        if (!node) return null;
+        for (const selector of primaryPriceSelectors) {
+          const found=Array.from(node.querySelectorAll(selector)).filter(visible);
+          if (found.length) return found[0];
+        }
+        return null;
+      };
 
       const explicitRoom = (node) => {
         if (!node) return '';
@@ -2261,7 +2280,7 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
         if (!node) return;
         const text = clean(node.innerText || node.textContent);
         if (!text || text.length < 10) return;
-        const ownPrice = priceNode || node.querySelector(priceSelector);
+        const ownPrice = priceNode || pickPrice(node);
         const priceText = clean(ownPrice?.textContent).slice(0,180);
         if (!priceText) return;
         const room = explicitRoom(node) || clean(inheritedRoom).slice(0,240);
@@ -2283,12 +2302,8 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
         for (const row of Array.from(document.querySelectorAll(tableSelector)).slice(0,120)) {
           const foundRoom=explicitRoom(row);
           if (foundRoom) currentRoom=foundRoom;
-          const prices=Array.from(row.querySelectorAll(priceSelector)).filter((node,index,arr) => arr.indexOf(node)===index);
-          if (prices.length) {
-            for (const priceNode of prices.slice(0,8)) add(row,priceNode,currentRoom);
-          } else {
-            add(row,null,currentRoom);
-          }
+          const priceNode=pickPrice(row);
+          add(row,priceNode,currentRoom);
         }
       }
 
@@ -2299,15 +2314,13 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
       )).slice(0,100);
       for (const card of cards) {
         const room=explicitRoom(card);
-        const prices=Array.from(card.querySelectorAll(priceSelector));
-        if (prices.length) {
-          for (const priceNode of prices.slice(0,10)) {
-            const container=priceNode.closest(
-              'tr, [data-testid="room-card"], [data-testid*="room-card"], ' +
-              '[data-testid="availability-block"], [data-testid*="room"]'
-            ) || card;
-            add(container,priceNode,room);
-          }
+        const priceNode=pickPrice(card);
+        if (priceNode) {
+          const container=priceNode.closest(
+            'tr, [data-testid="room-card"], [data-testid*="room-card"], ' +
+            '[data-testid="availability-block"], [data-testid*="room"]'
+          ) || card;
+          add(container,priceNode,room);
         } else {
           add(card,null,room);
         }
@@ -4525,7 +4538,7 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
     }
 
 async def google_reputation_observation(context, data: dict) -> dict:
-    """Campione pubblico Google Maps: rating, recensioni, temi ricorrenti ed esempi brevi."""
+    """Campione pubblico Google Maps: rating, volume, recensioni, temi ed esempi."""
     name=str(data.get("name") or "").strip()
     city=str(data.get("city") or "").strip()
     if not name:
@@ -4549,88 +4562,105 @@ async def google_reputation_observation(context, data: dict) -> dict:
                     break
             except Exception:
                 pass
-        await page.wait_for_timeout(2600)
+        await page.wait_for_timeout(3000)
 
-        # Se Maps mostra un elenco, scegli il risultato col nome più simile.
+        # Se la ricerca restituisce più luoghi, seleziona il nome più vicino.
         try:
             candidates=page.locator('a[href*="/maps/place/"]')
-            count=min(await candidates.count(),30)
+            count=min(await candidates.count(),40)
             ranked=[]
             for idx in range(count):
                 loc=candidates.nth(idx)
                 try:
-                    txt=re.sub(r"\s+"," ",(await loc.get_attribute("aria-label") or await loc.inner_text(timeout=400) or "")).strip()
+                    txt=re.sub(r"\s+"," ",(await loc.get_attribute("aria-label") or await loc.inner_text(timeout=450) or "")).strip()
                     href=await loc.get_attribute("href") or ""
-                    if txt:
+                    if txt and href:
                         ranked.append((_name_similarity(name,txt),loc,txt,href))
                 except Exception:
                     continue
             if ranked:
                 ranked.sort(key=lambda item:item[0],reverse=True)
                 score,loc,txt,_=ranked[0]
-                if score>=0.52:
-                    await loc.click(timeout=2200)
-                    await page.wait_for_timeout(2300)
+                if score>=0.50:
+                    await loc.click(timeout=2400)
+                    await page.wait_for_timeout(2600)
         except Exception:
             pass
 
         observed_name=""
-        for selector in ("h1","[role='main'] h1"):
+        for selector in ("h1.DUwDvf","h1","[role='main'] h1"):
             try:
                 loc=page.locator(selector).first
-                if await loc.count():
+                if await loc.count() and await loc.is_visible(timeout=350):
                     observed_name=re.sub(r"\s+"," ",await loc.inner_text(timeout=700)).strip()
                     if observed_name:
                         break
             except Exception:
                 pass
 
+        # Rating e numero recensioni soltanto dall'header della scheda, mai dalle singole review.
+        meta=await page.evaluate(r"""() => {
+          const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
+          const parseRating=(v)=>{
+            const m=clean(v).match(/(?:^|\s)([1-5](?:[.,]\d{1,2})?)(?:\s|$)/);
+            return m ? m[1] : '';
+          };
+          const ratingCandidates=[
+            document.querySelector('.MW4etd'),
+            document.querySelector('.F7nice span[aria-hidden="true"]'),
+            document.querySelector('div.F7nice')
+          ].filter(Boolean);
+          let rating='';
+          for (const el of ratingCandidates) {
+            const candidate=parseRating(el.textContent);
+            if (candidate) { rating=candidate; break; }
+          }
+
+          const reviewCandidates=[
+            document.querySelector('button[jsaction*="moreReviews"]'),
+            document.querySelector('button[aria-label*="recension" i]'),
+            document.querySelector('button[aria-label*="review" i]'),
+            document.querySelector('.UY7F9')
+          ].filter(Boolean);
+          let reviews='';
+          for (const el of reviewCandidates) {
+            const hay=clean((el.getAttribute?.('aria-label')||'')+' '+(el.textContent||''));
+            const m=hay.match(/([\d.\s]+)\s*(?:recensioni|reviews)\b/i);
+            if (m) { reviews=m[1]; break; }
+          }
+          return {rating,reviews};
+        }""")
         rating=None
         review_count=None
-        try:
-            meta=await page.evaluate(r"""() => {
-              const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
-              const texts=Array.from(document.querySelectorAll('button,span,div')).slice(0,2500).map(el=>({
-                text:clean(el.textContent),
-                aria:clean(el.getAttribute('aria-label'))
-              }));
-              let rating='';
-              let reviews='';
-              for (const item of texts) {
-                const hay=(item.aria+' '+item.text).toLowerCase();
-                if (!rating) {
-                  const m=hay.match(/\b([1-5](?:[.,]\d)?)\s*(?:stelle|stars?)\b/);
-                  if (m) rating=m[1];
-                }
-                if (!reviews) {
-                  const m=hay.match(/([\d.\s]+)\s*(?:recensioni|reviews)\b/);
-                  if (m) reviews=m[1];
-                }
-                if (rating && reviews) break;
-              }
-              return {rating,reviews};
-            }""")
-            if meta.get("rating"):
+        if meta.get("rating"):
+            try:
                 rating=float(str(meta["rating"]).replace(",","."))
-            if meta.get("reviews"):
-                digits=re.sub(r"\D+","",str(meta["reviews"]))
-                review_count=int(digits) if digits else None
-        except Exception:
-            pass
+            except ValueError:
+                rating=None
+        if meta.get("reviews"):
+            digits=re.sub(r"\D+","",str(meta["reviews"]))
+            review_count=int(digits) if digits else None
 
-        # Apri il pannello recensioni.
+        # Apri esplicitamente la sezione/pannello recensioni.
         review_button=None
+        review_button_label=""
         for selector in (
-            "button[aria-label*='recension' i]","button[aria-label*='review' i]",
-            "button:has-text('recensioni')","button:has-text('reviews')",
+            "button[jsaction*='moreReviews']",
+            "[role='tab'][aria-label*='recension' i]",
+            "[role='tab'][aria-label*='review' i]",
+            "button[aria-label*='recension' i]",
+            "button[aria-label*='review' i]",
+            "button:has-text('recensioni')",
+            "button:has-text('reviews')",
         ):
             try:
-                loc=page.locator(selector)
-                count=min(await loc.count(),20)
+                locs=page.locator(selector)
+                count=min(await locs.count(),25)
                 for idx in range(count):
-                    item=loc.nth(idx)
+                    item=locs.nth(idx)
                     if await item.is_visible(timeout=250):
                         review_button=item
+                        review_button_label=re.sub(r"\s+"," ",(await item.get_attribute("aria-label") or await item.inner_text(timeout=350) or selector)).strip()[:180]
                         break
                 if review_button is not None:
                     break
@@ -4638,24 +4668,24 @@ async def google_reputation_observation(context, data: dict) -> dict:
                 continue
         if review_button is not None:
             try:
-                await review_button.click(timeout=2200)
-                await page.wait_for_timeout(1800)
+                await review_button.click(timeout=2400)
+                await page.wait_for_timeout(2200)
             except Exception:
                 pass
 
-        # Prova a ordinare per più recenti, senza fallire se l'interfaccia cambia.
+        # Ordina per più recenti quando disponibile.
         try:
             sort_button=None
             for selector in (
                 "button[aria-label*='ordina recensioni' i]","button[aria-label*='sort reviews' i]",
-                "button:has-text('Ordina')","button:has-text('Sort')",
+                "button[jsaction*='reviewSort']","button:has-text('Ordina')","button:has-text('Sort')",
             ):
                 loc=page.locator(selector).first
                 if await loc.count() and await loc.is_visible(timeout=250):
                     sort_button=loc; break
             if sort_button is not None:
                 await sort_button.click(timeout=1600)
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(550)
                 for selector in (
                     "[role='menuitemradio']:has-text('Più recenti')",
                     "[role='menuitemradio']:has-text('Newest')",
@@ -4669,42 +4699,87 @@ async def google_reputation_observation(context, data: dict) -> dict:
         except Exception:
             pass
 
-        # Carica un campione più ampio scorrendo l'ultima recensione.
-        for _ in range(7):
-            cards=page.locator("div[data-review-id]")
+        card_selector="div.jftiEf[data-review-id], div[data-review-id], div.jftiEf"
+        # Carica un campione consistente; scroll del pannello recensioni, non della pagina generica.
+        for _ in range(12):
             try:
+                cards=page.locator(card_selector)
                 count=await cards.count()
                 if count:
-                    await cards.nth(count-1).scroll_into_view_if_needed(timeout=1200)
+                    last=cards.nth(count-1)
+                    await last.scroll_into_view_if_needed(timeout=1300)
+                    try:
+                        await page.evaluate(r"""(el) => {
+                          let p=el;
+                          while (p && p!==document.body) {
+                            const st=getComputedStyle(p);
+                            if (/(auto|scroll)/.test(st.overflowY) && p.scrollHeight>p.clientHeight+50) {
+                              p.scrollTop=p.scrollHeight;
+                              break;
+                            }
+                            p=p.parentElement;
+                          }
+                        }""",await last.element_handle())
+                    except Exception:
+                        pass
                 await page.wait_for_timeout(650)
             except Exception:
                 break
+
+        # Espandi il testo delle recensioni visibili.
+        try:
+            more=page.locator("button:has-text('Altro'), button:has-text('More')")
+            for idx in range(min(await more.count(),35)):
+                item=more.nth(idx)
+                try:
+                    if await item.is_visible(timeout=120):
+                        await item.click(timeout=600)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         reviews=[]
         try:
             reviews=await page.evaluate(r"""() => {
               const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
-              const cards=Array.from(document.querySelectorAll('div[data-review-id]')).slice(0,60);
-              return cards.map(card => {
-                const textNode=card.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"]');
+              const cards=Array.from(document.querySelectorAll('div.jftiEf[data-review-id], div[data-review-id], div.jftiEf'));
+              const seen=new Set();
+              const out=[];
+              for (const card of cards) {
+                const id=card.getAttribute('data-review-id') || clean(card.textContent).slice(0,120);
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                const textNode=card.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"],.MyEned');
                 const text=clean(textNode?.textContent || '');
-                const starNode=card.querySelector('[role="img"][aria-label*="stell"],[role="img"][aria-label*="star"]');
+                if (!text) continue;
+                const starNode=card.querySelector('span[role="img"][aria-label*="stell" i],span[role="img"][aria-label*="star" i],[role="img"][aria-label*="stell" i],[role="img"][aria-label*="star" i]');
                 const starAria=clean(starNode?.getAttribute('aria-label'));
                 const starMatch=starAria.match(/([1-5](?:[.,]\d)?)/);
-                const dateNode=card.querySelector('.rsqaWe,.xRkPPb');
-                const hasResponse=!!card.querySelector('.CDe7pd,[data-review-owner-response]');
-                return {
-                  text:text.slice(0,1800),
+                const dateNode=card.querySelector('.rsqaWe,.xRkPPb,.DU9Pgb');
+                const hasResponse=!!card.querySelector('.CDe7pd,[data-review-owner-response],.wiI7pd + div .CDe7pd');
+                out.push({
+                  text:text.slice(0,2200),
                   stars:starMatch ? Number(starMatch[1].replace(',','.')) : null,
                   date:clean(dateNode?.textContent).slice(0,100),
                   hasResponse
-                };
-              }).filter(item => item.text);
+                });
+                if (out.length>=60) break;
+              }
+              return out;
             }""")
         except Exception:
             reviews=[]
 
+        # Se la scheda espone un bottone recensioni ma non abbiamo estratto card,
+        # non inventare rating/analisi: rendi il limite esplicito.
         analysis=analyze_review_sample(reviews)
+        print(
+            f"reputation diagnostics: name={observed_name or name} · button={review_button_label or 'n.d.'} · "
+            f"rating={rating if rating is not None else 'n.d.'} · reviews={review_count if review_count is not None else 'n.d.'} · "
+            f"cards={len(reviews)} · url={page.url[:260]}",
+            flush=True,
+        )
         return {
             "status":"sampled" if reviews else "listing_found_no_reviews",
             "source":"Google Maps pubblico",
@@ -4733,7 +4808,7 @@ async def google_reputation_observation(context, data: dict) -> dict:
             pass
 
 async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
-    """Audit fotografico frontend basato su immagini pubbliche del sito ufficiale."""
+    """Audit fotografico frontend multi-pagina: img, lazy-load e background CSS pubblici."""
     source=((data.get("sources") or {}).get("sito") or {}).get("url","")
     if not source:
         return {"status":"source_missing","score":0,"evidence":"Sito ufficiale non disponibile."}
@@ -4741,33 +4816,142 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
     if permission is not True:
         return {"status":"robots_denied","score":0,"evidence":"Sito ufficiale non analizzato per immagini: robots.txt non consente o non chiarisce l'accesso."}
 
+    base_host=(urlparse(source).hostname or "").lower().removeprefix("www.")
     page=await context.new_page()
     try:
-        await page.goto(source,wait_until="domcontentloaded",timeout=25000)
-        await dismiss_cookie(page)
-        await page.wait_for_timeout(1500)
-        data_images=await page.evaluate(r"""() => {
-          const abs=(u)=>{try{return new URL(u,location.href).href}catch{return ''}};
-          const imgs=Array.from(document.images).slice(0,300).map(img=>({
-            src:abs(img.currentSrc||img.src||''),
-            alt:String(img.alt||'').replace(/\s+/g,' ').trim().slice(0,180),
-            naturalWidth:Number(img.naturalWidth||0),
-            naturalHeight:Number(img.naturalHeight||0),
-            displayedWidth:Number(img.clientWidth||0),
-            displayedHeight:Number(img.clientHeight||0)
-          })).filter(i=>i.src && !i.src.startsWith('data:'));
-          return imgs;
-        }""")
+        pages=[source]
+        seen_pages=set()
+        collected=[]
+        page_summaries=[]
+
+        async def inspect_page(target: str):
+            response=await page.goto(target,wait_until="domcontentloaded",timeout=25000)
+            await dismiss_cookie(page)
+            # Stimola lazy-loading con scroll progressivo.
+            try:
+                for ratio in (0.25,0.55,0.85,1.0):
+                    await page.evaluate("(r)=>window.scrollTo(0, Math.floor(document.body.scrollHeight*r))",ratio)
+                    await page.wait_for_timeout(350)
+                await page.evaluate("window.scrollTo(0,0)")
+            except Exception:
+                pass
+            await page.wait_for_timeout(650)
+            payload=await page.evaluate(r"""() => {
+              const abs=(u)=>{try{return new URL(u,location.href).href}catch{return ''}};
+              const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
+              const pickSrc=(img)=>{
+                const attrs=[
+                  img.currentSrc,img.src,img.getAttribute('data-src'),img.getAttribute('data-lazy-src'),
+                  img.getAttribute('data-original'),img.getAttribute('data-bg')
+                ].filter(Boolean);
+                if (attrs.length) return abs(attrs[0]);
+                const srcset=img.getAttribute('srcset') || img.getAttribute('data-srcset') || '';
+                if (srcset) {
+                  const parts=srcset.split(',').map(x=>x.trim().split(/\s+/)[0]).filter(Boolean);
+                  if (parts.length) return abs(parts[parts.length-1]);
+                }
+                return '';
+              };
+              const images=[];
+              for (const img of Array.from(document.querySelectorAll('img')).slice(0,450)) {
+                const r=img.getBoundingClientRect();
+                const src=pickSrc(img);
+                if (!src || src.startsWith('data:')) continue;
+                images.push({
+                  src, alt:clean(img.alt).slice(0,180),
+                  naturalWidth:Number(img.naturalWidth||0), naturalHeight:Number(img.naturalHeight||0),
+                  displayedWidth:Math.round(r.width||img.clientWidth||0), displayedHeight:Math.round(r.height||img.clientHeight||0),
+                  kind:'img'
+                });
+              }
+              for (const source of Array.from(document.querySelectorAll('picture source[srcset], source[data-srcset]')).slice(0,150)) {
+                const raw=source.getAttribute('srcset') || source.getAttribute('data-srcset') || '';
+                const parts=raw.split(',').map(x=>x.trim().split(/\s+/)[0]).filter(Boolean);
+                if (!parts.length) continue;
+                images.push({src:abs(parts[parts.length-1]),alt:'',naturalWidth:0,naturalHeight:0,displayedWidth:0,displayedHeight:0,kind:'srcset'});
+              }
+              for (const el of Array.from(document.querySelectorAll('body *')).slice(0,1800)) {
+                const bg=getComputedStyle(el).backgroundImage || '';
+                if (!bg || bg==='none') continue;
+                const m=bg.match(/url\(["']?([^"')]+)["']?\)/);
+                if (!m) continue;
+                const r=el.getBoundingClientRect();
+                if (r.width<280 || r.height<120) continue;
+                images.push({
+                  src:abs(m[1]),alt:clean(el.getAttribute('aria-label')||el.getAttribute('title')||'').slice(0,180),
+                  naturalWidth:0,naturalHeight:0,displayedWidth:Math.round(r.width),displayedHeight:Math.round(r.height),kind:'background'
+                });
+              }
+              const og=document.querySelector('meta[property="og:image"]')?.content || document.querySelector('meta[name="twitter:image"]')?.content || '';
+              if (og) images.push({src:abs(og),alt:'hero social',naturalWidth:0,naturalHeight:0,displayedWidth:1200,displayedHeight:630,kind:'meta'});
+              const links=Array.from(document.querySelectorAll('a[href]')).slice(0,600).map(a=>({
+                href:abs(a.getAttribute('href')||''),text:clean(a.innerText||a.getAttribute('aria-label')||'').slice(0,160)
+              })).filter(x=>x.href);
+              return {images,links,title:document.title||''};
+            }""")
+            return response,payload
+
+        # Home + pagine editorialmente rilevanti dello stesso sito.
+        while pages and len(seen_pages)<7:
+            target=pages.pop(0)
+            norm=target.split("#")[0]
+            if norm in seen_pages:
+                continue
+            seen_pages.add(norm)
+            try:
+                response,payload=await inspect_page(norm)
+            except Exception:
+                continue
+            page_summaries.append({"url":page.url,"title":str(payload.get("title") or "")[:180],"status":getattr(response,"status",None)})
+            collected.extend(payload.get("images") or [])
+
+            ranked=[]
+            for link in payload.get("links") or []:
+                href=str(link.get("href") or "").split("#")[0]
+                parsed=urlparse(href)
+                host=(parsed.hostname or "").lower().removeprefix("www.")
+                if parsed.scheme not in {"http","https"} or host!=base_host or href in seen_pages:
+                    continue
+                hay=_review_norm((link.get("text") or "")+" "+parsed.path)
+                score=sum(1 for word in (
+                    "gallery","galleria","foto","photo","camere","camera","room","rooms","suite",
+                    "servizi","services","piscina","pool","spa","wellness","colazione","breakfast",
+                    "ristorante","restaurant","struttura","hotel","agriturismo"
+                ) if word in hay)
+                if score:
+                    ranked.append((score,href))
+            ranked.sort(reverse=True)
+            for _,href in ranked[:5]:
+                if href not in pages and href not in seen_pages:
+                    pages.append(href)
+
         unique={}
-        for item in data_images:
+        for item in collected:
             src=str(item.get("src") or "")
+            if not src or src.startswith("data:"):
+                continue
             key=re.sub(r"[?#].*$","",src).lower()
             if key and key not in unique:
                 unique[key]=item
+            elif key:
+                # conserva le dimensioni migliori viste sulla stessa immagine
+                previous=unique[key]
+                if max(int(item.get("naturalWidth") or 0),int(item.get("displayedWidth") or 0)) > max(int(previous.get("naturalWidth") or 0),int(previous.get("displayedWidth") or 0)):
+                    unique[key]=item
+
         images=list(unique.values())
-        relevant=[img for img in images if max(int(img.get("naturalWidth") or 0),int(img.get("displayedWidth") or 0))>=500]
-        highres=[img for img in relevant if int(img.get("naturalWidth") or 0)>=1200 and int(img.get("naturalHeight") or 0)>=700]
-        alt_ok=[img for img in relevant if len(str(img.get("alt") or "").strip())>=4]
+        relevant=[]
+        for img in images:
+            width=max(int(img.get("naturalWidth") or 0),int(img.get("displayedWidth") or 0))
+            height=max(int(img.get("naturalHeight") or 0),int(img.get("displayedHeight") or 0))
+            path=(urlparse(str(img.get("src") or "")).path or "").lower()
+            looks_image=bool(re.search(r"\.(?:jpe?g|png|webp|avif)(?:$|/)",path))
+            if width>=420 or (looks_image and (height>=240 or str(img.get("kind")) in {"srcset","meta"})):
+                relevant.append(img)
+
+        dimension_known=[img for img in relevant if int(img.get("naturalWidth") or 0)>0 and int(img.get("naturalHeight") or 0)>0]
+        highres=[img for img in dimension_known if int(img.get("naturalWidth") or 0)>=1200 and int(img.get("naturalHeight") or 0)>=700]
+        alt_ok=[img for img in relevant if len(str(img.get("alt") or "").strip())>=4 and str(img.get("alt") or "").lower() not in {"image","foto","photo"}]
 
         categories={
             "camere":("camera","room","suite","bed","letto"),
@@ -4785,55 +4969,68 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
                     category_counts[key]+=1
 
         total=len(relevant)
-        highres_ratio=(len(highres)/total) if total else 0
-        alt_ratio=(len(alt_ok)/total) if total else 0
         covered=sum(1 for value in category_counts.values() if value>0)
-        volume_score=min(1.0,total/24) * 1.5
-        resolution_score=min(1.0,highres_ratio/0.65) * 2.5
-        alt_score=min(1.0,alt_ratio/0.75) * 1.0
+        known_ratio=(len(dimension_known)/total) if total else 0
+        highres_ratio=(len(highres)/len(dimension_known)) if dimension_known else 0
+        alt_ratio=(len(alt_ok)/total) if total else 0
+
+        # Punteggio solo su segnali effettivamente osservabili. Se le dimensioni
+        # naturali non sono disponibili, la componente risoluzione pesa meno.
+        volume_score=min(1.0,total/24) * 2.0
         coverage_score=(covered/max(1,len(categories))) * 3.5
-        hero_like=sum(1 for img in relevant if int(img.get("displayedWidth") or 0)>=900 or int(img.get("naturalWidth") or 0)>=1600)
-        hero_score=min(1.0,hero_like/4) * 1.5
-        score=round(min(10.0,volume_score+resolution_score+alt_score+coverage_score+hero_score),1)
+        metadata_score=min(1.0,alt_ratio/0.7) * 1.5
+        resolution_weight=2.0 if known_ratio>=0.35 else 0.8
+        resolution_score=min(1.0,highres_ratio/0.65) * resolution_weight
+        visual_presence=sum(1 for img in relevant if int(img.get("displayedWidth") or 0)>=900 or str(img.get("kind")) in {"background","meta"})
+        hero_score=min(1.0,visual_presence/4) * 1.0
+        max_score=2.0+3.5+1.5+resolution_weight+1.0
+        raw=volume_score+coverage_score+metadata_score+resolution_score+hero_score
+        score=round(10*raw/max_score,1) if total else 0.0
 
         strengths=[]
         gaps=[]
-        if total>=20: strengths.append(f"Buona ampiezza del campione fotografico ({total} immagini rilevanti).")
-        else: gaps.append(f"Copertura fotografica limitata nel campione del sito ({total} immagini rilevanti).")
-        if highres_ratio>=0.6: strengths.append(f"Buona quota di immagini ad alta risoluzione ({len(highres)}/{total}).")
-        else: gaps.append(f"Solo {len(highres)}/{total} immagini rilevanti raggiungono almeno 1200×700 px.")
-        if alt_ratio>=0.65: strengths.append(f"Alt text presente su una quota significativa delle immagini ({len(alt_ok)}/{total}).")
-        else: gaps.append(f"Alt text assente o poco descrittivo su molte immagini ({len(alt_ok)}/{total} adeguate).")
+        if total>=20: strengths.append(f"Buona ampiezza del campione fotografico ({total} immagini rilevanti su {len(page_summaries)} pagine).")
+        elif total: gaps.append(f"Copertura fotografica limitata nel campione ({total} immagini rilevanti su {len(page_summaries)} pagine).")
+        else: gaps.append(f"Nessuna immagine editoriale rilevante isolata automaticamente nelle {len(page_summaries)} pagine campionate.")
+        if dimension_known:
+            if highres_ratio>=0.6: strengths.append(f"Buona quota di immagini con dimensioni note ad alta risoluzione ({len(highres)}/{len(dimension_known)}).")
+            else: gaps.append(f"Solo {len(highres)}/{len(dimension_known)} immagini con dimensioni note raggiungono almeno 1200×700 px.")
+        else:
+            gaps.append("Dimensioni naturali non esposte dal frontend: la risoluzione non può essere giudicata con certezza.")
+        if total:
+            if alt_ratio>=0.65: strengths.append(f"Alt text utile su una quota significativa delle immagini ({len(alt_ok)}/{total}).")
+            else: gaps.append(f"Alt text assente o poco descrittivo su molte immagini ({len(alt_ok)}/{total} utili).")
         missing=[key for key,value in category_counts.items() if value==0]
-        if covered>=4: strengths.append("La gallery copre più aree dell'esperienza, non solo le camere.")
-        if missing: gaps.append("Categorie non chiaramente rappresentate tramite metadati/URL: "+", ".join(missing)+".")
+        if covered>=4: strengths.append("Il campione copre più aree dell'esperienza, non soltanto le camere.")
+        if missing: gaps.append("Categorie non chiaramente riconoscibili da metadati/URL: "+", ".join(missing)+".")
 
         actions=[]
         if "esperienza/lifestyle" in missing: actions.append("Integrare immagini lifestyle con persone e momenti d'uso reali.")
         if "bagni" in missing: actions.append("Assicurare almeno una fotografia chiara del bagno per ogni tipologia.")
-        if highres_ratio<0.6: actions.append("Sostituire le immagini a bassa risoluzione nelle posizioni principali.")
-        if alt_ratio<0.65: actions.append("Scrivere alt text descrittivi e coerenti con tipologie e servizi.")
+        if dimension_known and highres_ratio<0.6: actions.append("Sostituire le immagini a bassa risoluzione nelle posizioni principali.")
+        if total and alt_ratio<0.65: actions.append("Scrivere alt text descrittivi e coerenti con tipologie e servizi.")
         if total<20: actions.append("Ampliare la copertura fotografica di camere, servizi, esterni e dettagli.")
         if not actions: actions.append("Verificare ora ordine gallery, luce, styling e coerenza visiva tra sito e OTA.")
 
         return {
-            "status":"sampled","source":"Sito ufficiale","url":page.url,"score":score,
-            "imageCount":total,"highResolutionCount":len(highres),"altTextCount":len(alt_ok),
+            "status":"sampled" if total else "no_images_isolated",
+            "source":"Sito ufficiale","url":source,"score":score,
+            "pagesSampled":len(page_summaries),"imageCount":total,
+            "knownDimensionCount":len(dimension_known),"highResolutionCount":len(highres),"altTextCount":len(alt_ok),
             "categoryCounts":category_counts,
             "components":{
-                "volume":round(volume_score,1),
-                "resolution":round(resolution_score,1),
-                "metadata":round(alt_score,1),
-                "coverage":round(coverage_score,1),
-                "hero":round(hero_score,1),
+                "volume":round(volume_score,2),
+                "resolution":round(resolution_score,2),
+                "metadata":round(metadata_score,2),
+                "coverage":round(coverage_score,2),
+                "hero":round(hero_score,2),
             },
-            "strengths":strengths,
-            "gaps":gaps,
-            "actions":actions,
+            "strengths":strengths,"gaps":gaps,"actions":actions,
             "evidence":(
-                f"Audit fotografico frontend: {total} immagini rilevanti, {len(highres)} ad alta risoluzione, "
-                f"{len(alt_ok)} con alt text utile, {covered}/{len(categories)} categorie coperte. "
-                "Il punteggio è tecnico/editoriale sui segnali osservabili; luce e styling richiedono successiva lettura visiva."
+                f"Audit fotografico frontend multi-pagina: {len(page_summaries)} pagine, {total} immagini rilevanti, "
+                f"{len(dimension_known)} con dimensioni naturali note, {len(highres)} ad alta risoluzione, "
+                f"{len(alt_ok)} con alt text utile, {covered}/{len(categories)} categorie riconoscibili. "
+                "Il punteggio usa solo segnali frontend osservabili; luce, composizione e styling richiedono lettura visiva."
             )[:900],
         }
     except Exception as exc:
