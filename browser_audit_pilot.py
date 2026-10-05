@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v27"
+PILOT_BUILD = "velora-browser-pilot-v28"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2310,6 +2310,46 @@ def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
     })
 
 
+def booking_exact_results_dated_url(current_url: str, stay: dict) -> str:
+    """Normalizza la destinazione scelta da Booking e aggiunge date con parametri separati.
+
+    Booking può restituire searchresults con una query del tipo
+    dest_id=...;dest_type=latlong;latitude=...;longitude=...
+    dove i separatori sono ';'. parse_qsl la interpreta come un unico dest_id:
+    qui separiamo prima quei campi e poi costruiamo una query standard con '&'.
+    """
+    parsed=urlparse(current_url)
+    if "/searchresults" not in parsed.path:
+        return ""
+
+    raw_query=(parsed.query or "").replace(";", "&")
+    pairs=parse_qsl(raw_query,keep_blank_values=True)
+    query={}
+    for key,value in pairs:
+        if key and key not in query:
+            query[key]=value
+
+    # Conserva l'identità destinazione osservata da Booking, ma rimuove
+    # eventuali date/occupazione vecchie o parametri vuoti che possono
+    # interferire con la nuova ricerca.
+    keep_keys=(
+        "dest_id","dest_type","latitude","longitude","ss",
+        "place_id","region","district",
+    )
+    cleaned={key:query[key] for key in keep_keys if query.get(key)}
+
+    cleaned.update({
+        "checkin":stay["checkin"],
+        "checkout":stay["checkout"],
+        "group_adults":str(stay.get("adults") or 2),
+        "no_rooms":"1",
+        "group_children":"0",
+        "selected_currency":"EUR",
+        "lang":"it-it",
+    })
+    return urlunparse(parsed._replace(query=urlencode(cleaned),fragment=""))
+
+
 def booking_hotel_dated_url(hotel_id: str, stay: dict) -> str:
     hotel_id=re.sub(r"\D+","",str(hotel_id or ""))
     if not hotel_id:
@@ -2664,7 +2704,7 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                     # searchresults corrente e aggiungi le date direttamente alla sua URL.
                     # Così evitiamo il date picker che Booking rende instabile dopo il submit.
                     if best and best[1] and not dates_ok:
-                        exact_results_url=dated_url("booking",page.url,stay) or ""
+                        exact_results_url=booking_exact_results_dated_url(page.url,stay) or ""
                         if exact_results_url and "/searchresults" in exact_results_url:
                             try:
                                 response2=await page.goto(
@@ -2685,7 +2725,7 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                                     f"{stay['month']} booking-exact-results-dated-url [{label}]: "
                                     f"status={getattr(response2,'status',None)} · "
                                     f"dates={dates_ok} · exact_url={bool(best and best[1])} · "
-                                    f"url={page.url[:320]}",
+                                    f"url={page.url[:320]} · requested={exact_results_url[:320]}",
                                     flush=True,
                                 )
                             except Exception as exc:
