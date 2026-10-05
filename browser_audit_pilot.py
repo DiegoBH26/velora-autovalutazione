@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v33"
+PILOT_BUILD = "velora-browser-pilot-v34"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2610,12 +2610,73 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
     if field is None:
         return False, "campo destinazione Booking non trovato", ""
 
+    input_method=""
+    first_error=""
     try:
-        await field.click(timeout=1800)
-        await field.fill(property_name)
-        await page.wait_for_timeout(900)
+        try:
+            await field.scroll_into_view_if_needed(timeout=1200)
+        except Exception:
+            pass
+        await field.click(timeout=2200)
+        await field.fill(property_name,timeout=2600)
+        input_method="click+fill"
     except Exception as exc:
-        return False, f"campo destinazione non compilabile: {type(exc).__name__}", ""
+        first_error=type(exc).__name__
+        # Sulla home Booking il campo può risultare visibile ma essere coperto
+        # da un layer/animazione. Riprova con focus + tastiera, più vicino al
+        # comportamento di un utente reale.
+        try:
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(250)
+            except Exception:
+                pass
+            try:
+                await field.click(timeout=1600,force=True)
+            except Exception:
+                await field.focus(timeout=1600)
+            try:
+                await field.press("Control+A",timeout=1200)
+                await field.press("Backspace",timeout=1200)
+            except Exception:
+                pass
+            await field.type(property_name,delay=55,timeout=6000)
+            input_method="focus+type"
+        except Exception as exc2:
+            # Ultimo tentativo: apri il contenitore destinazione e recupera
+            # nuovamente l'input, perché Booking può sostituirlo durante l'hydration.
+            try:
+                container, _ = await _first_visible_locator(page,(
+                    '[data-testid="destination-container"]',
+                    '[data-testid="destination-container"] button',
+                ))
+                if container is not None:
+                    await container.click(timeout=1800,force=True)
+                    await page.wait_for_timeout(350)
+                field2, selector2 = await _first_visible_locator(page,(
+                    'input[name="ss"]',
+                    '[data-testid="destination-container"] input',
+                    'input[placeholder*="destinazione" i]',
+                    'input[placeholder*="destination" i]',
+                ))
+                if field2 is None:
+                    raise RuntimeError("destination input missing after reopen")
+                try:
+                    await field2.fill(property_name,timeout=3000)
+                    input_method=f"reopen+fill ({selector2})"
+                except Exception:
+                    await field2.focus(timeout=1600)
+                    await field2.press("Control+A",timeout=1200)
+                    await field2.type(property_name,delay=60,timeout=6000)
+                    input_method=f"reopen+type ({selector2})"
+                field=field2
+            except Exception as exc3:
+                return False, (
+                    f"campo destinazione non compilabile: {first_error or type(exc).__name__} "
+                    f"→ {type(exc2).__name__} → {type(exc3).__name__}"
+                ), ""
+
+    await page.wait_for_timeout(1100)
 
     options=[]
     selectors=(
@@ -2662,7 +2723,10 @@ async def booking_select_exact_destination(page, property_name: str, city: str) 
     try:
         await loc.click(timeout=2200)
         await page.wait_for_timeout(900)
-        return True,f"selezionato suggerimento «{txt[:140]}» (match {score:.0%}) con {opt_selector}",txt[:300]
+        return True,(
+            f"selezionato suggerimento «{txt[:140]}» (match {score:.0%}) con {opt_selector}; "
+            f"input={input_method or 'n.d.'}"
+        ),txt[:300]
     except Exception as exc:
         return False,f"suggerimento esatto trovato ma non cliccabile: {type(exc).__name__}",""
 
@@ -2727,7 +2791,12 @@ async def booking_clean_ui_search(page, source: str, property_name: str, canonic
             await page.locator("body").wait_for(state="visible",timeout=5000)
         except Exception:
             pass
-        await page.wait_for_timeout(1200)
+        await page.wait_for_timeout(1800)
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(250)
+        except Exception:
+            pass
 
         if response and response.status==429:
             return {"ok":False,"label":"Booking home UI","reason":"rate_limited","status":"rate_limited","evidence":"Booking home UI: HTTP 429."}
