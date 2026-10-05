@@ -623,7 +623,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v6",
+                "agentVersion":"velora-local-agent-v7",
                 "catalog":catalog_public_summary(),
                 "aiWebSearch":{
                     "configured":False,
