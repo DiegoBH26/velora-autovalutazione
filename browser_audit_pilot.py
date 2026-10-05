@@ -2044,6 +2044,44 @@ def write_result(path: Path, result: dict) -> None:
 
 
 
+def booking_path_key(url: str) -> str:
+    try:
+        path=(urlparse(url).path or "").lower().rstrip("/")
+        path=re.sub(r"\.(?:it\.)?html?$","",path)
+        return path
+    except Exception:
+        return ""
+
+
+async def booking_source_title(page, source: str, robots: dict, fallback: str) -> tuple[str,str]:
+    permission=await asyncio.to_thread(allowed_by_robots,source,robots)
+    if permission is not True:
+        return fallback,"Scheda Booking non riletta per titolo canonico: robots.txt non consente o non chiarisce l'accesso."
+    try:
+        response=await page.goto(source,wait_until="domcontentloaded",timeout=25000)
+        if not response or response.status>=400:
+            return fallback,f"Scheda Booking non riletta per titolo canonico: HTTP {response.status if response else 'n.d.'}."
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(700)
+        observed=""
+        for selector in ('[data-testid="title"]','[data-testid="property-title"]','.pp-header__title','h1'):
+            try:
+                loc=page.locator(selector).first
+                if await loc.count():
+                    observed=re.sub(r"\s+"," ",(await loc.inner_text(timeout=500)) or "").strip()
+                    if observed:
+                        break
+            except Exception:
+                pass
+        observed=observed or (await page.title())
+        cleaned=re.sub(r"\s*[-|]\s*Booking\.com.*$","",observed,flags=re.I).strip()
+        if cleaned and len(cleaned)>=3:
+            return cleaned,f"Titolo canonico Booking osservato: «{cleaned}»."
+        return fallback,"Titolo canonico Booking non ricavato; uso il nome struttura."
+    except Exception as exc:
+        return fallback,f"Titolo canonico Booking non ricavato: {type(exc).__name__}."
+
+
 def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
     query = " ".join(part for part in (property_name.strip(), city.strip()) if part)
     return "https://www.booking.com/searchresults.it.html?" + urlencode({
@@ -2057,7 +2095,8 @@ def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
 
 
 async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
-    requested = booking_dated_search_url(property_name, city, stay)
+    canonical_name,canonical_evidence = await booking_source_title(page,source,robots,property_name)
+    requested = booking_dated_search_url(canonical_name, city, stay)
     record = {
         "otaId": "booking",
         **stay,
@@ -2106,13 +2145,16 @@ async def booking_dated_search_observation(page, source: str, property_name: str
           return result;
         }""")
 
-        source_path=(urlparse(source).path or "").rstrip("/").lower()
+        source_path=booking_path_key(source)
         best=None
         for item in cards:
             href=str(item.get("href") or "")
-            candidate_path=(urlparse(href).path or "").rstrip("/").lower()
+            candidate_path=booking_path_key(href)
             exact_path=bool(source_path and candidate_path and source_path==candidate_path)
-            score=_name_similarity(property_name, str(item.get("title") or ""))
+            score=max(
+                _name_similarity(property_name, str(item.get("title") or "")),
+                _name_similarity(canonical_name, str(item.get("title") or "")),
+            )
             if exact_path:
                 score=1.0
             elif city and city.lower() in str(item.get("text") or "").lower():
@@ -2124,7 +2166,7 @@ async def booking_dated_search_observation(page, source: str, property_name: str
         if not best or best[0] < 0.68:
             body=(await page.locator("body").inner_text(timeout=7000))[:9000]
             record["evidence"]=(
-                f"Ricerca Booking con date {stay['checkin']} → {stay['checkout']} eseguita, "
+                f"{canonical_evidence} Ricerca Booking con date {stay['checkin']} → {stay['checkout']} eseguita usando «{canonical_name}», "
                 "ma la scheda esatta della struttura non è stata isolata con sufficiente certezza. "
                 f"Date nella URL finale: {'sì' if final_dates_ok else 'no'}. "
                 f"Estratto: {re.sub(r'\s+', ' ', body)[:280]}"
@@ -2151,7 +2193,7 @@ async def booking_dated_search_observation(page, source: str, property_name: str
             record.update(
                 status="no_public_rate",
                 evidence=(
-                    f"Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
+                    f"{canonical_evidence} Date confermate nella ricerca Booking: {stay['checkin']} → {stay['checkout']}. "
                     f"Scheda esatta {'per URL' if exact_path else 'per nome'}: «{item.get('title','')}». "
                     f"Il portale mostra un messaggio di indisponibilità («{unavailable_hit}»). "
                     "Esito: nessuna tariffa pubblica prenotabile rilevata per queste date; la causa non è determinabile automaticamente."
@@ -2336,7 +2378,12 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         text = (record["title"] + " " + body).lower()
-        if response and response.status >= 400:
+        if response and response.status == 429:
+            record.update(
+                status="rate_limited",
+                evidence=f"HTTP 429 · Il portale limita temporaneamente le richieste automatiche. Nessun aggiramento tentato. URL finale: {page.url}"
+            )
+        elif response and response.status >= 400:
             record.update(status="http_error", evidence=f"HTTP {response.status} · URL finale: {page.url}")
         elif any(word in text for word in BLOCK_WORDS):
             record.update(status="blocked", evidence="Il portale ha mostrato una pagina di verifica/blocco; nessun prezzo acquisito.")
@@ -2757,6 +2804,11 @@ async def run(args: argparse.Namespace) -> dict:
                                 )
                             finally:
                                 await search_page.close()
+                            print(
+                                f"{stay['month']} booking-dated-search: {dated_record.get('status')} · "
+                                f"{str(dated_record.get('evidence') or '')[:260]}",
+                                flush=True,
+                            )
                             if dated_record.get("status") in {"quote_candidates_unverified", "no_public_rate"}:
                                 record = dated_record
                             else:
