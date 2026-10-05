@@ -7248,34 +7248,80 @@ export default function App() {
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
-          {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Google</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.rating ?? "n.d."}/5</div></div>
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.reviewCount ?? "n.d."}</div></div>
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione letto</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.sampleSize ?? 0}</div></div>
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.strengths?.length ?? 0}</div></div>
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Criticità ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.weaknesses?.length ?? 0}</div></div>
-          </div>}
-          {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.keywords?.length ? <p className="mt-2 rounded-xl border border-[#E5DDF1] bg-white px-3 py-2 text-[10px] leading-5 text-[#50627F]"><b className="text-[#23124A]">Parole ricorrenti:</b> {browserPilotResult.reputation.keywords.slice(0, 15).map((entry) => entry.word + " (" + entry.count + ")").join(" · ")}</p> : null}
-          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+
+          {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <>
+            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Google</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.rating ?? "n.d."}/5</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.reviewCount ?? "n.d."}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione testuale</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.sampleSize ?? 0}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.strengths?.length ?? 0}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Criticità ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.weaknesses?.length ?? 0}</div></div>
+            </div>
+            <div className="mt-2 rounded-xl border border-[#E5DDF1] bg-white px-3 py-2 text-[10px] leading-5 text-[#50627F]">
+              <b className="text-[#23124A]">Copertura del campione:</b>{" "}
+              {browserPilotResult.reputation.sampleSize ?? 0} recensioni testuali analizzate su {browserPilotResult.reputation.reviewCount ?? "n.d."} recensioni pubbliche
+              {browserPilotResult.reputation.reviewCount && browserPilotResult.reputation.sampleSize !== undefined
+                ? ` · ${Math.round(((browserPilotResult.reputation.sampleSize || 0) / browserPilotResult.reputation.reviewCount) * 100)}%`
+                : ""}.
+              {" "}Forze e criticità descrivono esclusivamente il campione effettivamente letto.
+            </div>
+          </>}
+
+          <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-4 lg:grid-cols-2">
             {([
               ["audit-google-strengths", "Punti di forza ricorrenti"],
               ["audit-google-weaknesses", "Criticità ricorrenti"],
               ["audit-google-isolated", "Segnalazioni isolate da monitorare"],
               ["audit-google-actions", "Azioni operative dalle recensioni"],
-              ["audit-google-keywords", "Temi e aspetti ricorrenti"],
-            ] as const).map(([id, label]) => <label key={id} className="block text-[11px] font-black text-[#23124A]">{label}
-              <textarea value={answers[id]?.note ?? ""} onChange={(event) => updateAnswer(id, { note: event.target.value })} placeholder="Tema, ricorrenza, esempi concreti e fonte" className="mt-1.5 min-h-[105px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
-            </label>)}
-            <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
-              <label className="text-[11px] font-black text-[#23124A]">Indice fotografico frontend / 10
-                <input type="number" min="0" max="10" step="0.1" value={answers["audit-photo-score"]?.current || ""} onChange={(event) => updateAnswer("audit-photo-score", { current: Number(event.target.value) })} className="mt-1.5 block w-24 rounded-lg border border-[#E0D7EC] bg-white px-2.5 py-2 text-sm font-black text-[#23124A]" />
+            ] as const).map(([id, label]) => (
+              <label key={id} className="flex min-w-0 flex-col text-[11px] font-black text-[#23124A]">
+                <span className="mb-1.5 block min-h-[16px]">{label}</span>
+                <textarea
+                  value={answers[id]?.note ?? ""}
+                  onChange={(event) => updateAnswer(id, { note: event.target.value })}
+                  placeholder="Tema, ricorrenza, esempi concreti e fonte"
+                  className="min-h-[138px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2.5 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400"
+                />
               </label>
-              {browserPilotResult?.photoAudit?.status === "sampled" && <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[10px]">
-                <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.imageCount ?? 0}</b>immagini</div>
-                <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.highResolutionCount ?? 0}</b>alta ris.</div>
-                <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.altTextCount ?? 0}</b>alt utili</div>
-              </div>}
-              <textarea value={answers["audit-photo-score"]?.note ?? ""} onChange={(event) => updateAnswer("audit-photo-score", { note: event.target.value })} placeholder="Copertura, risoluzione, metadati, gap e interventi consigliati" className="mt-2 min-h-[145px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-white px-3 py-2 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400" />
+            ))}
+
+            <label className="flex min-w-0 flex-col text-[11px] font-black text-[#23124A]">
+              <span className="mb-1.5 block min-h-[16px]">Temi e aspetti ricorrenti</span>
+              <textarea
+                value={answers["audit-google-keywords"]?.note ?? ""}
+                onChange={(event) => updateAnswer("audit-google-keywords", { note: event.target.value })}
+                placeholder="Temi positivi e negativi ricorrenti, ricorrenza ed espressioni rilevate"
+                className="min-h-[190px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2.5 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400"
+              />
+            </label>
+
+            <div className="flex min-w-0 flex-col">
+              <div className="mb-1.5 min-h-[16px] text-[11px] font-black text-[#23124A]">Indice fotografico frontend / 10</div>
+              <div className="min-h-[190px] rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  <input
+                    aria-label="Indice fotografico frontend su 10"
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={answers["audit-photo-score"]?.current || ""}
+                    onChange={(event) => updateAnswer("audit-photo-score", { current: Number(event.target.value) })}
+                    className="w-24 rounded-lg border border-[#E0D7EC] bg-white px-2.5 py-2 text-sm font-black text-[#23124A]"
+                  />
+                  {browserPilotResult?.photoAudit?.status === "sampled" && <div className="grid min-w-[280px] flex-1 grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.imageCount ?? 0}</b>immagini</div>
+                    <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.highResolutionCount ?? 0}</b>alta ris.</div>
+                    <div className="rounded-lg bg-white p-2"><b className="block text-sm text-[#23124A]">{browserPilotResult.photoAudit.altTextCount ?? 0}</b>alt utili</div>
+                  </div>}
+                </div>
+                <textarea
+                  value={answers["audit-photo-score"]?.note ?? ""}
+                  onChange={(event) => updateAnswer("audit-photo-score", { note: event.target.value })}
+                  placeholder="Copertura, risoluzione, metadati, gap e interventi consigliati"
+                  className="mt-2.5 min-h-[118px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-white px-3 py-2.5 text-xs font-medium leading-5 text-[#23124A] placeholder:text-slate-400"
+                />
+              </div>
             </div>
           </div>
           <p className="mt-3 text-[10px] text-[#50627F]">Il PDF salvato nella scheda Sant'Antonio fotografa l'analisi pubblicata; modifiche locali a queste note non lo rigenerano automaticamente.</p>
