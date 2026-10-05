@@ -2309,6 +2309,23 @@ def booking_dated_search_url(property_name: str, city: str, stay: dict) -> str:
     })
 
 
+def booking_hotel_dated_url(hotel_id: str, stay: dict) -> str:
+    hotel_id=re.sub(r"\D+","",str(hotel_id or ""))
+    if not hotel_id:
+        return ""
+    return "https://www.booking.com/searchresults.it.html?" + urlencode({
+        "dest_id": hotel_id,
+        "dest_type": "hotel",
+        "checkin": stay["checkin"],
+        "checkout": stay["checkout"],
+        "group_adults": str(stay.get("adults") or 2),
+        "no_rooms": "1",
+        "group_children": "0",
+        "selected_currency": "EUR",
+        "lang": "it-it",
+    })
+
+
 def booking_city_dated_url(city: str, stay: dict) -> str:
     """Fallback Booking v8: pagina destinazione datata, utile quando searchresults non rende le card."""
     slug=_slugify_booking(city)
@@ -2346,8 +2363,19 @@ async def booking_result_cards(page) -> list[dict]:
         const priceNode = card.querySelector(
           '[data-testid="price-and-discounted-price"], [data-testid*="price"], [class*="price"]'
         );
+        let hotelId =
+          card.getAttribute('data-hotelid') ||
+          card.getAttribute('data-hotel-id') ||
+          card.dataset?.hotelid ||
+          card.dataset?.hotelId ||
+          '';
+        if (!hotelId) {
+          const holder = card.querySelector('[data-hotelid],[data-hotel-id]');
+          hotelId = holder?.getAttribute('data-hotelid') || holder?.getAttribute('data-hotel-id') || '';
+        }
         result.push({
           href,
+          hotelId: String(hotelId || '').replace(/\D+/g,'').slice(0,32),
           title: (titleNode?.textContent || link?.textContent || '').replace(/\s+/g,' ').trim().slice(0,240),
           text: (card.innerText || card.textContent || '').replace(/\s+/g,' ').trim().slice(0,2200),
           price: (priceNode?.textContent || '').replace(/\s+/g,' ').trim().slice(0,200)
@@ -2359,8 +2387,15 @@ async def booking_result_cards(page) -> list[dict]:
           if (!href || seen.has(href)) continue;
           seen.add(href);
           const box=link.closest('li,article,[data-testid],div') || link.parentElement;
+          let hotelId =
+            box?.getAttribute?.('data-hotelid') ||
+            box?.getAttribute?.('data-hotel-id') ||
+            box?.dataset?.hotelid ||
+            box?.dataset?.hotelId ||
+            '';
           result.push({
             href,
+            hotelId:String(hotelId || '').replace(/\D+/g,'').slice(0,32),
             title:(link.textContent || link.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,240),
             text:(box?.innerText || box?.textContent || '').replace(/\s+/g,' ').trim().slice(0,2200),
             price:''
@@ -2483,7 +2518,8 @@ async def booking_dated_search_observation(page, source: str, property_name: str
             print(
                 f"{stay['month']} booking-card-diagnostics [{label}]: "
                 f"cards={len(cards)} · best={best_score:.0%} · exact_url={best_exact} · "
-                f"title={best_title[:120]} · price={best_price[:80]}",
+                f"title={best_title[:120]} · hotel_id={str((best[2] if best else {}).get('hotelId') or '')} · "
+                f"price={best_price[:80]}",
                 flush=True,
             )
             return {
@@ -2521,8 +2557,28 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                 chosen=city_result
                 best=city_best
 
-    # Se il fallback città trova l'URL esatto ma perde le date, riprova la
-    # searchresults usando il titolo realmente osservato sulla card Booking.
+    # Se il fallback città trova l'URL esatto ma perde le date, usa prima
+    # l'eventuale hotel_id della card per aprire una searchresults già vincolata
+    # alla struttura esatta. È più robusto del solo testo libero.
+    if chosen.get("label") == "pagina città Booking" and best and best[1] and not chosen.get("datesOk"):
+        exact_hotel_id=str((best[2] or {}).get("hotelId") or "").strip()
+        if exact_hotel_id:
+            hotel_retry_url=booking_hotel_dated_url(exact_hotel_id,stay)
+            hotel_retry=await inspect_target(hotel_retry_url,"searchresults Booking hotel-id")
+            hotel_retry_best=hotel_retry.get("best") if hotel_retry.get("ok") else None
+            print(
+                f"{stay['month']} booking-hotel-id-retry: hotel_id={exact_hotel_id} · "
+                f"exact_url={bool(hotel_retry_best and hotel_retry_best[1])} · "
+                f"dates={bool(hotel_retry.get('datesOk'))}",
+                flush=True,
+            )
+            if hotel_retry_best and hotel_retry_best[1]:
+                chosen=hotel_retry
+                best=hotel_retry_best
+                record["requestedUrl"]=hotel_retry_url
+
+    # Se l'hotel-id non basta, riprova la searchresults usando il titolo
+    # realmente osservato sulla card Booking.
     if chosen.get("label") == "pagina città Booking" and best and best[1] and not chosen.get("datesOk"):
         observed_title=str((best[2] or {}).get("title") or "").strip()
         retry_name=observed_title or canonical_name
