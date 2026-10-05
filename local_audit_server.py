@@ -627,7 +627,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "catalog":catalog_public_summary(),
                 "aiWebSearch":{
                     "configured":bool(str(os.environ.get("VELORA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()),
-                    "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-5.5"),
+                    "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-6-luna"),
                 },
             })
             return

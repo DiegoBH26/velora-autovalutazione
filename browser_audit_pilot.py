@@ -837,7 +837,7 @@ def _run_ai_web_search(data: dict) -> dict:
         "Property identity JSON: " + json.dumps(identity,ensure_ascii=False)
     )
     payload={
-        "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-5.5"),
+        "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-6-luna"),
         "tools":[{"type":"web_search"}],
         "tool_choice":"required",
         "input":prompt,
