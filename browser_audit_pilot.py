@@ -4414,6 +4414,22 @@ REVIEW_THEME_RULES = {
     "Manutenzione": ("manutenzione","maintenance","rotto","rotta","broken","vecchio","vecchia","datato","datata","malfunzion"),
 }
 
+REVIEW_ACTIONS = {
+    "Posizione": "Rendere il vantaggio logistico esplicito in schede, mappe, tempi a piedi e contenuti pre-arrivo.",
+    "Pulizia": "Verificare standard, checklist e controllo qualità; valorizzare pubblicamente il tema se è un punto di forza ricorrente.",
+    "Accoglienza e staff": "Formalizzare standard di benvenuto, risposta ai reclami e tempi di presa in carico.",
+    "Colazione": "Allineare promessa, fotografie, orari e composizione reale della colazione sui diversi canali.",
+    "Camera e comfort": "Verificare stanza per stanza dotazioni, comfort e corrispondenza tra descrizione, foto e aspettative.",
+    "Bagno": "Controllare manutenzione, dimensioni percepite, dotazioni e qualità fotografica dei bagni per tipologia.",
+    "Climatizzazione": "Esplicitare con precisione quali camere dispongono di climatizzazione e verificare efficienza/manutenzione.",
+    "Rumore": "Identificare le camere più esposte e intervenire su informazione preventiva, assegnazione e insonorizzazione dove possibile.",
+    "Parcheggio": "Chiarire disponibilità, costi, distanza e modalità di accesso su sito, OTA e messaggi pre-arrivo.",
+    "Wi-Fi": "Verificare copertura reale per aree/camere e allineare la promessa sui canali.",
+    "Rapporto qualità/prezzo": "Confrontare prezzo, dotazioni e promessa percepita; intervenire su pricing o presentazione dove il valore non è chiaro.",
+    "Servizi e dotazioni": "Allineare servizi realmente disponibili, stagionalità, costi e fotografie su sito e OTA.",
+    "Manutenzione": "Aprire una checklist per camera/area con priorità, responsabile e tempi di chiusura dei difetti ricorrenti.",
+}
+
 REVIEW_STOPWORDS = {
     "che","con","per","una","uno","un","del","della","delle","dei","degli","nel","nella","nelle","non","sono","era","molto",
     "anche","più","piu","come","ma","si","sì","the","and","for","was","were","very","with","this","that","from","have","had",
@@ -4482,12 +4498,14 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
                 "count":neg,
                 "weight":"alta" if neg>=4 else "media",
                 "examples":stat["examplesNegative"][:3],
+                "action":REVIEW_ACTIONS.get(theme,"Verificare il tema nel dettaglio e definire un intervento misurabile."),
             })
         elif neg==1:
             isolated.append({
                 "theme":theme,
                 "count":1,
                 "examples":stat["examplesNegative"][:2],
+                "action":"Monitorare il tema prima di classificarlo come criticità ricorrente.",
             })
 
     strengths.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
