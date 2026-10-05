@@ -30,7 +30,6 @@ from booking_engine import detect_booking_engine
 
 
 PILOT_BUILD = "velora-browser-pilot-v24"
-PILOT_BUILD = "velora-browser-pilot-v22"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
