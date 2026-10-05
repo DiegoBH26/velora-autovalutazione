@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v32"
+PILOT_BUILD = "velora-browser-pilot-v33"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -2713,6 +2713,113 @@ async def booking_search_form_diagnostics(page) -> str:
         return f"diagnostica form fallita: {type(exc).__name__}"
 
 
+async def booking_clean_ui_search(page, source: str, property_name: str, canonical_name: str, city: str, stay: dict, robots: dict) -> dict:
+    """Riproduce il flusso utente pulito: Booking home -> destinazione -> date -> Cerca."""
+    home="https://www.booking.com/index.it.html?lang=it-it&selected_currency=EUR"
+    permission=await asyncio.to_thread(allowed_by_robots,home,robots)
+    if permission is not True:
+        return {"ok":False,"label":"Booking home UI","reason":"robots","evidence":"Booking home: robots.txt non consente o non chiarisce l'accesso."}
+
+    try:
+        response=await page.goto(home,wait_until="domcontentloaded",timeout=25000)
+        await dismiss_cookie(page)
+        try:
+            await page.locator("body").wait_for(state="visible",timeout=5000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(1200)
+
+        if response and response.status==429:
+            return {"ok":False,"label":"Booking home UI","reason":"rate_limited","status":"rate_limited","evidence":"Booking home UI: HTTP 429."}
+        if response and response.status>=400:
+            return {"ok":False,"label":"Booking home UI","reason":"http_error","status":"http_error","evidence":f"Booking home UI: HTTP {response.status}."}
+
+        dest_ok,dest_evidence,dest_text=await booking_select_exact_destination(
+            page,canonical_name or property_name,city
+        )
+        print(
+            f"{stay['month']} booking-clean-destination-picker: "
+            f"{'applied' if dest_ok else 'failed'} · {dest_evidence}",
+            flush=True,
+        )
+        if not dest_ok:
+            return {
+                "ok":False,"label":"Booking home UI","reason":"destination_not_selected",
+                "evidence":f"Booking home UI: destinazione non selezionata. {dest_evidence}"
+            }
+
+        # Sequenza intenzionale: PRIMA destinazione, POI date, POI un solo Cerca.
+        applied,date_evidence=await booking_apply_dates_via_ui(page,stay)
+        print(
+            f"{stay['month']} booking-clean-date-picker: "
+            f"{'applied' if applied else 'failed'} · {date_evidence}",
+            flush=True,
+        )
+        if not applied:
+            form_diag=await booking_search_form_diagnostics(page)
+            print(
+                f"{stay['month']} booking-clean-form-diagnostics: {form_diag}",
+                flush=True,
+            )
+
+        try:
+            await page.wait_for_timeout(1800)
+            title=(await page.title())[:200]
+            body=(await page.locator("body").inner_text(timeout=7000))[:16000]
+        except Exception:
+            title=(await page.title())[:200]
+            body=""
+
+        dates_ok,date_mode=await booking_page_dates_confirmed(page,stay,body)
+        cards=await booking_result_cards(page)
+        best=booking_best_card(cards,source,property_name,canonical_name,city)
+        for _ in range(8):
+            if best and best[1]:
+                break
+            await page.wait_for_timeout(650)
+            cards=await booking_result_cards(page)
+            best=booking_best_card(cards,source,property_name,canonical_name,city)
+
+        best_score=best[0] if best else 0.0
+        best_exact=bool(best and best[1])
+        best_title=str((best[2] if best else {}).get("title") or "")
+        best_price=str((best[2] if best else {}).get("price") or "")
+
+        print(
+            f"{stay['month']} booking-clean-ui-search: "
+            f"dates={dates_ok} · exact_url={best_exact} · cards={len(cards)} · "
+            f"best={best_score:.0%} · title={best_title[:120]} · price={best_price[:80]} · "
+            f"url={page.url[:340]}",
+            flush=True,
+        )
+
+        return {
+            "ok":True,
+            "label":"Booking home UI",
+            "status":"ok",
+            "finalUrl":page.url,
+            "title":title,
+            "body":body,
+            "cards":cards,
+            "best":best,
+            "datesOk":dates_ok,
+            "dateMode":date_mode,
+            "datePickerEvidence":date_evidence,
+            "destinationEvidence":dest_evidence,
+            "destinationText":dest_text,
+            "evidence":(
+                f"Booking home UI: destinazione selezionata prima delle date; "
+                f"date {'confermate' if dates_ok else 'non confermate'} ({date_mode or 'n.d.'}); "
+                f"scheda esatta {'trovata' if best_exact else 'non trovata'}."
+            )[:900],
+        }
+    except Exception as exc:
+        return {
+            "ok":False,"label":"Booking home UI","reason":"navigation_error","status":"navigation_error",
+            "evidence":f"Booking home UI: {type(exc).__name__}: {str(exc)[:180]}",
+        }
+
+
 async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
     """Booking v8: searchresults; se inconclusiva, pagina città datata e match sull'URL listing già noto."""
     canonical_name,canonical_evidence = await booking_source_title(page,source,robots,property_name)
@@ -2995,7 +3102,19 @@ async def booking_dated_search_observation(page, source: str, property_name: str
                 "evidence":f"{label}: {type(exc).__name__}: {str(exc)[:160]}",
             }
 
-    primary=await inspect_target(requested,"searchresults Booking")
+    # Prima strategia: riproduci un vero flusso utente partendo dalla home,
+    # scegliendo la destinazione PRIMA delle date. I log v32 hanno dimostrato
+    # che modificare la destinazione su una searchresults già datata azzera le date.
+    clean=await booking_clean_ui_search(
+        page,source,property_name,canonical_name,city,stay,robots
+    )
+    clean_best=clean.get("best") if clean.get("ok") else None
+    if clean.get("ok") and clean.get("datesOk") and clean_best and clean_best[1]:
+        primary=clean
+        record["requestedUrl"]=str(clean.get("finalUrl") or requested)
+    else:
+        primary=await inspect_target(requested,"searchresults Booking")
+
     chosen=primary
     best=primary.get("best") if primary.get("ok") else None
 
