@@ -29,7 +29,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v23"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v24"
 from playwright.async_api import async_playwright
 from site_audit_builder import build_site_audit, public_url as validate_site_url
 
@@ -627,7 +627,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v23",
+                "agentVersion":"velora-local-agent-v24",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -704,6 +704,17 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(pdf)
                 return
 
+            if route=="/api/pilot/start":
+                pilot_build=getattr(browser_pilot,"PILOT_BUILD","legacy")
+                if pilot_build != EXPECTED_PILOT_BUILD:
+                    self._json(409,{
+                        "error":(
+                            f"Pilot non sincronizzato: caricato {pilot_build}, atteso {EXPECTED_PILOT_BUILD}. "
+                            "Eseguire AGGIORNA_VELORA_COMPLETO.bat e riavviare l'agente."
+                        )
+                    })
+                    return
+
             if route=="/api/audit/start":
                 website=validate_site_url(payload.get("website"))
                 raw_audit_payload={
@@ -761,7 +772,7 @@ if __name__=="__main__":
     if not (DIST/"index.html").exists():
         print("Build locale non presente: va bene se usi Velora online; restano attive le API locali.",flush=True)
     pilot_build=getattr(browser_pilot,"PILOT_BUILD","legacy")
-    print("Versione agente: velora-local-agent-v23 · Booking selezione destinazione esatta attiva",flush=True)
+    print("Versione agente: velora-local-agent-v24 · Booking invio ricerca dopo selezione destinazione",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; eseguire di nuovo AGGIORNA_VELORA_COMPLETO.bat.",flush=True)
