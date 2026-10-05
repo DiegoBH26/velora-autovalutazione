@@ -2440,6 +2440,74 @@ async def booking_page_dates_confirmed(page, stay: dict, body: str = "") -> tupl
     return False,dom_evidence[:260]
 
 
+async def booking_select_exact_destination(page, property_name: str, city: str) -> tuple[bool, str]:
+    """Prova a selezionare la struttura dal suggeritore destinazione di Booking."""
+    field, selector = await _first_visible_locator(page, (
+        'input[name="ss"]',
+        '[data-testid="destination-container"] input',
+        'input[placeholder*="destinazione" i]',
+        'input[placeholder*="destination" i]',
+    ))
+    if field is None:
+        return False, "campo destinazione Booking non trovato"
+
+    try:
+        await field.click(timeout=1800)
+        await field.fill(property_name)
+        await page.wait_for_timeout(900)
+    except Exception as exc:
+        return False, f"campo destinazione non compilabile: {type(exc).__name__}"
+
+    options=[]
+    selectors=(
+        '[data-testid="autocomplete-result"]',
+        '[data-testid="autocomplete-results"] li',
+        '[role="option"]',
+        'li[data-i]',
+    )
+    for opt_selector in selectors:
+        try:
+            locs=page.locator(opt_selector)
+            count=min(await locs.count(),30)
+            for idx in range(count):
+                loc=locs.nth(idx)
+                try:
+                    if not await loc.is_visible(timeout=180):
+                        continue
+                    txt=re.sub(r"\s+"," ",(await loc.inner_text(timeout=500)) or "").strip()
+                    if txt:
+                        options.append((loc,txt,opt_selector))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        if options:
+            break
+
+    if not options:
+        return False, "nessun suggerimento destinazione visibile"
+
+    ranked=[]
+    for loc,txt,opt_selector in options:
+        score=_name_similarity(property_name,txt)
+        low=txt.lower()
+        if city and city.lower() in low:
+            score=min(1.0,score+0.12)
+        ranked.append((score,loc,txt,opt_selector))
+    ranked.sort(key=lambda item:item[0],reverse=True)
+    score,loc,txt,opt_selector=ranked[0]
+    if score < 0.58:
+        preview=" | ".join(item[2][:90] for item in ranked[:3])
+        return False,f"suggerimenti trovati ma nessun match sicuro; migliori: {preview[:280]}"
+
+    try:
+        await loc.click(timeout=2200)
+        await page.wait_for_timeout(900)
+        return True,f"selezionato suggerimento «{txt[:140]}» (match {score:.0%}) con {opt_selector}"
+    except Exception as exc:
+        return False,f"suggerimento esatto trovato ma non cliccabile: {type(exc).__name__}"
+
+
 async def booking_dated_search_observation(page, source: str, property_name: str, city: str, stay: dict, robots: dict) -> dict:
     """Booking v8: searchresults; se inconclusiva, pagina città datata e match sull'URL listing già noto."""
     canonical_name,canonical_evidence = await booking_source_title(page,source,robots,property_name)
