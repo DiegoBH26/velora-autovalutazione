@@ -34,7 +34,7 @@ import browser_audit_pilot as browser_pilot
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
 EXPECTED_PILOT_BUILD="velora-browser-pilot-v24"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/78b643d910f31dab223b15ea88ecb0361d6879a1/browser_audit_pilot.py"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/05b5fadc4164ff459b9e015e90ec2235b3e9c896/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
