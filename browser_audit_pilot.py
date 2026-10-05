@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v41"
+PILOT_BUILD = "velora-browser-pilot-v42"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -4699,7 +4699,7 @@ async def google_reputation_observation(context, data: dict) -> dict:
         except Exception:
             pass
 
-        card_selector="div.jftiEf[data-review-id], div[data-review-id], div.jftiEf"
+        card_selector="div.jftiEf[data-review-id], div[data-review-id], div.jftiEf, div[role=\"article\"]"
         # Carica un campione consistente; scroll del pannello recensioni, non della pagina generica.
         for _ in range(12):
             try:
@@ -4743,7 +4743,25 @@ async def google_reputation_observation(context, data: dict) -> dict:
         try:
             reviews=await page.evaluate(r"""() => {
               const clean=(v)=>String(v||'').replace(/\s+/g,' ').trim();
-              const cards=Array.from(document.querySelectorAll('div.jftiEf[data-review-id], div[data-review-id], div.jftiEf'));
+              let cards=Array.from(document.querySelectorAll('div.jftiEf[data-review-id], div[data-review-id], div.jftiEf, div[role="article"]'));
+              if (!cards.length) {
+                const starNodes=Array.from(document.querySelectorAll('[role="img"][aria-label*="stell" i], [role="img"][aria-label*="star" i]'));
+                const inferred=[];
+                for (const star of starNodes) {
+                  let node=star.parentElement;
+                  for (let depth=0; node && depth<7; depth+=1, node=node.parentElement) {
+                    const text=(node.innerText || node.textContent || '').replace(/\s+/g,' ').trim();
+                    if (text.length>=25 && text.length<=3500 && (
+                      node.querySelector('.wiI7pd,[data-review-text],span[jsname="bN97Pc"],.MyEned') ||
+                      /(giorn|settiman|mes|ann|day|week|month|year)/i.test(text)
+                    )) {
+                      inferred.push(node);
+                      break;
+                    }
+                  }
+                }
+                cards=inferred;
+              }
               const seen=new Set();
               const out=[];
               for (const card of cards) {
@@ -4774,6 +4792,18 @@ async def google_reputation_observation(context, data: dict) -> dict:
         # Se la scheda espone un bottone recensioni ma non abbiamo estratto card,
         # non inventare rating/analisi: rendi il limite esplicito.
         analysis=analyze_review_sample(reviews)
+        try:
+            dom_diag=await page.evaluate(r"""() => ({
+              reviewId:document.querySelectorAll('[data-review-id]').length,
+              articles:document.querySelectorAll('[role="article"]').length,
+              stars:document.querySelectorAll('[role="img"][aria-label*="stell" i], [role="img"][aria-label*="star" i]').length
+            })""")
+            print(
+                f"reputation dom: reviewId={dom_diag.get('reviewId',0)} · articles={dom_diag.get('articles',0)} · stars={dom_diag.get('stars',0)}",
+                flush=True,
+            )
+        except Exception:
+            pass
         print(
             f"reputation diagnostics: name={observed_name or name} · button={review_button_label or 'n.d.'} · "
             f"rating={rating if rating is not None else 'n.d.'} · reviews={review_count if review_count is not None else 'n.d.'} · "
@@ -5112,7 +5142,9 @@ async def run(args: argparse.Namespace) -> dict:
             result["photoAudit"]=photo_audit
             print(
                 f"photo audit: {photo_audit.get('status','n.d.')} · score={photo_audit.get('score',0)} · "
-                f"images={photo_audit.get('imageCount',0)} · highres={photo_audit.get('highResolutionCount',0)}",
+                f"pages={photo_audit.get('pagesSampled',0)} · images={photo_audit.get('imageCount',0)} · "
+                f"known-dim={photo_audit.get('knownDimensionCount',0)} · highres={photo_audit.get('highResolutionCount',0)} · "
+                f"alt={photo_audit.get('altTextCount',0)}",
                 flush=True,
             )
             write_result(output,result)
