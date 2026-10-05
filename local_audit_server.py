@@ -629,6 +629,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "autoAudit":True,
                 "agentVersion":"velora-local-agent-v22",
                 "catalog":catalog_public_summary(),
+                "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
+                "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
                 "aiWebSearch":{
                     "configured":False,
                     "model":"free-multi-engine",
@@ -758,7 +760,11 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=="__main__":
     if not (DIST/"index.html").exists():
         print("Build locale non presente: va bene se usi Velora online; restano attive le API locali.",flush=True)
-    print("Versione agente: velora-local-agent-v21 · Booking retry datato tramite hotel-id",flush=True)
+    pilot_build=getattr(browser_pilot,"PILOT_BUILD","legacy")
+    print("Versione agente: velora-local-agent-v22 · Controllo sincronizzazione pilot attivo",flush=True)
+    print(f"Versione pilot: {pilot_build}",flush=True)
+    if pilot_build != EXPECTED_PILOT_BUILD:
+        print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; eseguire di nuovo AGGIORNA_VELORA_COMPLETO.bat.",flush=True)
     print(f"Agente Velora: http://{HOST}:{PORT}/  (Ctrl+C per fermare)",flush=True)
     print("Puoi continuare a usare Velora online: il browser pubblico si colleghera' a questo agente locale.",flush=True)
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
