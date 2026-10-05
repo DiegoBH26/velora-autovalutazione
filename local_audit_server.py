@@ -288,8 +288,12 @@ def _identity_key(payload):
         site_url=((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or ""
     site_url=site_url or str((payload or {}).get("website") or "")
     host=_site_host(site_url)
+    if host:
+        # Il dominio ufficiale è l'identità primaria: il nome può cambiare tra audit e OTA.
+        return f"site:{host}"
     name=_norm((payload or {}).get("name") or "")
-    return f"{host}|{name}" if host or name else ""
+    city=_norm((payload or {}).get("city") or "")
+    return f"name:{name}|city:{city}" if name else ""
 
 
 def _read_ota_cache():
@@ -356,9 +360,11 @@ def recover_cached_ota_sources(payload):
             item=json.loads(path.read_text(encoding="utf-8"))
         except (OSError,json.JSONDecodeError):
             continue
-        if wanted_host and _site_host(((item.get("sources") or {}).get("sito") or {}).get("url")) != wanted_host:
-            continue
-        if wanted_name and _norm(item.get("name") or "") != wanted_name:
+        item_host=_site_host(((item.get("sources") or {}).get("sito") or {}).get("url"))
+        if wanted_host:
+            if item_host != wanted_host:
+                continue
+        elif wanted_name and _norm(item.get("name") or "") != wanted_name:
             continue
         for source_id,source in (item.get("sources") or {}).items():
             if source_id=="sito" or not isinstance(source,dict) or not source.get("url"):
