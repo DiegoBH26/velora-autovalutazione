@@ -700,8 +700,9 @@ async def discover_booking_source(context, property_name: str, city: str, robots
         score, item, path_slug, text_score, url_score, reasons = scored[0]
         clean_url = urlunparse(urlparse(str(item.get("href", "")))._replace(query="", fragment=""))
         raw_title=str(item.get("title", "")).strip()
-        display_title=raw_title if raw_title.lower() not in {"", "hotel", "booking.com"} else path_slug
-        if score >= 0.68:
+        generic_candidate = path_slug.lower() in {"", "index", "hotel", "searchresults"} or raw_title.lower() in {"", "hotel", "booking.com", "index"}
+        display_title=raw_title if raw_title.lower() not in {"", "hotel", "booking.com", "index"} else path_slug
+        if score >= 0.68 and not generic_candidate:
             return {
                 "status": "found", "url": clean_url, "title": display_title[:220],
                 "score": round(score, 3),
