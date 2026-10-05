@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v31"
+PILOT_BUILD = "velora-browser-pilot-v32"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -509,15 +509,100 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
         return False, "; ".join(filter(None,evidence))
     evidence.append("date confermate nei campi visibili prima di Cerca")
 
-    submit, submit_selector = await _first_visible_locator(page, (
-        '[data-testid="date-submit-button"]',
-        '[data-testid="searchbox-submit-button"]',
-        '[data-testid="searchbox-layout-wide"] button[type="submit"]',
-        '[data-testid="searchbox-layout-wide"] button:has-text("Cerca")',
-        '[data-testid="searchbox-layout-wide"] button:has-text("Search")',
-        'form[role="search"] button[type="submit"]',
-        'form[action*="searchresults"] button[type="submit"]',
-    ))
+    # Booking può renderizzare più searchbox contemporaneamente (header/sticky/body).
+    # Non usare un "Cerca" globale: individua il contenitore che mostra davvero
+    # entrambe le date appena selezionate e clicca il submit DI QUELLO STESSO BOX.
+    submit=None
+    submit_selector=""
+    try:
+        start_forms=list(_date_forms(date.fromisoformat(checkin)))
+        end_forms=list(_date_forms(date.fromisoformat(checkout)))
+        scoped=await page.evaluate(r"""({startForms,endForms}) => {
+          const visible=(el) => {
+            if (!el || el.getAttribute('aria-hidden')==='true') return false;
+            const st=getComputedStyle(el);
+            if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
+          };
+          const textOf=(el) => [
+            el?.textContent || '',
+            el?.getAttribute?.('value') || '',
+            el?.getAttribute?.('aria-label') || '',
+            el?.getAttribute?.('placeholder') || ''
+          ].join(' ').replace(/\s+/g,' ').trim().toLowerCase();
+
+          document.querySelectorAll('[data-velora-searchbox-target]').forEach(el => el.removeAttribute('data-velora-searchbox-target'));
+
+          const roots=[
+            ...document.querySelectorAll('[data-testid="searchbox-layout-wide"]'),
+            ...document.querySelectorAll('form[role="search"]'),
+            ...document.querySelectorAll('form[action*="searchresults"]')
+          ].filter((el,i,arr) => arr.indexOf(el)===i && visible(el));
+
+          for (let i=0;i<roots.length;i++) {
+            const root=roots[i];
+            const start=root.querySelector('[data-testid="date-display-field-start"], input[name="checkin"]');
+            const end=root.querySelector('[data-testid="date-display-field-end"], input[name="checkout"]');
+            const container=root.querySelector('[data-testid="searchbox-dates-container"]');
+            const s=textOf(start);
+            const e=textOf(end);
+            const both=textOf(container);
+            const startOk=startForms.some(v => s.includes(String(v).toLowerCase())) ||
+                          startForms.some(v => both.includes(String(v).toLowerCase()));
+            const endOk=endForms.some(v => e.includes(String(v).toLowerCase())) ||
+                        endForms.some(v => both.includes(String(v).toLowerCase()));
+            const button=root.querySelector(
+              '[data-testid="date-submit-button"], [data-testid="searchbox-submit-button"], button[type="submit"]'
+            );
+            if (startOk && endOk && button && visible(button)) {
+              root.setAttribute('data-velora-searchbox-target','1');
+              return {
+                index:i,
+                start:s.slice(0,120),
+                end:e.slice(0,120),
+                container:both.slice(0,180),
+                buttonText:textOf(button).slice(0,100)
+              };
+            }
+          }
+          return null;
+        }""",{"startForms":start_forms,"endForms":end_forms})
+        if scoped:
+            root=page.locator('[data-velora-searchbox-target="1"]').first
+            candidates=root.locator(
+                '[data-testid="date-submit-button"], [data-testid="searchbox-submit-button"], button[type="submit"]'
+            )
+            count=min(await candidates.count(),12)
+            for idx in range(count):
+                candidate=candidates.nth(idx)
+                try:
+                    if await candidate.is_visible(timeout=250):
+                        submit=candidate
+                        submit_selector=(
+                            f"stesso searchbox date (box {scoped.get('index')}; "
+                            f"button={scoped.get('buttonText') or 'submit'})"
+                        )
+                        break
+                except Exception:
+                    continue
+    except Exception as exc:
+        evidence.append(f"ricerca submit nello stesso searchbox fallita: {type(exc).__name__}")
+
+    # Fallback soltanto se Booking non espone un contenitore associabile.
+    if submit is None:
+        submit, submit_selector = await _first_visible_locator(page, (
+            '[data-testid="date-submit-button"]',
+            '[data-testid="searchbox-submit-button"]',
+            '[data-testid="searchbox-layout-wide"] button[type="submit"]',
+            '[data-testid="searchbox-layout-wide"] button:has-text("Cerca")',
+            '[data-testid="searchbox-layout-wide"] button:has-text("Search")',
+            'form[role="search"] button[type="submit"]',
+            'form[action*="searchresults"] button[type="submit"]',
+        ))
+        if submit is not None:
+            submit_selector="fallback globale: " + submit_selector
+
     if submit is None:
         return False, "; ".join(evidence + ["date impostate ma pulsante Cerca non individuato"])
 
@@ -560,7 +645,26 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
         return False, "; ".join(filter(None,evidence))
 
     mode="campi visibili" if post_dom else "URL" if post_url else "testo visibile"
-    evidence.append(f"date confermate dopo Cerca via {mode}")
+
+    # Booking può lasciare le date nel DOM per un istante e poi azzerarle
+    # quando completa la navigazione/idratazione React. Verifica che restino
+    # stabili prima di dichiarare il tentativo riuscito.
+    await page.wait_for_timeout(3200)
+    try:
+        stable_body=(await page.locator("body").inner_text(timeout=6000))[:12000]
+    except Exception:
+        stable_body=""
+    stable_dom,stable_state=await booking_dom_dates_confirmed(page,stay)
+    stable_url=booking_url_dates_confirmed(page.url,stay)
+    stable_text=visible_dates_confirmed(stable_body,stay)
+    if not (stable_dom or stable_url or stable_text):
+        evidence.append(f"date confermate transitoriamente via {mode}, poi perse dopo stabilizzazione")
+        evidence.append("campi stabilizzati: " + (stable_state or await visible_date_state() or "n.d."))
+        evidence.append("URL stabilizzato: " + page.url[:350])
+        return False, "; ".join(filter(None,evidence))
+
+    stable_mode="campi visibili" if stable_dom else "URL" if stable_url else "testo visibile"
+    evidence.append(f"date confermate e stabili dopo Cerca via {stable_mode}")
     return True, "; ".join(filter(None,evidence))
 
 def _norm_name(value: str) -> str:
