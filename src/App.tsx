@@ -3799,6 +3799,16 @@ function providerFromBookingUrl(value: string): { provider: string; mode: string
   }
 }
 
+function formatPilotElapsed(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function todayLocalIso(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -5143,7 +5153,8 @@ export default function App() {
       return;
     }
     setLocalPilotRunning(true);
-    setLocalPilotMessage("Rilevazione in corso. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
+    const pilotStartedAt = Date.now();
+    setLocalPilotMessage("Rilevazione in corso · 00:00 trascorsi. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
       const started = await fetch(localAgentUrl("/api/pilot/start"), {
         method: "POST",
@@ -5176,13 +5187,16 @@ export default function App() {
         const verifiedPilotRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
         const discovery = status.result?.discoveryProgress;
         const discoveryActive = status.running && discovery && Number(discovery.total || 0) > 0 && Number(discovery.completed || 0) < Number(discovery.total || 0);
+        const elapsed = formatPilotElapsed(Date.now() - pilotStartedAt);
         const discoveryText = discoveryActive
-          ? `Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}${discovery.label ? ` · ${discovery.label}` : ""}. `
-          : "";
+          ? `Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}${discovery.label ? ` · ${discovery.label}` : ""} · ${elapsed} trascorsi. `
+          : status.running
+            ? `Elaborazione tariffe · ${elapsed} trascorsi. `
+            : "";
         setLocalPilotMessage(
           status.running
             ? `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
-            : `${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+            : `Completato in ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
         );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
@@ -5195,7 +5209,8 @@ export default function App() {
         }
       }
     } catch (error) {
-      setLocalPilotMessage(error instanceof Error ? error.message : "Errore della rilevazione locale.");
+      const elapsed = formatPilotElapsed(Date.now() - pilotStartedAt);
+      setLocalPilotMessage(`Interrotto dopo ${elapsed} · ${error instanceof Error ? error.message : "Errore della rilevazione locale."}`);
     } finally {
       setLocalPilotRunning(false);
     }
