@@ -4899,7 +4899,8 @@ export default function App() {
       updateAnswer("audit-policy-booking", {
         note:
           evidence +
-          "\nI valori restano separati dal delta finché tasse, condizioni e identità della stessa unità fisica non sono confermate.",
+          "\nTariffe Booking validate importate automaticamente nella tabella economica: " + automaticBookingQuotes.length + ". " +
+          "Il delta con altre OTA resta separato finché tasse, condizioni e identità della stessa unità fisica non sono confermate.",
       });
     }
 
@@ -5003,7 +5004,12 @@ export default function App() {
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
-        setLocalPilotMessage(status.running ? `${count} controlli completati. Nessuna tariffa non verificata sarà inserita nel report.` : `${count} controlli completati.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`);
+        const verifiedBookingRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
+        setLocalPilotMessage(
+          status.running
+            ? `${count} controlli completati · ${verifiedBookingRates} tariffe Booking validate pronte per l\'importazione.`
+            : `${count} controlli completati · ${verifiedBookingRates} tariffe Booking validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+        );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
             setBrowserPilotResult(status.result);
@@ -6095,7 +6101,7 @@ export default function App() {
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
     const seededPricingHtml = seededSamples.length ? `<h2>Range osservato per tipologia e mese</h2><p>Campioni pubblici con date e durata indicati in tabella. Gli estremi riguardano soltanto le tipologie e i piani effettivamente quotati; non sono ADR realizzato né media mensile. Una tariffa di calendario priva di preventivo confermato è soltanto indicativa.</p><table><thead><tr><th>Mese / date</th><th>Diretto</th><th>Booking</th><th>Altre OTA</th><th>Delta</th></tr></thead><tbody>${seededSamples.map((sample) => `<tr><td><b>${safe(sample.month)}</b><small>${safe(sample.stay)}</small></td><td>${seededCell(sample.direct)}</td><td>${seededCell(sample.booking)}</td><td>${safe(sample.other)}</td><td>${safe(sample.delta)}</td></tr>`).join("")}</tbody></table><p>Nessun delta numerico senza conferma della stessa unità fisica, date, cancellazione, trattamento, imposte e pubblico. L'assenza di un prezzo nel campione non prova la chiusura stagionale.</p>` : "";
-    const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni aggiunte dal consulente</h2><p><b>Non è ADR realizzato.</b> È la media dei preventivi per notte inseriti nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
+    const manualPricingHtml = rateQuotes.length ? `<h2>Rilevazioni tariffarie registrate</h2><p><b>Non è ADR realizzato.</b> Comprende rilevazioni automatiche validate dal browser pilot e inserimenti manuali; la tabella mostra la media dei preventivi per notte nel campione omogeneo. ${reportCohort ? `Condizioni confrontate: ${safe(reportCohorts.find(([key]) => key === reportCohort)?.[1] || "")}.` : "Nessuna quotazione omogenea inserita."} Il delta richiede anche un ID di unità fisica verificato e coincidente.</p>${monthlyTable(reportChannels.slice(0, 5))}${monthlyTable(reportChannels.slice(5))}<p>Una o poche date non rappresentano tutto il mese. I prezzi possono variare dopo la rilevazione.</p>` : "";
     const commercialReportHtml = isWebAudit ? `<section class="page-break"><h2>Politiche commerciali e tariffarie per OTA</h2><p>Rilevazione pubblica: i piani e gli sconti sono validi soltanto per date, camera e pubblico consultati. Una scheda presente non dimostra inventario vendibile su tutto il calendario. ${safe(activeAuditData.pricingAudit.method)}</p><table><thead><tr><th style="width:17%">Canale</th><th>Tariffe, promozioni e limiti del riscontro</th></tr></thead><tbody><tr><td><b>Sito diretto</b></td><td>${safe(answers["audit-policy-direct"]?.note || "Non verificato")}</td></tr>${reportChannels.map((channel) => `<tr><td><b>${safe(channel.platform)}</b></td><td>${safe(answers[`audit-policy-${channel.id}`]?.note || "Non verificato")}</td></tr>`).join("")}</tbody></table>${numericPricingHtml}${seededPricingHtml}${manualPricingHtml}</section>` : "";
     const reputation = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.reputation : undefined;
     const photoAudit = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.photoAudit : undefined;
@@ -7280,9 +7286,9 @@ export default function App() {
             </label>
             <p className="text-[10px] leading-4 text-amber-900 md:col-span-2">Il portale deve attribuire lo sconto a questa struttura e a queste date. Non confondere campagne generiche del portale con una promozione dell'hotel; se il prezzo barrato non compare, lascia vuoto.</p>
           </div>
-          <button type="button" onClick={addRateQuote} className="mt-3 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Salva prezzo e promozione osservati con data e ora della verifica</button>
+          <button type="button" onClick={addRateQuote} className="mt-3 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Aggiungi manualmente prezzo e promozione osservati</button>
           <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
-            <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Nessuna rilevazione ancora inserita</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+            <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Seleziona camera e piano tariffario</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           </label>
           <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(comparableQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? "—" : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} data/e{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
