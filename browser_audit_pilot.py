@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v59"
+PILOT_BUILD = "velora-browser-pilot-v60"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -2072,6 +2072,80 @@ def expedia_group_url_dates_confirmed(url: str, stay: dict) -> bool:
     )
 
 
+
+async def expedia_group_reveal_rates(page, channel: str) -> str:
+    """Porta Expedia/Hotels/Travelocity alla sezione camere prima del parsing."""
+    label=OTA_META[channel]["label"]
+    # Prima prova CTA esplicite che aprono/scrollano la disponibilità.
+    selectors=(
+        "button:has-text('Seleziona una camera')",
+        "button:has-text('Scegli una camera')",
+        "button:has-text('Vedi camere')",
+        "button:has-text('Mostra camere')",
+        "button:has-text('Choose a room')",
+        "button:has-text('Select a room')",
+        "button:has-text('View rooms')",
+        "a:has-text('Seleziona una camera')",
+        "a:has-text('Choose a room')",
+        '[data-stid*="select-room"]',
+        '[data-stid*="rooms"]',
+    )
+    for selector in selectors:
+        try:
+            node=page.locator(selector).first
+            if await node.count() and await node.is_visible(timeout=350):
+                try:
+                    await node.scroll_into_view_if_needed(timeout=1200)
+                except Exception:
+                    pass
+                text=re.sub(r"\s+"," ",(await node.inner_text(timeout=500)) or selector).strip()[:100]
+                try:
+                    await node.click(timeout=1800)
+                except Exception:
+                    # Alcune CTA sono ancore/scroll target non cliccabili dal browser automation.
+                    try:
+                        await node.evaluate("(el)=>el.click()")
+                    except Exception:
+                        pass
+                await page.wait_for_timeout(1800)
+                return f"{label}: CTA camere aperta «{text}»"
+
+        except Exception:
+            pass
+
+    # Fallback: raggiunge direttamente un contenitore camere/offerte se già nel DOM.
+    for selector in (
+        '[data-stid*="room-card"]',
+        '[data-stid*="room-offer"]',
+        '[data-stid*="room-list"]',
+        '[data-testid*="room-card"]',
+        '[data-testid*="room"]',
+        '[id*="room"]',
+    ):
+        try:
+            node=page.locator(selector).first
+            if await node.count():
+                await node.scroll_into_view_if_needed(timeout=1400)
+                await page.wait_for_timeout(1400)
+                return f"{label}: sezione camere raggiunta via {selector}"
+        except Exception:
+            pass
+
+    # Ultimo tentativo: scroll progressivo per innescare lazy rendering delle offerte.
+    try:
+        for fraction in (0.45,0.65,0.82):
+            await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight*{fraction})")
+            await page.wait_for_timeout(850)
+            count=await page.locator(
+                '[data-stid*="room-card"], [data-stid*="room-offer"], [data-stid*="price"], [data-testid*="room"], [data-testid*="price"]'
+            ).count()
+            if count:
+                return f"{label}: lazy rendering camere attivato dopo scroll ({count} nodi tariffari)"
+    except Exception:
+        pass
+    return f"{label}: CTA/sezione camere non individuata"
+
+
 async def expedia_group_property_rate_context(page, channel: str) -> tuple[bool,str]:
     selectors=(
         '[data-stid="content-hotel-title"]',
@@ -2098,7 +2172,12 @@ async def expedia_group_property_rate_context(page, channel: str) -> tuple[bool,
         '[data-stid*="price"]',
         '[data-testid*="room"]',
     ))
-    return bool(not_search and has_identity and has_rate),", ".join(found[:8])
+    # Una scheda hotel esatta può essere confermata anche prima che Expedia abbia
+    # lazy-renderizzato le camere. La presenza tariffaria viene verificata dopo
+    # expedia_group_reveal_rates().
+    return bool(not_search and has_identity),(
+        ", ".join(found[:8]) + (" · rate-context presente" if has_rate else " · rate-context da aprire")
+    )
 
 
 async def expedia_group_quote_candidates(page, stay: dict, channel: str) -> list[dict]:
@@ -2124,10 +2203,22 @@ async def expedia_group_quote_candidates(page, stay: dict, channel: str) -> list
         '[data-stid*="room-title"]',
         'h2','h3','h4'
       ];
-      const cards=Array.from(document.querySelectorAll(
+      let cards=Array.from(document.querySelectorAll(
         '[data-stid*="room-card"], [data-stid*="room-offer"], [data-stid*="room-list"] > *, ' +
-        '[data-testid*="room-card"], [data-testid*="room"]'
-      )).slice(0,160);
+        '[data-stid*="property-offer"], [data-stid*="offer-card"], ' +
+        '[data-testid*="room-card"], [data-testid*="room"], [data-testid*="offer"]'
+      )).slice(0,220);
+
+      // Expedia cambia spesso il markup. Se i data-* specifici non producono card,
+      // risale dai nodi prezzo al contenitore più vicino con testo camera/offerta.
+      if (!cards.length) {
+        const priceNodes=Array.from(document.querySelectorAll(
+          '[data-stid*="price"], [data-testid*="price"], [class*="price" i]'
+        )).filter(visible).slice(0,180);
+        cards=priceNodes.map(node =>
+          node.closest('article,li,section,[role="group"],[data-stid],[data-testid],div') || node.parentElement
+        ).filter(Boolean);
+      }
       const out=[]; const seen=new Set();
       for (const card of cards) {
         if (!visible(card)) continue;
@@ -5832,14 +5923,18 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         elif channel in {"expedia","hotels","travelocity"} and dates_confirmed:
+            reveal_evidence=await expedia_group_reveal_rates(page,channel)
             try:
                 await page.locator(
-                    '[data-stid*="room"], [data-stid="price-lockup-text"], [data-stid*="price"], [data-testid*="room"]'
-                ).first.wait_for(state="visible",timeout=5000)
+                    '[data-stid*="room-card"], [data-stid*="room-offer"], [data-stid*="room"], '
+                    '[data-stid="price-lockup-text"], [data-stid*="price"], '
+                    '[data-testid*="room"], [data-testid*="price"]'
+                ).first.wait_for(state="visible",timeout=6500)
             except Exception:
-                await page.wait_for_timeout(1400)
+                await page.wait_for_timeout(1800)
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+            date_dom_excerpt=(str(date_dom_excerpt or "")+" | "+reveal_evidence)[:800]
         elif channel == "trip" and dates_confirmed:
             try:
                 await page.locator(
