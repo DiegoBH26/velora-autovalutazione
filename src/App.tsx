@@ -5043,12 +5043,31 @@ export default function App() {
       if (!observations.length) continue;
       const withQuotes = observations.filter((item) => Array.isArray(item.quotes) && item.quotes.length);
       const verifiedCandidates = withQuotes.flatMap((item) => (item.quotes || []).filter((quote) => quote.verified));
+      const selectedCandidates = withQuotes.flatMap((item) => (item.quotes || []).filter((quote) => quote.comparisonSelected !== false));
+      const diagnostics = observations.slice(-6).map((item) => {
+        const quotes = item.quotes || [];
+        const selected = quotes.filter((quote) => quote.comparisonSelected !== false);
+        const sameRoom = selected.filter((quote) => quote.roomMatchStatus === "same-room").length;
+        const differentRoom = selected.filter((quote) => quote.roomMatchStatus === "different-room-fallback").length;
+        const roomNote = sameRoom
+          ? ` · stessa camera Booking: ${sameRoom} riga/e`
+          : differentRoom
+            ? " · ATTENZIONE: solo camera diversa dalla reference Booking"
+            : "";
+        return [
+          `${item.checkin} → ${item.checkout}: ${pilotCoverageSummary(result, item.month, otaId) || item.status}${roomNote}`,
+          item.evidence ? `Motivo: ${item.evidence}` : "",
+          item.finalUrl ? `Pagina finale visitata: ${item.finalUrl}` : "",
+        ].filter(Boolean).join("\n");
+      }).join("\n\n");
       updateAnswer(`audit-policy-${otaId}`, {
         note:
-          "Campionamento futuro " + otaLabels[otaId] + ": " + observations.length + " date/mese controllati. " +
-          "Righe camera/prezzo rilevate in " + withQuotes.length + " controlli; righe con scheda e base prezzo validate: " +
-          verifiedCandidates.length + ".\nTariffe " + otaLabels[otaId] + " validate importate automaticamente nella tabella economica: " +
-          (automaticCounts[otaId] || 0) + ". Il delta rispetto a Booking resta n.d. finché non è confermata la stessa unità fisica con condizioni omogenee.",
+          "Campionamento futuro " + otaLabels[otaId] + ": " + observations.length + " data/e controllate. " +
+          "Controlli con almeno un prezzo letto: " + withQuotes.length + "; righe prezzo validate: " +
+          verifiedCandidates.length + "; righe selezionate rispetto alla camera reference Booking: " + selectedCandidates.length + ".\n" +
+          "Tariffe " + otaLabels[otaId] + " importate nella tabella economica: " + (automaticCounts[otaId] || 0) + ".\n\n" +
+          diagnostics +
+          "\n\nRegola confronto: Velora usa la stessa camera reference Booking quando disponibile. Una camera diversa viene riportata solo come alternativa segnalata e non produce delta.",
       });
     }
 
@@ -7415,6 +7434,13 @@ export default function App() {
                 {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotVerifiedRateQuotes(browserPilotResult).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
               </p>
               <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 13 fonti complessive = 9 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
+              {(browserPilotResult.roomReferences || []).length > 0 && <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-950">
+                <b>Camera reference Booking</b>
+                {(browserPilotResult.roomReferences || []).map((reference, index) => <span key={`room-ref-${index}`} className="block mt-1">
+                  {reference.checkin} → {reference.checkout}: <b>{reference.roomType}</b>{Number.isFinite(reference.matchedOtas) ? ` · stessa tipologia riconosciuta su ${reference.matchedOtas} OTA` : ""}
+                </span>)}
+                <span className="block mt-1">Le altre camere vengono escluse dal confronto quando la stessa tipologia è disponibile. Se non esiste, Velora mostra una sola alternativa con avviso e senza delta.</span>
+              </div>}
               {Object.keys(browserPilotResult.otaProfiles || {}).length > 0 && <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="min-w-[860px] w-full border-collapse text-[10px]">
                   <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">Profilo</th><th className="p-2 text-left">Rating</th><th className="p-2 text-left">Recensioni</th><th className="p-2 text-left">Raccomandazione</th><th className="p-2 text-left">Riscontro</th></tr></thead>
@@ -7448,14 +7474,14 @@ export default function App() {
                 <table className="w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Totale soggiorno</th><th className="p-2 text-left">Condizioni</th></tr></thead>
                   <tbody>
-                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
-                      <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className="border-t border-[#EEE8F4] align-top">
+                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).filter((quote) => quote.comparisonSelected !== false).map((quote, quoteIndex) =>
+                      <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className={`border-t border-[#EEE8F4] align-top ${quote.roomMatchStatus === "different-room-fallback" ? "bg-amber-50" : ""}`}>
                         <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                         <td className="p-2">{observation.checkin} → {observation.checkout}</td>
-                        <td className="p-2">{quote.roomType}{quote.ratePlan && <span className="block text-[9px] font-semibold text-[#7A5B96]">{quote.ratePlan}</span>}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span></td>
+                        <td className="p-2">{quote.roomType}{quote.ratePlan && <span className="block text-[9px] font-semibold text-[#7A5B96]">{quote.ratePlan}</span>}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span>{quote.roomMatchStatus === "booking-reference" && <span className="mt-1 block font-black text-emerald-700">REFERENCE BOOKING</span>}{quote.roomMatchStatus === "same-room" && <span className="mt-1 block font-black text-emerald-700">STESSA CAMERA DELLA REFERENCE BOOKING</span>}{quote.roomMatchStatus === "different-room-fallback" && <span className="mt-1 block font-black text-amber-700">ATTENZIONE · CAMERA DIVERSA DALLA REFERENCE BOOKING</span>}</td>
                         <td className="p-2 text-right font-black">€{Number(quote.nightlyRate ?? (quote.total / Math.max(1, quote.nights))).toFixed(2)}<span className="block text-[9px] font-normal text-[#50627F]">{quote.displayedBasis === "nightly" ? "mostrato dal portale" : quote.displayedBasis === "stay-total" ? "calcolato dal totale" : "normalizzato"}</span></td>
                         <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}<span className="block text-[9px] font-normal text-[#50627F]">{quote.displayedBasis === "stay-total" ? "mostrato dal portale" : quote.displayedBasis === "nightly" ? `calcolato × ${quote.nights} notti` : `${quote.nights} notti`}</span></td>
-                        <td className="p-2">{[quote.ratePlan, quote.board, quote.refund].filter(Boolean).join(" · ")}{quote.priceDerivation && <span className="block mt-1 text-[9px] text-[#50627F]">{quote.priceDerivation}</span>}</td>
+                        <td className="p-2">{[quote.ratePlan, quote.board, quote.refund].filter(Boolean).join(" · ")}{quote.priceDerivation && <span className="block mt-1 text-[9px] text-[#50627F]">{quote.priceDerivation}</span>}{quote.comparisonWarning && <span className="block mt-1 font-black text-amber-700">{quote.comparisonWarning}</span>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -7467,7 +7493,7 @@ export default function App() {
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Ogni cifra è un preventivo datato diviso per le notti. Δ = (prezzo OTA / prezzo Booking − 1) × 100. Un numero nella colonna Δ compare solo con unità fisica e condizioni identiche, rilevate lo stesso giorno; altrimenti n.d. La tabella descrittiva delle politiche commerciali resta invariata.</p>
           <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1050px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Camera/unità</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Booking base</th><th className="p-2 text-right">Δ</th><th className="p-2 text-left">Condizioni / limite</th></tr></thead><tbody>
             {publishedComparisonSamples.map((sample, index) => <tr key={`published-${index}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{sample.stay}</td><td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === sample.otaId)?.platform || (sample.otaId === "sito" ? "Sito diretto" : sample.otaId)}</td><td className="p-2">{sample.roomType}</td><td className="p-2 text-right font-black">€{sample.nightly.toFixed(2)}</td><td className="p-2 text-right">—</td><td className="p-2 text-right">{sample.delta}</td><td className="p-2">{sample.conditions}</td></tr>)}
-            {rateDetailRows.map(({ quote, nightly, bookingNightly, deltaPct }) => <tr key={`rate-${quote.id}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{quote.stayDate}</td><td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId}</td><td className="p-2">{quote.roomType}<span className="block text-[10px] text-[#50627F]">{quote.unitId ? `Unità verificata: ${quote.unitId}` : "Unità non verificata"}</span></td><td className="p-2 text-right font-black">€{nightly.toFixed(2)}</td><td className="p-2 text-right">{bookingNightly === null ? "—" : `€${bookingNightly.toFixed(2)}`}</td><td className="p-2 text-right font-black">{deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td><td className="p-2">{quote.refund} · {quote.board} · {quote.audience} · {quote.taxes}</td></tr>)}
+            {rateDetailRows.map(({ quote, nightly, bookingNightly, deltaPct }) => <tr key={`rate-${quote.id}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{quote.stayDate}</td><td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId}</td><td className="p-2">{quote.roomType}<span className="block text-[10px] text-[#50627F]">{quote.referenceRoomKey ? `Reference Booking: ${quote.bookingReferenceRoom || quote.roomType}` : quote.unitId ? `Unità verificata: ${quote.unitId}` : "Camera non comparabile con Booking"}</span>{quote.roomMatchStatus === "different-room-fallback" && <span className="block mt-1 text-[10px] font-black text-amber-700">ATTENZIONE · CAMERA DIVERSA</span>}</td><td className="p-2 text-right font-black">€{nightly.toFixed(2)}</td><td className="p-2 text-right">{bookingNightly === null ? "—" : `€${bookingNightly.toFixed(2)}`}</td><td className="p-2 text-right font-black">{deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td><td className="p-2">{quote.refund} · {quote.board} · {quote.audience} · {quote.taxes}{quote.comparisonWarning && <span className="block mt-1 font-black text-amber-700">{quote.comparisonWarning}</span>}</td></tr>)}
             {!publishedComparisonSamples.length && !rateDetailRows.length && <tr><td colSpan={7} className="p-3 text-[#50627F]">Nessun preventivo datato registrato. Aggiungine uno qui sotto per popolare la tabella.</td></tr>}
           </tbody></table></div>
           {publishedMonthlySamples.length > 0 && <div className="mt-4 overflow-x-auto rounded-xl border border-[#E5DDF1]">
