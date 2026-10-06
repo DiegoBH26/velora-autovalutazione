@@ -3585,6 +3585,10 @@ type BrowserPilotQuoteCandidate = {
   roomType: string;
   ratePlan?: string;
   total: number;
+  nightlyRate?: number;
+  displayedAmount?: number;
+  displayedBasis?: "nightly" | "stay-total" | "unknown";
+  priceDerivation?: string;
   currency: string;
   nights: number;
   guests: number;
@@ -6282,11 +6286,14 @@ export default function App() {
       (observation.quotes || []).map((quote) => ({ observation, quote }))
     );
     const pilotQuoteTableHtml = pilotQuoteRows.length
-      ? `<h3>Tariffe rilevate automaticamente</h3><p>Queste righe sono state lette direttamente dalle pagine OTA sulle date indicate. Restano separate dai calcoli di delta finché camera, tasse e condizioni non sono confermate come perfettamente comparabili.</p><table><thead><tr><th>Canale</th><th>Date</th><th>Camera / piano</th><th>Totale</th><th>Condizioni</th><th>Stato</th></tr></thead><tbody>${pilotQuoteRows.slice(0,120).map(({ observation, quote }) => {
+      ? `<h3>Tariffe rilevate automaticamente</h3><p>Per ogni OTA Velora normalizza il dato in €/notte e totale soggiorno senza cambiare la durata richiesta. Il report distingue il valore realmente mostrato dal portale da quello calcolato matematicamente; questo evita errori con minimum stay e portali che mostrano solo il totale.</p><table><thead><tr><th>Canale</th><th>Date</th><th>Camera / piano</th><th>€/notte</th><th>Totale soggiorno</th><th>Condizioni</th><th>Stato</th></tr></thead><tbody>${pilotQuoteRows.slice(0,120).map(({ observation, quote }) => {
           const platform = reportChannels.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId;
-          const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes].filter(Boolean).join(" · ");
+          const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes, quote.priceDerivation].filter(Boolean).join(" · ");
           const roomAndPlan = [quote.roomType || "Da verificare", quote.ratePlan].filter(Boolean).join(" · ");
-          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Camera e prezzo validati dal parser" : "Prezzo rilevato · attribuzione da completare"}</td></tr>`;
+          const nightly = Number(quote.nightlyRate ?? (quote.total / Math.max(1, quote.nights)));
+          const nightlyLabel = quote.displayedBasis === "nightly" ? "mostrato" : quote.displayedBasis === "stay-total" ? "calcolato dal totale" : "normalizzato";
+          const totalLabel = quote.displayedBasis === "stay-total" ? "mostrato" : quote.displayedBasis === "nightly" ? "calcolato" : "registrato";
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${nightly.toFixed(2)}</b><small>${safe(nightlyLabel)}</small></td><td><b>€${Number(quote.total).toFixed(2)}</b><small>${safe(totalLabel)} · ${quote.nights} notti</small></td><td>${safe(conditions)}</td><td>${quote.verified ? "Camera e prezzo validati dal parser" : "Prezzo rilevato · attribuzione da completare"}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
     const pilotReportHtml = isWebAudit && (pilotObservations.length || pilotProfileEntries.length) ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati; ${pilotProfileEntries.length} profili OTA/metasearch analizzati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p>${pilotObservations.length ? `<table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>` : ""}${pilotProfileTableHtml}${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL, profili pubblici ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
@@ -7345,7 +7352,7 @@ export default function App() {
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. Gli importi visibili ma non ancora attribuiti con certezza a camera/piano vengono conservati come osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. La durata del soggiorno non viene forzata a una sola notte: Velora conserva la finestra valida trovata da Booking e normalizza ogni tariffa in €/notte + totale soggiorno, indicando quale valore era mostrato dal portale e quale è stato calcolato. Gli importi non attribuiti con certezza a camera/piano restano osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
@@ -7383,15 +7390,16 @@ export default function App() {
               </div>}
               {browserPilotResult.observations.some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="w-full border-collapse text-[10px]">
-                  <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">Totale</th><th className="p-2 text-left">Condizioni</th></tr></thead>
+                  <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Totale soggiorno</th><th className="p-2 text-left">Condizioni</th></tr></thead>
                   <tbody>
                     {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
                       <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className="border-t border-[#EEE8F4] align-top">
                         <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                         <td className="p-2">{observation.checkin} → {observation.checkout}</td>
                         <td className="p-2">{quote.roomType}{quote.ratePlan && <span className="block text-[9px] font-semibold text-[#7A5B96]">{quote.ratePlan}</span>}<span className="block text-[9px] text-[#50627F]">{quote.verified ? "parser verificato" : "da verificare"}</span></td>
-                        <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}</td>
-                        <td className="p-2">{[quote.ratePlan, quote.board, quote.refund].filter(Boolean).join(" · ")}</td>
+                        <td className="p-2 text-right font-black">€{Number(quote.nightlyRate ?? (quote.total / Math.max(1, quote.nights))).toFixed(2)}<span className="block text-[9px] font-normal text-[#50627F]">{quote.displayedBasis === "nightly" ? "mostrato dal portale" : quote.displayedBasis === "stay-total" ? "calcolato dal totale" : "normalizzato"}</span></td>
+                        <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}<span className="block text-[9px] font-normal text-[#50627F]">{quote.displayedBasis === "stay-total" ? "mostrato dal portale" : quote.displayedBasis === "nightly" ? `calcolato × ${quote.nights} notti` : `${quote.nights} notti`}</span></td>
+                        <td className="p-2">{[quote.ratePlan, quote.board, quote.refund].filter(Boolean).join(" · ")}{quote.priceDerivation && <span className="block mt-1 text-[9px] text-[#50627F]">{quote.priceDerivation}</span>}</td>
                       </tr>
                     ))}
                   </tbody>
