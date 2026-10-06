@@ -4089,6 +4089,68 @@ def write_result(path: Path, result: dict) -> bool:
 
 
 
+
+def normalize_quote_price_fields(quote: dict) -> dict:
+    """Garantisce sempre €/notte + totale, preservando quale valore mostrava il portale."""
+    try:
+        nights=max(1,int(quote.get("nights") or 1))
+        total=float(quote.get("total"))
+    except Exception:
+        return quote
+
+    nightly=quote.get("nightlyRate")
+    try:
+        nightly=float(nightly) if nightly is not None else total/nights
+    except Exception:
+        nightly=total/nights
+
+    evidence=str(quote.get("evidence") or "")
+    low=evidence.lower()
+    basis=str(quote.get("displayedBasis") or "").strip()
+    if basis not in {"nightly","stay-total"}:
+        if any(token in low for token in ("prezzo per notte visibile","mostrati a notte"," a notte","per notte","per night","nightly")):
+            basis="nightly"
+        elif any(token in low for token in ("totale soggiorno","totale mostrato","stay total","total for","per stay")):
+            basis="stay-total"
+        else:
+            basis="unknown"
+
+    displayed=quote.get("displayedAmount")
+    try:
+        displayed=float(displayed) if displayed is not None else None
+    except Exception:
+        displayed=None
+    if displayed is None:
+        if basis=="nightly":
+            displayed=nightly
+        elif basis=="stay-total":
+            displayed=total
+
+    quote["total"]=round(total,2)
+    quote["nightlyRate"]=round(nightly,2)
+    quote["displayedBasis"]=basis
+    if displayed is not None:
+        quote["displayedAmount"]=round(displayed,2)
+
+    if not quote.get("priceDerivation"):
+        if basis=="nightly" and displayed is not None:
+            quote["priceDerivation"]=(
+                f"Portale: €{displayed:.2f}/notte · totale calcolato: "
+                f"€{displayed:.2f} × {nights} = €{total:.2f}."
+            )
+        elif basis=="stay-total" and displayed is not None:
+            quote["priceDerivation"]=(
+                f"Portale: €{displayed:.2f} totale · prezzo/notte calcolato: "
+                f"€{displayed:.2f} ÷ {nights} = €{nightly:.2f}."
+            )
+        else:
+            quote["priceDerivation"]=(
+                f"Totale registrato €{total:.2f} su {nights} notti · "
+                f"equivalente €{nightly:.2f}/notte; base mostrata dal portale non confermata."
+            )
+    return quote
+
+
 def booking_path_key(url: str) -> str:
     try:
         path=(urlparse(url).path or "").lower().rstrip("/")
@@ -7812,6 +7874,8 @@ async def run(args: argparse.Namespace) -> dict:
                         finally:
                             await page.close()
 
+                    if record.get("quotes"):
+                        record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
                     result["observations"].append(record)
                     write_result(output, result)
                     print(
