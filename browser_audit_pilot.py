@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v51"
+PILOT_BUILD = "velora-browser-pilot-v52"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -49,6 +49,7 @@ OTA_META = {
     "holidaycheck": {"label": "HolidayCheck", "domains": ("holidaycheck.com", "holidaycheck.it")},
 }
 DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels"}
+PROFILE_AUDIT_CHANNELS = ("tripadvisor", "trivago", "googlehotels", "holidaycheck")
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -2570,6 +2571,208 @@ async def priceline_quote_candidates(page, stay: dict) -> list[dict]:
         if key in seen: continue
         seen.add(key); unique.append(item)
     return unique[:40]
+
+
+
+def _localized_number(value: str) -> float | None:
+    raw=str(value or "").strip().replace(" ", "")
+    if not raw:
+        return None
+    if "," in raw and "." in raw:
+        if raw.rfind(",") > raw.rfind("."):
+            raw=raw.replace(".","").replace(",",".")
+        else:
+            raw=raw.replace(",","")
+    elif "," in raw:
+        raw=raw.replace(",",".")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _profile_rating(body: str) -> tuple[float | None,float | None]:
+    text=re.sub(r"\s+"," ",body or "")
+    patterns=(
+        r'(\d{1,2}(?:[.,]\d+)?)\s*(?:/|su|von|of)\s*(5|6|10)\b',
+        r'(?:rating|valutazione|bewertung|punteggio|score)\D{0,25}(\d{1,2}(?:[.,]\d+)?)\s*(?:/|su|von|of)?\s*(5|6|10)?',
+    )
+    for pattern in patterns:
+        match=re.search(pattern,text,re.I)
+        if not match:
+            continue
+        value=_localized_number(match.group(1))
+        scale=_localized_number(match.group(2) or "") if len(match.groups())>1 else None
+        if value is None:
+            continue
+        if scale is None:
+            if 0 <= value <= 5:
+                scale=5.0
+            elif value <= 6:
+                scale=6.0
+            elif value <= 10:
+                scale=10.0
+        if scale and 0 <= value <= scale:
+            return round(value,2),scale
+    return None,None
+
+
+def _profile_review_count(body: str) -> int | None:
+    text=re.sub(r"\s+"," ",body or "")
+    patterns=(
+        r'([0-9][0-9.,\s]{0,12})\s+(?:verified\s+)?(?:reviews?|recensioni|bewertungen|bewertung|opinioni)\b',
+        r'(?:reviews?|recensioni|bewertungen|bewertung|opinioni)\D{0,20}([0-9][0-9.,\s]{0,12})',
+    )
+    for pattern in patterns:
+        match=re.search(pattern,text,re.I)
+        if not match:
+            continue
+        digits=re.sub(r"\D","",match.group(1))
+        if digits:
+            try:
+                value=int(digits)
+                if 0 < value < 10_000_000:
+                    return value
+            except ValueError:
+                pass
+    return None
+
+
+def _profile_recommendation(body: str) -> float | None:
+    text=re.sub(r"\s+"," ",body or "")
+    patterns=(
+        r'(\d{1,3}(?:[.,]\d+)?)\s*%\s*(?:recommend|weiterempfehl|consigl)',
+        r'(?:recommend|weiterempfehl|consigl)[^%]{0,40}(\d{1,3}(?:[.,]\d+)?)\s*%',
+    )
+    for pattern in patterns:
+        match=re.search(pattern,text,re.I)
+        if match:
+            value=_localized_number(match.group(1))
+            if value is not None and 0 <= value <= 100:
+                return round(value,1)
+    return None
+
+
+async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -> dict:
+    """Profilo pubblico per metasearch/review portals: identità, reputazione e link commerciali."""
+    permission=await asyncio.to_thread(allowed_by_robots,source,robots)
+    if permission is not True:
+        return {
+            "status":"robots_denied" if permission is False else "robots_unavailable",
+            "url":source,"title":"","rating":None,"ratingScale":None,"reviewCount":None,
+            "recommendationRate":None,"visiblePrices":[],"outboundHosts":[],
+            "evidence":"Profilo non letto: robots.txt nega o non chiarisce l'accesso automatico."
+        }
+    page=await context.new_page()
+    try:
+        response=await page.goto(source,wait_until="domcontentloaded",timeout=25000)
+        if not response:
+            return {"status":"navigation_error","url":source,"evidence":"Nessuna risposta HTTP dalla scheda."}
+        if response.status==429:
+            return {"status":"rate_limited","url":page.url,"evidence":"HTTP 429: portale temporaneamente limitato."}
+        if response.status>=400:
+            return {"status":"http_error","url":page.url,"evidence":f"HTTP {response.status} sulla scheda pubblica."}
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(1400)
+        body=(await page.locator("body").inner_text(timeout=7000))[:24000]
+        title=(await page.title())[:240]
+        try:
+            h1=page.locator("h1").first
+            if await h1.count() and await h1.is_visible(timeout=300):
+                h1_text=re.sub(r"\s+"," ",(await h1.inner_text(timeout=600)) or "").strip()
+                if h1_text:
+                    title=h1_text[:240]
+        except Exception:
+            pass
+        low=(title+" "+body).lower()
+        if any(word in low for word in BLOCK_WORDS):
+            return {
+                "status":"blocked","url":page.url,"title":title,
+                "evidence":"Il portale ha mostrato una verifica/blocco; nessun aggiramento tentato."
+            }
+
+        rating,scale=_profile_rating(body)
+        review_count=_profile_review_count(body)
+        recommendation=_profile_recommendation(body)
+
+        visible_prices=[]
+        seen_prices=set()
+        for match in PRICE_RE.finditer(body):
+            raw=match.group(0)
+            value=_money_value(raw)
+            if value is None or value in seen_prices:
+                continue
+            seen_prices.add(value)
+            visible_prices.append({"amount":round(value,2),"currency":"EUR","text":raw[:80]})
+            if len(visible_prices)>=8:
+                break
+
+        own_domains=tuple(OTA_META.get(ota_id,{}).get("domains") or ())
+        try:
+            outbound=await page.evaluate(r"""(ownDomains) => {
+              const hosts=[]; const seen=new Set();
+              for (const a of Array.from(document.querySelectorAll('a[href]')).slice(0,600)) {
+                try {
+                  const u=new URL(a.href,location.href);
+                  const host=u.hostname.toLowerCase().replace(/^www\./,'');
+                  if (!host || ownDomains.some(d => host===d || host.endsWith('.'+d))) continue;
+                  if (!/^https?:$/.test(u.protocol)) continue;
+                  if (seen.has(host)) continue;
+                  seen.add(host); hosts.push(host);
+                } catch {}
+              }
+              return hosts.slice(0,30);
+            }""",list(own_domains))
+        except Exception:
+            outbound=[]
+
+        commercial_hosts=[
+            host for host in outbound
+            if any(token in host for token in (
+                "booking.","expedia.","hotels.","agoda.","trip.com","priceline.",
+                "travelocity.","airbnb.","vrbo.","hotelbeds.","tui.","dertour.",
+                "hrs.","lastminute.","weg.de","check24.","kayak."
+            ))
+        ]
+
+        evidence_parts=[]
+        if rating is not None:
+            evidence_parts.append(f"rating {rating:g}/{scale:g}")
+        if review_count:
+            evidence_parts.append(f"{review_count} recensioni")
+        if recommendation is not None:
+            evidence_parts.append(f"raccomandazione {recommendation:g}%")
+        if visible_prices:
+            evidence_parts.append(f"{len(visible_prices)} prezzi EUR visibili non attribuiti a una camera")
+        if commercial_hosts:
+            evidence_parts.append("link commerciali: "+", ".join(commercial_hosts[:8]))
+        if not evidence_parts:
+            evidence_parts.append("scheda leggibile, ma metriche strutturate non riconosciute con sufficiente certezza")
+
+        return {
+            "status":"sampled",
+            "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+            "title":title,
+            "rating":rating,
+            "ratingScale":scale,
+            "reviewCount":review_count,
+            "recommendationRate":recommendation,
+            "visiblePrices":visible_prices,
+            "outboundHosts":outbound,
+            "commercialHosts":commercial_hosts,
+            "visibleExcerpt":re.sub(r"\s+"," ",body)[:700],
+            "evidence":" · ".join(evidence_parts)[:1000],
+        }
+    except Exception as exc:
+        return {
+            "status":"navigation_error","url":source,
+            "evidence":f"{type(exc).__name__}: {str(exc)[:180]}"
+        }
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
 
 
 async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
@@ -6629,7 +6832,7 @@ async def run(args: argparse.Namespace) -> dict:
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
-              "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {},
+              "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
               "reputation": {}, "photoAudit": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
@@ -6786,6 +6989,27 @@ async def run(args: argparse.Namespace) -> dict:
                 )
                 if discovery.get("status")=="found" and discovery.get("url"):
                     sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":discovery["url"]}
+
+            # Per i portali non adatti al confronto tariffario mensile raccoglie comunque
+            # un profilo pubblico strutturato: reputazione, prezzi generici e link commerciali.
+            run_profile_audit = len(channels) != 1 or channels[0] in PROFILE_AUDIT_CHANNELS
+            if run_profile_audit:
+                for ota_id in PROFILE_AUDIT_CHANNELS:
+                    profile_source=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
+                    if profile_source:
+                        profile=await observe_ota_profile(context,ota_id,profile_source,robots)
+                    else:
+                        profile={
+                            "status":"source_missing","url":"","title":"",
+                            "evidence":f"Nessuna scheda {OTA_META[ota_id]['label']} verificata da profilare."
+                        }
+                    result["otaProfiles"][ota_id]=profile
+                    print(
+                        f"{ota_id} profile: {profile.get('status','n.d.')} · "
+                        f"{str(profile.get('evidence') or '')[:240]}",
+                        flush=True,
+                    )
+                    write_result(output,result)
 
             # Salva tutte le schede OTA trovate insieme, non soltanto Booking.
             try:
