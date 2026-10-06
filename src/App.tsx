@@ -4860,8 +4860,8 @@ export default function App() {
       setBrowserPilotResult(merged);
       window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(merged));
       applyPilotEvidence(cleaned);
-      const verifiedBookingRates = pilotVerifiedRateQuotes(cleaned).length;
-      window.alert(`${cleaned.observations.length} verifiche importate · ${verifiedBookingRates} tariffe Booking validate aggiunte all’archivio economico.`);
+      const verifiedPilotRates = pilotVerifiedRateQuotes(cleaned).length;
+      window.alert(`${cleaned.observations.length} verifiche importate · ${verifiedPilotRates} tariffe OTA validate aggiunte all’archivio economico.`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Impossibile leggere il file del pilota.");
     }
@@ -5044,11 +5044,11 @@ export default function App() {
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
-        const verifiedBookingRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
+        const verifiedPilotRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
         setLocalPilotMessage(
           status.running
-            ? `${count} controlli completati · ${verifiedBookingRates} tariffe Booking validate pronte per l\'importazione.`
-            : `${count} controlli completati · ${verifiedBookingRates} tariffe Booking validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+            ? `${count} controlli completati · ${verifiedPilotRates} tariffe OTA validate pronte per l\'importazione.`
+            : `${count} controlli completati · ${verifiedPilotRates} tariffe OTA validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
         );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
