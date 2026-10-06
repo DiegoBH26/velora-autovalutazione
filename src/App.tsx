@@ -3672,10 +3672,13 @@ type BrowserPilotOtaProfile = {
 type DiscoveredPilotSource = {
   status: string;
   url?: string;
+  candidateUrl?: string;
   title?: string;
   score?: number;
   evidence?: string;
   searchUrl?: string;
+  identityVerified?: boolean;
+  verification?: string;
 };
 
 type BrowserPilotResult = {
@@ -3854,7 +3857,7 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
     dates_unconfirmed: "Date non confermate dal portale",
     date_adapter_missing: "Date non applicate automaticamente",
     source_not_retested: "Scheda non ritestata nel test rapido",
-    source_missing: "Scheda OTA non trovata con certezza",
+    source_missing: "Nessuna scheda OTA verificata: nessun dato tariffario usato",
     rate_limited: "Portale limita temporaneamente la verifica",
     blocked: "Verifica impedita dal portale",
     http_error: "Errore HTTP durante la verifica",
@@ -6250,7 +6253,7 @@ export default function App() {
     const bookingStatusLabel = bookingStatus === "present" ? bookingProvider === "Fornitore non identificato" ? "Percorso di prenotazione rilevato; fornitore non confermato" : "Fornitore identificato" : bookingStatus === "partial" ? "Percorso di prenotazione rilevato; fornitore non confermato" : bookingStatus === "missing" ? "Percorso di prenotazione non rilevato nel campione" : "Non verificato";
     const bookingEngineReportHtml = isWebAudit ? `<section><h2>Booking engine e fornitore del canale diretto</h2><table><tbody><tr><th style="width:25%">Esito</th><td>${safe(bookingStatusLabel)}</td></tr><tr><th>Fornitore</th><td><b>${safe(bookingProvider)}</b></td></tr><tr><th>Percorso</th><td>${safe(bookingMode)}</td></tr><tr><th>URL di prova</th><td>${safe(bookingUrl)}</td></tr><tr><th>Riscontro</th><td>${safe(bookingEvidence)}</td></tr></tbody></table><p>Un dominio riconosciuto identifica il fornitore del percorso pubblico, ma non prova che disponibilità, pagamento e checkout funzionino. Un sito ospitato direttamente dal fornitore va registrato anche se non esiste un dominio ufficiale separato.</p></section>` : "";
     const pilotObservations = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult.observations : [];
-    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", source_not_retested: "Scheda non ritestata nel test rapido", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", rate_limited: "Portale temporaneamente limitato", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", dated_search_inconclusive: "Ricerca datata non conclusiva", no_public_rate: "Nessuna tariffa pubblica rilevata", needs_human_review: "Preventivo da verificare", quote_candidates: "Tariffe rilevate e strutturate", quote_candidates_unverified: "Prezzi rilevati, attribuzione da completare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
+    const pilotStatusLabels: Record<string, string> = { source_missing: "Scheda non individuata", source_not_retested: "Scheda non ritestata nel test rapido", date_adapter_missing: "Date non applicabili automaticamente", robots_denied: "Accesso automatico non consentito", robots_unavailable: "Regole di accesso non verificabili", blocked: "Blocco o verifica del portale", rate_limited: "Portale temporaneamente limitato", empty_page: "Pagina non leggibile", dates_unconfirmed: "Date non confermate", dated_search_inconclusive: "Ricerca datata non conclusiva", no_public_rate: "Nessuna tariffa pubblica rilevata", needs_human_review: "Preventivo da verificare", not_verified_present: "Presenza OTA non verificata · nessun dato usato", quote_candidates: "Tariffe rilevate e strutturate", quote_candidates_unverified: "Prezzi rilevati, attribuzione da completare", http_error: "Errore HTTP", navigation_error: "Errore di navigazione" };
     const pilotChannelIds = [...new Set(pilotObservations.map((item) => item.otaId))];
     const pilotRows = pilotChannelIds.map((otaId) => {
       const entries = pilotObservations.filter((item) => item.otaId === otaId);
@@ -7342,7 +7345,7 @@ export default function App() {
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. Gli importi visibili ma non ancora attribuiti con certezza a camera/piano vengono conservati come osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. Gli importi visibili ma non ancora attribuiti con certezza a camera/piano vengono conservati come osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
