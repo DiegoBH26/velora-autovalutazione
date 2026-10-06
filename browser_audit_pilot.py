@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v62"
+PILOT_BUILD = "velora-browser-pilot-v63"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1027,14 +1027,43 @@ async def verify_ota_candidate_page(
         # Riusa la stessa scheda di verifica quando viene fornita dal chiamante:
         # riduce drasticamente i continui flash about:blank durante la discovery.
         response=await page.goto(url,wait_until="domcontentloaded",timeout=25000)
-        if not response or response.status>=400:
-            return {"ok":False,"score":0.0,"title":"","evidence":f"Pagina candidata HTTP {response.status if response else 'n.d.'}."}
+        http_status=response.status if response else 0
         await dismiss_cookie(page)
-        await page.wait_for_timeout(900)
-        body=(await page.locator("body").inner_text(timeout=6500))[:18000]
-        if any(word in body.lower() for word in BLOCK_WORDS):
-            return {"ok":False,"score":0.0,"title":"","evidence":"Il portale ha mostrato una verifica/blocco; nessun aggiramento tentato."}
+        await page.wait_for_timeout(1100)
+        try:
+            body=(await page.locator("body").inner_text(timeout=6500))[:18000]
+        except Exception:
+            body=""
         title=(await page.title())[:260]
+        auth_wall=ota_auth_wall(page.url,title,body)
+        if auth_wall:
+            return {
+                "ok":False,"score":0.0,"title":title[:220],
+                "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+                "evidence":f"Pagina candidata non utilizzata: {auth_wall}.",
+                "httpStatus":http_status,
+            }
+        if any(word in body.lower() for word in BLOCK_WORDS):
+            return {
+                "ok":False,"score":0.0,"title":title[:220],
+                "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+                "evidence":"Il portale ha mostrato una verifica/blocco; nessun aggiramento tentato.",
+                "httpStatus":http_status,
+            }
+        if http_status>=400 and http_status not in {403,429}:
+            return {
+                "ok":False,"score":0.0,"title":title[:220],
+                "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+                "evidence":f"Pagina candidata HTTP {http_status}.",
+                "httpStatus":http_status,
+            }
+        if http_status in {403,429} and len(body.strip())<500:
+            return {
+                "ok":False,"score":0.0,"title":title[:220],
+                "url":urlunparse(urlparse(page.url)._replace(fragment="")),
+                "evidence":f"HTTP {http_status} e contenuto renderizzato insufficiente per verificare l'identità.",
+                "httpStatus":http_status,
+            }
         try:
             h1=page.locator("h1").first
             if await h1.count():
@@ -1051,7 +1080,12 @@ async def verify_ota_candidate_page(
             "score":identity.get("score",0.0),
             "title":title[:220],
             "url":urlunparse(urlparse(page.url)._replace(fragment="")),
-            "evidence":identity.get("evidence",""),
+            "evidence":(
+                (f"HTTP {http_status} ma pagina completa renderizzata nel browser; " if http_status in {403,429} else "")
+                + identity.get("evidence","")
+            )[:900],
+            "httpStatus":http_status,
+            "renderedDespiteHttpError":http_status in {403,429},
             "identity":{
                 "nameScore":identity.get("nameScore",0.0),
                 "cityMatch":bool(identity.get("cityMatch")),
@@ -6246,12 +6280,23 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         text = (record["title"] + " " + body).lower()
-        if response and response.status == 429:
+        soft_http_status=response.status if response and response.status in {403,429} else 0
+        rendered_usable=bool(
+            soft_http_status
+            and dates_confirmed
+            and len(body.strip())>=700
+            and not any(word in text for word in BLOCK_WORDS)
+            and not ota_auth_wall(page.url,record["title"],body)
+        )
+        if response and response.status in {403,429} and not rendered_usable:
             record.update(
-                status="rate_limited",
-                evidence=f"HTTP 429 · Il portale limita temporaneamente le richieste automatiche. Nessun aggiramento tentato. URL finale: {page.url}"
+                status="rate_limited" if response.status==429 else "http_error",
+                evidence=(
+                    f"HTTP {response.status} · il browser non ha renderizzato contenuto tariffario sufficiente "
+                    f"con le date richieste. Nessun aggiramento tentato. URL finale: {page.url}"
+                )[:900],
             )
-        elif response and response.status >= 400:
+        elif response and response.status >= 400 and response.status not in {403,429}:
             record.update(status="http_error", evidence=f"HTTP {response.status} · URL finale: {page.url}")
         elif any(word in text for word in BLOCK_WORDS):
             record.update(status="blocked", evidence="Il portale ha mostrato una pagina di verifica/blocco; nessun prezzo acquisito.")
@@ -6538,6 +6583,11 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         status="needs_human_review",
                         evidence="Date visibili, ma nessun prezzo attribuibile automaticamente con sufficiente certezza nella pagina OTA."
                     )
+        if soft_http_status and record.get("status") in {"quote_candidates","quote_candidates_unverified"}:
+            record["evidence"]=(
+                f"HTTP {soft_http_status} iniziale, ma la scheda completa è stata renderizzata nel browser "
+                f"con date confermate. {str(record.get('evidence') or '')}"
+            )[:900]
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
         record["visibleExcerpt"] = re.sub(r"\s+", " ", body)[:350]
     except Exception as exc:
