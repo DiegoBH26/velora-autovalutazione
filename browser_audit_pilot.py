@@ -29,10 +29,10 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v49"
+PILOT_BUILD = "velora-browser-pilot-v50"
 SCHEMA = "velora-browser-audit-pilot-v1"
-CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
-OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
+CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
+OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_META = {
     "booking": {"label": "Booking.com", "domains": ("booking.com",)},
     "airbnb": {"label": "Airbnb", "domains": ("airbnb.com", "airbnb.it")},
@@ -41,9 +41,14 @@ OTA_META = {
     "vrbo": {"label": "Vrbo", "domains": ("vrbo.com", "vrbo.it")},
     "agoda": {"label": "Agoda", "domains": ("agoda.com",)},
     "trip": {"label": "Trip.com", "domains": ("trip.com",)},
+    "priceline": {"label": "Priceline", "domains": ("priceline.com",)},
+    "travelocity": {"label": "Travelocity", "domains": ("travelocity.com",)},
+    "tripadvisor": {"label": "Tripadvisor", "domains": ("tripadvisor.com", "tripadvisor.it")},
+    "trivago": {"label": "Trivago", "domains": ("trivago.com", "trivago.it")},
+    "googlehotels": {"label": "Google Hotels", "domains": ("google.com", "google.it")},
     "holidaycheck": {"label": "HolidayCheck", "domains": ("holidaycheck.com", "holidaycheck.it")},
 }
-DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck"}
+DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels", "priceline"}
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -93,7 +98,7 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
         )
     elif channel == "airbnb":
         query.update(check_in=stay["checkin"], check_out=stay["checkout"], adults="2")
-    elif channel in {"expedia", "hotels"}:
+    elif channel in {"expedia", "hotels", "travelocity"}:
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2")
     elif channel == "vrbo":
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2")
@@ -762,7 +767,13 @@ def _classify_ota_url(url: str) -> str:
                 return ""
             if ota_id=="airbnb" and not any(token in path for token in ("/rooms/","/hotel/")):
                 return ""
-            if ota_id in {"expedia","hotels"} and any(token in path.lower() for token in ("/hotel-search","/search")):
+            if ota_id in {"expedia","hotels","travelocity"} and any(token in path.lower() for token in ("/hotel-search","/search")):
+                return ""
+            if ota_id=="priceline" and any(token in path.lower() for token in ("/search","/hotels/")) and "/relax/" not in path:
+                return ""
+            if ota_id=="tripadvisor" and any(token in path.lower() for token in ("/search","/searchresults")):
+                return ""
+            if ota_id=="googlehotels" and "/travel/hotels/" not in path:
                 return ""
             return ota_id
     return ""
@@ -1348,7 +1359,7 @@ def _run_ai_web_search(data: dict) -> dict:
         "Use live web search to identify the exact public OTA listing pages belonging to ONE lodging property. "
         "The property name may contain typos or differ from OTA naming, so reason across name variants, physical address, city, "
         "official website, phone, email, snippets, and other public corroborating signals. "
-        "Search broadly first, then use targeted searches for Booking.com, Airbnb, Expedia, Hotels.com, Vrbo, Agoda, Trip.com and HolidayCheck. "
+        "Search broadly first, then use targeted searches for Booking.com, Airbnb, Expedia, Hotels.com, Vrbo, Agoda, Trip.com, Priceline, Travelocity, Tripadvisor, Trivago, Google Hotels and HolidayCheck. "
         "Return FOUND only when the URL is a specific listing/profile page attributable to this exact property; never return a homepage, search page, "
         "destination page or guessed URL. If evidence is insufficient, return uncertain/not_found instead of inventing. "
         "Do not report Google Hotels as one of the OTA ids in the schema. "
@@ -4888,7 +4899,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         return record
     try:
         response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
-        if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","trip"}:
+        if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
         try:
@@ -4947,7 +4958,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         "URL finale Vrbo mantiene check-in/check-out richiesti; "
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
                     )
-            if channel in {"expedia","hotels"} and not confirmed and expedia_group_url_dates_confirmed(page.url, stay):
+            if channel in {"expedia","hotels","travelocity"} and not confirmed and expedia_group_url_dates_confirmed(page.url, stay):
                 property_context, context_evidence = await expedia_group_property_rate_context(page,channel)
                 if property_context:
                     confirmed=True
@@ -5003,7 +5014,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 await page.wait_for_timeout(1200)
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
-        elif channel in {"expedia","hotels"} and dates_confirmed:
+        elif channel in {"expedia","hotels","travelocity"} and dates_confirmed:
             try:
                 await page.locator(
                     '[data-stid*="room"], [data-stid="price-lockup-text"], [data-stid*="price"], [data-testid*="room"]'
@@ -5161,7 +5172,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         status="needs_human_review",
                         evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
                     )
-            elif channel in {"expedia","hotels"}:
+            elif channel in {"expedia","hotels","travelocity"}:
                 candidates=await expedia_group_quote_candidates(page,stay,channel)
                 record["quotes"]=candidates
                 if candidates:
