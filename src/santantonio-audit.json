@@ -6,56 +6,291 @@
   "rooms": 24,
   "propertyType": "Hotel 3 stelle",
   "website": "https://www.santantonioalbergo.com/",
-  "bookingEngine": { "status": "not_found_in_page", "provider": "", "url": "", "mode": "percorso non rilevato", "evidence": "Nel campione del sito, il pulsante Prenota porta ai contatti; nessun percorso pubblico con calendario e checkout diretto verificato. Non prova assenza di strumenti interni." },
+  "bookingEngine": {
+    "status": "not_found_in_page",
+    "provider": "",
+    "url": "",
+    "mode": "percorso non rilevato",
+    "evidence": "Nel campione del sito, il pulsante Prenota porta ai contatti; nessun percorso pubblico con calendario e checkout diretto verificato. Non prova assenza di strumenti interni."
+  },
   "auditedAt": "2026-09-30",
   "reportPath": "reports/velora-audit-casa-albergo-santantonio-alberobello.pdf",
   "sources": {
-    "sito": { "label": "Sito ufficiale", "url": "https://www.santantonioalbergo.com/" },
-    "camere": { "label": "Camere - sito ufficiale", "url": "https://www.santantonioalbergo.com/camere/" },
-    "albergo": { "label": "L'albergo - sito ufficiale", "url": "https://www.santantonioalbergo.com/santantonio-alberobello/" },
-    "prezzi": { "label": "Offerte e prezzi - sito ufficiale", "url": "https://www.santantonioalbergo.com/prezzi/" },
-    "contatti": { "label": "Contatti - sito ufficiale", "url": "https://www.santantonioalbergo.com/contatti/" },
-    "colazioni": { "label": "Formula B&B - sito ufficiale", "url": "https://www.santantonioalbergo.com/colazioni/" },
-    "privacy": { "label": "Privacy - sito ufficiale", "url": "https://www.santantonioalbergo.com/privacy/" },
-    "booking": { "label": "Booking.com - Hotel Sant'Antonio", "url": "https://www.booking.com/hotel/it/sant-antonio.html" },
-    "bookingReviews": { "label": "Booking.com - recensioni verificate", "url": "https://www.booking.com/reviews/it/hotel/sant-antonio.it.html" },
-    "google": { "label": "Google Hotels / recensioni Google", "url": "https://www.google.com/travel/hotels/entity/ChcIwNHIxfnQm-5dGgsvZy8xdGZyN2dqaBAB/reviews?gsas=1" },
-    "expedia": { "label": "Expedia - Hotel Sant'Antonio", "url": "https://www.expedia.com/Alberobello-Hotels-Hotel-SantAntonio.h27485555.Hotel-Information" },
-    "hotels": { "label": "Hotels.com - Hotel Sant'Antonio", "url": "https://it.hotels.com/ho880537760/hotel-sant-antonio-alberobello-italia/" },
-    "agoda": { "label": "Agoda - Hotel Sant'Antonio", "url": "https://www.agoda.com/zh-tw/hotel-sant-antonio/hotel/alberobello-it.html" },
-    "trip": { "label": "Trip.com - Hotel Sant'Antonio", "url": "https://it.trip.com/hotels/alberobello-hotel-detail-3160351/hotel-sant-antonio/" },
-    "holidaycheck": { "label": "HolidayCheck - Hotel Albergo Sant'Antonio", "url": "https://www.holidaycheck.de/hi/hotel-albergo-sant-antonio/c8c4c7cc-185a-3c7f-bf3b-369a5d9f0985" },
-    "bookingGroup": { "label": "Booking Holdings - marchi", "url": "https://www.bookingholdings.com/" },
-    "expediaGroup": { "label": "Expedia Group - marchi", "url": "https://expediagroup.com/en-us/about-us" },
-    "pagespeed": { "label": "PageSpeed Insights mobile", "url": "https://pagespeed.web.dev/analysis?url=https%3A%2F%2Fwww.santantonioalbergo.com%2F&form_factor=mobile" }
+    "sito": {
+      "label": "Sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/"
+    },
+    "camere": {
+      "label": "Camere - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/camere/"
+    },
+    "albergo": {
+      "label": "L'albergo - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/santantonio-alberobello/"
+    },
+    "prezzi": {
+      "label": "Offerte e prezzi - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/prezzi/"
+    },
+    "contatti": {
+      "label": "Contatti - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/contatti/"
+    },
+    "colazioni": {
+      "label": "Formula B&B - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/colazioni/"
+    },
+    "privacy": {
+      "label": "Privacy - sito ufficiale",
+      "url": "https://www.santantonioalbergo.com/privacy/"
+    },
+    "booking": {
+      "label": "Booking.com - Hotel Sant'Antonio",
+      "url": "https://www.booking.com/hotel/it/sant-antonio.html"
+    },
+    "bookingReviews": {
+      "label": "Booking.com - recensioni verificate",
+      "url": "https://www.booking.com/reviews/it/hotel/sant-antonio.it.html"
+    },
+    "google": {
+      "label": "Google Hotels / recensioni Google",
+      "url": "https://www.google.com/travel/hotels/entity/ChcIwNHIxfnQm-5dGgsvZy8xdGZyN2dqaBAB/reviews?gsas=1"
+    },
+    "expedia": {
+      "label": "Expedia - Hotel Sant'Antonio",
+      "url": "https://www.expedia.com/Alberobello-Hotels-Hotel-SantAntonio.h27485555.Hotel-Information"
+    },
+    "hotels": {
+      "label": "Hotels.com - Hotel Sant'Antonio",
+      "url": "https://it.hotels.com/ho880537760/hotel-sant-antonio-alberobello-italia/"
+    },
+    "agoda": {
+      "label": "Agoda - Hotel Sant'Antonio",
+      "url": "https://www.agoda.com/zh-tw/hotel-sant-antonio/hotel/alberobello-it.html"
+    },
+    "trip": {
+      "label": "Trip.com - Hotel Sant'Antonio",
+      "url": "https://it.trip.com/hotels/alberobello-hotel-detail-3160351/hotel-sant-antonio/"
+    },
+    "holidaycheck": {
+      "label": "HolidayCheck - Hotel Albergo Sant'Antonio",
+      "url": "https://www.holidaycheck.de/hi/hotel-albergo-sant-antonio/c8c4c7cc-185a-3c7f-bf3b-369a5d9f0985"
+    },
+    "bookingGroup": {
+      "label": "Booking Holdings - marchi",
+      "url": "https://www.bookingholdings.com/"
+    },
+    "expediaGroup": {
+      "label": "Expedia Group - marchi",
+      "url": "https://expediagroup.com/en-us/about-us"
+    },
+    "pagespeed": {
+      "label": "PageSpeed Insights mobile",
+      "url": "https://pagespeed.web.dev/analysis?url=https%3A%2F%2Fwww.santantonioalbergo.com%2F&form_factor=mobile"
+    }
   },
   "otaPresence": [
-    { "id": "booking", "platform": "Booking.com", "group": "Booking Holdings", "status": "present", "finding": "Scheda hotel pubblica con recensioni e tariffe.", "source": "booking" },
-    { "id": "agoda", "platform": "Agoda", "group": "Booking Holdings", "status": "present", "finding": "Scheda hotel pubblica; verificare origine dell'inventario e coerenza delle tariffe.", "source": "agoda" },
-    { "id": "priceline", "platform": "Priceline", "group": "Booking Holdings", "status": "unverified", "finding": "Nessuna scheda univoca confermata nella ricerca pubblica; richiede verifica partner.", "source": "bookingGroup" },
-    { "id": "expedia", "platform": "Expedia", "group": "Expedia Group", "status": "present", "finding": "Scheda hotel pubblica; verificare se distribuzione diretta o tramite partner.", "source": "expedia" },
-    { "id": "hotels", "platform": "Hotels.com", "group": "Expedia Group", "status": "present", "finding": "Scheda hotel pubblica con foto, servizi e recensioni.", "source": "hotels" },
-    { "id": "travelocity", "platform": "Travelocity", "group": "Expedia Group", "status": "unverified", "finding": "Marchio del gruppo; presenza della specifica struttura non verificata con una scheda univoca.", "source": "expediaGroup" },
-    { "id": "vrbo", "platform": "Vrbo", "group": "Expedia Group", "status": "unverified", "finding": "Nessuna scheda della struttura confermata. Canale orientato soprattutto a case vacanza: valutarne l'idoneità.", "source": "expediaGroup" },
-    { "id": "airbnb", "platform": "Airbnb", "group": "Airbnb", "status": "unverified", "finding": "Nessuna scheda univoca della struttura confermata nella ricerca pubblica; non equivale a prova di assenza.", "source": "sito" },
-    { "id": "trip", "platform": "Trip.com", "group": "Trip.com Group", "status": "present", "finding": "Scheda hotel pubblica con recensioni.", "source": "trip" },
-    { "id": "holidaycheck", "platform": "HolidayCheck", "group": "HolidayCheck", "status": "present", "finding": "Profilo offerte/recensioni visibile, non prova un contratto diretto. Il testo automatico sembra attribuire AC a tutte le camere: correggere.", "source": "holidaycheck" }
+    {
+      "id": "booking",
+      "platform": "Booking.com",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "Scheda hotel pubblica con recensioni e tariffe.",
+      "source": "booking"
+    },
+    {
+      "id": "agoda",
+      "platform": "Agoda",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "Scheda hotel pubblica; verificare origine dell'inventario e coerenza delle tariffe.",
+      "source": "agoda"
+    },
+    {
+      "id": "priceline",
+      "platform": "Priceline",
+      "group": "Booking Holdings",
+      "status": "unverified",
+      "finding": "Nessuna scheda univoca confermata nella ricerca pubblica; richiede verifica partner.",
+      "source": "bookingGroup"
+    },
+    {
+      "id": "expedia",
+      "platform": "Expedia",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Scheda hotel pubblica; verificare se distribuzione diretta o tramite partner.",
+      "source": "expedia"
+    },
+    {
+      "id": "hotels",
+      "platform": "Hotels.com",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Scheda hotel pubblica con foto, servizi e recensioni.",
+      "source": "hotels"
+    },
+    {
+      "id": "travelocity",
+      "platform": "Travelocity",
+      "group": "Expedia Group",
+      "status": "unverified",
+      "finding": "Marchio del gruppo; presenza della specifica struttura non verificata con una scheda univoca.",
+      "source": "expediaGroup"
+    },
+    {
+      "id": "vrbo",
+      "platform": "Vrbo",
+      "group": "Expedia Group",
+      "status": "unverified",
+      "finding": "Nessuna scheda della struttura confermata. Canale orientato soprattutto a case vacanza: valutarne l'idoneità.",
+      "source": "expediaGroup"
+    },
+    {
+      "id": "airbnb",
+      "platform": "Airbnb",
+      "group": "Airbnb",
+      "status": "unverified",
+      "finding": "Nessuna scheda univoca della struttura confermata nella ricerca pubblica; non equivale a prova di assenza.",
+      "source": "sito"
+    },
+    {
+      "id": "trip",
+      "platform": "Trip.com",
+      "group": "Trip.com Group",
+      "status": "present",
+      "finding": "Scheda hotel pubblica con recensioni.",
+      "source": "trip"
+    },
+    {
+      "id": "holidaycheck",
+      "platform": "HolidayCheck",
+      "group": "HolidayCheck",
+      "status": "present",
+      "finding": "Profilo offerte/recensioni visibile, non prova un contratto diretto. Il testo automatico sembra attribuire AC a tutte le camere: correggere.",
+      "source": "holidaycheck"
+    },
+    {
+      "id": "tripadvisor",
+      "platform": "Tripadvisor",
+      "group": "Tripadvisor",
+      "status": "unverified",
+      "finding": "Profilo pubblico da ricercare e attribuire automaticamente; recensioni e offerte aggregate non equivalgono a distribuzione diretta.",
+      "source": "sito"
+    },
+    {
+      "id": "trivago",
+      "platform": "Trivago",
+      "group": "Metasearch",
+      "status": "unverified",
+      "finding": "Presenza nel metasearch da verificare; eventuali prezzi rimandano a fornitori terzi e non provano un contratto diretto.",
+      "source": "sito"
+    },
+    {
+      "id": "googlehotels",
+      "platform": "Google Hotels",
+      "group": "Google",
+      "status": "unverified",
+      "finding": "Scheda hotel/metasearch da verificare e collegare alla struttura; prezzi e disponibilità possono provenire da partner terzi.",
+      "source": "sito"
+    }
   ],
   "pricingAudit": {
     "capturedAt": "2026-09-30",
     "method": "Verifica di pagine pubbliche non autenticate, limitata a soggiorni futuri. Una scheda OTA non prova un piano tariffario attivo su tutte le date; sconti last minute, per account, dispositivo, paese o pacchetto possono differire e vanno attribuiti alla singola struttura e data. Nessun accesso a extranet, channel manager, prenotazioni o ricavi realizzati.",
     "direct": "Il sito ufficiale pubblica un listino B&B 2026 per periodi Bassa/Media/Alta/Altissima: matrimoniale EUR 85/92/103/116 e dichiara 'Miglior prezzo da Sito Web'. Non indica date di inizio/fine periodo né disponibilità per soggiorno. Al 30/09/2026 non è pubblicato un listino 2027 nella pagina prezzi: opportunità di aggiornare il calendario commerciale diretto, non prova che il 2027 non sia prenotabile altrove.",
     "policies": [
-      { "otaId": "booking", "plans": "Una tariffa parzialmente rimborsabile con colazione è visibile per 2-3 ottobre 2026 (camera tripla); non risultano verificati in modo completo tutti i piani della struttura.", "promotions": "La scheda dichiara possibile sconto Genius, subordinato ad account, date e altre offerte: non è prova di sconto pubblico sempre attivo. Last minute ed early booking su future date: non verificati.", "source": "booking", "confidence": "puntuale" },
-      { "otaId": "agoda", "plans": "Scheda pubblica trovata; condizioni di cancellazione dei singoli piani non documentate in un campione omogeneo.", "promotions": "Nessuna promozione specifica della struttura verificata; last minute, coupon e sconti app su future date non verificati.", "source": "agoda", "confidence": "da verificare" },
-      { "otaId": "priceline", "plans": "Presenza della struttura non confermata; nessun piano attribuibile.", "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.", "source": "bookingGroup", "confidence": "non verificabile" },
-      { "otaId": "expedia", "plans": "La scheda indica cancellazione gratuita su alcune tariffe, senza dettaglio esaustivo per tutte le date e camere.", "promotions": "Il portale pubblicizza Member Prices in generale, ma nessuno sconto specifico del Sant'Antonio, last minute o pacchetto è verificato per una data futura.", "source": "expedia", "confidence": "parziale" },
-      { "otaId": "hotels", "plans": "La scheda conferma la disponibilità di alcune tariffe interamente rimborsabili; termini e prezzi dipendono dalla data.", "promotions": "Nessuno sconto member, mobile o last minute specifico della struttura verificato per una data futura.", "source": "hotels", "confidence": "parziale" },
-      { "otaId": "travelocity", "plans": "Presenza della struttura non confermata; nessun piano attribuibile.", "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.", "source": "expediaGroup", "confidence": "non verificabile" },
-      { "otaId": "vrbo", "plans": "Presenza della struttura non confermata; nessun piano attribuibile.", "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.", "source": "expediaGroup", "confidence": "non verificabile" },
-      { "otaId": "airbnb", "plans": "Presenza della struttura non confermata; nessun piano attribuibile.", "promotions": "Sconti last minute, settimanali e mensili non attribuibili alla struttura senza annuncio univoco.", "source": "sito", "confidence": "non verificabile" },
-      { "otaId": "trip", "plans": "La scheda precisa che le condizioni di cancellazione dipendono da camera e tariffa; nessun ventaglio di piani datati verificato.", "promotions": "Nessuna promozione specifica, sconto app o last minute verificato per una data futura.", "source": "trip", "confidence": "parziale" },
-      { "otaId": "holidaycheck", "plans": "Profilo offerte/recensioni: le condizioni dei fornitori terzi non identificano un piano tariffario gestito direttamente dall'hotel.", "promotions": "Eventuali offerte e last minute aggregate non attribuibili con certezza alla struttura.", "source": "holidaycheck", "confidence": "non attribuibile" }
+      {
+        "otaId": "booking",
+        "plans": "Una tariffa parzialmente rimborsabile con colazione è visibile per 2-3 ottobre 2026 (camera tripla); non risultano verificati in modo completo tutti i piani della struttura.",
+        "promotions": "La scheda dichiara possibile sconto Genius, subordinato ad account, date e altre offerte: non è prova di sconto pubblico sempre attivo. Last minute ed early booking su future date: non verificati.",
+        "source": "booking",
+        "confidence": "puntuale"
+      },
+      {
+        "otaId": "agoda",
+        "plans": "Scheda pubblica trovata; condizioni di cancellazione dei singoli piani non documentate in un campione omogeneo.",
+        "promotions": "Nessuna promozione specifica della struttura verificata; last minute, coupon e sconti app su future date non verificati.",
+        "source": "agoda",
+        "confidence": "da verificare"
+      },
+      {
+        "otaId": "priceline",
+        "plans": "Presenza della struttura non confermata; nessun piano attribuibile.",
+        "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.",
+        "source": "bookingGroup",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "expedia",
+        "plans": "La scheda indica cancellazione gratuita su alcune tariffe, senza dettaglio esaustivo per tutte le date e camere.",
+        "promotions": "Il portale pubblicizza Member Prices in generale, ma nessuno sconto specifico del Sant'Antonio, last minute o pacchetto è verificato per una data futura.",
+        "source": "expedia",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "hotels",
+        "plans": "La scheda conferma la disponibilità di alcune tariffe interamente rimborsabili; termini e prezzi dipendono dalla data.",
+        "promotions": "Nessuno sconto member, mobile o last minute specifico della struttura verificato per una data futura.",
+        "source": "hotels",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "travelocity",
+        "plans": "Presenza della struttura non confermata; nessun piano attribuibile.",
+        "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.",
+        "source": "expediaGroup",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "vrbo",
+        "plans": "Presenza della struttura non confermata; nessun piano attribuibile.",
+        "promotions": "Last minute e altri sconti non attribuibili alla struttura senza scheda univoca.",
+        "source": "expediaGroup",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "airbnb",
+        "plans": "Presenza della struttura non confermata; nessun piano attribuibile.",
+        "promotions": "Sconti last minute, settimanali e mensili non attribuibili alla struttura senza annuncio univoco.",
+        "source": "sito",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "trip",
+        "plans": "La scheda precisa che le condizioni di cancellazione dipendono da camera e tariffa; nessun ventaglio di piani datati verificato.",
+        "promotions": "Nessuna promozione specifica, sconto app o last minute verificato per una data futura.",
+        "source": "trip",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "holidaycheck",
+        "plans": "Profilo offerte/recensioni: le condizioni dei fornitori terzi non identificano un piano tariffario gestito direttamente dall'hotel.",
+        "promotions": "Eventuali offerte e last minute aggregate non attribuibili con certezza alla struttura.",
+        "source": "holidaycheck",
+        "confidence": "non attribuibile"
+      },
+      {
+        "otaId": "tripadvisor",
+        "plans": "Profilo, recensioni e offerte aggregate: nessun piano tariffario diretto viene attribuito senza una quotazione del fornitore identificato.",
+        "promotions": "Promozioni aggregate non attribuibili automaticamente alla struttura come tariffa diretta.",
+        "confidence": "metasearch/reputazione",
+        "source": "sito"
+      },
+      {
+        "otaId": "trivago",
+        "plans": "Metasearch: confronta offerte di fornitori terzi; non viene trattato come inventario tariffario diretto della struttura.",
+        "promotions": "Sconti e differenze prezzo vanno attribuiti al fornitore mostrato, non a Trivago come canale diretto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      },
+      {
+        "otaId": "googlehotels",
+        "plans": "Metasearch: prezzi e disponibilità sono aggregati da sito ufficiale e partner; nessun piano viene attribuito senza identificare il fornitore.",
+        "promotions": "Le offerte visualizzate vanno ricondotte al fornitore effettivo prima di qualsiasi confronto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      }
     ],
     "priceCalendar": {
       "from": "2026-09-30",
@@ -70,15 +305,43 @@
     "googleRating": "3,6/5 su 573 recensioni visibili",
     "method": "Lettura qualitativa di recensioni Google pubbliche ordinate per 'più recenti' e 'più utili' il 30/09/2026; campione selezionato, non analisi statistica dell'intero corpus. Confronto separato con Booking.com.",
     "strengths": [
-      { "theme": "Posizione", "finding": "Accesso a piedi ai trulli e all'area pedonale è il beneficio più concreto, citato anche in giudizi negativi.", "action": "Aprire ogni scheda con mappa, tempo a piedi e itinerario breve; usarlo come promessa principale." },
-      { "theme": "Accoglienza", "finding": "Più ospiti descrivono personale e reception come gentili e disponibili; la percezione non è uniforme.", "action": "Formalizzare standard di benvenuto e gestione reclami; rendere riconoscibile il servizio nelle risposte pubbliche." },
-      { "theme": "Spazio e colazione", "finding": "Camere ampie e soffitti alti, colazione a buffet apprezzata in alcuni commenti; vi sono anche osservazioni meno positive sul prodotto.", "action": "Mostrare fotografie per tipologia reale e specificare contenuto/orari della colazione, senza promesse generiche." }
+      {
+        "theme": "Posizione",
+        "finding": "Accesso a piedi ai trulli e all'area pedonale è il beneficio più concreto, citato anche in giudizi negativi.",
+        "action": "Aprire ogni scheda con mappa, tempo a piedi e itinerario breve; usarlo come promessa principale."
+      },
+      {
+        "theme": "Accoglienza",
+        "finding": "Più ospiti descrivono personale e reception come gentili e disponibili; la percezione non è uniforme.",
+        "action": "Formalizzare standard di benvenuto e gestione reclami; rendere riconoscibile il servizio nelle risposte pubbliche."
+      },
+      {
+        "theme": "Spazio e colazione",
+        "finding": "Camere ampie e soffitti alti, colazione a buffet apprezzata in alcuni commenti; vi sono anche osservazioni meno positive sul prodotto.",
+        "action": "Mostrare fotografie per tipologia reale e specificare contenuto/orari della colazione, senza promesse generiche."
+      }
     ],
     "weaknesses": [
-      { "theme": "Clima e aspettative", "finding": "La mancanza di aria condizionata nelle camere Comfort compare in più recensioni recenti e anche in giudizi altrimenti favorevoli.", "action": "Marcare chiaramente Comfort = ventilatore, Superior = climatizzata su sito, OTA, email pre-arrivo e conferma; valutare piano di climatizzazione." },
-      { "theme": "Camera, bagno e dotazioni", "finding": "Arredi datati, bagno/doccia piccoli e assenza di minibar o zanzariere sono criticità specifiche segnalate da alcuni ospiti.", "action": "Audit stanza per stanza con foto aggiornate; priorità a manutenzione, dotazioni estive e bagni più penalizzanti." },
-      { "theme": "Pulizia e manutenzione", "finding": "Giudizi discordanti: alcuni ospiti parlano di camere pulite, altri segnalano polvere e difetti puntuali.", "action": "Checklist di rilascio camera con firma e controllo campione; registro dei difetti e tempi di chiusura." },
-      { "theme": "Valore e servizi accessori", "finding": "Alcuni ospiti collegano il prezzo al comfort percepito; emergono aspettative su Wi-Fi, parcheggio e ristorazione esterna.", "action": "Dichiarare costi e distanza del parcheggio, servizio ristorazione esterno, copertura Wi-Fi; rivedere prezzo e descrizione delle camere meno attrezzate." }
+      {
+        "theme": "Clima e aspettative",
+        "finding": "La mancanza di aria condizionata nelle camere Comfort compare in più recensioni recenti e anche in giudizi altrimenti favorevoli.",
+        "action": "Marcare chiaramente Comfort = ventilatore, Superior = climatizzata su sito, OTA, email pre-arrivo e conferma; valutare piano di climatizzazione."
+      },
+      {
+        "theme": "Camera, bagno e dotazioni",
+        "finding": "Arredi datati, bagno/doccia piccoli e assenza di minibar o zanzariere sono criticità specifiche segnalate da alcuni ospiti.",
+        "action": "Audit stanza per stanza con foto aggiornate; priorità a manutenzione, dotazioni estive e bagni più penalizzanti."
+      },
+      {
+        "theme": "Pulizia e manutenzione",
+        "finding": "Giudizi discordanti: alcuni ospiti parlano di camere pulite, altri segnalano polvere e difetti puntuali.",
+        "action": "Checklist di rilascio camera con firma e controllo campione; registro dei difetti e tempi di chiusura."
+      },
+      {
+        "theme": "Valore e servizi accessori",
+        "finding": "Alcuni ospiti collegano il prezzo al comfort percepito; emergono aspettative su Wi-Fi, parcheggio e ristorazione esterna.",
+        "action": "Dichiarare costi e distanza del parcheggio, servizio ristorazione esterno, copertura Wi-Fi; rivedere prezzo e descrizione delle camere meno attrezzate."
+      }
     ]
   },
   "photoAssessment": {
@@ -89,55 +352,542 @@
     "actions": "Shooting professionale per entrambe le tipologie: hero della camera, vista d'insieme, bagno ben illuminato, dettaglio dotazioni, colazione e ingresso; verticali corrette, luce naturale controllata, styling coerente e sequenza separata per tipologia."
   },
   "checks": [
-    { "id": "q6", "group": "Brand e posizionamento", "label": "Posizionamento", "status": "partial", "evidence": "Dimora storica centrale, ma proposta commerciale poco differenziante.", "sources": ["sito", "albergo"] },
-    { "id": "q7", "group": "Brand e posizionamento", "label": "Target ospite", "status": "partial", "evidence": "Famiglie, pellegrini e turismo culturale sono intuibili, non definiti con precisione.", "sources": ["sito", "booking"] },
-    { "id": "q8", "group": "Brand e posizionamento", "label": "Promessa di soggiorno", "status": "partial", "evidence": "Ospitalità a 365 gradi ed esperienza indimenticabile sono promesse generiche.", "sources": ["camere"] },
-    { "id": "q9", "group": "Brand e posizionamento", "label": "Identità territoriale", "status": "present", "evidence": "Collegamento forte con trulli, Chiesa di Sant'Antonio e Valle d'Itria.", "sources": ["sito", "albergo"] },
-    { "id": "q12", "group": "Sito e conversione", "label": "UX mobile", "status": "partial", "evidence": "Layout responsive; PageSpeed mobile 54/100, LCP 18,4 secondi e accessibilità 83/100.", "sources": ["sito", "pagespeed"] },
-    { "id": "q13", "group": "Sito e conversione", "label": "Booking engine", "status": "missing", "evidence": "Nessun calendario con disponibilità e acquisto diretto; Prenota ora porta a Contatti.", "sources": ["sito", "contatti", "prezzi"] },
-    { "id": "q14", "group": "Sito e conversione", "label": "Camere e tariffe", "status": "partial", "evidence": "Scheda camere e listino 2026 presenti, senza prezzo e disponibilità per data; il listino 2027 non risulta pubblicato al 30/09/2026.", "sources": ["camere", "prezzi"] },
-    { "id": "q15", "group": "Sito e conversione", "label": "Elementi di fiducia", "status": "partial", "evidence": "Testimonianze senza data e widget con '5 Excellent'; Google mostra 3,6/5 su 573 recensioni.", "sources": ["sito", "google"] },
-    { "id": "q20", "group": "Sito e conversione", "label": "SSL", "status": "present", "evidence": "Il sito principale è accessibile in HTTPS.", "sources": ["sito"] },
-    { "id": "q21", "group": "Sito e conversione", "label": "Cookie e consenso", "status": "partial", "evidence": "Banner Cookiebot presente; configurazione del consenso da verificare con audit specialistico.", "sources": ["sito"] },
-    { "id": "q22", "group": "Sito e conversione", "label": "Privacy", "status": "partial", "evidence": "Informativa presente, ma cita Google+, Myspace e altri servizi datati.", "sources": ["privacy"] },
-    { "id": "q24", "group": "Sito e conversione", "label": "Tracciamenti marketing", "status": "partial", "evidence": "Informativa dichiara Analytics e remarketing; non emersa una misurazione attiva nell'ispezione iniziale.", "sources": ["privacy", "sito"] },
-    { "id": "q141", "group": "Conformità pubblica", "label": "CIR e CIN", "status": "partial", "evidence": "Codici rilevati sui portali, non sulle pagine principali del sito ufficiale.", "sources": ["booking", "sito"] },
-    { "id": "q221", "group": "Conformità pubblica", "label": "Esposizione CIN", "status": "missing", "evidence": "CIN IT072003A100027082 non trovato nelle pagine principali del sito ufficiale.", "sources": ["sito", "booking"] },
-    { "id": "q222", "group": "Conformità pubblica", "label": "Coerenza CIN sui portali", "status": "partial", "evidence": "CIN IT072003A100027082 visibile su Booking; allineamento di tutte le altre schede da controllare.", "sources": ["booking"] },
-    { "id": "q261", "group": "Prodotto e fotografie", "label": "Foto camere", "status": "partial", "evidence": "Galleria presente ma qualità editoriale 4,5/10: luce, colore e styling discontinui; un bagno molto scuro.", "sources": ["camere"] },
-    { "id": "q263", "group": "Prodotto e fotografie", "label": "Foto aree comuni", "status": "present", "evidence": "Reception, giardino, colazione e spazi comuni rappresentati.", "sources": ["albergo", "colazioni", "booking"] },
-    { "id": "q264", "group": "Prodotto e fotografie", "label": "Foto esterni", "status": "present", "evidence": "Facciata, chiesa e contesto territoriale visibili.", "sources": ["sito", "booking"] },
-    { "id": "q266", "group": "Prodotto e fotografie", "label": "Dettagli esperienziali", "status": "partial", "evidence": "Le immagini mostrano spazi, ma raramente il soggiorno vissuto; serve sequenza professionale per Comfort e Superior.", "sources": ["sito", "camere"] },
-    { "id": "q269", "group": "Prodotto e fotografie", "label": "Informazioni camere", "status": "present", "evidence": "Numero, capienza e dotazioni base, inclusa la distinzione tra ventilatori e aria condizionata.", "sources": ["camere"] },
-    { "id": "q272", "group": "Prodotto e fotografie", "label": "Amenities", "status": "partial", "evidence": "Servizi presenti ma distribuiti su più pagine; alcune descrizioni differiscono sui portali.", "sources": ["sito", "colazioni", "google"] },
-    { "id": "q279", "group": "Prodotto e fotografie", "label": "Descrizioni camere", "status": "partial", "evidence": "Comfort e Superior descritte insieme, senza schede autonome orientate alla scelta.", "sources": ["camere"] },
-    { "id": "q280", "group": "Prodotto e fotografie", "label": "USP", "status": "partial", "evidence": "Palazzo storico e posizione sono vantaggi forti, ma poco tradotti in proposta commerciale.", "sources": ["sito", "albergo"] },
-    { "id": "q307", "group": "Visibilità e reputazione", "label": "Sito ufficiale", "status": "present", "evidence": "Sito indicizzato e rintracciabile.", "sources": ["sito"] },
-    { "id": "q308", "group": "Visibilità e reputazione", "label": "Presenza OTA", "status": "present", "evidence": "Schede confermate: Booking.com, Agoda, Expedia, Hotels.com, Trip.com; HolidayCheck è profilo offerte/recensioni. Airbnb, Vrbo, Priceline e Travelocity non confermati.", "sources": ["booking", "agoda", "expedia", "hotels", "trip", "holidaycheck"] },
-    { "id": "q309", "group": "Visibilità e reputazione", "label": "Metasearch", "status": "present", "evidence": "Struttura presente su Google Hotels.", "sources": ["google"] },
-    { "id": "q310", "group": "Visibilità e reputazione", "label": "Profilo Google", "status": "present", "evidence": "Profilo pubblico con indirizzo, telefono, fotografie e recensioni.", "sources": ["google"] },
-    { "id": "q311", "group": "Visibilità e reputazione", "label": "Coerenza contenuti", "status": "partial", "evidence": "Climatizzazione e alcuni servizi sono descritti in modo diverso tra sito e portali.", "sources": ["sito", "google", "booking"] },
-    { "id": "q314", "group": "Visibilità e reputazione", "label": "Booking.com", "status": "present", "evidence": "Scheda attiva; posizione 9,7/10 e voto complessivo intorno a 7,8-7,9/10.", "sources": ["booking"] },
-    { "id": "q318", "group": "Visibilità e reputazione", "label": "Google Hotels", "status": "present", "evidence": "Scheda hotel con recensioni; prenotazione diretta del sito non disponibile.", "sources": ["google"] },
-    { "id": "q342", "group": "Visibilità e reputazione", "label": "Risposte alle recensioni", "status": "unverified", "evidence": "Nel campione Google letto non è stato possibile stabilire un tasso di risposta della direzione; verificare dal profilo gestore.", "sources": ["google"] },
-    { "id": "q366", "group": "Prezzi e competitività", "label": "Comp set", "status": "partial", "evidence": "Concorrenti individuabili, ma differenziazione competitiva non esplicitata.", "sources": ["sito", "google"] },
-    { "id": "q369", "group": "Prezzi e competitività", "label": "Recensioni competitive", "status": "partial", "evidence": "Google 3,6/5 (573 recensioni); Booking circa 7,9/10 con posizione 9,7: il prodotto camera pesa più della location.", "sources": ["google", "bookingReviews"] },
-    { "id": "q370", "group": "Prezzi e competitività", "label": "Pricing", "status": "partial", "evidence": "Listino per quattro fasce stagionali, senza calendario o disponibilità live.", "sources": ["prezzi"] },
-    { "id": "q372", "group": "Prezzi e competitività", "label": "Percezione del valore", "status": "partial", "evidence": "Posizione, staff e ampiezza apprezzati; prezzo percepito alto in rapporto a clima, arredi, bagno e dotazioni da alcuni ospiti.", "sources": ["google", "bookingReviews", "hotels"] },
-    { "id": "q382", "group": "Prezzi e competitività", "label": "Pricing dinamico visibile", "status": "missing", "evidence": "Sul sito si vede un listino statico; eventuale pricing dinamico interno non è verificabile.", "sources": ["prezzi"] },
-    { "id": "q385", "group": "Prezzi e competitività", "label": "Parità tariffaria", "status": "unverified", "evidence": "Non verificabile con i soli listini pubblici: servono preventivi sulle stesse date, camere, condizioni e pubblico per ogni OTA. Il sito non espone un prezzo diretto prenotabile per data.", "sources": ["prezzi", "booking", "expedia", "hotels"] },
-    { "id": "q416", "group": "Contatto e conversione", "label": "Telefono", "status": "partial", "evidence": "Numero visibile, ma non configurato come collegamento click-to-call nella pagina iniziale.", "sources": ["sito"] },
-    { "id": "q417", "group": "Contatto e conversione", "label": "Email", "status": "partial", "evidence": "Email visibile, ma non configurata come collegamento mailto nella pagina iniziale.", "sources": ["sito"] },
-    { "id": "q418", "group": "Contatto e conversione", "label": "WhatsApp", "status": "missing", "evidence": "Nessun collegamento WhatsApp trovato nelle pagine principali.", "sources": ["sito"] },
-    { "id": "q420", "group": "Contatto e conversione", "label": "Booking engine commerciale", "status": "missing", "evidence": "Prenota online non consente di selezionare date e completare l'acquisto.", "sources": ["prezzi", "contatti"] },
-    { "id": "q446", "group": "Contatto e conversione", "label": "Tempo di risposta", "status": "unverified", "evidence": "Richiede un test di contatto; non eseguito in questa analisi.", "sources": ["contatti"] },
-    { "id": "q669", "group": "Qualità percepita", "label": "Pulizia", "status": "partial", "evidence": "Booking circa 8,2/10; su Google giudizi discordanti, con episodi di polvere e camera poco pulita da verificare.", "sources": ["bookingReviews", "google"] },
-    { "id": "q670", "group": "Qualità percepita", "label": "Manutenzione", "status": "missing", "evidence": "Nel campione Google arredi datati, comfort estivo insufficiente, bagni piccoli e dotazioni mancanti.", "sources": ["google"] },
-    { "id": "q720", "group": "Qualità percepita", "label": "Stato camere", "status": "partial", "evidence": "Camere spaziose e soffitti alti, ma Comfort con ventilatore e alcune finiture percepite come vecchie.", "sources": ["google", "camere"] },
-    { "id": "q724", "group": "Qualità percepita", "label": "Manutenzioni visibili", "status": "partial", "evidence": "Le recensioni segnalano aggiornamenti e controlli puntuali; serve ispezione fisica stanza per stanza.", "sources": ["google"] },
-    { "id": "q734", "group": "Qualità percepita", "label": "Wi-Fi", "status": "present", "evidence": "Wi-Fi gratuito presente e valutato positivamente su Booking.", "sources": ["booking"] },
-    { "id": "q744", "group": "Qualità percepita", "label": "Aspettative ospite", "status": "partial", "evidence": "Solo 3 Superior su 24 climatizzate; Google riassume l'hotel con 'aria condizionata', senza distinguere le camere.", "sources": ["camere", "google"] },
-    { "id": "q756", "group": "Offerte e servizi", "label": "Offerte dirette", "status": "partial", "evidence": "Pagina Offerte & Last Minute con prevalenza del listino, senza offerte prenotabili.", "sources": ["prezzi"] },
-    { "id": "q769", "group": "Offerte e servizi", "label": "Servizi ancillari", "status": "present", "evidence": "Transfer, visite, noleggi, lavanderia, late checkout e concierge comunicati.", "sources": ["sito", "colazioni"] }
+    {
+      "id": "q6",
+      "group": "Brand e posizionamento",
+      "label": "Posizionamento",
+      "status": "partial",
+      "evidence": "Dimora storica centrale, ma proposta commerciale poco differenziante.",
+      "sources": [
+        "sito",
+        "albergo"
+      ]
+    },
+    {
+      "id": "q7",
+      "group": "Brand e posizionamento",
+      "label": "Target ospite",
+      "status": "partial",
+      "evidence": "Famiglie, pellegrini e turismo culturale sono intuibili, non definiti con precisione.",
+      "sources": [
+        "sito",
+        "booking"
+      ]
+    },
+    {
+      "id": "q8",
+      "group": "Brand e posizionamento",
+      "label": "Promessa di soggiorno",
+      "status": "partial",
+      "evidence": "Ospitalità a 365 gradi ed esperienza indimenticabile sono promesse generiche.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q9",
+      "group": "Brand e posizionamento",
+      "label": "Identità territoriale",
+      "status": "present",
+      "evidence": "Collegamento forte con trulli, Chiesa di Sant'Antonio e Valle d'Itria.",
+      "sources": [
+        "sito",
+        "albergo"
+      ]
+    },
+    {
+      "id": "q12",
+      "group": "Sito e conversione",
+      "label": "UX mobile",
+      "status": "partial",
+      "evidence": "Layout responsive; PageSpeed mobile 54/100, LCP 18,4 secondi e accessibilità 83/100.",
+      "sources": [
+        "sito",
+        "pagespeed"
+      ]
+    },
+    {
+      "id": "q13",
+      "group": "Sito e conversione",
+      "label": "Booking engine",
+      "status": "missing",
+      "evidence": "Nessun calendario con disponibilità e acquisto diretto; Prenota ora porta a Contatti.",
+      "sources": [
+        "sito",
+        "contatti",
+        "prezzi"
+      ]
+    },
+    {
+      "id": "q14",
+      "group": "Sito e conversione",
+      "label": "Camere e tariffe",
+      "status": "partial",
+      "evidence": "Scheda camere e listino 2026 presenti, senza prezzo e disponibilità per data; il listino 2027 non risulta pubblicato al 30/09/2026.",
+      "sources": [
+        "camere",
+        "prezzi"
+      ]
+    },
+    {
+      "id": "q15",
+      "group": "Sito e conversione",
+      "label": "Elementi di fiducia",
+      "status": "partial",
+      "evidence": "Testimonianze senza data e widget con '5 Excellent'; Google mostra 3,6/5 su 573 recensioni.",
+      "sources": [
+        "sito",
+        "google"
+      ]
+    },
+    {
+      "id": "q20",
+      "group": "Sito e conversione",
+      "label": "SSL",
+      "status": "present",
+      "evidence": "Il sito principale è accessibile in HTTPS.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q21",
+      "group": "Sito e conversione",
+      "label": "Cookie e consenso",
+      "status": "partial",
+      "evidence": "Banner Cookiebot presente; configurazione del consenso da verificare con audit specialistico.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q22",
+      "group": "Sito e conversione",
+      "label": "Privacy",
+      "status": "partial",
+      "evidence": "Informativa presente, ma cita Google+, Myspace e altri servizi datati.",
+      "sources": [
+        "privacy"
+      ]
+    },
+    {
+      "id": "q24",
+      "group": "Sito e conversione",
+      "label": "Tracciamenti marketing",
+      "status": "partial",
+      "evidence": "Informativa dichiara Analytics e remarketing; non emersa una misurazione attiva nell'ispezione iniziale.",
+      "sources": [
+        "privacy",
+        "sito"
+      ]
+    },
+    {
+      "id": "q141",
+      "group": "Conformità pubblica",
+      "label": "CIR e CIN",
+      "status": "partial",
+      "evidence": "Codici rilevati sui portali, non sulle pagine principali del sito ufficiale.",
+      "sources": [
+        "booking",
+        "sito"
+      ]
+    },
+    {
+      "id": "q221",
+      "group": "Conformità pubblica",
+      "label": "Esposizione CIN",
+      "status": "missing",
+      "evidence": "CIN IT072003A100027082 non trovato nelle pagine principali del sito ufficiale.",
+      "sources": [
+        "sito",
+        "booking"
+      ]
+    },
+    {
+      "id": "q222",
+      "group": "Conformità pubblica",
+      "label": "Coerenza CIN sui portali",
+      "status": "partial",
+      "evidence": "CIN IT072003A100027082 visibile su Booking; allineamento di tutte le altre schede da controllare.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q261",
+      "group": "Prodotto e fotografie",
+      "label": "Foto camere",
+      "status": "partial",
+      "evidence": "Galleria presente ma qualità editoriale 4,5/10: luce, colore e styling discontinui; un bagno molto scuro.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q263",
+      "group": "Prodotto e fotografie",
+      "label": "Foto aree comuni",
+      "status": "present",
+      "evidence": "Reception, giardino, colazione e spazi comuni rappresentati.",
+      "sources": [
+        "albergo",
+        "colazioni",
+        "booking"
+      ]
+    },
+    {
+      "id": "q264",
+      "group": "Prodotto e fotografie",
+      "label": "Foto esterni",
+      "status": "present",
+      "evidence": "Facciata, chiesa e contesto territoriale visibili.",
+      "sources": [
+        "sito",
+        "booking"
+      ]
+    },
+    {
+      "id": "q266",
+      "group": "Prodotto e fotografie",
+      "label": "Dettagli esperienziali",
+      "status": "partial",
+      "evidence": "Le immagini mostrano spazi, ma raramente il soggiorno vissuto; serve sequenza professionale per Comfort e Superior.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q269",
+      "group": "Prodotto e fotografie",
+      "label": "Informazioni camere",
+      "status": "present",
+      "evidence": "Numero, capienza e dotazioni base, inclusa la distinzione tra ventilatori e aria condizionata.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q272",
+      "group": "Prodotto e fotografie",
+      "label": "Amenities",
+      "status": "partial",
+      "evidence": "Servizi presenti ma distribuiti su più pagine; alcune descrizioni differiscono sui portali.",
+      "sources": [
+        "sito",
+        "colazioni",
+        "google"
+      ]
+    },
+    {
+      "id": "q279",
+      "group": "Prodotto e fotografie",
+      "label": "Descrizioni camere",
+      "status": "partial",
+      "evidence": "Comfort e Superior descritte insieme, senza schede autonome orientate alla scelta.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q280",
+      "group": "Prodotto e fotografie",
+      "label": "USP",
+      "status": "partial",
+      "evidence": "Palazzo storico e posizione sono vantaggi forti, ma poco tradotti in proposta commerciale.",
+      "sources": [
+        "sito",
+        "albergo"
+      ]
+    },
+    {
+      "id": "q307",
+      "group": "Visibilità e reputazione",
+      "label": "Sito ufficiale",
+      "status": "present",
+      "evidence": "Sito indicizzato e rintracciabile.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q308",
+      "group": "Visibilità e reputazione",
+      "label": "Presenza OTA",
+      "status": "present",
+      "evidence": "Schede confermate: Booking.com, Agoda, Expedia, Hotels.com, Trip.com; HolidayCheck è profilo offerte/recensioni. Airbnb, Vrbo, Priceline e Travelocity non confermati.",
+      "sources": [
+        "booking",
+        "agoda",
+        "expedia",
+        "hotels",
+        "trip",
+        "holidaycheck"
+      ]
+    },
+    {
+      "id": "q309",
+      "group": "Visibilità e reputazione",
+      "label": "Metasearch",
+      "status": "present",
+      "evidence": "Struttura presente su Google Hotels.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q310",
+      "group": "Visibilità e reputazione",
+      "label": "Profilo Google",
+      "status": "present",
+      "evidence": "Profilo pubblico con indirizzo, telefono, fotografie e recensioni.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q311",
+      "group": "Visibilità e reputazione",
+      "label": "Coerenza contenuti",
+      "status": "partial",
+      "evidence": "Climatizzazione e alcuni servizi sono descritti in modo diverso tra sito e portali.",
+      "sources": [
+        "sito",
+        "google",
+        "booking"
+      ]
+    },
+    {
+      "id": "q314",
+      "group": "Visibilità e reputazione",
+      "label": "Booking.com",
+      "status": "present",
+      "evidence": "Scheda attiva; posizione 9,7/10 e voto complessivo intorno a 7,8-7,9/10.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q318",
+      "group": "Visibilità e reputazione",
+      "label": "Google Hotels",
+      "status": "present",
+      "evidence": "Scheda hotel con recensioni; prenotazione diretta del sito non disponibile.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q342",
+      "group": "Visibilità e reputazione",
+      "label": "Risposte alle recensioni",
+      "status": "unverified",
+      "evidence": "Nel campione Google letto non è stato possibile stabilire un tasso di risposta della direzione; verificare dal profilo gestore.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q366",
+      "group": "Prezzi e competitività",
+      "label": "Comp set",
+      "status": "partial",
+      "evidence": "Concorrenti individuabili, ma differenziazione competitiva non esplicitata.",
+      "sources": [
+        "sito",
+        "google"
+      ]
+    },
+    {
+      "id": "q369",
+      "group": "Prezzi e competitività",
+      "label": "Recensioni competitive",
+      "status": "partial",
+      "evidence": "Google 3,6/5 (573 recensioni); Booking circa 7,9/10 con posizione 9,7: il prodotto camera pesa più della location.",
+      "sources": [
+        "google",
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q370",
+      "group": "Prezzi e competitività",
+      "label": "Pricing",
+      "status": "partial",
+      "evidence": "Listino per quattro fasce stagionali, senza calendario o disponibilità live.",
+      "sources": [
+        "prezzi"
+      ]
+    },
+    {
+      "id": "q372",
+      "group": "Prezzi e competitività",
+      "label": "Percezione del valore",
+      "status": "partial",
+      "evidence": "Posizione, staff e ampiezza apprezzati; prezzo percepito alto in rapporto a clima, arredi, bagno e dotazioni da alcuni ospiti.",
+      "sources": [
+        "google",
+        "bookingReviews",
+        "hotels"
+      ]
+    },
+    {
+      "id": "q382",
+      "group": "Prezzi e competitività",
+      "label": "Pricing dinamico visibile",
+      "status": "missing",
+      "evidence": "Sul sito si vede un listino statico; eventuale pricing dinamico interno non è verificabile.",
+      "sources": [
+        "prezzi"
+      ]
+    },
+    {
+      "id": "q385",
+      "group": "Prezzi e competitività",
+      "label": "Parità tariffaria",
+      "status": "unverified",
+      "evidence": "Non verificabile con i soli listini pubblici: servono preventivi sulle stesse date, camere, condizioni e pubblico per ogni OTA. Il sito non espone un prezzo diretto prenotabile per data.",
+      "sources": [
+        "prezzi",
+        "booking",
+        "expedia",
+        "hotels"
+      ]
+    },
+    {
+      "id": "q416",
+      "group": "Contatto e conversione",
+      "label": "Telefono",
+      "status": "partial",
+      "evidence": "Numero visibile, ma non configurato come collegamento click-to-call nella pagina iniziale.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q417",
+      "group": "Contatto e conversione",
+      "label": "Email",
+      "status": "partial",
+      "evidence": "Email visibile, ma non configurata come collegamento mailto nella pagina iniziale.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q418",
+      "group": "Contatto e conversione",
+      "label": "WhatsApp",
+      "status": "missing",
+      "evidence": "Nessun collegamento WhatsApp trovato nelle pagine principali.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q420",
+      "group": "Contatto e conversione",
+      "label": "Booking engine commerciale",
+      "status": "missing",
+      "evidence": "Prenota online non consente di selezionare date e completare l'acquisto.",
+      "sources": [
+        "prezzi",
+        "contatti"
+      ]
+    },
+    {
+      "id": "q446",
+      "group": "Contatto e conversione",
+      "label": "Tempo di risposta",
+      "status": "unverified",
+      "evidence": "Richiede un test di contatto; non eseguito in questa analisi.",
+      "sources": [
+        "contatti"
+      ]
+    },
+    {
+      "id": "q669",
+      "group": "Qualità percepita",
+      "label": "Pulizia",
+      "status": "partial",
+      "evidence": "Booking circa 8,2/10; su Google giudizi discordanti, con episodi di polvere e camera poco pulita da verificare.",
+      "sources": [
+        "bookingReviews",
+        "google"
+      ]
+    },
+    {
+      "id": "q670",
+      "group": "Qualità percepita",
+      "label": "Manutenzione",
+      "status": "missing",
+      "evidence": "Nel campione Google arredi datati, comfort estivo insufficiente, bagni piccoli e dotazioni mancanti.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q720",
+      "group": "Qualità percepita",
+      "label": "Stato camere",
+      "status": "partial",
+      "evidence": "Camere spaziose e soffitti alti, ma Comfort con ventilatore e alcune finiture percepite come vecchie.",
+      "sources": [
+        "google",
+        "camere"
+      ]
+    },
+    {
+      "id": "q724",
+      "group": "Qualità percepita",
+      "label": "Manutenzioni visibili",
+      "status": "partial",
+      "evidence": "Le recensioni segnalano aggiornamenti e controlli puntuali; serve ispezione fisica stanza per stanza.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q734",
+      "group": "Qualità percepita",
+      "label": "Wi-Fi",
+      "status": "present",
+      "evidence": "Wi-Fi gratuito presente e valutato positivamente su Booking.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q744",
+      "group": "Qualità percepita",
+      "label": "Aspettative ospite",
+      "status": "partial",
+      "evidence": "Solo 3 Superior su 24 climatizzate; Google riassume l'hotel con 'aria condizionata', senza distinguere le camere.",
+      "sources": [
+        "camere",
+        "google"
+      ]
+    },
+    {
+      "id": "q756",
+      "group": "Offerte e servizi",
+      "label": "Offerte dirette",
+      "status": "partial",
+      "evidence": "Pagina Offerte & Last Minute con prevalenza del listino, senza offerte prenotabili.",
+      "sources": [
+        "prezzi"
+      ]
+    },
+    {
+      "id": "q769",
+      "group": "Offerte e servizi",
+      "label": "Servizi ancillari",
+      "status": "present",
+      "evidence": "Transfer, visite, noleggi, lavanderia, late checkout e concierge comunicati.",
+      "sources": [
+        "sito",
+        "colazioni"
+      ]
+    }
   ]
 }
