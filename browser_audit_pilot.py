@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v58"
+PILOT_BUILD = "velora-browser-pilot-v59"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1199,7 +1199,7 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
                         )[:900],
                         "searchUrl":"",
                         "discoveryMode":"free multi-engine search + page verification",
-                        "verification":"page",
+                        "verification":"page_identity_lock","identityVerified":True,
                     }
                     break
                 if _strong_search_evidence(score,reasons,engines):
@@ -1213,14 +1213,15 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
             if ota_id not in discoveries and weak:
                 score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
                 discoveries[ota_id]={
-                    "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
+                    "status":"not_verified_present","url":"","candidateUrl":url,"title":title[:220],"score":round(score,3),
                     "evidence":(
-                        f"Ricerca master gratuita: candidato {OTA_META[ota_id]['label']} trovato tramite "
-                        f"{', '.join(sorted(engines))} ({score:.0%}, {reasons}) ma non abbastanza forte per "
-                        f"attribuirlo automaticamente. {verify_evidence}"
+                        f"Ricerca master gratuita: esiste un candidato {OTA_META[ota_id]['label']} ma NON è stato "
+                        f"attribuito alla struttura. Match {score:.0%} ({reasons}); {verify_evidence}. "
+                        "Il candidato viene conservato solo come diagnostica e non può essere usato per prezzi."
                     )[:900],
                     "searchUrl":"",
-                    "discoveryMode":"free multi-engine candidate",
+                    "discoveryMode":"candidate rejected by identity lock",
+                    "identityVerified":False,
                 }
     finally:
         try:
@@ -1290,7 +1291,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                                 f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                             )[:900],
                             "searchUrl":search_url,
-                            "discoveryMode":"progressive targeted Google + page verification",
+                            "discoveryMode":"progressive targeted Google + page verification","verification":"page_identity_lock","identityVerified":True,
                         }
                     weak.append((score,target,str(item.get("text") or ""),reasons,query,"Google",verify.get("evidence","")))
             except Exception:
@@ -1317,7 +1318,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
                         "searchUrl":"",
-                        "discoveryMode":"free targeted multi-engine + page verification",
+                        "discoveryMode":"free targeted multi-engine + page verification","verification":"page_identity_lock","identityVerified":True,
                     }
                 if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
                     weak.append((
@@ -1354,7 +1355,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
                         "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
-                        "discoveryMode":"progressive targeted Bing RSS + page verification",
+                        "discoveryMode":"progressive targeted Bing RSS + page verification","verification":"page_identity_lock","identityVerified":True,
                     }
                 weak.append((score,target,str(item.get("title") or ""),reasons,query,"Bing RSS",verify.get("evidence","")))
     finally:
@@ -1368,19 +1369,26 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     if weak:
         score,url,title,reasons,query,engine,verify_evidence=weak[0]
         return {
-            "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
+            "status":"not_verified_present","url":"","candidateUrl":url,"title":title[:220],"score":round(score,3),
             "evidence":(
-                f"Ricerca mirata {meta['label']} completata su più varianti. Miglior candidato da {engine}, query «{query}»: "
-                f"{score:.0%} ({reasons}), ma pagina non verificata con sufficiente certezza. {verify_evidence}"
+                f"Ricerca mirata {meta['label']} completata su più varianti. È stato trovato un candidato da {engine}, "
+                f"query «{query}», match {score:.0%} ({reasons}), ma NON ha superato la verifica identità. "
+                f"{verify_evidence}. Nessun dato tariffario verrà letto da questa pagina."
             )[:900],
             "searchUrl":"",
-            "discoveryMode":"progressive targeted search exhausted",
+            "discoveryMode":"candidate rejected by identity lock",
+            "identityVerified":False,
         }
     return {
-        "status":"not_found_in_search","url":"","title":"","score":0.0,
-        "evidence":f"Ricerca mirata {meta['label']} completata su {len(queries)} varianti senza una scheda verificabile.",
+        "status":"not_verified_present","url":"","title":"","score":0.0,
+        "evidence":(
+            f"Ricerca mirata {meta['label']} completata su {len(queries)} varianti senza una scheda attribuibile "
+            "con certezza alla struttura. Questo NON significa assenza certa dal portale: significa che Velora "
+            "non userà alcuna fonte finché non potrà verificarla."
+        ),
         "searchUrl":"",
-        "discoveryMode":"progressive targeted search exhausted",
+        "discoveryMode":"no verified source found",
+        "identityVerified":False,
     }
 
 
@@ -7457,8 +7465,18 @@ async def run(args: argparse.Namespace) -> dict:
                     f"{str(discovery.get('evidence') or '')[:220]}",
                     flush=True,
                 )
-                if discovery.get("status")=="found" and discovery.get("url"):
+                if (
+                    discovery.get("status")=="found"
+                    and discovery.get("url")
+                    and (ota_id=="booking" or discovery.get("identityVerified") is True)
+                ):
                     sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":discovery["url"]}
+                elif discovery.get("status")=="found" and ota_id!="booking":
+                    print(
+                        f"{ota_id} discovery found rejected: manca identityVerified=true · "
+                        f"{str(discovery.get('url') or '')[:180]}",
+                        flush=True,
+                    )
 
             # Per i portali non adatti al confronto tariffario mensile raccoglie comunque
             # un profilo pubblico strutturato: reputazione, prezzi generici e link commerciali.
