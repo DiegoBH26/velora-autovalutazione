@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v50"
+PILOT_BUILD = "velora-browser-pilot-v51"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -48,7 +48,7 @@ OTA_META = {
     "googlehotels": {"label": "Google Hotels", "domains": ("google.com", "google.it")},
     "holidaycheck": {"label": "HolidayCheck", "domains": ("holidaycheck.com", "holidaycheck.it")},
 }
-DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels", "priceline"}
+DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels"}
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -106,6 +106,10 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
         query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0")
     elif channel == "trip":
         query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1")
+    elif channel == "priceline":
+        # Priceline viene datato tramite UI: la scheda resta invariata finché
+        # il date picker non conferma il soggiorno richiesto.
+        return base
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
@@ -2238,6 +2242,308 @@ async def trip_quote_candidates(page, stay: dict) -> list[dict]:
         if refund!="Cancellazione da verificare": plan_parts.append(refund)
         if board!="Trattamento da verificare": plan_parts.append(board)
         if audience!="Pubblico senza login": plan_parts.append("Member")
+        rate_plan=" · ".join(dict.fromkeys(plan_parts)) or "Piano tariffario da verificare"
+        basis_note=(
+            f"Prezzo per notte visibile (€{price:.2f}) × {stay['nights']} notti = €{total:.2f}. "
+            if basis=="nightly"
+            else "Totale soggiorno indicato nel blocco camera. "
+        )
+        out.append({
+            "roomType":room,
+            "ratePlan":rate_plan,
+            "total":round(total,2),
+            "currency":"EUR",
+            "nights":stay["nights"],
+            "guests":stay["adults"],
+            "board":board,
+            "refund":refund,
+            "audience":audience,
+            "taxes":taxes,
+            "verified":True,
+            "evidence":(basis_note+text)[:1100],
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item.get("ratePlan","").lower(),item["total"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:40]
+
+
+
+async def priceline_dom_dates_confirmed(page, stay: dict) -> tuple[bool,str]:
+    try:
+        state=await page.evaluate(r"""() => {
+          const visible=(el) => {
+            if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+            const st=getComputedStyle(el);
+            if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
+          };
+          const txt=(el) => [
+            el?.textContent || '',
+            el?.getAttribute?.('value') || '',
+            el?.getAttribute?.('aria-label') || '',
+            el?.getAttribute?.('placeholder') || ''
+          ].join(' ').replace(/\s+/g,' ').trim();
+          const find=(selectors) => {
+            for (const selector of selectors) {
+              for (const el of Array.from(document.querySelectorAll(selector)).slice(0,40)) {
+                if (visible(el)) return {selector,text:txt(el)};
+              }
+            }
+            return null;
+          };
+          return {
+            start:find([
+              'input[aria-label*="check-in" i]',
+              'button[aria-label*="check-in" i]',
+              'input[placeholder*="check-in" i]',
+              '[data-testid*="check-in" i]',
+              '[data-test*="check-in" i]'
+            ]),
+            end:find([
+              'input[aria-label*="check-out" i]',
+              'button[aria-label*="check-out" i]',
+              'input[placeholder*="check-out" i]',
+              '[data-testid*="check-out" i]',
+              '[data-test*="check-out" i]'
+            ]),
+            title:find(['h1'])
+          };
+        }""")
+    except Exception:
+        return False,""
+    start=date.fromisoformat(stay["checkin"])
+    end=date.fromisoformat(stay["checkout"])
+    start_text=str((state.get("start") or {}).get("text") or "").lower()
+    end_text=str((state.get("end") or {}).get("text") or "").lower()
+    start_ok=any(value in start_text for value in _date_forms(start))
+    end_ok=any(value in end_text for value in _date_forms(end))
+    evidence=(
+        f"start={start_text[:240] or 'n.d.'} | "
+        f"end={end_text[:240] or 'n.d.'} | "
+        f"title={str((state.get('title') or {}).get('text') or '')[:240] or 'n.d.'}"
+    )
+    return bool(start_ok and end_ok),evidence[:800]
+
+
+async def priceline_apply_dates_via_ui(page, stay: dict) -> tuple[bool,str]:
+    evidence=[]
+    opener,_=await _first_visible_locator(page,(
+        'input[aria-label*="check-in" i]',
+        'button[aria-label*="check-in" i]',
+        'input[placeholder*="check-in" i]',
+        '[data-testid*="check-in" i]',
+        '[data-test*="check-in" i]',
+        'button:has-text("Select date")',
+    ))
+    if opener is None:
+        return False,"date picker Priceline non individuato"
+    try:
+        await opener.click(timeout=2500)
+        await page.wait_for_timeout(450)
+        evidence.append("date picker aperto")
+    except Exception as exc:
+        return False,f"date picker Priceline non apribile: {type(exc).__name__}"
+
+    async def click_target(target_iso: str) -> bool:
+        target=date.fromisoformat(target_iso)
+        labels=[
+            target_iso,
+            target.strftime("%B %d, %Y"),
+            target.strftime("%b %d, %Y"),
+            target.strftime("%d %B %Y"),
+        ]
+        selectors=[f'[data-date="{target_iso}"]',f'[data-testid="{target_iso}"]']
+        for label in labels:
+            selectors.extend([
+                f'button[aria-label*="{label}" i]',
+                f'[role="button"][aria-label*="{label}" i]',
+            ])
+        for selector in selectors:
+            try:
+                matches=page.locator(selector)
+                count=min(await matches.count(),30)
+            except Exception:
+                count=0
+            for idx in range(count):
+                node=matches.nth(idx)
+                try:
+                    if not await node.is_visible(timeout=250):
+                        continue
+                    if (await node.get_attribute("aria-disabled"))=="true":
+                        continue
+                    await node.click(timeout=2200)
+                    await page.wait_for_timeout(350)
+                    return True
+                except Exception:
+                    continue
+        return False
+
+    async def pick(target_iso: str) -> bool:
+        for _ in range(20):
+            if await click_target(target_iso):
+                return True
+            nxt,_=await _first_visible_locator(page,(
+                'button[aria-label*="next month" i]',
+                'button[aria-label*="mese successivo" i]',
+                '[data-testid*="next-month" i]',
+                '[data-test*="next-month" i]',
+            ))
+            if nxt is None:
+                return False
+            try:
+                await nxt.click(timeout=1800)
+                await page.wait_for_timeout(250)
+            except Exception:
+                return False
+        return False
+
+    if not await pick(stay["checkin"]):
+        return False,"check-in Priceline non selezionabile"
+    evidence.append(f"check-in {stay['checkin']} selezionato")
+    if not await pick(stay["checkout"]):
+        return False,"check-out Priceline non selezionabile"
+    evidence.append(f"check-out {stay['checkout']} selezionato")
+
+    search,_=await _first_visible_locator(page,(
+        'button:has-text("Search")',
+        'button:has-text("Cerca")',
+        'button[type="submit"]',
+        '[data-testid*="search" i]',
+    ))
+    if search is not None:
+        try:
+            await search.click(timeout=2200)
+            await page.wait_for_timeout(1400)
+            evidence.append("ricerca confermata")
+        except Exception:
+            pass
+
+    confirmed,dom_evidence=await priceline_dom_dates_confirmed(page,stay)
+    if not confirmed:
+        body=(await page.locator("body").inner_text(timeout=5000))[:8000]
+        confirmed=visible_dates_confirmed(body,stay)
+    return confirmed,(" · ".join(evidence)+" | "+dom_evidence)[:900]
+
+
+async def priceline_property_rate_context(page) -> tuple[bool,str]:
+    selectors=(
+        'h1',
+        '[class*="room" i]',
+        '[data-testid*="room" i]',
+        '[class*="price" i]',
+        '[data-testid*="price" i]',
+    )
+    found=[]
+    for selector in selectors:
+        try:
+            loc=page.locator(selector).first
+            if await loc.count() and await loc.is_visible(timeout=350):
+                found.append(selector)
+        except Exception:
+            pass
+    path=(urlparse(page.url).path or "").lower()
+    property_path="/hotel-deals/" in path and ("/h" in path or "/relax/" in path)
+    has_room=any(item in found for item in ('[class*="room" i]','[data-testid*="room" i]'))
+    has_price=any(item in found for item in ('[class*="price" i]','[data-testid*="price" i]'))
+    return bool(property_path and "h1" in found and has_room and has_price),", ".join(found[:8])
+
+
+async def priceline_quote_candidates(page, stay: dict) -> list[dict]:
+    rows=await page.evaluate(r"""() => {
+      const clean=(value) => String(value || '').replace(/\s+/g,' ').trim();
+      const visible=(el) => {
+        if (!el) return false;
+        const st=getComputedStyle(el);
+        if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+        if ((st.textDecorationLine || '').includes('line-through')) return false;
+        const r=el.getBoundingClientRect();
+        return r.width>0 && r.height>0;
+      };
+      const cards=Array.from(document.querySelectorAll(
+        '[data-testid*="room" i], [class*="room-card" i], [class*="room-option" i], ' +
+        '[class*="room-item" i], section, article'
+      )).slice(0,180);
+      const out=[]; const seen=new Set();
+      for (const card of cards) {
+        if (!visible(card)) continue;
+        const text=clean(card.innerText || card.textContent);
+        if (!text || text.length<20 || text.length>3200) continue;
+        let room='';
+        for (const selector of ['[data-testid*="room-name" i]','[class*="room-name" i]','[class*="room-title" i]','h2','h3','h4']) {
+          const node=card.querySelector(selector);
+          const value=clean(node?.textContent);
+          if (!value) continue;
+          if ((selector==='h2'||selector==='h3'||selector==='h4') &&
+              !/\b(room|camera|suite|apartment|appartamento|studio|double|twin|family|king|queen|deluxe|superior)\b/i.test(value)) continue;
+          room=value.slice(0,240); break;
+        }
+        if (!room) continue;
+        let price='';
+        for (const selector of ['[data-testid*="price" i]','[class*="price" i]']) {
+          const matches=Array.from(card.querySelectorAll(selector)).filter(visible);
+          const candidate=clean(matches[0]?.textContent);
+          if (candidate && /(€|eur)\s*[0-9]|[0-9]\s*(€|eur)/i.test(candidate)) {
+            price=candidate.slice(0,180); break;
+          }
+        }
+        if (!price) {
+          const match=text.match(/(?:€|EUR)\s*[0-9]{1,5}(?:[.,][0-9]{2})?|[0-9]{1,5}(?:[.,][0-9]{2})?\s*(?:€|EUR)/i);
+          price=clean(match?.[0]);
+        }
+        if (!price) continue;
+        const low=text.toLowerCase();
+        let basis='';
+        if (/(total|totale|for the stay|per stay|soggiorno|for \d+ nights?|per \d+ notti?)/i.test(low)) basis='stay-total';
+        else if (/(per night|\/night|a notte|per notte|nightly)/i.test(low)) basis='nightly';
+        if (!basis) continue;
+        const key=(room+'|'+price+'|'+basis+'|'+text.slice(0,900)).toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({room,price,text:text.slice(0,2600),basis});
+      }
+      return out.slice(0,100);
+    }""")
+
+    out=[]
+    for row in rows:
+        room=str(row.get("room") or "").strip()
+        price=_money_value(str(row.get("price") or ""))
+        text=str(row.get("text") or "").strip()
+        basis=str(row.get("basis") or "")
+        if not room or price is None or not basis:
+            continue
+        total=price*int(stay["nights"]) if basis=="nightly" else price
+        low=text.lower()
+        board=(
+            "Colazione inclusa" if any(token in low for token in ("free breakfast","breakfast included","colazione inclusa"))
+            else "Solo pernottamento" if any(token in low for token in ("room only","solo pernottamento"))
+            else "Trattamento da verificare"
+        )
+        refund=(
+            "Cancellazione gratuita" if any(token in low for token in ("free cancellation","fully refundable","cancellazione gratuita"))
+            else "Non rimborsabile" if any(token in low for token in ("non-refundable","non refundable","non rimborsabile"))
+            else "Cancellazione da verificare"
+        )
+        audience=(
+            "Tariffa VIP/member visibile; accesso da verificare"
+            if any(token in low for token in ("vip member","member price","member rate","sign in"))
+            else "Pubblico senza login"
+        )
+        taxes=(
+            "Tasse e commissioni indicate come incluse"
+            if any(token in low for token in ("taxes included","taxes and fees included","tasse incluse"))
+            else "Tasse indicate come escluse"
+            if any(token in low for token in ("taxes excluded","excluding taxes","before taxes","tasse escluse"))
+            else "Da verificare nel dettaglio del preventivo"
+        )
+        plan_parts=[]
+        if refund!="Cancellazione da verificare": plan_parts.append(refund)
+        if board!="Trattamento da verificare": plan_parts.append(board)
+        if audience!="Pubblico senza login": plan_parts.append("VIP/member")
         rate_plan=" · ".join(dict.fromkeys(plan_parts)) or "Piano tariffario da verificare"
         basis_note=(
             f"Prezzo per notte visibile (€{price:.2f}) × {stay['nights']} notti = €{total:.2f}. "
@@ -4976,6 +5282,15 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         "URL finale Trip.com mantiene check-in/check-out richiesti; "
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
                     )
+            if channel == "priceline" and not confirmed:
+                confirmed, dom_excerpt = await priceline_dom_dates_confirmed(page, stay)
+                if confirmed:
+                    property_context, context_evidence = await priceline_property_rate_context(page)
+                    if property_context:
+                        mode="priceline-dom-fields+rate-context"
+                        dom_excerpt=(dom_excerpt+" | "+context_evidence)[:800]
+                    else:
+                        confirmed=False
             return current_title,current_body,confirmed,mode,dom_excerpt
 
         record["finalUrl"] = page.url
@@ -4988,6 +5303,13 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="booking-ui-date-picker"
+        elif channel == "priceline" and not dates_confirmed:
+            applied, ui_date_evidence = await priceline_apply_dates_via_ui(page, stay)
+            if applied:
+                record["finalUrl"] = page.url
+                record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+                if dates_confirmed and not date_confirmation_mode:
+                    date_confirmation_mode="priceline-ui-date-picker"
         render_diag={}
         if channel == "booking" and dates_confirmed:
             render_diag = await booking_settle_render(page)
@@ -5027,6 +5349,15 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             try:
                 await page.locator(
                     '[data-testid*="room"], [class*="room-card" i], [class*="room-item" i], [class*="price" i]'
+                ).first.wait_for(state="visible",timeout=5000)
+            except Exception:
+                await page.wait_for_timeout(1400)
+            record["finalUrl"] = page.url
+            record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+        elif channel == "priceline" and dates_confirmed:
+            try:
+                await page.locator(
+                    '[data-testid*="room" i], [class*="room" i], [data-testid*="price" i], [class*="price" i]'
                 ).first.wait_for(state="visible",timeout=5000)
             except Exception:
                 await page.wait_for_timeout(1400)
@@ -5210,6 +5541,25 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     record.update(
                         status="needs_human_review",
                         evidence="Date Trip.com confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                    )
+            elif channel == "priceline":
+                candidates=await priceline_quote_candidates(page,stay)
+                record["quotes"]=candidates
+                if candidates:
+                    first=candidates[0]
+                    record.update(
+                        status="quote_candidates",
+                        evidence=(
+                            f"Date Priceline confermate ({date_confirmation_mode or 'date picker'}). "
+                            f"Rilevate {len(candidates)} righe camera/prezzo con base tariffaria esplicita. "
+                            f"Esempio: {first['roomType']} · €{first['total']:.2f} per {stay['nights']} notti. "
+                            "Le tariffe VIP/member restano distinte dal prezzo pubblico."
+                        )[:900],
+                    )
+                else:
+                    record.update(
+                        status="needs_human_review",
+                        evidence="Date Priceline confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
                     )
             else:
                 candidates=await generic_ota_quote_candidates(page,stay)
