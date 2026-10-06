@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v61"
+PILOT_BUILD = "velora-browser-pilot-v62"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -2975,6 +2975,112 @@ def _profile_recommendation(body: str) -> float | None:
             if value is not None and 0 <= value <= 100:
                 return round(value,1)
     return None
+
+
+
+def ota_auth_wall(url: str, title: str = "", body: str = "") -> str:
+    """Riconosce redirect verso login/account che non sono pagine tariffarie pubbliche."""
+    try:
+        parsed=urlparse(url)
+        path=(parsed.path or "").lower()
+    except Exception:
+        path=""
+    text=(str(title or "")+" "+str(body or "")[:1800]).lower()
+    path_tokens=(
+        "/account/signin","/account/login","/signin","/sign-in","/login","/register",
+        "/member/login","/user/login","/auth/",
+    )
+    if any(token in path for token in path_tokens):
+        return "redirect alla pagina login/account"
+    if (
+        any(token in text for token in ("sign in/register","please enter an email address","continue with google","accedi o registrati"))
+        and not any(token in text for token in ("camera","room","prezzo","price","availability","disponibil"))
+    ):
+        return "pagina login/account rilevata dal contenuto"
+    return ""
+
+
+def _commercial_ota_from_host(host: str) -> str:
+    normalized=str(host or "").lower().removeprefix("www.")
+    for ota_id,meta in OTA_META.items():
+        if ota_id in PROFILE_AUDIT_CHANNELS:
+            continue
+        if any(normalized==domain or normalized.endswith("."+domain) for domain in meta["domains"]):
+            return ota_id
+    return ""
+
+
+async def apply_metasearch_assist(
+    context,
+    data: dict,
+    result: dict,
+    sources: dict,
+    robots: dict,
+) -> list[dict]:
+    """Usa link commerciali dei metasearch come scorciatoie, ma sempre con identity lock."""
+    candidates=[]
+    seen=set()
+    for profile_id,profile in (result.get("otaProfiles") or {}).items():
+        for item in (profile.get("commercialLinks") or []):
+            url=str(item.get("url") or "").strip()
+            ota_id=str(item.get("otaId") or "") or _commercial_ota_from_host(str(item.get("host") or ""))
+            if not url or not ota_id or ota_id in PROFILE_AUDIT_CHANNELS:
+                continue
+            key=(ota_id,_clean_listing_url(url))
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append({
+                "otaId":ota_id,
+                "url":url,
+                "text":str(item.get("text") or "")[:220],
+                "via":profile_id,
+            })
+
+    accepted=[]
+    for candidate in candidates[:40]:
+        ota_id=candidate["otaId"]
+        if (sources.get(ota_id) or {}).get("url"):
+            continue
+        verification=await verify_ota_candidate_page(
+            context,
+            ota_id,
+            candidate["url"],
+            data.get("name",""),
+            data.get("city",""),
+            data.get("address",""),
+            robots,
+        )
+        if not verification.get("ok"):
+            continue
+        final_url=verification.get("url") or candidate["url"]
+        sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":final_url}
+        result.setdefault("discoveredSources",{})[ota_id]={
+            "status":"found",
+            "url":final_url,
+            "title":verification.get("title") or candidate.get("text") or "",
+            "score":verification.get("score",1.0),
+            "identityVerified":True,
+            "verification":"page_identity_lock",
+            "discoveryMode":"metasearch assist + strict identity verification",
+            "evidence":(
+                f"{OTA_META[ota_id]['label']} raggiunta tramite link commerciale presente su "
+                f"{OTA_META.get(candidate['via'],{}).get('label',candidate['via'])}; "
+                f"identità verificata direttamente: {verification.get('evidence','')}."
+            )[:900],
+        }
+        accepted.append({
+            "otaId":ota_id,
+            "url":final_url,
+            "via":candidate["via"],
+            "evidence":verification.get("evidence",""),
+        })
+        print(
+            f"metasearch assist: {ota_id} accettata via {candidate['via']} · "
+            f"{str(verification.get('evidence') or '')[:220]}",
+            flush=True,
+        )
+    return accepted
 
 
 async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -> dict:
