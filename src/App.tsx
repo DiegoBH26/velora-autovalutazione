@@ -4856,9 +4856,12 @@ export default function App() {
               : [],
           })),
       };
-      setBrowserPilotResult(cleaned);
-      window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(cleaned));
-      window.alert(`${cleaned.observations.length} verifiche importate. I prezzi non confermati non entrano nei calcoli.`);
+      const merged = mergeBrowserPilotResults(browserPilotResult, cleaned);
+      setBrowserPilotResult(merged);
+      window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(merged));
+      applyPilotEvidence(cleaned);
+      const verifiedBookingRates = pilotVerifiedRateQuotes(cleaned).length;
+      window.alert(`${cleaned.observations.length} verifiche importate · ${verifiedBookingRates} tariffe Booking validate aggiunte all’archivio economico.`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Impossibile leggere il file del pilota.");
     }
