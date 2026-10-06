@@ -6246,6 +6246,22 @@ export default function App() {
       const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || (otaId === "sito" ? "Sito diretto" : otaId);
       return `<tr><td><b>${safe(platform)}</b></td><td class="center">${entries.length}</td><td>${safe(counts)}</td><td>${safe(example)}</td></tr>`;
     });
+    const pilotProfileEntries = browserPilotResult?.propertyId === activeAuditData.id
+      ? Object.entries(browserPilotResult.otaProfiles || {})
+      : [];
+    const pilotProfileTableHtml = pilotProfileEntries.length
+      ? `<h3>Profili OTA e metasearch</h3><p>Per i portali che non espongono una tariffa camera direttamente comparabile, Velora conserva comunque la scheda pubblica, le metriche reputazionali e gli eventuali link commerciali. I prezzi generici visibili non entrano nel delta.</p><table><thead><tr><th>Canale</th><th>Stato</th><th>Rating</th><th>Recensioni</th><th>Raccomandazione</th><th>Link commerciali / prova</th></tr></thead><tbody>${pilotProfileEntries.map(([otaId, profile]) => {
+          const platform = reportChannels.find((channel) => channel.id === otaId)?.platform || otaId;
+          const rating = Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale)
+            ? Number(profile.rating).toFixed(1) + "/" + Number(profile.ratingScale).toFixed(0)
+            : "n.d.";
+          const recommendation = Number.isFinite(profile.recommendationRate)
+            ? Number(profile.recommendationRate).toFixed(1) + "%"
+            : "n.d.";
+          const commercial = (profile.commercialHosts || []).slice(0, 8).join(", ");
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(profile.status)}</td><td>${safe(rating)}</td><td>${safe(profile.reviewCount ? String(profile.reviewCount) : "n.d.")}</td><td>${safe(recommendation)}</td><td>${safe(commercial || profile.evidence || "Nessun dettaglio aggiuntivo")}</td></tr>`;
+        }).join("")}</tbody></table>`
+      : "";
     const pilotQuoteRows = pilotObservations.flatMap((observation) =>
       (observation.quotes || []).map((quote) => ({ observation, quote }))
     );
@@ -6257,7 +6273,7 @@ export default function App() {
           return `<tr><td><b>${safe(platform)}</b></td><td>${safe(observation.checkin)} → ${safe(observation.checkout)}</td><td>${safe(roomAndPlan)}</td><td><b>€${Number(quote.total).toFixed(2)}</b> / ${quote.nights} notti</td><td>${safe(conditions)}</td><td>${quote.verified ? "Camera e prezzo validati dal parser" : "Prezzo rilevato · attribuzione da completare"}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
-    const pilotReportHtml = isWebAudit && pilotObservations.length ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p><table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
+    const pilotReportHtml = isWebAudit && (pilotObservations.length || pilotProfileEntries.length) ? `<section class="page-break"><h2>Verifiche automatiche locali: esiti e limiti</h2><p>Prova eseguita il ${safe(browserPilotResult?.createdAt || "data non disponibile")}. ${pilotObservations.length} controlli su date future; ${new Set(pilotObservations.map((item) => item.month)).size} mesi campionati; ${pilotProfileEntries.length} profili OTA/metasearch analizzati. I prezzi rilevati automaticamente vengono conservati con data, canale e condizioni osservate; i delta restano esclusi finché le unità non sono comparabili con certezza.</p>${pilotObservations.length ? `<table><thead><tr><th>Canale</th><th>Mesi</th><th>Esiti</th><th>Motivo principale</th></tr></thead><tbody>${pilotRows.join("")}</tbody></table>` : ""}${pilotProfileTableHtml}${pilotQuoteTableHtml}<p>Il file JSON locale conserva date, URL, profili pubblici ed eventuali righe tariffarie di ogni controllo.</p></section>` : "";
 
     const coverageTable = (channels: typeof reportChannels) => '<table><thead><tr><th>Mese futuro</th>' + channels.map((channel) => '<th>' + safe(channel.platform) + '</th>').join('') + '</tr></thead><tbody>' + reportMonths.map((month) => '<tr><td><b>' + safe(new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'short', year: 'numeric', timeZone: 'UTC' })) + '</b></td>' + channels.map((channel) => {
       const status = monthlyCoverageSummary(reportQuotes, availabilityProbes, month, channel.id, browserPilotResult);
@@ -7334,8 +7350,20 @@ export default function App() {
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
             {browserPilotResult?.propertyId === activeAuditData.id && <>
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
-                {browserPilotResult.observations.length} controlli importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe tariffarie memorizzate · esiti inclusi nel prossimo report PDF.
+                {browserPilotResult.observations.length} controlli importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe tariffarie memorizzate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili OTA/metasearch · esiti inclusi nel prossimo report PDF.
               </p>
+              {Object.keys(browserPilotResult.otaProfiles || {}).length > 0 && <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
+                <table className="min-w-[860px] w-full border-collapse text-[10px]">
+                  <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">Profilo</th><th className="p-2 text-left">Rating</th><th className="p-2 text-left">Recensioni</th><th className="p-2 text-left">Raccomandazione</th><th className="p-2 text-left">Riscontro</th></tr></thead>
+                  <tbody>{Object.entries(browserPilotResult.otaProfiles || {}).map(([otaId, profile]) => <tr key={`profile-${otaId}`} className="border-t border-[#EEE8F4] align-top">
+                    <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform || otaId}<span className="block text-[9px] font-medium text-[#50627F]">{profile.status}</span></td>
+                    <td className="p-2">{Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale) ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}` : "n.d."}</td>
+                    <td className="p-2">{profile.reviewCount || "n.d."}</td>
+                    <td className="p-2">{Number.isFinite(profile.recommendationRate) ? `${Number(profile.recommendationRate).toFixed(1)}%` : "n.d."}</td>
+                    <td className="p-2">{profile.evidence || "Profilo letto senza metriche strutturate"}{(profile.commercialHosts || []).length > 0 && <span className="block mt-1 text-[9px] text-[#50627F]">Link commerciali: {(profile.commercialHosts || []).slice(0, 6).join(", ")}</span>}</td>
+                  </tr>)}</tbody>
+                </table>
+              </div>}
               {browserPilotResult.observations.some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">Totale</th><th className="p-2 text-left">Condizioni</th></tr></thead>
