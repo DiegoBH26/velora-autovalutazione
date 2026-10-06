@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v65"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v66"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -512,6 +512,82 @@ def result_path(property_id):
     return PILOT_RESULTS/f"dati_strutture_pilot_{safe_property_id(property_id)}.json"
 
 
+def reset_property_runtime(payload):
+    """Rimuove lo stato locale di una struttura per consentire un audit realmente pulito."""
+    if not isinstance(payload,dict):
+        raise ValueError("Dati reset non validi")
+    property_id=safe_property_id(payload.get("propertyId"))
+    name=str(payload.get("name") or "").strip()[:180]
+    website=str(payload.get("website") or "").strip()
+
+    # Recupera l'identità anche dal runtime prima di cancellarlo, così possiamo
+    # eliminare la relativa cache OTA in modo affidabile.
+    runtime_path=runtime_property_path(property_id)
+    runtime_data={}
+    if runtime_path.exists():
+        try:
+            runtime_data=json.loads(runtime_path.read_text(encoding="utf-8"))
+        except (OSError,json.JSONDecodeError):
+            runtime_data={}
+
+    if not name:
+        name=str(runtime_data.get("name") or "").strip()[:180]
+    if not website:
+        sources=runtime_data.get("sources") or {}
+        website=str(((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or "")
+
+    with STATE.lock,AUTO_STATE.lock:
+        if STATE.running or AUTO_STATE.running:
+            raise RuntimeError("Non puoi cancellare i dati locali mentre una scansione è in corso.")
+
+    removed=[]
+    for path in (runtime_path,auto_audit_output_path(property_id),result_path(property_id)):
+        try:
+            if path.exists():
+                path.unlink()
+                removed.append(str(path.name))
+        except OSError as exc:
+            raise RuntimeError(f"Impossibile cancellare {path.name}: {type(exc).__name__}") from exc
+
+    cache=_read_ota_cache()
+    wanted_host=_site_host(website)
+    wanted_name=_norm(name)
+    removed_cache=[]
+    for key,entry in list(cache.items()):
+        if not isinstance(entry,dict):
+            continue
+        entry_host=_site_host(str(entry.get("site") or ""))
+        entry_name=_norm(entry.get("name") or "")
+        if (wanted_host and entry_host==wanted_host) or (wanted_name and entry_name==wanted_name):
+            removed_cache.append(key)
+            cache.pop(key,None)
+    if removed_cache:
+        _write_ota_cache(cache)
+
+    with STATE.lock:
+        if STATE.property_id==property_id:
+            STATE.error=""
+            STATE.property_id=""
+            STATE.property_path=None
+    with AUTO_STATE.lock:
+        if AUTO_STATE.property_id==property_id:
+            AUTO_STATE.error=""
+            AUTO_STATE.message=""
+            AUTO_STATE.property_id=""
+            AUTO_STATE.result=None
+
+    print(
+        f"reset struttura: {property_id} · file={len(removed)} · cache OTA={len(removed_cache)}",
+        flush=True,
+    )
+    return {
+        "ok":True,
+        "propertyId":property_id,
+        "removedFiles":removed,
+        "removedCacheEntries":len(removed_cache),
+    }
+
+
 def prepare_runtime_property(payload):
     if payload is None:
         return None
@@ -738,7 +814,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v65",
+                "agentVersion":"velora-local-agent-v66",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -780,7 +856,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/audit/start","/api/report/pdf"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/audit/start","/api/report/pdf"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -794,6 +870,16 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/pilot/reset":
+                try:
+                    result=reset_property_runtime(payload)
+                except RuntimeError as exc:
+                    self._json(409,{"error":str(exc)}); return
+                except ValueError as exc:
+                    self._json(400,{"error":str(exc)}); return
+                self._json(200,result)
+                return
 
             if route=="/api/report/pdf":
                 html=payload.get("html")
@@ -900,7 +986,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v65 · watchdog Chrome + discovery OTA ottimizzata + errori isolati",flush=True)
+    print("Versione agente: velora-local-agent-v66 · reset completo struttura + watchdog Chrome + discovery OTA ottimizzata",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:

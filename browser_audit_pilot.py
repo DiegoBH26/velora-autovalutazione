@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v65"
+PILOT_BUILD = "velora-browser-pilot-v66"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")

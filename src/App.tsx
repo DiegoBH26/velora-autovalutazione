@@ -5428,11 +5428,46 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function deleteStructure(structure: AnalyzedStructure) {
+  async function deleteStructure(structure: AnalyzedStructure) {
     const confirmed = window.confirm(
-      `Eliminare “${structure.name}” da Strutture analizzate?\n\nLa scheda e i dati salvati in questo browser verranno rimossi. Potrai creare una nuova analisi in futuro.`
+      `Eliminare “${structure.name}” da Strutture analizzate?\n\nVerranno rimossi anche scraping, risultati pilota e cache OTA locali, così una nuova analisi ripartirà davvero da zero.`
     );
     if (!confirmed) return;
+
+    // Prova prima la pulizia dell'agente locale. Se l'agente è spento,
+    // non fingiamo che il reset sia completo: l'utente può riaccenderlo e riprovare.
+    let token = localPilotToken;
+    if (!token) token = await connectLocalAgent(true);
+    if (!token) {
+      window.alert("Per una cancellazione completa avvia prima l'agente Velora locale, poi riprova.");
+      return;
+    }
+
+    try {
+      const response = await fetch(localAgentUrl("/api/pilot/reset"), {
+        method: "POST",
+        mode: "cors",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Velora-Local-Token": token,
+        },
+        body: JSON.stringify({
+          propertyId: structure.id,
+          name: structure.name,
+          website: structure.website || structure.auditData?.website || "",
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || "Reset locale non riuscito.");
+      }
+    } catch (error) {
+      window.alert(
+        "Non ho cancellato la scheda perché il reset locale non è riuscito. " +
+        (error instanceof Error ? error.message : "Riprova con l'agente Velora acceso.")
+      );
+      return;
+    }
 
     markStructureDeleted(structure.id);
     setStructures((previous) => previous.filter((item) => item.id !== structure.id));
