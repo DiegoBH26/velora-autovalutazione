@@ -33,8 +33,8 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v48"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/ae969c50de8e3f6aa4126317190a92348f9b16a2/browser_audit_pilot.py"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v49"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/07ad3395f21ffc62fb24216cea1390ab666d70b3/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
@@ -704,7 +704,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v48",
+                "agentVersion":"velora-local-agent-v49",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -860,7 +860,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v48 · tariffe Booking + Agoda + Airbnb + Vrbo + Expedia/Hotels automatiche",flush=True)
+    print("Versione agente: velora-local-agent-v49 · tariffe Booking + Agoda + Airbnb + Vrbo + Expedia/Hotels + Trip.com automatiche",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
