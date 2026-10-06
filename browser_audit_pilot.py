@@ -1184,7 +1184,7 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """THIRD STEP: ricerca mirata progressiva sul singolo portale."""
+    """THIRD STEP: ricerca mirata progressiva sul singolo portale, riusando le stesse tab."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1213,7 +1213,8 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     for query in variants:
         query=" ".join(query.split())
         if query.lower() not in seen:
-            seen.add(query.lower()); queries.append(query)
+            seen.add(query.lower())
+            queries.append(query)
 
     weak=[]
     search_page=await context.new_page()
@@ -1229,7 +1230,9 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                     score,path_slug,text_score,url_score,reasons=_identity_match_score(
                         name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
                     )
-                    verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
+                    verify=await verify_ota_candidate_page(
+                        context,ota_id,target,name,city,address,robots,page=verify_page
+                    )
                     if verify.get("ok"):
                         return {
                             "status":"found","url":verify.get("url") or target,
@@ -1239,11 +1242,12 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                                 f"Ricerca mirata Google su {meta['label']}: «{query}». "
                                 f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                             )[:900],
-                            "searchUrl":search_url,"discoveryMode":"progressive targeted Google + page verification",
+                            "searchUrl":search_url,
+                            "discoveryMode":"progressive targeted Google + page verification",
                         }
                     weak.append((score,target,str(item.get("text") or ""),reasons,query,"Google",verify.get("evidence","")))
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
             http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
             for item in http_items:
@@ -1253,7 +1257,9 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 score,path_slug,text_score,url_score,reasons=_identity_match_score(
                     name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
                 )
-                verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
+                verify=await verify_ota_candidate_page(
+                    context,ota_id,target,name,city,address,robots,page=verify_page
+                )
                 if verify.get("ok"):
                     return {
                         "status":"found","url":verify.get("url") or target,
@@ -1263,21 +1269,27 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                             f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
-                        "searchUrl":"","discoveryMode":"free targeted multi-engine + page verification",
+                        "searchUrl":"",
+                        "discoveryMode":"free targeted multi-engine + page verification",
                     }
                 if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
                     return {
                         "status":"found","url":_clean_listing_url(target),
-                        "title":str(item.get("text") or "")[:220],"score":round(score,3),
+                        "title":str(item.get("text") or "")[:220],
+                        "score":round(score,3),
                         "evidence":(
                             f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: "
                             f"candidato con match {score:.0%} ({reasons}). La pagina non è stata verificata direttamente; "
                             "viene accettata come fonte da controllare nella fase di scraping."
                         )[:900],
-                        "searchUrl":"","discoveryMode":"free targeted search evidence",
+                        "searchUrl":"",
+                        "discoveryMode":"free targeted search evidence",
                         "verification":"search_evidence",
                     }
-                weak.append((score,target,str(item.get("text") or ""),reasons,query,str(item.get("engine") or "HTTP search"),verify.get("evidence","")))
+                weak.append((
+                    score,target,str(item.get("text") or ""),reasons,query,
+                    str(item.get("engine") or "HTTP search"),verify.get("evidence","")
+                ))
 
             items=await asyncio.to_thread(_bing_rss_items,query)
             for item in items:
@@ -1285,8 +1297,12 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 if _classify_ota_url(target)!=ota_id:
                     continue
                 desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
-                score,path_slug,text_score,url_score,reasons=_identity_match_score(name,city,address,str(item.get("title") or ""),desc,target)
-                verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
+                score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                    name,city,address,str(item.get("title") or ""),desc,target
+                )
+                verify=await verify_ota_candidate_page(
+                    context,ota_id,target,name,city,address,robots,page=verify_page
+                )
                 if verify.get("ok"):
                     return {
                         "status":"found","url":verify.get("url") or target,
@@ -1316,12 +1332,14 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 f"Ricerca mirata {meta['label']} completata su più varianti. Miglior candidato da {engine}, query «{query}»: "
                 f"{score:.0%} ({reasons}), ma pagina non verificata con sufficiente certezza. {verify_evidence}"
             )[:900],
-            "searchUrl":"","discoveryMode":"progressive targeted search exhausted",
+            "searchUrl":"",
+            "discoveryMode":"progressive targeted search exhausted",
         }
     return {
         "status":"not_found_in_search","url":"","title":"","score":0.0,
         "evidence":f"Ricerca mirata {meta['label']} completata su {len(queries)} varianti senza una scheda verificabile.",
-        "searchUrl":"","discoveryMode":"progressive targeted search exhausted",
+        "searchUrl":"",
+        "discoveryMode":"progressive targeted search exhausted",
     }
 
 
