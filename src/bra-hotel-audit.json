@@ -17,84 +17,542 @@
   "auditedAt": "2026-10-02",
   "reportPath": "reports/velora-audit-bra-hotel-bari.pdf",
   "sources": {
-    "sito": { "label": "Sito ufficiale", "url": "https://www.brahotel.com/" },
-    "camere": { "label": "Camere ufficiali", "url": "https://www.brahotel.com/camere/" },
-    "contatti": { "label": "Contatti ufficiali", "url": "https://www.brahotel.com/contatti/" },
-    "offerte": { "label": "Offerte ufficiali", "url": "https://www.brahotel.com/offerte/" },
-    "engine": { "label": "Booking engine ErmesHotels", "url": "https://book.ermeshotels.com/hotel/2910/channel/1449/language/2/rooms?promocode=EARLYBOOKING2027" },
-    "booking": { "label": "Booking.com", "url": "https://www.booking.com/hotel/it/bra.it.html" },
-    "bookingReviews": { "label": "Recensioni Booking.com", "url": "https://www.booking.com/reviews/it/hotel/bra.it.html" },
-    "google": { "label": "Google Hotels e recensioni Google", "url": "https://www.google.com.sg/travel/hotels/entity/CgsI4sq0tMCp67DMARAB" },
-    "agoda": { "label": "Agoda", "url": "https://www.agoda.com/bra-hotel/hotel/bari-it.html" },
-    "expedia": { "label": "Expedia", "url": "https://www.expedia.com/Bari-Hotels-Bra-Hotel.h104523288.Hotel-Information" },
-    "hotels": { "label": "Hotels.com", "url": "https://www.hotels.com/ho3345745216/bra-hotel-bari-italy/" },
-    "trip": { "label": "Trip.com", "url": "https://www.trip.com/hotels/bari-hotel-detail-119755660/bra-hotel/" }
+    "sito": {
+      "label": "Sito ufficiale",
+      "url": "https://www.brahotel.com/"
+    },
+    "camere": {
+      "label": "Camere ufficiali",
+      "url": "https://www.brahotel.com/camere/"
+    },
+    "contatti": {
+      "label": "Contatti ufficiali",
+      "url": "https://www.brahotel.com/contatti/"
+    },
+    "offerte": {
+      "label": "Offerte ufficiali",
+      "url": "https://www.brahotel.com/offerte/"
+    },
+    "engine": {
+      "label": "Booking engine ErmesHotels",
+      "url": "https://book.ermeshotels.com/hotel/2910/channel/1449/language/2/rooms?promocode=EARLYBOOKING2027"
+    },
+    "booking": {
+      "label": "Booking.com",
+      "url": "https://www.booking.com/hotel/it/bra.it.html"
+    },
+    "bookingReviews": {
+      "label": "Recensioni Booking.com",
+      "url": "https://www.booking.com/reviews/it/hotel/bra.it.html"
+    },
+    "google": {
+      "label": "Google Hotels e recensioni Google",
+      "url": "https://www.google.com.sg/travel/hotels/entity/CgsI4sq0tMCp67DMARAB"
+    },
+    "agoda": {
+      "label": "Agoda",
+      "url": "https://www.agoda.com/bra-hotel/hotel/bari-it.html"
+    },
+    "expedia": {
+      "label": "Expedia",
+      "url": "https://www.expedia.com/Bari-Hotels-Bra-Hotel.h104523288.Hotel-Information"
+    },
+    "hotels": {
+      "label": "Hotels.com",
+      "url": "https://www.hotels.com/ho3345745216/bra-hotel-bari-italy/"
+    },
+    "trip": {
+      "label": "Trip.com",
+      "url": "https://www.trip.com/hotels/bari-hotel-detail-119755660/bra-hotel/"
+    }
   },
   "otaPresence": [
-    { "id": "booking", "platform": "Booking.com", "group": "Booking Holdings", "status": "present", "finding": "Scheda Bra Hotel Bari all'indirizzo di Via Abate Gimma 35; 9,7/10 e circa 175 recensioni nella pagina indicizzata. Presenza non equivale a disponibilità ogni giorno.", "source": "booking" },
-    { "id": "agoda", "platform": "Agoda", "group": "Booking Holdings", "status": "present", "finding": "Scheda Bra Hotel Bari allo stesso indirizzo; 9,8/10 su 14 recensioni nella pagina indicizzata. Verificare mappatura camere e disponibilità futura in extranet.", "source": "agoda" },
-    { "id": "priceline", "platform": "Priceline", "group": "Booking Holdings", "status": "unverified", "finding": "Scheda univoca della struttura non verificata; non prova assenza.", "source": "booking" },
-    { "id": "expedia", "platform": "Expedia", "group": "Expedia Group", "status": "present", "finding": "Scheda Bra Hotel Bari allo stesso indirizzo e con CIN coerente; 9,6/10 su 35 recensioni alla consultazione.", "source": "expedia" },
-    { "id": "hotels", "platform": "Hotels.com", "group": "Expedia Group", "status": "present", "finding": "Scheda Bra Hotel Bari rintracciata; verificare che inventario, servizi e condizioni coincidano con Expedia.", "source": "hotels" },
-    { "id": "travelocity", "platform": "Travelocity", "group": "Expedia Group", "status": "unverified", "finding": "Scheda univoca non verificata; appartenenza al gruppo non dimostra pubblicazione.", "source": "expedia" },
-    { "id": "vrbo", "platform": "Vrbo", "group": "Expedia Group", "status": "unverified", "finding": "Nessun annuncio attribuito con certezza all'hotel; non dedurre assenza contrattuale.", "source": "expedia" },
-    { "id": "airbnb", "platform": "Airbnb", "group": "Airbnb", "status": "unverified", "finding": "Nessun annuncio attribuito con certezza all'hotel; non confondere strutture omonime a Bari.", "source": "sito" },
-    { "id": "trip", "platform": "Trip.com", "group": "Trip.com Group", "status": "present", "finding": "Scheda allo stesso indirizzo; il risultato indicizzato la descrive come 4 stelle mentre sito e Booking indicano 5: verificare classificazione esposta.", "source": "trip" },
-    { "id": "holidaycheck", "platform": "HolidayCheck", "group": "HolidayCheck", "status": "unverified", "finding": "Nessuna scheda univoca documentata in questa rilevazione.", "source": "sito" }
+    {
+      "id": "booking",
+      "platform": "Booking.com",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "Scheda Bra Hotel Bari all'indirizzo di Via Abate Gimma 35; 9,7/10 e circa 175 recensioni nella pagina indicizzata. Presenza non equivale a disponibilità ogni giorno.",
+      "source": "booking"
+    },
+    {
+      "id": "agoda",
+      "platform": "Agoda",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "Scheda Bra Hotel Bari allo stesso indirizzo; 9,8/10 su 14 recensioni nella pagina indicizzata. Verificare mappatura camere e disponibilità futura in extranet.",
+      "source": "agoda"
+    },
+    {
+      "id": "priceline",
+      "platform": "Priceline",
+      "group": "Booking Holdings",
+      "status": "unverified",
+      "finding": "Scheda univoca della struttura non verificata; non prova assenza.",
+      "source": "booking"
+    },
+    {
+      "id": "expedia",
+      "platform": "Expedia",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Scheda Bra Hotel Bari allo stesso indirizzo e con CIN coerente; 9,6/10 su 35 recensioni alla consultazione.",
+      "source": "expedia"
+    },
+    {
+      "id": "hotels",
+      "platform": "Hotels.com",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Scheda Bra Hotel Bari rintracciata; verificare che inventario, servizi e condizioni coincidano con Expedia.",
+      "source": "hotels"
+    },
+    {
+      "id": "travelocity",
+      "platform": "Travelocity",
+      "group": "Expedia Group",
+      "status": "unverified",
+      "finding": "Scheda univoca non verificata; appartenenza al gruppo non dimostra pubblicazione.",
+      "source": "expedia"
+    },
+    {
+      "id": "vrbo",
+      "platform": "Vrbo",
+      "group": "Expedia Group",
+      "status": "unverified",
+      "finding": "Nessun annuncio attribuito con certezza all'hotel; non dedurre assenza contrattuale.",
+      "source": "expedia"
+    },
+    {
+      "id": "airbnb",
+      "platform": "Airbnb",
+      "group": "Airbnb",
+      "status": "unverified",
+      "finding": "Nessun annuncio attribuito con certezza all'hotel; non confondere strutture omonime a Bari.",
+      "source": "sito"
+    },
+    {
+      "id": "trip",
+      "platform": "Trip.com",
+      "group": "Trip.com Group",
+      "status": "present",
+      "finding": "Scheda allo stesso indirizzo; il risultato indicizzato la descrive come 4 stelle mentre sito e Booking indicano 5: verificare classificazione esposta.",
+      "source": "trip"
+    },
+    {
+      "id": "holidaycheck",
+      "platform": "HolidayCheck",
+      "group": "HolidayCheck",
+      "status": "unverified",
+      "finding": "Nessuna scheda univoca documentata in questa rilevazione.",
+      "source": "sito"
+    },
+    {
+      "id": "tripadvisor",
+      "platform": "Tripadvisor",
+      "group": "Tripadvisor",
+      "status": "unverified",
+      "finding": "Profilo pubblico da ricercare e attribuire automaticamente; recensioni e offerte aggregate non equivalgono a distribuzione diretta.",
+      "source": "sito"
+    },
+    {
+      "id": "trivago",
+      "platform": "Trivago",
+      "group": "Metasearch",
+      "status": "unverified",
+      "finding": "Presenza nel metasearch da verificare; eventuali prezzi rimandano a fornitori terzi e non provano un contratto diretto.",
+      "source": "sito"
+    },
+    {
+      "id": "googlehotels",
+      "platform": "Google Hotels",
+      "group": "Google",
+      "status": "unverified",
+      "finding": "Scheda hotel/metasearch da verificare e collegare alla struttura; prezzi e disponibilità possono provenire da partner terzi.",
+      "source": "sito"
+    }
   ],
   "pricingAudit": {
     "capturedAt": "2026-10-02",
     "method": "Osservazione pubblica senza login: 2 adulti e 1 camera. Preventivi diretti datati 20-23 ottobre 2026 e 15-18 gennaio 2027; calendario diretto consultato il giorno 15 di ogni mese fino a dicembre 2027. Il prezzo del calendario è una sola anteprima giornaliera, senza tipologia e piano: NON è ADR né range camere. Il prezzo per notte di un preventivo confermato è totale/numero notti, non ADR realizzato. OTA presenti ma senza preventivi omogenei verificati: nessun delta artificiale.",
     "direct": "ErmesHotels: 20-23 ottobre 2026, Superior Room, B&B non rimborsabile EUR 1.932/3 notti (EUR 644/notte), rimborsabile EUR 2.145/3 (EUR 715/notte), Stay & Shuttle EUR 2.355/3 e non rimborsabile EUR 2.142/3. 15-18 gennaio 2027 con codice EARLYBOOKING2027: Deluxe Room B&B non rimborsabile EUR 1.005/3 (prezzo barrato EUR 1.116), rimborsabile EUR 1.116/3 (da EUR 1.239); Superior EUR 1.383/3; Bra Spa Suite EUR 1.887/3 sui piani B&B non rimborsabili. Il codice riduce circa il 10% sui prezzi barrati; tasse di soggiorno EUR 24 extra per 2 adulti/3 notti.",
     "policies": [
-      { "otaId": "booking", "plans": "Scheda con categorie Deluxe, Superior, Suite ed Economy; per i mesi futuri campionati non è stato acquisito un preventivo datato con regole di cancellazione.", "promotions": "Genius, mobile, last minute e sconti struttura non attribuibili con certezza dalla scheda non quotata; nessuna percentuale inventata.", "source": "booking", "confidence": "scheda verificata; tariffe non verificate" },
-      { "otaId": "agoda", "plans": "Scheda presente; piani datati rimborsabili/non rimborsabili non verificati.", "promotions": "Coupon, member o app price non attribuibili senza preventivo.", "source": "agoda", "confidence": "scheda verificata; tariffe non verificate" },
-      { "otaId": "priceline", "plans": "Scheda e piani non confermati.", "promotions": "Nessuno sconto attribuibile.", "source": "booking", "confidence": "non verificato" },
-      { "otaId": "expedia", "plans": "Scheda presente; indica cancellazione gratuita solo su alcune tariffe, senza dettaglio di camera e date future comparabili.", "promotions": "Nessuno sconto specifico della struttura quantificabile nel campione.", "source": "expedia", "confidence": "scheda verificata; piani parziali" },
-      { "otaId": "hotels", "plans": "Scheda presente; piani datati non campionati.", "promotions": "Tariffe member non attribuite senza login e data.", "source": "hotels", "confidence": "parziale" },
-      { "otaId": "travelocity", "plans": "Scheda non confermata.", "promotions": "Nessuno sconto attribuibile.", "source": "expedia", "confidence": "non verificato" },
-      { "otaId": "vrbo", "plans": "Annuncio hotel non confermato.", "promotions": "Nessuno sconto attribuibile.", "source": "expedia", "confidence": "non verificato" },
-      { "otaId": "airbnb", "plans": "Annuncio hotel non confermato.", "promotions": "Nessuno sconto attribuibile.", "source": "sito", "confidence": "non verificato" },
-      { "otaId": "trip", "plans": "Scheda presente; piani futuri e regole di cancellazione non verificati.", "promotions": "Promozioni generiche del portale non provano sconti finanziati dall'hotel.", "source": "trip", "confidence": "scheda verificata; tariffe non verificate" },
-      { "otaId": "holidaycheck", "plans": "Scheda non confermata.", "promotions": "Nessuno sconto attribuibile.", "source": "sito", "confidence": "non verificato" }
+      {
+        "otaId": "booking",
+        "plans": "Scheda con categorie Deluxe, Superior, Suite ed Economy; per i mesi futuri campionati non è stato acquisito un preventivo datato con regole di cancellazione.",
+        "promotions": "Genius, mobile, last minute e sconti struttura non attribuibili con certezza dalla scheda non quotata; nessuna percentuale inventata.",
+        "source": "booking",
+        "confidence": "scheda verificata; tariffe non verificate"
+      },
+      {
+        "otaId": "agoda",
+        "plans": "Scheda presente; piani datati rimborsabili/non rimborsabili non verificati.",
+        "promotions": "Coupon, member o app price non attribuibili senza preventivo.",
+        "source": "agoda",
+        "confidence": "scheda verificata; tariffe non verificate"
+      },
+      {
+        "otaId": "priceline",
+        "plans": "Scheda e piani non confermati.",
+        "promotions": "Nessuno sconto attribuibile.",
+        "source": "booking",
+        "confidence": "non verificato"
+      },
+      {
+        "otaId": "expedia",
+        "plans": "Scheda presente; indica cancellazione gratuita solo su alcune tariffe, senza dettaglio di camera e date future comparabili.",
+        "promotions": "Nessuno sconto specifico della struttura quantificabile nel campione.",
+        "source": "expedia",
+        "confidence": "scheda verificata; piani parziali"
+      },
+      {
+        "otaId": "hotels",
+        "plans": "Scheda presente; piani datati non campionati.",
+        "promotions": "Tariffe member non attribuite senza login e data.",
+        "source": "hotels",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "travelocity",
+        "plans": "Scheda non confermata.",
+        "promotions": "Nessuno sconto attribuibile.",
+        "source": "expedia",
+        "confidence": "non verificato"
+      },
+      {
+        "otaId": "vrbo",
+        "plans": "Annuncio hotel non confermato.",
+        "promotions": "Nessuno sconto attribuibile.",
+        "source": "expedia",
+        "confidence": "non verificato"
+      },
+      {
+        "otaId": "airbnb",
+        "plans": "Annuncio hotel non confermato.",
+        "promotions": "Nessuno sconto attribuibile.",
+        "source": "sito",
+        "confidence": "non verificato"
+      },
+      {
+        "otaId": "trip",
+        "plans": "Scheda presente; piani futuri e regole di cancellazione non verificati.",
+        "promotions": "Promozioni generiche del portale non provano sconti finanziati dall'hotel.",
+        "source": "trip",
+        "confidence": "scheda verificata; tariffe non verificate"
+      },
+      {
+        "otaId": "holidaycheck",
+        "plans": "Scheda non confermata.",
+        "promotions": "Nessuno sconto attribuibile.",
+        "source": "sito",
+        "confidence": "non verificato"
+      },
+      {
+        "otaId": "tripadvisor",
+        "plans": "Profilo, recensioni e offerte aggregate: nessun piano tariffario diretto viene attribuito senza una quotazione del fornitore identificato.",
+        "promotions": "Promozioni aggregate non attribuibili automaticamente alla struttura come tariffa diretta.",
+        "confidence": "metasearch/reputazione",
+        "source": "sito"
+      },
+      {
+        "otaId": "trivago",
+        "plans": "Metasearch: confronta offerte di fornitori terzi; non viene trattato come inventario tariffario diretto della struttura.",
+        "promotions": "Sconti e differenze prezzo vanno attribuiti al fornitore mostrato, non a Trivago come canale diretto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      },
+      {
+        "otaId": "googlehotels",
+        "plans": "Metasearch: prezzi e disponibilità sono aggregati da sito ufficiale e partner; nessun piano viene attribuito senza identificare il fornitore.",
+        "promotions": "Le offerte visualizzate vanno ricondotte al fornitore effettivo prima di qualsiasi confronto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      }
     ],
     "comparisonSamples": [
-      { "stay": "20-23 ott 2026", "otaId": "sito", "roomType": "Superior Room", "nightly": 644.0, "conditions": "B&B non rimborsabile, 2 adulti; EUR 1.932/3 notti, tassa soggiorno extra EUR 24", "delta": "n.d. - OTA omogenea non acquisita", "source": "engine" },
-      { "stay": "15-18 gen 2027", "otaId": "sito", "roomType": "Deluxe Room", "nightly": 335.0, "conditions": "B&B non rimborsabile, 2 adulti, EARLYBOOKING2027; EUR 1.005/3 notti + tassa EUR 24", "delta": "n.d. - OTA omogenea non acquisita", "source": "engine" },
-      { "stay": "15-18 gen 2027", "otaId": "sito", "roomType": "Superior Room", "nightly": 461.0, "conditions": "B&B non rimborsabile; EUR 1.383/3 notti, con codice diretto", "delta": "n.d.", "source": "engine" },
-      { "stay": "15-18 gen 2027", "otaId": "sito", "roomType": "Bra Spa Suite", "nightly": 629.0, "conditions": "B&B non rimborsabile; EUR 1.887/3 notti, con codice diretto", "delta": "n.d.", "source": "engine" }
+      {
+        "stay": "20-23 ott 2026",
+        "otaId": "sito",
+        "roomType": "Superior Room",
+        "nightly": 644,
+        "conditions": "B&B non rimborsabile, 2 adulti; EUR 1.932/3 notti, tassa soggiorno extra EUR 24",
+        "delta": "n.d. - OTA omogenea non acquisita",
+        "source": "engine"
+      },
+      {
+        "stay": "15-18 gen 2027",
+        "otaId": "sito",
+        "roomType": "Deluxe Room",
+        "nightly": 335,
+        "conditions": "B&B non rimborsabile, 2 adulti, EARLYBOOKING2027; EUR 1.005/3 notti + tassa EUR 24",
+        "delta": "n.d. - OTA omogenea non acquisita",
+        "source": "engine"
+      },
+      {
+        "stay": "15-18 gen 2027",
+        "otaId": "sito",
+        "roomType": "Superior Room",
+        "nightly": 461,
+        "conditions": "B&B non rimborsabile; EUR 1.383/3 notti, con codice diretto",
+        "delta": "n.d.",
+        "source": "engine"
+      },
+      {
+        "stay": "15-18 gen 2027",
+        "otaId": "sito",
+        "roomType": "Bra Spa Suite",
+        "nightly": 629,
+        "conditions": "B&B non rimborsabile; EUR 1.887/3 notti, con codice diretto",
+        "delta": "n.d.",
+        "source": "engine"
+      }
     ],
     "monthlySamples": [
-      { "month": "2026-10", "stay": "20-23 ott", "nights": 3, "direct": { "low": 644.0, "high": 644.0, "scope": "solo Superior, B&B non rimborsabile" }, "booking": { "status": "Non quotato a pari data" }, "other": "Non quotate a pari data", "delta": "n.d. - nessuna coppia omogenea" },
-      { "month": "2026-11", "stay": "15-18 nov", "nights": 3, "direct": { "status": "Calendario 15/11: da EUR 420; preventivo 3 notti non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2026-12", "stay": "15-18 dic", "nights": 3, "direct": { "status": "Calendario 15/12: da EUR 420; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-01", "stay": "15-18 gen", "nights": 3, "direct": { "low": 335.0, "high": 629.0, "scope": "Deluxe, Superior, Spa Suite; B&B NR con promo" }, "booking": { "status": "Non quotato a pari data" }, "other": "Non quotate a pari data", "delta": "n.d. - nessuna coppia omogenea" },
-      { "month": "2027-02", "stay": "15-18 feb", "nights": 3, "direct": { "status": "Calendario 15/02: da EUR 467; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-03", "stay": "15-18 mar", "nights": 3, "direct": { "status": "Calendario 15/03: da EUR 348; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-04", "stay": "15-18 apr", "nights": 3, "direct": { "status": "Calendario 15/04: da EUR 392; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-05", "stay": "15-18 mag", "nights": 3, "direct": { "status": "Calendario 15/05: da EUR 500; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-06", "stay": "15-18 giu", "nights": 3, "direct": { "status": "Calendario 15/06: da EUR 516; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-07", "stay": "15-18 lug", "nights": 3, "direct": { "status": "Calendario 15/07: da EUR 516; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-08", "stay": "15-20 ago", "nights": 5, "direct": { "status": "Calendario 15/08: da EUR 516; 5 notti non verificate" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d.; verificare minimo soggiorno" },
-      { "month": "2027-09", "stay": "15-18 set", "nights": 3, "direct": { "status": "Calendario 15/09: da EUR 516; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-10", "stay": "15-18 ott", "nights": 3, "direct": { "status": "Calendario 15/10: da EUR 436; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-11", "stay": "15-18 nov", "nights": 3, "direct": { "status": "Calendario 15/11: da EUR 255; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." },
-      { "month": "2027-12", "stay": "15-18 dic", "nights": 3, "direct": { "status": "Calendario 15/12: da EUR 277; preventivo non verificato" }, "booking": { "status": "Non quotato" }, "other": "Non quotate", "delta": "n.d." }
+      {
+        "month": "2026-10",
+        "stay": "20-23 ott",
+        "nights": 3,
+        "direct": {
+          "low": 644,
+          "high": 644,
+          "scope": "solo Superior, B&B non rimborsabile"
+        },
+        "booking": {
+          "status": "Non quotato a pari data"
+        },
+        "other": "Non quotate a pari data",
+        "delta": "n.d. - nessuna coppia omogenea"
+      },
+      {
+        "month": "2026-11",
+        "stay": "15-18 nov",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/11: da EUR 420; preventivo 3 notti non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2026-12",
+        "stay": "15-18 dic",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/12: da EUR 420; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-01",
+        "stay": "15-18 gen",
+        "nights": 3,
+        "direct": {
+          "low": 335,
+          "high": 629,
+          "scope": "Deluxe, Superior, Spa Suite; B&B NR con promo"
+        },
+        "booking": {
+          "status": "Non quotato a pari data"
+        },
+        "other": "Non quotate a pari data",
+        "delta": "n.d. - nessuna coppia omogenea"
+      },
+      {
+        "month": "2027-02",
+        "stay": "15-18 feb",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/02: da EUR 467; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-03",
+        "stay": "15-18 mar",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/03: da EUR 348; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-04",
+        "stay": "15-18 apr",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/04: da EUR 392; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-05",
+        "stay": "15-18 mag",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/05: da EUR 500; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-06",
+        "stay": "15-18 giu",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/06: da EUR 516; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-07",
+        "stay": "15-18 lug",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/07: da EUR 516; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-08",
+        "stay": "15-20 ago",
+        "nights": 5,
+        "direct": {
+          "status": "Calendario 15/08: da EUR 516; 5 notti non verificate"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d.; verificare minimo soggiorno"
+      },
+      {
+        "month": "2027-09",
+        "stay": "15-18 set",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/09: da EUR 516; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-10",
+        "stay": "15-18 ott",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/10: da EUR 436; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-11",
+        "stay": "15-18 nov",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/11: da EUR 255; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      },
+      {
+        "month": "2027-12",
+        "stay": "15-18 dic",
+        "nights": 3,
+        "direct": {
+          "status": "Calendario 15/12: da EUR 277; preventivo non verificato"
+        },
+        "booking": {
+          "status": "Non quotato"
+        },
+        "other": "Non quotate",
+        "delta": "n.d."
+      }
     ],
-    "priceCalendar": { "from": "2026-10-02", "through": "2027-12-31", "status": "anteprime dirette visibili fino a dicembre 2027; due preventivi datati", "reason": "Il calendario ErmesHotels mostra un importo per il 15 di ogni mese del 2027: è un segnale di apertura della vendita anticipata sul canale diretto, NON un preventivo completo, una media mensile o un ADR. Solo ottobre 2026 e gennaio 2027 hanno qui un preventivo per tre notti. Senza prezzi sulla medesima tipologia, date, occupazione, condizioni, imposte e pubblico su una OTA non è calcolabile il delta.", "metric": "Prezzo quotato per notte = totale di un soggiorno confermato / notti; ADR realizzato richiede ricavi e camere vendute interni.", "focus": "Ripetere 2 adulti, 3 notti il 15-18 di ogni mese; 5 notti 15-20 agosto. Salvare camera, piano, promo, tasse e visibilità per sito e OTA. Il calendario preliminare non prova prenotabilità dell'intero mese." }
+    "priceCalendar": {
+      "from": "2026-10-02",
+      "through": "2027-12-31",
+      "status": "anteprime dirette visibili fino a dicembre 2027; due preventivi datati",
+      "reason": "Il calendario ErmesHotels mostra un importo per il 15 di ogni mese del 2027: è un segnale di apertura della vendita anticipata sul canale diretto, NON un preventivo completo, una media mensile o un ADR. Solo ottobre 2026 e gennaio 2027 hanno qui un preventivo per tre notti. Senza prezzi sulla medesima tipologia, date, occupazione, condizioni, imposte e pubblico su una OTA non è calcolabile il delta.",
+      "metric": "Prezzo quotato per notte = totale di un soggiorno confermato / notti; ADR realizzato richiede ricavi e camere vendute interni.",
+      "focus": "Ripetere 2 adulti, 3 notti il 15-18 di ogni mese; 5 notti 15-20 agosto. Salvare camera, piano, promo, tasse e visibilità per sito e OTA. Il calendario preliminare non prova prenotabilità dell'intero mese."
+    }
   },
   "reviewInsights": {
     "googleRating": "circa 4,8/5 e ~230 recensioni nel risultato Google Hotels indicizzato; dato dinamico",
     "method": "Lettura qualitativa dei temi Google visibili nel riepilogo pubblico (servizio, struttura, ristorazione, bar, posizione, colazione, camera) e confronto con recensioni Booking ed Expedia. Non è un'analisi integrale di tutte le recensioni Google: temi negativi puntuali sotto derivano dalle recensioni Expedia/Booking citate e non vanno attribuiti a Google.",
     "strengths": [
-      { "theme": "Servizio e personale", "finding": "Il riepilogo Google mette il servizio tra i temi più citati; Booking dà allo staff circa 9,8/10 ed Expedia 10/10 al servizio nel campione.", "action": "Preservare standard di accoglienza e concierge; raccontare il servizio con esempi concreti nelle schede." },
-      { "theme": "Posizione e design", "finding": "Posizione centrale e ambienti di design ricorrono nei commenti pubblici; Booking attribuisce circa 9,8/10 a posizione e comfort.", "action": "Mantenere foto fedeli per tipologia e comunicare percorsi a piedi e dotazioni differenzianti." },
-      { "theme": "Colazione e spa", "finding": "Colazione, ristorazione e benessere emergono come motivi di apprezzamento su Google ed Expedia.", "action": "Presentare con chiarezza inclusioni, orari, prenotazione spa e differenza tra servizio incluso e supplemento." }
+      {
+        "theme": "Servizio e personale",
+        "finding": "Il riepilogo Google mette il servizio tra i temi più citati; Booking dà allo staff circa 9,8/10 ed Expedia 10/10 al servizio nel campione.",
+        "action": "Preservare standard di accoglienza e concierge; raccontare il servizio con esempi concreti nelle schede."
+      },
+      {
+        "theme": "Posizione e design",
+        "finding": "Posizione centrale e ambienti di design ricorrono nei commenti pubblici; Booking attribuisce circa 9,8/10 a posizione e comfort.",
+        "action": "Mantenere foto fedeli per tipologia e comunicare percorsi a piedi e dotazioni differenzianti."
+      },
+      {
+        "theme": "Colazione e spa",
+        "finding": "Colazione, ristorazione e benessere emergono come motivi di apprezzamento su Google ed Expedia.",
+        "action": "Presentare con chiarezza inclusioni, orari, prenotazione spa e differenza tra servizio incluso e supplemento."
+      }
     ],
     "weaknesses": [
-      { "theme": "Aspettativa sulla rooftop pool", "finding": "Una recensione Expedia verificata apprezza l'hotel ma segnala delusione per la piscina sul tetto; è un caso puntuale, non un trend Google dimostrato.", "action": "Mostrare dimensioni, profondità, disponibilità stagionale e regole d'accesso prima della prenotazione." },
-      { "theme": "Rumore in camera", "finding": "Una recensione Expedia riporta un disturbo acustico minore compensato dal servizio; frequenza e causa non sono dimostrate.", "action": "Tracciare numero camera, origine del rumore e intervento; verificare le prossime recensioni." },
-      { "theme": "Informazioni al check-in", "finding": "Un commento Booking menziona mancata spiegazione della piscina e difficoltà con la porta della camera.", "action": "Checklist di check-in su accesso camere e servizi; verificare serrature e istruzioni pratiche." }
+      {
+        "theme": "Aspettativa sulla rooftop pool",
+        "finding": "Una recensione Expedia verificata apprezza l'hotel ma segnala delusione per la piscina sul tetto; è un caso puntuale, non un trend Google dimostrato.",
+        "action": "Mostrare dimensioni, profondità, disponibilità stagionale e regole d'accesso prima della prenotazione."
+      },
+      {
+        "theme": "Rumore in camera",
+        "finding": "Una recensione Expedia riporta un disturbo acustico minore compensato dal servizio; frequenza e causa non sono dimostrate.",
+        "action": "Tracciare numero camera, origine del rumore e intervento; verificare le prossime recensioni."
+      },
+      {
+        "theme": "Informazioni al check-in",
+        "finding": "Un commento Booking menziona mancata spiegazione della piscina e difficoltà con la porta della camera.",
+        "action": "Checklist di check-in su accesso camere e servizi; verificare serrature e istruzioni pratiche."
+      }
     ]
   },
   "photoAssessment": {
@@ -108,9 +566,18 @@
     "summary1": "Bra Hotel è un boutique hotel lusso di 10 camere nel centro di Bari, con identità forte, spa, rooftop, ristorazione e un percorso di prenotazione diretta ErmesHotels funzionante fino alla quotazione. Il CIN è esposto sul sito e la vendita anticipata è visibile nel calendario diretto fino a dicembre 2027.",
     "summary2": "Reputazione pubblica molto alta e fotografie professionali (8,5/10 nel campione). Le opportunità non riguardano una mancanza di presenza online: occorre controllare la coerenza della classificazione 5 stelle sui portali, l'aspettativa sulla rooftop pool e la misurazione comparabile di tariffe/promo fra canali.",
     "actions": [
-      ["01  Contenuti e aspettative", "Allineare la classificazione 5 stelle su Trip.com e verificare dati/amenities di Expedia e Agoda; rendere esplicite dimensioni e condizioni della rooftop pool e dell'accesso spa."],
-      ["02  Revenue e canali", "Verificare in extranet tariffe, Genius/member, rimborsabilità e sconti per la medesima camera su Booking, Agoda, Expedia e diretto. Solo dopo misurare i delta netti di tasse e pubblico."],
-      ["03  Conversione e qualità", "Monitorare funnel ErmesHotels e performance mobile; mantenere la promessa di servizio e usare checklist per check-in, camere e gestione puntuale dei reclami."]
+      [
+        "01  Contenuti e aspettative",
+        "Allineare la classificazione 5 stelle su Trip.com e verificare dati/amenities di Expedia e Agoda; rendere esplicite dimensioni e condizioni della rooftop pool e dell'accesso spa."
+      ],
+      [
+        "02  Revenue e canali",
+        "Verificare in extranet tariffe, Genius/member, rimborsabilità e sconti per la medesima camera su Booking, Agoda, Expedia e diretto. Solo dopo misurare i delta netti di tasse e pubblico."
+      ],
+      [
+        "03  Conversione e qualità",
+        "Monitorare funnel ErmesHotels e performance mobile; mantenere la promessa di servizio e usare checklist per check-in, camere e gestione puntuale dei reclami."
+      ]
     ],
     "consulting": "La collaborazione sarebbe selettiva: prodotto e reputazione sono già forti. Il valore consulenziale è nel governo dei canali e delle condizioni tariffarie, nella conversione diretta e nel controllo dell'accuratezza delle schede. Nessuna stima di incremento ricavi è possibile senza occupazione, ricavi, commissioni e dati gestionali.",
     "channel": "Controllare in extranet la mappatura delle quattro categorie ufficiali e l'origine delle tariffe sui portali del gruppo Booking/Expedia. La scheda Trip.com indicizzata come 4 stelle richiede correzione se confermata nella vista corrente.",
@@ -121,55 +588,533 @@
     "identity": "Bra Hotel Bari · Via Abate Giacinto Gimma 35, 70121 Bari (BA) · 10 camere dichiarate · CIN IT072006A100091385. Consulente: non indicato."
   },
   "checks": [
-    { "id": "q6", "group": "Brand e posizionamento", "label": "Posizionamento", "status": "present", "evidence": "Identità 5 stelle lusso con 10 camere, spa, rooftop e ristorazione distinta.", "sources": ["sito"] },
-    { "id": "q7", "group": "Brand e posizionamento", "label": "Target ospite", "status": "partial", "evidence": "Business, leisure e wellness emergono dalle sezioni, ma il percorso per segmento non è misurato.", "sources": ["sito", "camere"] },
-    { "id": "q8", "group": "Brand e posizionamento", "label": "Promessa di soggiorno", "status": "present", "evidence": "Soggiorno esperienziale, lusso urbano, benessere e gastronomia comunicati chiaramente.", "sources": ["sito"] },
-    { "id": "q9", "group": "Brand e posizionamento", "label": "Identità territoriale", "status": "present", "evidence": "Pagina dedicata a Bari e posizione centrale dichiarata.", "sources": ["sito", "contatti"] },
-    { "id": "q12", "group": "Sito e conversione", "label": "UX mobile", "status": "unverified", "evidence": "Nessun test sistematico di velocità e conversione su smartphone.", "sources": ["sito"] },
-    { "id": "q13", "group": "Sito e conversione", "label": "Booking engine", "status": "present", "evidence": "ErmesHotels mostra date, camere, piani e preventivi; pagamento finale non testato.", "sources": ["offerte", "engine"] },
-    { "id": "q14", "group": "Sito e conversione", "label": "Camere e tariffe", "status": "present", "evidence": "Quattro categorie descritte; preventivo 15-18 gennaio 2027 con tre categorie quotate e piani distinti.", "sources": ["camere", "engine"] },
-    { "id": "q15", "group": "Sito e conversione", "label": "Elementi di fiducia", "status": "present", "evidence": "Ragione sociale, indirizzo, CIN, contatti e recensioni pubbliche rintracciabili.", "sources": ["sito", "booking"] },
-    { "id": "q20", "group": "Sito e conversione", "label": "SSL", "status": "present", "evidence": "Sito ufficiale in HTTPS.", "sources": ["sito"] },
-    { "id": "q21", "group": "Sito e conversione", "label": "Cookie e consenso", "status": "partial", "evidence": "Banner con scelta e policy presente; blocco effettivo dei tag non testato.", "sources": ["sito"] },
-    { "id": "q22", "group": "Sito e conversione", "label": "Privacy", "status": "present", "evidence": "Informativa privacy collegata e checkbox nel form contatti.", "sources": ["sito", "contatti"] },
-    { "id": "q24", "group": "Sito e conversione", "label": "Tracciamenti marketing", "status": "unverified", "evidence": "Tag Manager visibile nel markup, ma gli eventi prenotazione non sono stati verificati.", "sources": ["sito"] },
-    { "id": "q141", "group": "Conformità pubblica", "label": "CIR e CIN", "status": "present", "evidence": "CIN IT072006A100091385 sul sito e su Expedia.", "sources": ["sito", "expedia"] },
-    { "id": "q221", "group": "Conformità pubblica", "label": "Esposizione CIN", "status": "present", "evidence": "CIN leggibile nel footer della homepage e di altre pagine campionate.", "sources": ["sito", "contatti"] },
-    { "id": "q222", "group": "Conformità pubblica", "label": "Coerenza CIN sui portali", "status": "partial", "evidence": "Expedia coincide col sito; non verificati tutti gli altri portali.", "sources": ["sito", "expedia"] },
-    { "id": "q261", "group": "Prodotto e fotografie", "label": "Foto camere", "status": "present", "evidence": "Immagini camere nitide e coerenti; valutazione editoriale campione 8,5/10.", "sources": ["camere"] },
-    { "id": "q263", "group": "Prodotto e fotografie", "label": "Foto aree comuni", "status": "present", "evidence": "Spa, rooftop e ristorazione rappresentati in sito e schede.", "sources": ["sito", "expedia"] },
-    { "id": "q264", "group": "Prodotto e fotografie", "label": "Foto esterni", "status": "present", "evidence": "Facciata e contesto urbano visibili nelle gallerie dei portali.", "sources": ["booking", "expedia"] },
-    { "id": "q266", "group": "Prodotto e fotografie", "label": "Dettagli esperienziali", "status": "present", "evidence": "Bra Spa Suite, ristorante, rooftop e benessere hanno contenuti dedicati.", "sources": ["sito", "camere"] },
-    { "id": "q269", "group": "Prodotto e fotografie", "label": "Informazioni camere", "status": "present", "evidence": "Quattro categorie con superfici dichiarate; 25, 25, 30 e 95 m².", "sources": ["camere"] },
-    { "id": "q272", "group": "Prodotto e fotografie", "label": "Amenities", "status": "present", "evidence": "Dotazioni elencate nel motore e nelle schede camere; verificare uniformità su OTA.", "sources": ["camere", "engine"] },
-    { "id": "q279", "group": "Prodotto e fotografie", "label": "Descrizioni camere", "status": "present", "evidence": "Schede per Business, Deluxe, Superior e Spa Suite disponibili.", "sources": ["camere"] },
-    { "id": "q280", "group": "Prodotto e fotografie", "label": "USP", "status": "present", "evidence": "Boutique di 10 camere, spa e rooftop sono elementi distintivi leggibili.", "sources": ["sito"] },
-    { "id": "q307", "group": "Visibilità e reputazione", "label": "Sito ufficiale", "status": "present", "evidence": "Dominio ufficiale raggiungibile e sito navigabile.", "sources": ["sito"] },
-    { "id": "q308", "group": "Visibilità e reputazione", "label": "Presenza OTA", "status": "present", "evidence": "Schede univoche rintracciate su Booking, Agoda, Expedia, Hotels.com e Trip.com.", "sources": ["booking", "agoda", "expedia", "hotels", "trip"] },
-    { "id": "q309", "group": "Visibilità e reputazione", "label": "Metasearch", "status": "present", "evidence": "Profilo Google Hotels indicizzato; collegamento dei prezzi diretti non verificato.", "sources": ["google"] },
-    { "id": "q310", "group": "Visibilità e reputazione", "label": "Profilo Google", "status": "present", "evidence": "Profilo hotel e recensioni Google visibili; circa 4,8/5 nel risultato indicizzato.", "sources": ["google"] },
-    { "id": "q311", "group": "Visibilità e reputazione", "label": "Coerenza contenuti", "status": "partial", "evidence": "Trip.com indicizza 4 stelle contro 5 ufficiali; controllare la vista corrente e la mappatura.", "sources": ["sito", "trip"] },
-    { "id": "q314", "group": "Visibilità e reputazione", "label": "Booking.com", "status": "present", "evidence": "Scheda allo stesso indirizzo, voto circa 9,7/10 su 175 recensioni.", "sources": ["booking"] },
-    { "id": "q318", "group": "Visibilità e reputazione", "label": "Google Hotels", "status": "present", "evidence": "Profilo Google Hotels pubblico e recensioni consultabili.", "sources": ["google"] },
-    { "id": "q342", "group": "Visibilità e reputazione", "label": "Risposte alle recensioni", "status": "unverified", "evidence": "Tasso e qualità delle risposte della direzione non misurati.", "sources": ["google"] },
-    { "id": "q366", "group": "Prezzi e competitività", "label": "Comp set", "status": "unverified", "evidence": "Nessun confronto omogeneo con altri hotel 5 stelle nella stessa data.", "sources": ["booking"] },
-    { "id": "q369", "group": "Prezzi e competitività", "label": "Recensioni competitive", "status": "partial", "evidence": "Reputazione molto alta, ma manca un set competitivo per fascia e volume.", "sources": ["booking", "google"] },
-    { "id": "q370", "group": "Prezzi e competitività", "label": "Pricing", "status": "present", "evidence": "Preventivi datati del canale diretto e offerta Early Booking 2027 osservati.", "sources": ["engine", "offerte"] },
-    { "id": "q372", "group": "Prezzi e competitività", "label": "Percezione del valore", "status": "present", "evidence": "Booking: rapporto qualità-prezzo circa 9,3/10 nella scheda indicizzata.", "sources": ["booking"] },
-    { "id": "q382", "group": "Prezzi e competitività", "label": "Pricing dinamico visibile", "status": "partial", "evidence": "Anteprime giornaliere diverse fra mesi 2027; la logica revenue interna non è inferibile.", "sources": ["engine"] },
-    { "id": "q385", "group": "Prezzi e competitività", "label": "Parità tariffaria", "status": "unverified", "evidence": "Nessun preventivo OTA per stessa camera, data, piano e pubblico: delta non calcolabile.", "sources": ["engine", "booking"] },
-    { "id": "q416", "group": "Contatto e conversione", "label": "Telefono", "status": "present", "evidence": "Telefono in testata e nella pagina contatti, cliccabile.", "sources": ["sito", "contatti"] },
-    { "id": "q417", "group": "Contatto e conversione", "label": "Email", "status": "present", "evidence": "info@brahotel.com e form contatti pubblici.", "sources": ["contatti"] },
-    { "id": "q418", "group": "Contatto e conversione", "label": "WhatsApp", "status": "present", "evidence": "Collegamento WhatsApp dedicato presente nella pagina contatti.", "sources": ["contatti"] },
-    { "id": "q420", "group": "Contatto e conversione", "label": "Booking engine commerciale", "status": "partial", "evidence": "Il preventivo arriva alla scelta camera/tariffa; transazione finale non testata.", "sources": ["engine"] },
-    { "id": "q446", "group": "Contatto e conversione", "label": "Tempo di risposta", "status": "unverified", "evidence": "Non sono stati inviati messaggi o effettuate telefonate di prova.", "sources": ["contatti"] },
-    { "id": "q669", "group": "Qualità percepita", "label": "Pulizia", "status": "present", "evidence": "Booking pulizia circa 9,8/10; Expedia circa 10/10 nel campione indicizzato.", "sources": ["booking", "expedia"] },
-    { "id": "q670", "group": "Qualità percepita", "label": "Manutenzione", "status": "unverified", "evidence": "Le foto e i voti non sostituiscono un'ispezione fisica degli impianti.", "sources": ["camere", "expedia"] },
-    { "id": "q720", "group": "Qualità percepita", "label": "Stato camere", "status": "present", "evidence": "Camere curate nelle immagini e comfort Booking circa 9,8/10.", "sources": ["camere", "booking"] },
-    { "id": "q724", "group": "Qualità percepita", "label": "Manutenzioni visibili", "status": "partial", "evidence": "Una recensione Booking segnala difficoltà con la porta; caso puntuale da verificare.", "sources": ["bookingReviews"] },
-    { "id": "q734", "group": "Qualità percepita", "label": "Wi-Fi", "status": "present", "evidence": "Wi-Fi dichiarato; Booking lo valuta circa 9,5/10.", "sources": ["booking", "engine"] },
-    { "id": "q744", "group": "Qualità percepita", "label": "Aspettative ospite", "status": "partial", "evidence": "Piscina rooftop suscita una delusione puntuale; chiarire dimensioni e accesso.", "sources": ["expedia"] },
-    { "id": "q756", "group": "Offerte e servizi", "label": "Offerte dirette", "status": "present", "evidence": "Early Booking 2027: 10% con codice e finestra di prenotazione pubblicati.", "sources": ["offerte", "engine"] },
-    { "id": "q769", "group": "Offerte e servizi", "label": "Servizi ancillari", "status": "present", "evidence": "Spa, ristorazione, rooftop, transfer e Stay & Shuttle in motore.", "sources": ["sito", "engine"] }
+    {
+      "id": "q6",
+      "group": "Brand e posizionamento",
+      "label": "Posizionamento",
+      "status": "present",
+      "evidence": "Identità 5 stelle lusso con 10 camere, spa, rooftop e ristorazione distinta.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q7",
+      "group": "Brand e posizionamento",
+      "label": "Target ospite",
+      "status": "partial",
+      "evidence": "Business, leisure e wellness emergono dalle sezioni, ma il percorso per segmento non è misurato.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q8",
+      "group": "Brand e posizionamento",
+      "label": "Promessa di soggiorno",
+      "status": "present",
+      "evidence": "Soggiorno esperienziale, lusso urbano, benessere e gastronomia comunicati chiaramente.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q9",
+      "group": "Brand e posizionamento",
+      "label": "Identità territoriale",
+      "status": "present",
+      "evidence": "Pagina dedicata a Bari e posizione centrale dichiarata.",
+      "sources": [
+        "sito",
+        "contatti"
+      ]
+    },
+    {
+      "id": "q12",
+      "group": "Sito e conversione",
+      "label": "UX mobile",
+      "status": "unverified",
+      "evidence": "Nessun test sistematico di velocità e conversione su smartphone.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q13",
+      "group": "Sito e conversione",
+      "label": "Booking engine",
+      "status": "present",
+      "evidence": "ErmesHotels mostra date, camere, piani e preventivi; pagamento finale non testato.",
+      "sources": [
+        "offerte",
+        "engine"
+      ]
+    },
+    {
+      "id": "q14",
+      "group": "Sito e conversione",
+      "label": "Camere e tariffe",
+      "status": "present",
+      "evidence": "Quattro categorie descritte; preventivo 15-18 gennaio 2027 con tre categorie quotate e piani distinti.",
+      "sources": [
+        "camere",
+        "engine"
+      ]
+    },
+    {
+      "id": "q15",
+      "group": "Sito e conversione",
+      "label": "Elementi di fiducia",
+      "status": "present",
+      "evidence": "Ragione sociale, indirizzo, CIN, contatti e recensioni pubbliche rintracciabili.",
+      "sources": [
+        "sito",
+        "booking"
+      ]
+    },
+    {
+      "id": "q20",
+      "group": "Sito e conversione",
+      "label": "SSL",
+      "status": "present",
+      "evidence": "Sito ufficiale in HTTPS.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q21",
+      "group": "Sito e conversione",
+      "label": "Cookie e consenso",
+      "status": "partial",
+      "evidence": "Banner con scelta e policy presente; blocco effettivo dei tag non testato.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q22",
+      "group": "Sito e conversione",
+      "label": "Privacy",
+      "status": "present",
+      "evidence": "Informativa privacy collegata e checkbox nel form contatti.",
+      "sources": [
+        "sito",
+        "contatti"
+      ]
+    },
+    {
+      "id": "q24",
+      "group": "Sito e conversione",
+      "label": "Tracciamenti marketing",
+      "status": "unverified",
+      "evidence": "Tag Manager visibile nel markup, ma gli eventi prenotazione non sono stati verificati.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q141",
+      "group": "Conformità pubblica",
+      "label": "CIR e CIN",
+      "status": "present",
+      "evidence": "CIN IT072006A100091385 sul sito e su Expedia.",
+      "sources": [
+        "sito",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q221",
+      "group": "Conformità pubblica",
+      "label": "Esposizione CIN",
+      "status": "present",
+      "evidence": "CIN leggibile nel footer della homepage e di altre pagine campionate.",
+      "sources": [
+        "sito",
+        "contatti"
+      ]
+    },
+    {
+      "id": "q222",
+      "group": "Conformità pubblica",
+      "label": "Coerenza CIN sui portali",
+      "status": "partial",
+      "evidence": "Expedia coincide col sito; non verificati tutti gli altri portali.",
+      "sources": [
+        "sito",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q261",
+      "group": "Prodotto e fotografie",
+      "label": "Foto camere",
+      "status": "present",
+      "evidence": "Immagini camere nitide e coerenti; valutazione editoriale campione 8,5/10.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q263",
+      "group": "Prodotto e fotografie",
+      "label": "Foto aree comuni",
+      "status": "present",
+      "evidence": "Spa, rooftop e ristorazione rappresentati in sito e schede.",
+      "sources": [
+        "sito",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q264",
+      "group": "Prodotto e fotografie",
+      "label": "Foto esterni",
+      "status": "present",
+      "evidence": "Facciata e contesto urbano visibili nelle gallerie dei portali.",
+      "sources": [
+        "booking",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q266",
+      "group": "Prodotto e fotografie",
+      "label": "Dettagli esperienziali",
+      "status": "present",
+      "evidence": "Bra Spa Suite, ristorante, rooftop e benessere hanno contenuti dedicati.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q269",
+      "group": "Prodotto e fotografie",
+      "label": "Informazioni camere",
+      "status": "present",
+      "evidence": "Quattro categorie con superfici dichiarate; 25, 25, 30 e 95 m².",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q272",
+      "group": "Prodotto e fotografie",
+      "label": "Amenities",
+      "status": "present",
+      "evidence": "Dotazioni elencate nel motore e nelle schede camere; verificare uniformità su OTA.",
+      "sources": [
+        "camere",
+        "engine"
+      ]
+    },
+    {
+      "id": "q279",
+      "group": "Prodotto e fotografie",
+      "label": "Descrizioni camere",
+      "status": "present",
+      "evidence": "Schede per Business, Deluxe, Superior e Spa Suite disponibili.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q280",
+      "group": "Prodotto e fotografie",
+      "label": "USP",
+      "status": "present",
+      "evidence": "Boutique di 10 camere, spa e rooftop sono elementi distintivi leggibili.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q307",
+      "group": "Visibilità e reputazione",
+      "label": "Sito ufficiale",
+      "status": "present",
+      "evidence": "Dominio ufficiale raggiungibile e sito navigabile.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q308",
+      "group": "Visibilità e reputazione",
+      "label": "Presenza OTA",
+      "status": "present",
+      "evidence": "Schede univoche rintracciate su Booking, Agoda, Expedia, Hotels.com e Trip.com.",
+      "sources": [
+        "booking",
+        "agoda",
+        "expedia",
+        "hotels",
+        "trip"
+      ]
+    },
+    {
+      "id": "q309",
+      "group": "Visibilità e reputazione",
+      "label": "Metasearch",
+      "status": "present",
+      "evidence": "Profilo Google Hotels indicizzato; collegamento dei prezzi diretti non verificato.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q310",
+      "group": "Visibilità e reputazione",
+      "label": "Profilo Google",
+      "status": "present",
+      "evidence": "Profilo hotel e recensioni Google visibili; circa 4,8/5 nel risultato indicizzato.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q311",
+      "group": "Visibilità e reputazione",
+      "label": "Coerenza contenuti",
+      "status": "partial",
+      "evidence": "Trip.com indicizza 4 stelle contro 5 ufficiali; controllare la vista corrente e la mappatura.",
+      "sources": [
+        "sito",
+        "trip"
+      ]
+    },
+    {
+      "id": "q314",
+      "group": "Visibilità e reputazione",
+      "label": "Booking.com",
+      "status": "present",
+      "evidence": "Scheda allo stesso indirizzo, voto circa 9,7/10 su 175 recensioni.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q318",
+      "group": "Visibilità e reputazione",
+      "label": "Google Hotels",
+      "status": "present",
+      "evidence": "Profilo Google Hotels pubblico e recensioni consultabili.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q342",
+      "group": "Visibilità e reputazione",
+      "label": "Risposte alle recensioni",
+      "status": "unverified",
+      "evidence": "Tasso e qualità delle risposte della direzione non misurati.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q366",
+      "group": "Prezzi e competitività",
+      "label": "Comp set",
+      "status": "unverified",
+      "evidence": "Nessun confronto omogeneo con altri hotel 5 stelle nella stessa data.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q369",
+      "group": "Prezzi e competitività",
+      "label": "Recensioni competitive",
+      "status": "partial",
+      "evidence": "Reputazione molto alta, ma manca un set competitivo per fascia e volume.",
+      "sources": [
+        "booking",
+        "google"
+      ]
+    },
+    {
+      "id": "q370",
+      "group": "Prezzi e competitività",
+      "label": "Pricing",
+      "status": "present",
+      "evidence": "Preventivi datati del canale diretto e offerta Early Booking 2027 osservati.",
+      "sources": [
+        "engine",
+        "offerte"
+      ]
+    },
+    {
+      "id": "q372",
+      "group": "Prezzi e competitività",
+      "label": "Percezione del valore",
+      "status": "present",
+      "evidence": "Booking: rapporto qualità-prezzo circa 9,3/10 nella scheda indicizzata.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q382",
+      "group": "Prezzi e competitività",
+      "label": "Pricing dinamico visibile",
+      "status": "partial",
+      "evidence": "Anteprime giornaliere diverse fra mesi 2027; la logica revenue interna non è inferibile.",
+      "sources": [
+        "engine"
+      ]
+    },
+    {
+      "id": "q385",
+      "group": "Prezzi e competitività",
+      "label": "Parità tariffaria",
+      "status": "unverified",
+      "evidence": "Nessun preventivo OTA per stessa camera, data, piano e pubblico: delta non calcolabile.",
+      "sources": [
+        "engine",
+        "booking"
+      ]
+    },
+    {
+      "id": "q416",
+      "group": "Contatto e conversione",
+      "label": "Telefono",
+      "status": "present",
+      "evidence": "Telefono in testata e nella pagina contatti, cliccabile.",
+      "sources": [
+        "sito",
+        "contatti"
+      ]
+    },
+    {
+      "id": "q417",
+      "group": "Contatto e conversione",
+      "label": "Email",
+      "status": "present",
+      "evidence": "info@brahotel.com e form contatti pubblici.",
+      "sources": [
+        "contatti"
+      ]
+    },
+    {
+      "id": "q418",
+      "group": "Contatto e conversione",
+      "label": "WhatsApp",
+      "status": "present",
+      "evidence": "Collegamento WhatsApp dedicato presente nella pagina contatti.",
+      "sources": [
+        "contatti"
+      ]
+    },
+    {
+      "id": "q420",
+      "group": "Contatto e conversione",
+      "label": "Booking engine commerciale",
+      "status": "partial",
+      "evidence": "Il preventivo arriva alla scelta camera/tariffa; transazione finale non testata.",
+      "sources": [
+        "engine"
+      ]
+    },
+    {
+      "id": "q446",
+      "group": "Contatto e conversione",
+      "label": "Tempo di risposta",
+      "status": "unverified",
+      "evidence": "Non sono stati inviati messaggi o effettuate telefonate di prova.",
+      "sources": [
+        "contatti"
+      ]
+    },
+    {
+      "id": "q669",
+      "group": "Qualità percepita",
+      "label": "Pulizia",
+      "status": "present",
+      "evidence": "Booking pulizia circa 9,8/10; Expedia circa 10/10 nel campione indicizzato.",
+      "sources": [
+        "booking",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q670",
+      "group": "Qualità percepita",
+      "label": "Manutenzione",
+      "status": "unverified",
+      "evidence": "Le foto e i voti non sostituiscono un'ispezione fisica degli impianti.",
+      "sources": [
+        "camere",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q720",
+      "group": "Qualità percepita",
+      "label": "Stato camere",
+      "status": "present",
+      "evidence": "Camere curate nelle immagini e comfort Booking circa 9,8/10.",
+      "sources": [
+        "camere",
+        "booking"
+      ]
+    },
+    {
+      "id": "q724",
+      "group": "Qualità percepita",
+      "label": "Manutenzioni visibili",
+      "status": "partial",
+      "evidence": "Una recensione Booking segnala difficoltà con la porta; caso puntuale da verificare.",
+      "sources": [
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q734",
+      "group": "Qualità percepita",
+      "label": "Wi-Fi",
+      "status": "present",
+      "evidence": "Wi-Fi dichiarato; Booking lo valuta circa 9,5/10.",
+      "sources": [
+        "booking",
+        "engine"
+      ]
+    },
+    {
+      "id": "q744",
+      "group": "Qualità percepita",
+      "label": "Aspettative ospite",
+      "status": "partial",
+      "evidence": "Piscina rooftop suscita una delusione puntuale; chiarire dimensioni e accesso.",
+      "sources": [
+        "expedia"
+      ]
+    },
+    {
+      "id": "q756",
+      "group": "Offerte e servizi",
+      "label": "Offerte dirette",
+      "status": "present",
+      "evidence": "Early Booking 2027: 10% con codice e finestra di prenotazione pubblicati.",
+      "sources": [
+        "offerte",
+        "engine"
+      ]
+    },
+    {
+      "id": "q769",
+      "group": "Offerte e servizi",
+      "label": "Servizi ancillari",
+      "status": "present",
+      "evidence": "Spa, ristorazione, rooftop, transfer e Stay & Shuttle in motore.",
+      "sources": [
+        "sito",
+        "engine"
+      ]
+    }
   ]
 }
