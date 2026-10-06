@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v55"
+PILOT_BUILD = "velora-browser-pilot-v56"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -4944,9 +4944,12 @@ async def booking_resolve_reference_stay(
     tariffa pubblica. Stati tecnici/inconcludenti non vengono interpretati come
     indisponibilità. Mantiene notti e ospiti invariati.
     """
-    rate_statuses={"quote_candidates","quote_candidates_unverified"}
+    # Booking deve fornire almeno una tariffa strutturata/validata per diventare
+    # il riferimento delle date del confronto multi-OTA. Un prezzo visibile ma
+    # non attribuito alla camera non basta: in quel caso Velora prova altre date.
     initial_status=str(initial_record.get("status") or "")
-    if initial_status in rate_statuses:
+    initial_verified=any(bool(item.get("verified")) for item in (initial_record.get("quotes") or []))
+    if initial_status=="quote_candidates" and initial_verified:
         return stay,initial_record,{
             "status":"initial_dates_available",
             "requestedCheckin":stay["checkin"],
@@ -4956,20 +4959,22 @@ async def booking_resolve_reference_stay(
             "attempts":1,
         }
 
-    if initial_status!="no_public_rate":
+    # Se Booking è tecnicamente irraggiungibile/bloccato non cambiare data:
+    # spostare il soggiorno non risolverebbe il problema e aumenterebbe le richieste.
+    if initial_status in {"rate_limited","blocked","robots_denied","robots_unavailable","http_error","navigation_error"}:
         return stay,initial_record,{
-            "status":"initial_dates_inconclusive",
+            "status":"initial_dates_technical_stop",
             "requestedCheckin":stay["checkin"],
             "requestedCheckout":stay["checkout"],
             "resolvedCheckin":stay["checkin"],
             "resolvedCheckout":stay["checkout"],
             "attempts":1,
-            "evidence":"Le date Booking iniziali non hanno dato un'indisponibilità certa; nessuno spostamento automatico applicato.",
+            "evidence":"Booking non ha restituito un esito tariffario affidabile per un limite tecnico; nessuno spostamento automatico applicato.",
         }
 
-    # Prima cerca giorno per giorno vicino alla data campione. Se non trova
-    # disponibilità, allarga gradualmente l'orizzonte senza martellare il portale.
-    offsets=list(range(1,15)) + [21,28,35,42,49,56]
+    # Ricerca progressiva ma contenuta: abbastanza ampia per trovare una finestra
+    # prenotabile senza trasformare un singolo mese in decine di richieste.
+    offsets=[1,2,3,5,7,10,14,21,28,42,56]
     carrier=await context.new_page()
     attempts=1
     try:
@@ -4984,7 +4989,8 @@ async def booking_resolve_reference_stay(
                 flush=True,
             )
 
-            if probe_status in rate_statuses:
+            probe_verified=any(bool(item.get("verified")) for item in ((probe or {}).get("quotes") or []))
+            if probe_status=="quote_candidates" and probe_verified:
                 resolved={
                     "otaId":"booking",
                     **candidate,
@@ -5833,32 +5839,46 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )
                     )
                 else:
-                    excerpt=re.sub(r"\s+", " ", body)[:500]
-                    diag=(
-                        f"DOM: testo {render_diag.get('bodyLength', len(body))} caratteri, "
-                        f"prezzi {render_diag.get('priceNodes', 0)}, camere {render_diag.get('roomNodes', 0)}, "
-                        f"blocchi disponibilità {render_diag.get('availabilityNodes', 0)}, "
-                        f"reload {'sì' if render_diag.get('reloaded') else 'no'}."
-                    )
-                    debug_path=""
-                    try:
-                        debug_dir=Path(__file__).resolve().parent/"tmp"
-                        debug_dir.mkdir(parents=True,exist_ok=True)
-                        debug_file=debug_dir/f"booking-debug-{stay['month']}.png"
-                        await page.screenshot(path=str(debug_file), full_page=False)
-                        debug_path=str(debug_file)
-                    except Exception:
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    if fallback:
+                        record["quotes"]=fallback
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date Booking confermate ({date_confirmation_mode or 'pagina renderizzata'}). "
+                                f"Il parser strutturato non ha associato camera e piano, ma ha isolato {len(fallback)} "
+                                "importi EUR nel contesto tariffario della scheda. Questi prezzi restano non validati; "
+                                "Velora continuerà comunque a cercare una finestra Booking con almeno una tariffa strutturata "
+                                "prima di fissare le date del confronto multi-OTA."
+                            )[:900],
+                        )
+                    else:
+                        excerpt=re.sub(r"\s+", " ", body)[:500]
+                        diag=(
+                            f"DOM: testo {render_diag.get('bodyLength', len(body))} caratteri, "
+                            f"prezzi {render_diag.get('priceNodes', 0)}, camere {render_diag.get('roomNodes', 0)}, "
+                            f"blocchi disponibilità {render_diag.get('availabilityNodes', 0)}, "
+                            f"reload {'sì' if render_diag.get('reloaded') else 'no'}."
+                        )
                         debug_path=""
-                    record.update(
-                        status="needs_human_review",
-                        evidence=(
-                            "Date confermate, ma nessun prezzo e nessun messaggio esplicito di indisponibilità sono stati "
-                            "attribuiti automaticamente con sufficiente certezza nella scheda struttura. "
-                            + diag + " "
-                            + (f"Screenshot diagnostico: {debug_path}. " if debug_path else "")
-                            + f"Estratto osservato: {excerpt}"
-                        )[:900],
-                    )
+                        try:
+                            debug_dir=Path(__file__).resolve().parent/"tmp"
+                            debug_dir.mkdir(parents=True,exist_ok=True)
+                            debug_file=debug_dir/f"booking-debug-{stay['month']}.png"
+                            await page.screenshot(path=str(debug_file), full_page=False)
+                            debug_path=str(debug_file)
+                        except Exception:
+                            debug_path=""
+                        record.update(
+                            status="needs_human_review",
+                            evidence=(
+                                "Date confermate, ma nessun prezzo e nessun messaggio esplicito di indisponibilità sono stati "
+                                "attribuiti automaticamente con sufficiente certezza nella scheda struttura. "
+                                + diag + " "
+                                + (f"Screenshot diagnostico: {debug_path}. " if debug_path else "")
+                                + f"Estratto osservato: {excerpt}"
+                            )[:900],
+                        )
             elif channel == "agoda":
                 candidates=await agoda_quote_candidates(page,stay)
                 record["quotes"]=candidates
@@ -5885,10 +5905,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    record.update(
-                        status="needs_human_review",
-                        evidence="Date Agoda confermate, ma nessuna riga camera/prezzo attribuibile automaticamente con sufficiente certezza."
-                    )
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    if fallback:
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date Agoda confermate. Il parser camera/piano non ha chiuso il match, ma sono stati letti "
+                                f"{len(fallback)} importi EUR nel contesto tariffario della scheda. "
+                                "Restano esclusi dai confronti finché camera e base prezzo non sono attribuite con certezza."
+                            )[:900],
+                        )
+                    else:
+                        record.update(
+                            status="needs_human_review",
+                            evidence="Date Agoda confermate, ma nessuna riga camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                        )
             elif channel in {"airbnb","vrbo"}:
                 candidates=await listing_sidebar_quote_candidates(page,stay,channel)
                 record["quotes"]=candidates
@@ -5905,10 +5937,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    record.update(
-                        status="needs_human_review",
-                        evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
-                    )
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    if fallback:
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date {OTA_META[channel]['label']} confermate. Nessun preventivo strutturato è stato attribuito "
+                                f"alla camera, ma Velora ha isolato {len(fallback)} importi EUR nel contesto tariffario visibile. "
+                                "Gli importi restano da verificare e non alimentano il delta OTA."
+                            )[:900],
+                        )
+                    else:
+                        record.update(
+                            status="needs_human_review",
+                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
+                        )
             elif channel in {"expedia","hotels","travelocity"}:
                 candidates=await expedia_group_quote_candidates(page,stay,channel)
                 record["quotes"]=candidates
@@ -5925,10 +5969,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    record.update(
-                        status="needs_human_review",
-                        evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
-                    )
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    if fallback:
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date {OTA_META[channel]['label']} confermate. Il parser delle card non ha chiuso il match "
+                                f"camera/prezzo, ma sono stati isolati {len(fallback)} importi EUR nel contesto tariffario. "
+                                "Restano osservazioni non validate e non entrano nel delta."
+                            )[:900],
+                        )
+                    else:
+                        record.update(
+                            status="needs_human_review",
+                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                        )
             elif channel == "trip":
                 candidates=await trip_quote_candidates(page,stay)
                 record["quotes"]=candidates
@@ -5944,10 +6000,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    record.update(
-                        status="needs_human_review",
-                        evidence="Date Trip.com confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
-                    )
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    if fallback:
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date Trip.com confermate. Il parser delle card non ha attribuito camera e piano, "
+                                f"ma sono stati isolati {len(fallback)} importi EUR nel contesto tariffario visibile. "
+                                "Restano non validati."
+                            )[:900],
+                        )
+                    else:
+                        record.update(
+                            status="needs_human_review",
+                            evidence="Date Trip.com confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                        )
             elif channel == "priceline":
                 candidates=await priceline_quote_candidates(page,stay)
                 record["quotes"]=candidates
@@ -5963,10 +6031,22 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    record.update(
-                        status="needs_human_review",
-                        evidence="Date Priceline confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
-                    )
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    if fallback:
+                        record.update(
+                            status="quote_candidates_unverified",
+                            evidence=(
+                                f"Date Priceline confermate. Il parser delle card non ha attribuito camera e piano, "
+                                f"ma sono stati isolati {len(fallback)} importi EUR nel contesto tariffario visibile. "
+                                "Restano non validati."
+                            )[:900],
+                        )
+                    else:
+                        record.update(
+                            status="needs_human_review",
+                            evidence="Date Priceline confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                        )
             else:
                 candidates=await generic_ota_quote_candidates(page,stay)
                 record["quotes"]=candidates
@@ -6198,9 +6278,19 @@ REVIEW_POSITIVE_CUES = (
 )
 
 REVIEW_NEGATIVE_CUES = (
-    "sporco","sporca","sporchi","muffa","fredd","rumoros","rotto","rotta","non funz","malfunzion","assente",
-    "manca","mancava","mancante","scomodo","scomoda","vecchio","vecchia","deludent","pessim","male","difficil",
-    "odore","costos","caro","cara","lontan","piccol","strett","caldo eccessivo","problema","problemi","peccato"
+    "sporco","sporca","sporchi","sporche","muffa","fredd","rumoros","rotto","rotta","rotti","rotte",
+    "non funz","malfunzion","assente","assenza","manca","mancava","mancano","mancante","scomodo","scomoda",
+    "vecchio","vecchia","vecchi","vecchie","datato","datata","datati","datate","deludent","pessim","male","difficil",
+    "odore","costos","caro","cara","lontan","piccol","strett","caldo eccessivo","problema","problemi","peccato",
+    "poca pulizia","poco pulit","scarsa pulizia","scarsa manutenzione","trascurat","da rinnovare","da rifare",
+    "trattamento da 2","esperienza negativa","unico punto a favore","unico aspetto positivo"
+)
+
+REVIEW_NEGATIVE_PATTERNS = (
+    r"\bsenza\s+(?:aria\s+condizionata|condizionatore|climatizzazione|frigo(?:\s*bar)?|wifi|wi-fi|internet|acqua\s+calda|ascensore|parcheggio|servizi?)\b",
+    r"\b(?:non|mai)\s+(?:funziona|funzionava|pulit[oaie]|disponibile|presente)\b",
+    r"\b(?:poca|scarsa)\s+(?:pulizia|igiene|manutenzione|cura)\b",
+    r"\b(?:troppo|molto)\s+(?:vecchi[oaie]|rumoros[oaie]|piccol[oaie]|car[oaie])\b",
 )
 
 REVIEW_STOPWORDS = {
@@ -6222,17 +6312,64 @@ def _review_snippet(value: str, limit: int = 180) -> str:
     return cut+"…"
 
 def _review_fragments(text: str) -> list[str]:
-    pieces=re.split(r"(?<=[.!?;])\s+|\n+",str(text or ""))
+    # Google talvolta concatena frasi senza spazio dopo il punto.
+    normalized=re.sub(r"([.!?;])(?=[A-ZÀ-Ý0-9])",r"\1 ",str(text or ""))
+    pieces=re.split(r"(?<=[.!?;])\s+|\n+",normalized)
     return [re.sub(r"\s+"," ",piece).strip() for piece in pieces if piece and piece.strip()]
+
+def _theme_contexts(fragment: str, keywords: tuple[str,...]) -> list[str]:
+    """Isola il contesto vicino al termine che ha attivato il tema.
+
+    Evita che una recensione lunga e negativa venga copiata per intero dentro
+    un tema positivo soltanto perché contiene, molto più avanti, una parola come
+    'vicino' o 'prezzo'.
+    """
+    clean=re.sub(r"\s+"," ",str(fragment or "")).strip()
+    if not clean:
+        return []
+    words=clean.split()
+    normalized=[_review_norm(word.strip(".,;:!?()[]{}\"'")) for word in words]
+    contexts=[]
+    seen=set()
+    for keyword in keywords:
+        key_parts=_review_norm(keyword).split()
+        if not key_parts:
+            continue
+        first=key_parts[0]
+        for idx,word in enumerate(normalized):
+            if not first or not (first in word or word in first):
+                continue
+            lo=max(0,idx-5)
+            hi=min(len(words),idx+9)
+            snippet=" ".join(words[lo:hi]).strip(" ,;:-")
+            marker=_review_norm(snippet)
+            if snippet and marker not in seen:
+                seen.add(marker)
+                contexts.append(snippet)
+            if len(contexts)>=4:
+                return contexts
+    return contexts or [clean]
 
 def _local_review_sentiment(fragment: str, star) -> str:
     norm=_review_norm(fragment)
     neg=sum(1 for cue in REVIEW_NEGATIVE_CUES if _review_norm(cue) in norm)
+    neg+=sum(1 for pattern in REVIEW_NEGATIVE_PATTERNS if re.search(pattern,norm,re.I))
     pos=sum(1 for cue in REVIEW_POSITIVE_CUES if _review_norm(cue) in norm)
+
+    # Nei costrutti contrastivi ("bello ma vecchio", "pulita però rumorosa")
+    # la critica successiva pesa di più sul contesto locale.
+    if re.search(r"\b(?:ma|pero|tuttavia|purtroppo)\b",norm):
+        tail=re.split(r"\b(?:ma|pero|tuttavia|purtroppo)\b",norm,maxsplit=1)[-1]
+        if any(_review_norm(cue) in tail for cue in REVIEW_NEGATIVE_CUES) or any(
+            re.search(pattern,tail,re.I) for pattern in REVIEW_NEGATIVE_PATTERNS
+        ):
+            neg+=2
+
     if neg and neg>=pos:
         return "negative"
     if pos:
         return "positive"
+    # Le stelle sono solo fallback quando il contesto locale non esprime polarità.
     if isinstance(star,(int,float)):
         if star>=4:
             return "positive"
@@ -6295,26 +6432,27 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
 
         fragments=_review_fragments(text) or [text]
         for theme,keywords in REVIEW_THEME_RULES.items():
-            matched=[]
+            matched_contexts=[]
             for fragment in fragments:
                 norm=_review_norm(fragment)
                 if any(_review_norm(keyword) in norm for keyword in keywords):
-                    matched.append(fragment)
-            if not matched:
+                    matched_contexts.extend(_theme_contexts(fragment,keywords))
+            if not matched_contexts:
                 continue
 
-            # Un tema conta al massimo una volta per recensione. La polarità è
-            # determinata prima dal contesto locale e solo in fallback dalle stelle.
-            sentiments=[_local_review_sentiment(fragment,star) for fragment in matched]
+            # Un tema conta al massimo una volta per recensione. Sentiment ed esempio
+            # vengono calcolati sul contesto vicino alla parola-tema, non sull'intera
+            # recensione. Se nello stesso tema compare una critica esplicita, prevale.
+            sentiments=[_local_review_sentiment(context,star) for context in matched_contexts]
             if "negative" in sentiments:
                 sentiment="negative"
-                chosen=matched[sentiments.index("negative")]
+                chosen=matched_contexts[sentiments.index("negative")]
             elif "positive" in sentiments:
                 sentiment="positive"
-                chosen=matched[sentiments.index("positive")]
+                chosen=matched_contexts[sentiments.index("positive")]
             else:
-                sentiment=_local_review_sentiment(text,star)
-                chosen=matched[0]
+                sentiment=_local_review_sentiment(matched_contexts[0],star)
+                chosen=matched_contexts[0]
 
             stat=theme_stats[theme]
             stat[sentiment]+=1
