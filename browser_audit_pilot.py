@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v52"
+PILOT_BUILD = "velora-browser-pilot-v53"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -6904,28 +6904,37 @@ async def run(args: argparse.Namespace) -> dict:
             single_ota_scan=len(channels)==1 and channels[0] in OTA_DISCOVERY_ORDER
             single_ota_id=channels[0] if single_ota_scan else ""
             single_ota_known=bool(single_ota_id and single_ota_id in known_ota_sources)
-            quick_retest=bool(known_ota_sources and (args.months == 1 or single_ota_known))
+
+            # "Prova un mese" deve essere un vero test end-to-end: anche se esistono
+            # schede OTA salvate da audit precedenti, ripete la discovery completa di
+            # tutti i canali richiesti. Il riuso della sorgente resta consentito solo
+            # per la scansione dedicata a una singola OTA già verificata.
+            full_one_month_discovery=bool(args.months == 1 and not single_ota_scan)
+            quick_retest=bool(single_ota_known and not full_one_month_discovery)
+
             if quick_retest:
                 master_discoveries={}
                 master_diag={
-                    "status":"reused_source_channel_scan" if single_ota_known and args.months != 1 else "reused_sources_quick_test",
+                    "status":"reused_source_channel_scan",
                     "queries":[],
                     "candidates":len(known_ota_sources),
                     "knownSources":known_ota_sources,
                     "selectedChannel":single_ota_id,
                 }
                 print(
-                    (f"master search: riuso scheda {OTA_META[single_ota_id]['label']} già verificata per scansione multi-mese · "
-                     if single_ota_known and args.months != 1
-                     else "master search: riuso schede OTA già verificate per il test di un mese · ") +
+                    f"master search: riuso scheda {OTA_META[single_ota_id]['label']} già verificata per scansione dedicata · "
                     f"fonti note={','.join(known_ota_sources)}",
                     flush=True,
                 )
             else:
                 master_discoveries,master_diag=await discover_all_ota_sources(context,data,robots)
+                if full_one_month_discovery:
+                    master_diag["mode"]="full_discovery_one_month"
                 query_preview=" | ".join((master_diag.get("queries") or [])[:3])
                 print(
-                    f"master search: {master_diag.get('status')} · varianti={len(master_diag.get('queries') or [])} · "
+                    f"master search: {master_diag.get('status')} · "
+                    f"modalità={'discovery completa test un mese' if full_one_month_discovery else 'discovery completa'} · "
+                    f"varianti={len(master_diag.get('queries') or [])} · "
                     f"candidati OTA={master_diag.get('candidates',0)} · prime query: {query_preview[:240]}",
                     flush=True,
                 )
@@ -6949,11 +6958,8 @@ async def run(args: argparse.Namespace) -> dict:
                 )
             elif quick_retest:
                 print(
-                    (
-                        f"{single_ota_id} multi-month: discovery saltata; uso della scheda {OTA_META[single_ota_id]['label']} già verificata"
-                        if single_ota_known and args.months != 1
-                        else f"quick test: discovery saltata; scraping delle {len(known_ota_sources)} OTA già note"
-                    ),
+                    f"{single_ota_id} scan: discovery saltata soltanto per questa OTA; "
+                    f"uso della scheda {OTA_META[single_ota_id]['label']} già verificata",
                     flush=True,
                 )
 
