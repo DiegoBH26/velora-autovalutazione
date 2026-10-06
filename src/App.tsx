@@ -3576,6 +3576,9 @@ type RateQuote = {
   originalTotal?: number;
   eventTag: string;
   sourceUrl: string;
+  ratePlan?: string;
+  origin?: "manual" | "pilot";
+  pilotKey?: string;
 };
 
 type BrowserPilotQuoteCandidate = {
@@ -3844,6 +3847,65 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
   const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
   return { average, count: own.length, deltaPct, matched: pairs.length };
 }
+function normalizedRateToken(value: string | undefined): string {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function pilotVerifiedRateQuotes(result: BrowserPilotResult): RateQuote[] {
+  const rows: RateQuote[] = [];
+  for (const observation of result.observations || []) {
+    if (observation.otaId !== "booking") continue;
+    const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
+    for (const quote of observation.quotes || []) {
+      if (!quote.verified || !Number.isFinite(quote.total) || quote.total <= 0 || quote.nights < 1) continue;
+      const roomType = String(quote.roomType || "").trim();
+      if (!roomType) continue;
+      const ratePlan = String(quote.ratePlan || "").trim();
+      const pilotKey = [
+        "booking",
+        observation.checkin,
+        observation.checkout,
+        normalizedRateToken(roomType),
+        normalizedRateToken(ratePlan || quote.refund),
+        normalizedRateToken(quote.board),
+        quote.guests,
+      ].join("|");
+      rows.push({
+        id: "pilot-" + pilotKey.replace(/[^a-z0-9|_-]+/gi, "-"),
+        otaId: "booking",
+        stayDate: observation.checkin,
+        observedAt: result.createdAt || new Date().toISOString(),
+        total: Number(quote.total),
+        nights: Number(quote.nights),
+        roomType,
+        guests: Number(quote.guests || 2),
+        board: quote.board || "Trattamento da verificare",
+        refund: quote.refund || "Cancellazione da verificare",
+        audience: quote.audience || "Pubblico senza login",
+        taxes: quote.taxes || "Da verificare nel dettaglio del preventivo",
+        promotion: "",
+        promotionKind: "Non verificata",
+        originalTotal: 0,
+        eventTag: "",
+        sourceUrl,
+        ratePlan,
+        origin: "pilot",
+        pilotKey,
+      });
+    }
+  }
+  const latest = new Map<string, RateQuote>();
+  rows.forEach((row) => latest.set(row.pilotKey || row.id, row));
+  return [...latest.values()];
+}
+
+function mergePilotRateQuotes(existing: RateQuote[], incoming: RateQuote[]): RateQuote[] {
+  if (!incoming.length) return existing;
+  const incomingKeys = new Set(incoming.map((item) => item.pilotKey).filter(Boolean));
+  const kept = existing.filter((item) => !(item.origin === "pilot" && item.pilotKey && incomingKeys.has(item.pilotKey)));
+  return [...kept, ...incoming];
+}
+
 function auditSeedStructure(data: AuditData): AnalyzedStructure {
   const sources = data.sources as Record<string, { label: string; url: string }>;
   const answers: Record<string, Answer> = {};
@@ -4782,6 +4844,12 @@ export default function App() {
   }
 
   function applyPilotEvidence(result: BrowserPilotResult) {
+    const automaticBookingQuotes = pilotVerifiedRateQuotes(result);
+    if (automaticBookingQuotes.length) {
+      setRateQuotes((previous) => mergePilotRateQuotes(previous, automaticBookingQuotes));
+      setSelectedRateCohort((current) => current || rateCohortKey(automaticBookingQuotes[0]));
+    }
+
     const otaLabels: Record<string, string> = {
       booking: "Booking.com",
       airbnb: "Airbnb",
@@ -5223,7 +5291,7 @@ export default function App() {
       window.alert("Inserisci una data futura, prezzo positivo, camera, ospiti e URL. Se indichi un prezzo barrato, deve superare quello finale.");
       return;
     }
-    const quote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim() };
+    const quote: RateQuote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim(), origin: "manual" };
     setRateQuotes((previous) => [...previous, quote]);
     setSelectedRateCohort(rateCohortKey(quote));
     setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, originalTotal: 0, promotion: "", eventTag: "", sourceUrl: "" }));
