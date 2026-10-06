@@ -3869,6 +3869,7 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
     navigation_error: "Errore di navigazione durante la verifica",
     empty_page: "Pagina senza contenuto tariffario leggibile",
     dated_search_inconclusive: "Ricerca datata non conclusiva",
+    login_required: "Login richiesto dal portale · nessun prezzo usato",
   };
   return labels[item.status] || item.status || "";
 }
@@ -7387,6 +7388,23 @@ export default function App() {
                     <td className="p-2">{Number.isFinite(profile.recommendationRate) ? `${Number(profile.recommendationRate).toFixed(1)}%` : "n.d."}</td>
                     <td className="p-2">{profile.evidence || "Profilo letto senza metriche strutturate"}{(profile.commercialHosts || []).length > 0 && <span className="block mt-1 text-[9px] text-[#50627F]">Link commerciali: {(profile.commercialHosts || []).slice(0, 6).join(", ")}</span>}</td>
                   </tr>)}</tbody>
+                </table>
+              </div>}
+              {browserPilotResult.observations.length > 0 && <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
+                <table className="min-w-[980px] w-full border-collapse text-[10px]">
+                  <thead className="sticky top-0 bg-[#23124A] text-white"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date testate</th><th className="p-2 text-left">Esito tecnico</th><th className="p-2 text-left">Motivo / cosa manca</th></tr></thead>
+                  <tbody>{browserPilotResult.observations.map((observation, index) => {
+                    const quotes = observation.quotes || [];
+                    const verified = quotes.filter((quote) => quote.verified).length;
+                    const label = pilotCoverageSummary(browserPilotResult, observation.month, observation.otaId) || observation.status;
+                    const quoteDetail = quotes.length ? ` · ${quotes.length} righe prezzo · ${verified} validate` : "";
+                    return <tr key={`pilot-diagnostic-${index}`} className="border-t border-[#EEE8F4] align-top odd:bg-[#FBF9FF]">
+                      <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
+                      <td className="p-2">{observation.checkin} → {observation.checkout}</td>
+                      <td className="p-2 font-semibold">{label}{quoteDetail}</td>
+                      <td className="p-2">{observation.evidence || "Nessun dettaglio tecnico disponibile"}{observation.finalUrl && <span className="block mt-1 break-all text-[9px] text-[#50627F]">Pagina finale: {observation.finalUrl}</span>}</td>
+                    </tr>;
+                  })}</tbody>
                 </table>
               </div>}
               {browserPilotResult.observations.some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
