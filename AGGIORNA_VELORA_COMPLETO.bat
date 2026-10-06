@@ -46,7 +46,7 @@ for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_buil
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$s=Get-Content 'local_audit_server.py.new' -Raw; $p=Get-Content 'browser_audit_pilot.py.new' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'PILOT_BUILD\s*=\s*"velora-browser-pilot-v(\d+)"').Groups[1].Value; if(-not $sv -or -not $pv -or $sv -ne $pv){ Write-Host ('ERRORE VERSIONI: agente v'+$sv+' / pilot v'+$pv); exit 2 } else { Write-Host ('Versioni scaricate sincronizzate: v'+$sv) }"
+  "$s=Get-Content 'local_audit_server.py.new' -Raw; $p=Get-Content 'browser_audit_pilot.py.new' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'velora-browser-pilot-v(\d+)').Groups[1].Value; if(-not $sv -or -not $pv -or $sv -ne $pv){ Write-Host ('ERRORE VERSIONI: agente v'+$sv+' / pilot v'+$pv); exit 2 } else { Write-Host ('Versioni scaricate sincronizzate: v'+$sv) }"
 if errorlevel 1 goto :errore
 
 move /Y "local_audit_server.py.new" "local_audit_server.py" >nul
@@ -65,7 +65,7 @@ echo   AGGIORNAMENTO COMPLETATO
 echo ==========================================================
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$s=Get-Content 'local_audit_server.py' -Raw; $p=Get-Content 'browser_audit_pilot.py' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'PILOT_BUILD\s*=\s*"velora-browser-pilot-v(\d+)"').Groups[1].Value; Write-Host ('Agente: v'+$sv); Write-Host ('Pilot:  v'+$pv)"
+  "$s=Get-Content 'local_audit_server.py' -Raw; $p=Get-Content 'browser_audit_pilot.py' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'velora-browser-pilot-v(\d+)').Groups[1].Value; Write-Host ('Agente: v'+$sv); Write-Host ('Pilot:  v'+$pv)"
 echo.
 echo Ora chiudi questa finestra e avvia AVVIA_AGENTE_VELORA.bat
 echo dalla stessa cartella.
