@@ -704,7 +704,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v50",
+                "agentVersion":"velora-local-agent-v51",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -819,7 +819,13 @@ class Handler(SimpleHTTPRequestHandler):
                 raise ValueError("Periodo non supportato dal pilota")
             requested_channels=payload.get("channels")
             if requested_channels is None:
-                requested_channels=list(CHANNELS)
+                # La discovery delle fonti viene comunque eseguita su tutto OTA_DISCOVERY_ORDER.
+                # Le osservazioni mese-per-mese, invece, partono solo sui canali con adapter date:
+                # evita righe ripetute "date_adapter_missing" per metasearch/review portal.
+                requested_channels=[
+                    channel for channel in CHANNELS
+                    if channel in getattr(browser_pilot,"DATE_URL_ADAPTERS",set())
+                ]
             if not isinstance(requested_channels,list) or not requested_channels:
                 raise ValueError("Canali pilota non validi")
             requested_channels=[str(item).strip() for item in requested_channels if str(item).strip()]
@@ -860,7 +866,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v50 · tariffe multi-OTA + discovery metasearch estesa",flush=True)
+    print("Versione agente: velora-local-agent-v51 · discovery OTA completa + scansioni tariffarie solo sui canali databili",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
