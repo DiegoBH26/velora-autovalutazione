@@ -29,6 +29,12 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile local audit agent
+        run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
