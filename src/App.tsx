@@ -3566,6 +3566,11 @@ type RateQuote = {
   nights: number;
   roomType: string;
   unitId?: string;
+  referenceRoomKey?: string;
+  bookingReferenceRoom?: string;
+  roomMatchStatus?: string;
+  roomMatchScore?: number;
+  comparisonWarning?: string;
   guests: number;
   board: string;
   refund: string;
@@ -3589,6 +3594,12 @@ type BrowserPilotQuoteCandidate = {
   displayedAmount?: number;
   displayedBasis?: "nightly" | "stay-total" | "unknown";
   priceDerivation?: string;
+  comparisonSelected?: boolean;
+  bookingReferenceRoom?: string;
+  referenceRoomKey?: string;
+  roomMatchStatus?: "booking-reference" | "same-room" | "different-room-fallback" | "not-selected" | string;
+  roomMatchScore?: number;
+  comparisonWarning?: string;
   currency: string;
   nights: number;
   guests: number;
@@ -3702,6 +3713,14 @@ type BrowserPilotResult = {
     otaId?: string;
     label?: string;
   };
+  roomReferences?: {
+    checkin: string;
+    checkout: string;
+    roomType: string;
+    referenceRoomKey: string;
+    matchedOtas?: number;
+    evidence?: string;
+  }[];
   observations: BrowserPilotObservation[];
 };
 
@@ -3723,6 +3742,7 @@ function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefine
     otaProfiles: { ...(previous.otaProfiles || {}), ...(next.otaProfiles || {}) },
     reputation: next.reputation?.status ? next.reputation : previous.reputation,
     photoAudit: next.photoAudit?.status ? next.photoAudit : previous.photoAudit,
+    roomReferences: next.roomReferences?.length ? next.roomReferences : previous.roomReferences,
     observations: [...observations.values()].sort((a,b) => (a.month + a.otaId).localeCompare(b.month + b.otaId)),
   };
 }
@@ -3784,12 +3804,19 @@ function todayLocalIso(date = new Date()): string {
 }
 
 function rateCohortKey(quote: RateQuote): string {
-  const physicalUnit = quote.unitId?.trim().toLowerCase() || `non-verificata:${quote.otaId}:${quote.roomType.trim().toLowerCase()}`;
+  const physicalUnit = quote.referenceRoomKey?.trim().toLowerCase()
+    || quote.unitId?.trim().toLowerCase()
+    || `non-verificata:${quote.otaId}:${quote.roomType.trim().toLowerCase()}`;
   return [physicalUnit, quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
 }
 
 function rateCohortLabel(quote: RateQuote): string {
-  return `${quote.unitId?.trim() ? `Unità ${quote.unitId.trim()}` : `${quote.roomType} (unità non verificata)`} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
+  const room = quote.referenceRoomKey
+    ? `Reference Booking: ${quote.bookingReferenceRoom || quote.roomType}`
+    : quote.unitId?.trim()
+      ? `Unità ${quote.unitId.trim()}`
+      : `${quote.roomType} (camera non comparabile)`;
+  return `${room} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
 }
 
 function monthKeys(from: string, count = 12): string[] {
@@ -3894,8 +3921,11 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
   if (!own.length) return { average: null, count: 0, deltaPct: null, matched: 0 };
   const average = own.reduce((sum, quote) => sum + quote.total / quote.nights, 0) / own.length;
   const pairs = otaId === "booking" ? [] : own.flatMap((quote) => {
-    if (!quote.unitId?.trim()) return [];
-    const base = quotes.find((other) => other.otaId === "booking" && other.unitId?.trim().toLowerCase() === quote.unitId?.trim().toLowerCase() && other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
+    const comparisonUnit = quote.referenceRoomKey?.trim().toLowerCase() || quote.unitId?.trim().toLowerCase();
+    if (!comparisonUnit) return [];
+    const base = quotes.find((other) => other.otaId === "booking" &&
+      (other.referenceRoomKey?.trim().toLowerCase() || other.unitId?.trim().toLowerCase()) === comparisonUnit &&
+      other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
     return base ? [{ own: quote.total / quote.nights, base: base.total / base.nights }] : [];
   });
   const deltaPct = pairs.length ? pairs.reduce((sum, pair) => sum + 100 * (pair.own - pair.base) / pair.base, 0) / pairs.length : null;
@@ -3911,6 +3941,7 @@ function pilotVerifiedRateQuotes(result: BrowserPilotResult): RateQuote[] {
     if (!["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(observation.otaId)) continue;
     const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
     for (const quote of observation.quotes || []) {
+      if (quote.comparisonSelected === false) continue;
       if (!quote.verified || !Number.isFinite(quote.total) || quote.total <= 0 || quote.nights < 1) continue;
       const roomType = String(quote.roomType || "").trim();
       if (!roomType) continue;
@@ -3932,6 +3963,11 @@ function pilotVerifiedRateQuotes(result: BrowserPilotResult): RateQuote[] {
         total: Number(quote.total),
         nights: Number(quote.nights),
         roomType,
+        referenceRoomKey: quote.referenceRoomKey || undefined,
+        bookingReferenceRoom: quote.bookingReferenceRoom || undefined,
+        roomMatchStatus: quote.roomMatchStatus || undefined,
+        roomMatchScore: Number.isFinite(quote.roomMatchScore) ? Number(quote.roomMatchScore) : undefined,
+        comparisonWarning: quote.comparisonWarning || undefined,
         guests: Number(quote.guests || 2),
         board: quote.board || "Trattamento da verificare",
         refund: quote.refund || "Cancellazione da verificare",
@@ -4882,6 +4918,7 @@ export default function App() {
           : undefined,
         reputation: parsed.reputation && typeof parsed.reputation === "object" ? parsed.reputation : undefined,
         photoAudit: parsed.photoAudit && typeof parsed.photoAudit === "object" ? parsed.photoAudit : undefined,
+        roomReferences: Array.isArray(parsed.roomReferences) ? parsed.roomReferences.slice(0, 60) : undefined,
         observations: parsed.observations
           .filter((item) => item && typeof item.otaId === "string" && typeof item.month === "string" && typeof item.status === "string")
           .slice(0, 500)
