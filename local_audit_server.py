@@ -873,7 +873,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v64 · camera reference Booking + diagnostica OTA reale",flush=True)
+    print("Versione agente: velora-local-agent-v64 · camera reference Booking + diagnostica OTA reale + fallback camera diversa segnalato",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
