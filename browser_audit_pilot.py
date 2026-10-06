@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v57"
+PILOT_BUILD = "velora-browser-pilot-v58"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -955,6 +955,57 @@ def _strong_search_evidence(score: float, reasons: str, engines: set[str]) -> bo
     return False
 
 
+
+def _strict_ota_identity_match(
+    property_name: str,
+    city: str,
+    address: str,
+    title: str,
+    body: str,
+    url: str,
+) -> dict:
+    """Blocco identità conservativo per impedire prezzi di strutture omonime/simili."""
+    score,path_slug,title_score,slug_score,reasons=_identity_match_score(
+        property_name,city,address,title,body[:3500],url
+    )
+    combined=_norm_name(" ".join(part for part in (title,body[:6000],path_slug) if part))
+    city_norm=_norm_name(city)
+    city_match=bool(city_norm and city_norm in combined)
+
+    address_norm=_norm_name(address)
+    address_ratio=0.0
+    if address_norm:
+        address_tokens={token for token in address_norm.split() if len(token)>=3 or token.isdigit()}
+        combined_tokens=set(combined.split())
+        if address_tokens:
+            address_ratio=len(address_tokens & combined_tokens)/len(address_tokens)
+
+    name_score=max(
+        _name_similarity(property_name,title),
+        _name_similarity(property_name,path_slug),
+    )
+    geo_ok=city_match or address_ratio>=0.50
+    name_ok=name_score>=0.54
+    strict_ok=bool(geo_ok and name_ok and score>=0.66)
+
+    evidence_parts=[
+        f"nome {name_score:.0%}",
+        f"città {'confermata' if city_match else 'non confermata'}",
+        f"indirizzo {address_ratio:.0%}" if address_norm else "indirizzo n.d.",
+        f"score complessivo {score:.0%}",
+    ]
+    if not strict_ok:
+        evidence_parts.append("BLOCCATA: identità geografica/nome non sufficientemente confermati")
+    return {
+        "ok":strict_ok,
+        "score":round(score,3),
+        "nameScore":round(name_score,3),
+        "cityMatch":city_match,
+        "addressRatio":round(address_ratio,3),
+        "evidence":" · ".join(evidence_parts),
+    }
+
+
 async def verify_ota_candidate_page(
     context,
     ota_id: str,
@@ -992,14 +1043,20 @@ async def verify_ota_candidate_page(
                     title=h1_text
         except Exception:
             pass
-        score,path_slug,text_score,url_score,reasons=_identity_match_score(
-            property_name,city,address,title,body[:2500],page.url
+        identity=_strict_ota_identity_match(
+            property_name,city,address,title,body,page.url
         )
-        ok=score>=0.70
         return {
-            "ok":ok,"score":round(score,3),"title":title[:220],
+            "ok":bool(identity.get("ok")),
+            "score":identity.get("score",0.0),
+            "title":title[:220],
             "url":urlunparse(urlparse(page.url)._replace(fragment="")),
-            "evidence":reasons,
+            "evidence":identity.get("evidence",""),
+            "identity":{
+                "nameScore":identity.get("nameScore",0.0),
+                "cityMatch":bool(identity.get("cityMatch")),
+                "addressRatio":identity.get("addressRatio",0.0),
+            },
             "otaId":ota_id,
         }
     except Exception as exc:
@@ -1146,23 +1203,12 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
                     }
                     break
                 if _strong_search_evidence(score,reasons,engines):
-                    discoveries[ota_id]={
-                        "status":"found",
-                        "url":_clean_listing_url(url),
-                        "title":title[:220],
-                        "score":round(score,3),
-                        "evidence":(
-                            f"Ricerca master gratuita: scheda {OTA_META[ota_id]['label']} attribuita tramite evidenza "
-                            f"convergente nei risultati pubblici ({', '.join(sorted(engines))}). "
-                            f"Match {score:.0%} ({reasons}); query: {' | '.join(sorted(queries_used))[:260]}. "
-                            f"La pagina OTA non è stata validata direttamente ({verify.get('evidence','')}); "
-                            "la successiva fase di scraping la controllerà senza aggirare eventuali blocchi."
-                        )[:900],
-                        "searchUrl":"",
-                        "discoveryMode":"free multi-engine correlated search evidence",
-                        "verification":"search_evidence",
-                    }
-                    break
+                    weak.append((
+                        score,url,title,reasons,engines,queries_used,
+                        "Evidenza di ricerca forte ma NON sufficiente: la pagina OTA non ha superato la verifica identità diretta. "
+                        + str(verify.get("evidence") or "")
+                    ))
+                    continue
                 weak.append((score,url,title,reasons,engines,queries_used,verify.get("evidence","")))
             if ota_id not in discoveries and weak:
                 score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
@@ -1274,19 +1320,13 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                         "discoveryMode":"free targeted multi-engine + page verification",
                     }
                 if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
-                    return {
-                        "status":"found","url":_clean_listing_url(target),
-                        "title":str(item.get("text") or "")[:220],
-                        "score":round(score,3),
-                        "evidence":(
-                            f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: "
-                            f"candidato con match {score:.0%} ({reasons}). La pagina non è stata verificata direttamente; "
-                            "viene accettata come fonte da controllare nella fase di scraping."
-                        )[:900],
-                        "searchUrl":"",
-                        "discoveryMode":"free targeted search evidence",
-                        "verification":"search_evidence",
-                    }
+                    weak.append((
+                        score,target,str(item.get("text") or ""),reasons,query,
+                        str(item.get("engine") or "HTTP search"),
+                        "Evidenza di ricerca forte ma pagina non accettata: serve verifica identità diretta con località coerente. "
+                        + str(verify.get("evidence") or "")
+                    ))
+                    continue
                 weak.append((
                     score,target,str(item.get("text") or ""),reasons,query,
                     str(item.get("engine") or "HTTP search"),verify.get("evidence","")
@@ -7366,12 +7406,36 @@ async def run(args: argparse.Namespace) -> dict:
             for ota_id in OTA_DISCOVERY_ORDER:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                 if existing_url:
-                    result["discoveredSources"][ota_id]={
-                        "status":"existing","url":existing_url,"title":"","score":1.0,
-                        "evidence":f"{OTA_META[ota_id]['label']}: scheda già registrata nella struttura.",
-                        "discoveryMode":"existing source",
-                    }
-                    continue
+                    verification=await verify_ota_candidate_page(
+                        context,
+                        ota_id,
+                        existing_url,
+                        data.get("name",""),
+                        data.get("city",""),
+                        data.get("address",""),
+                        robots,
+                    )
+                    if verification.get("ok"):
+                        result["discoveredSources"][ota_id]={
+                            "status":"existing_verified",
+                            "url":verification.get("url") or existing_url,
+                            "title":verification.get("title") or "",
+                            "score":verification.get("score",1.0),
+                            "evidence":(
+                                f"{OTA_META[ota_id]['label']}: scheda già registrata e identità riconfermata prima dello scraping. "
+                                + str(verification.get("evidence") or "")
+                            )[:900],
+                            "discoveryMode":"existing source + strict identity verification",
+                            "verification":"page_identity_lock",
+                        }
+                        sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":verification.get("url") or existing_url}
+                        continue
+                    sources.pop(ota_id,None)
+                    print(
+                        f"{ota_id} existing source rejected by identity lock · "
+                        f"{str(verification.get('evidence') or '')[:260]}",
+                        flush=True,
+                    )
                 discovery=master_discoveries.get(ota_id) or {}
                 # Booking mantiene il proprio fallback specializzato se la pipeline master non chiude il match.
                 if ota_id=="booking" and discovery.get("status")!="found":
