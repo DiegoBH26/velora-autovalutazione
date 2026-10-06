@@ -33,8 +33,8 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v44"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/e7289b35d7e52063d2ccc96a2d63260cd2909228/browser_audit_pilot.py"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v45"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/0092af2f37375dbf56116a96c095f59303245865/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
@@ -622,12 +622,12 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months):
+def run_pilot(property_id,property_path,months,channels):
     try:
         args=argparse.Namespace(
             property=str(property_path),
             output=str(result_path(property_id)),
-            channels=",".join(CHANNELS),
+            channels=",".join(channels),
             months=months,
             today=None,
             dry_run=False,
@@ -704,7 +704,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v44",
+                "agentVersion":"velora-local-agent-v45",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -817,6 +817,15 @@ class Handler(SimpleHTTPRequestHandler):
 
             if payload.get("months") not in (1,"all"):
                 raise ValueError("Periodo non supportato dal pilota")
+            requested_channels=payload.get("channels")
+            if requested_channels is None:
+                requested_channels=list(CHANNELS)
+            if not isinstance(requested_channels,list) or not requested_channels:
+                raise ValueError("Canali pilota non validi")
+            requested_channels=[str(item).strip() for item in requested_channels if str(item).strip()]
+            unknown_channels=set(requested_channels)-set(CHANNELS)
+            if unknown_channels:
+                raise ValueError("Canali non supportati: "+", ".join(sorted(unknown_channels)))
             runtime=prepare_runtime_property(payload.get("propertyData"))
             if runtime:
                 property_id,property_path=runtime
@@ -841,7 +850,7 @@ class Handler(SimpleHTTPRequestHandler):
             STATE.property_id=property_id
             STATE.property_path=property_path
         months=1 if payload["months"]==1 else None
-        threading.Thread(target=run_pilot,args=(property_id,property_path,months),daemon=True).start()
+        threading.Thread(target=run_pilot,args=(property_id,property_path,months,requested_channels),daemon=True).start()
         self._json(202,{"running":True,"propertyId":property_id})
 
 
@@ -851,7 +860,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v44 · temi recensioni positivi e negativi",flush=True)
+    print("Versione agente: velora-local-agent-v45 · tariffe Booking automatiche e multi-mese",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
