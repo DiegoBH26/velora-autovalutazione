@@ -7,6 +7,10 @@ export type ComparableRate = {
   nights: number;
   roomType: string;
   unitId?: string;
+  referenceRoomKey?: string;
+  bookingReferenceRoom?: string;
+  roomMatchStatus?: string;
+  comparisonWarning?: string;
   guests: number;
   board: string;
   refund: string;
@@ -25,13 +29,14 @@ export type RateComparisonRow<T extends ComparableRate> = {
 
 const normalized = (value: string | undefined) => (value || "").trim().toLocaleLowerCase("it-IT");
 
-/** Confronta solo la stessa unità fisica e condizioni dichiarate, non nomi simili. */
+/** Confronta solo la stessa camera reference Booking (o unità fisica esplicita) e condizioni dichiarate. */
 export function buildRateComparisonRows<T extends ComparableRate>(quotes: T[], today: string): RateComparisonRow<T>[] {
   const latest = new Map<string, T>();
   for (const quote of quotes) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(quote.stayDate) || quote.stayDate < today ||
         !Number.isFinite(quote.total) || quote.total <= 0 || !Number.isInteger(quote.nights) || quote.nights < 1) continue;
-    const key = [quote.otaId, quote.stayDate, normalized(quote.unitId) || `non-verificata:${quote.id}`,
+    const comparisonUnit = normalized(quote.referenceRoomKey) || normalized(quote.unitId);
+    const key = [quote.otaId, quote.stayDate, comparisonUnit || `non-verificata:${quote.id}`,
       quote.guests, quote.nights, normalized(quote.board), normalized(quote.refund),
       normalized(quote.audience), normalized(quote.taxes)].join("|");
     const previous = latest.get(key);
@@ -39,9 +44,9 @@ export function buildRateComparisonRows<T extends ComparableRate>(quotes: T[], t
   }
   const values = [...latest.values()];
   return values.map((quote) => {
-    const unit = normalized(quote.unitId);
+    const unit = normalized(quote.referenceRoomKey) || normalized(quote.unitId);
     const booking = unit ? values.find((other) => other.otaId === "booking" &&
-      normalized(other.unitId) === unit && other.stayDate === quote.stayDate &&
+      (normalized(other.referenceRoomKey) || normalized(other.unitId)) === unit && other.stayDate === quote.stayDate &&
       other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10) &&
       other.guests === quote.guests && other.nights === quote.nights &&
       normalized(other.board) === normalized(quote.board) &&
@@ -55,5 +60,6 @@ export function buildRateComparisonRows<T extends ComparableRate>(quotes: T[], t
       deltaPct: bookingNightly === null ? null : 100 * (nightly - bookingNightly) / bookingNightly,
     };
   }).sort((a, b) => a.quote.stayDate.localeCompare(b.quote.stayDate) ||
-    normalized(a.quote.unitId).localeCompare(normalized(b.quote.unitId)) || a.quote.otaId.localeCompare(b.quote.otaId));
+    (normalized(a.quote.referenceRoomKey) || normalized(a.quote.unitId)).localeCompare(normalized(b.quote.referenceRoomKey) || normalized(b.quote.unitId)) ||
+    a.quote.otaId.localeCompare(b.quote.otaId));
 }
