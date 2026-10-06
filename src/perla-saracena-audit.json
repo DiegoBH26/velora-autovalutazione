@@ -7,78 +7,571 @@
   "capacity": "Fino a 58 ospiti dichiarati; numero attuale di camere/unità non verificato",
   "propertyType": "Hotel, suite e villette",
   "website": "https://www.perlasaracena.it/",
-  "bookingEngine": { "status": "provider_unknown", "provider": "", "url": "https://www.perlasaracena.it/hotel-perla-saracena-luxury-suites-restaurant.html", "mode": "selettore integrato nel sito", "evidence": "La pagina mostra selezione di date e tariffe datate; il nome del fornitore del motore non è identificabile con certezza dall'URL pubblico. Checkout finale non testato." },
+  "bookingEngine": {
+    "status": "provider_unknown",
+    "provider": "",
+    "url": "https://www.perlasaracena.it/hotel-perla-saracena-luxury-suites-restaurant.html",
+    "mode": "selettore integrato nel sito",
+    "evidence": "La pagina mostra selezione di date e tariffe datate; il nome del fornitore del motore non è identificabile con certezza dall'URL pubblico. Checkout finale non testato."
+  },
   "auditedAt": "2026-10-01",
   "reportPath": "reports/velora-audit-perla-saracena-torre-pali.pdf",
   "sources": {
-    "sito": { "label": "Sito ufficiale", "url": "https://www.perlasaracena.it/" },
-    "camere": { "label": "Camere - sito ufficiale", "url": "https://www.perlasaracena.it/camere.html" },
-    "listino": { "label": "Alloggi e prezzi 'a partire da' - sito", "url": "https://www.perlasaracena.it/hotel-perla-saracena-luxury-suites-restaurant.html" },
-    "offerta": { "label": "Offerta diretta scaduta - sito", "url": "https://www.perlasaracena.it/perla-saracena-h-camera-con-patio-esterno.html" },
-    "gallery": { "label": "Gallery - sito ufficiale", "url": "https://www.perlasaracena.it/gallery.html" },
-    "booking": { "label": "Booking.com - scheda hotel", "url": "https://www.booking.com/hotel/it/perla-saracena-luxury-suites.it.html" },
-    "bookingReviews": { "label": "Booking.com - recensioni", "url": "https://www.booking.com/reviews/it/hotel/perla-saracena-luxury-suites.it.html" },
-    "google": { "label": "Google Hotels / profilo e recensioni", "url": "https://www.google.it/travel/hotels/entity/CgsIwvGjo56Og5vNARAB" },
-    "agoda": { "label": "Agoda - elenco Salve", "url": "https://www.agoda.com/en-gb/city/salve-it.html" },
-    "trip": { "label": "Trip.com - scheda hotel", "url": "https://www.trip.com/hotels/salve-hotel-detail-49488631/perla-saracena-luxury-suites/" },
-    "airbnb": { "label": "Airbnb - suite attico Perla Saracena", "url": "https://www.airbnb.com/rooms/37510992" },
-    "vrbo": { "label": "Vrbo - villette Perla Saracena", "url": "https://www.vrbo.com/10510389ha" },
-    "expedia": { "label": "Expedia - camera Luxury con Vista", "url": "https://www.expedia.it/Salve-Hotel-3077-Perla-Saracena-Luxury-Con-Vista.h83717415.Informazioni-Hotel" },
-    "hotels": { "label": "Hotels.com - camera Superior Vista Mare", "url": "https://www.hotels.com/es/ho2874151232/3076-perla-saracena-luxury-suites-matrimoniale-superior-vista-mare-by-barbarhouse-salve-italia/" },
-    "holidaycheck": { "label": "HolidayCheck - Suite La Perla", "url": "https://www.holidaycheck.de/hi/hotel-perla-saracena-suite-la-perla/4987db15-6fb9-4248-83a4-ce491e32472a" },
-    "privacy": { "label": "Privacy del sito - Iubenda", "url": "https://www.iubenda.com/privacy-policy/37728785" }
+    "sito": {
+      "label": "Sito ufficiale",
+      "url": "https://www.perlasaracena.it/"
+    },
+    "camere": {
+      "label": "Camere - sito ufficiale",
+      "url": "https://www.perlasaracena.it/camere.html"
+    },
+    "listino": {
+      "label": "Alloggi e prezzi 'a partire da' - sito",
+      "url": "https://www.perlasaracena.it/hotel-perla-saracena-luxury-suites-restaurant.html"
+    },
+    "offerta": {
+      "label": "Offerta diretta scaduta - sito",
+      "url": "https://www.perlasaracena.it/perla-saracena-h-camera-con-patio-esterno.html"
+    },
+    "gallery": {
+      "label": "Gallery - sito ufficiale",
+      "url": "https://www.perlasaracena.it/gallery.html"
+    },
+    "booking": {
+      "label": "Booking.com - scheda hotel",
+      "url": "https://www.booking.com/hotel/it/perla-saracena-luxury-suites.it.html"
+    },
+    "bookingReviews": {
+      "label": "Booking.com - recensioni",
+      "url": "https://www.booking.com/reviews/it/hotel/perla-saracena-luxury-suites.it.html"
+    },
+    "google": {
+      "label": "Google Hotels / profilo e recensioni",
+      "url": "https://www.google.it/travel/hotels/entity/CgsIwvGjo56Og5vNARAB"
+    },
+    "agoda": {
+      "label": "Agoda - elenco Salve",
+      "url": "https://www.agoda.com/en-gb/city/salve-it.html"
+    },
+    "trip": {
+      "label": "Trip.com - scheda hotel",
+      "url": "https://www.trip.com/hotels/salve-hotel-detail-49488631/perla-saracena-luxury-suites/"
+    },
+    "airbnb": {
+      "label": "Airbnb - suite attico Perla Saracena",
+      "url": "https://www.airbnb.com/rooms/37510992"
+    },
+    "vrbo": {
+      "label": "Vrbo - villette Perla Saracena",
+      "url": "https://www.vrbo.com/10510389ha"
+    },
+    "expedia": {
+      "label": "Expedia - camera Luxury con Vista",
+      "url": "https://www.expedia.it/Salve-Hotel-3077-Perla-Saracena-Luxury-Con-Vista.h83717415.Informazioni-Hotel"
+    },
+    "hotels": {
+      "label": "Hotels.com - camera Superior Vista Mare",
+      "url": "https://www.hotels.com/es/ho2874151232/3076-perla-saracena-luxury-suites-matrimoniale-superior-vista-mare-by-barbarhouse-salve-italia/"
+    },
+    "holidaycheck": {
+      "label": "HolidayCheck - Suite La Perla",
+      "url": "https://www.holidaycheck.de/hi/hotel-perla-saracena-suite-la-perla/4987db15-6fb9-4248-83a4-ce491e32472a"
+    },
+    "privacy": {
+      "label": "Privacy del sito - Iubenda",
+      "url": "https://www.iubenda.com/privacy-policy/37728785"
+    }
   },
   "otaPresence": [
-    { "id": "booking", "platform": "Booking.com", "group": "Booking Holdings", "status": "present", "finding": "Scheda hotel unica visibile, con recensioni e possibile Genius del 10% su opzioni selezionate.", "source": "booking" },
-    { "id": "agoda", "platform": "Agoda", "group": "Booking Holdings", "status": "present", "finding": "L'hotel compare nell'elenco Salve; origine dell'inventario e scheda prodotto da verificare in extranet.", "source": "agoda" },
-    { "id": "priceline", "platform": "Priceline", "group": "Booking Holdings", "status": "unverified", "finding": "Nessuna scheda univoca attribuita alla struttura nella ricerca pubblica; non prova assenza.", "source": "booking" },
-    { "id": "expedia", "platform": "Expedia", "group": "Expedia Group", "status": "present", "finding": "Schede separate per alcune tipologie, ad esempio Luxury con Vista; non equivale a una scheda hotel unica.", "source": "expedia" },
-    { "id": "hotels", "platform": "Hotels.com", "group": "Expedia Group", "status": "present", "finding": "Scheda per singola camera Superior Vista Mare; verificare duplicati, contenuti e provenienza tariffe.", "source": "hotels" },
-    { "id": "travelocity", "platform": "Travelocity", "group": "Expedia Group", "status": "unverified", "finding": "Non confermata una scheda univoca; la presenza sul gruppo Expedia non dimostra vendita su questo marchio.", "source": "expedia" },
-    { "id": "vrbo", "platform": "Vrbo", "group": "Expedia Group", "status": "present", "finding": "Annunci di singole unità, tra cui villette; non una scheda complessiva dell'hotel.", "source": "vrbo" },
-    { "id": "airbnb", "platform": "Airbnb", "group": "Airbnb", "status": "present", "finding": "Annunci per suite e camere gestiti dal profilo Barbarhouse SRL; evitare di sommare unità a hotel come inventario distinto.", "source": "airbnb" },
-    { "id": "trip", "platform": "Trip.com", "group": "Trip.com Group", "status": "present", "finding": "Scheda hotel rintracciabile; verificare origine del prezzo e piani per singola data.", "source": "trip" },
-    { "id": "holidaycheck", "platform": "HolidayCheck", "group": "HolidayCheck", "status": "present", "finding": "Profilo della Suite La Perla: aggregatore di offerte/recensioni, non prova contratto diretto.", "source": "holidaycheck" }
+    {
+      "id": "booking",
+      "platform": "Booking.com",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "Scheda hotel unica visibile, con recensioni e possibile Genius del 10% su opzioni selezionate.",
+      "source": "booking"
+    },
+    {
+      "id": "agoda",
+      "platform": "Agoda",
+      "group": "Booking Holdings",
+      "status": "present",
+      "finding": "L'hotel compare nell'elenco Salve; origine dell'inventario e scheda prodotto da verificare in extranet.",
+      "source": "agoda"
+    },
+    {
+      "id": "priceline",
+      "platform": "Priceline",
+      "group": "Booking Holdings",
+      "status": "unverified",
+      "finding": "Nessuna scheda univoca attribuita alla struttura nella ricerca pubblica; non prova assenza.",
+      "source": "booking"
+    },
+    {
+      "id": "expedia",
+      "platform": "Expedia",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Schede separate per alcune tipologie, ad esempio Luxury con Vista; non equivale a una scheda hotel unica.",
+      "source": "expedia"
+    },
+    {
+      "id": "hotels",
+      "platform": "Hotels.com",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Scheda per singola camera Superior Vista Mare; verificare duplicati, contenuti e provenienza tariffe.",
+      "source": "hotels"
+    },
+    {
+      "id": "travelocity",
+      "platform": "Travelocity",
+      "group": "Expedia Group",
+      "status": "unverified",
+      "finding": "Non confermata una scheda univoca; la presenza sul gruppo Expedia non dimostra vendita su questo marchio.",
+      "source": "expedia"
+    },
+    {
+      "id": "vrbo",
+      "platform": "Vrbo",
+      "group": "Expedia Group",
+      "status": "present",
+      "finding": "Annunci di singole unità, tra cui villette; non una scheda complessiva dell'hotel.",
+      "source": "vrbo"
+    },
+    {
+      "id": "airbnb",
+      "platform": "Airbnb",
+      "group": "Airbnb",
+      "status": "present",
+      "finding": "Annunci per suite e camere gestiti dal profilo Barbarhouse SRL; evitare di sommare unità a hotel come inventario distinto.",
+      "source": "airbnb"
+    },
+    {
+      "id": "trip",
+      "platform": "Trip.com",
+      "group": "Trip.com Group",
+      "status": "present",
+      "finding": "Scheda hotel rintracciabile; verificare origine del prezzo e piani per singola data.",
+      "source": "trip"
+    },
+    {
+      "id": "holidaycheck",
+      "platform": "HolidayCheck",
+      "group": "HolidayCheck",
+      "status": "present",
+      "finding": "Profilo della Suite La Perla: aggregatore di offerte/recensioni, non prova contratto diretto.",
+      "source": "holidaycheck"
+    },
+    {
+      "id": "tripadvisor",
+      "platform": "Tripadvisor",
+      "group": "Tripadvisor",
+      "status": "unverified",
+      "finding": "Profilo pubblico da ricercare e attribuire automaticamente; recensioni e offerte aggregate non equivalgono a distribuzione diretta.",
+      "source": "sito"
+    },
+    {
+      "id": "trivago",
+      "platform": "Trivago",
+      "group": "Metasearch",
+      "status": "unverified",
+      "finding": "Presenza nel metasearch da verificare; eventuali prezzi rimandano a fornitori terzi e non provano un contratto diretto.",
+      "source": "sito"
+    },
+    {
+      "id": "googlehotels",
+      "platform": "Google Hotels",
+      "group": "Google",
+      "status": "unverified",
+      "finding": "Scheda hotel/metasearch da verificare e collegare alla struttura; prezzi e disponibilità possono provenire da partner terzi.",
+      "source": "sito"
+    }
   ],
   "pricingAudit": {
     "capturedAt": "2026-10-01",
     "method": "Campione pubblico rilevato il 01/10/2026: 2 adulti, 15-18 di ogni mese (3 notti); ad agosto 12-17 (5 notti), con eccezione diretta 12-19 (7 notti per minimo soggiorno) e alternativa Booking 22-27 (5 notti). Range = prezzo finale per notte della tipologia meno e più cara effettivamente quotata, scegliendo il piano meno caro per ciascuna tipologia; non media né ADR realizzato. Una sola tipologia non rappresenta il range dell'hotel. Confronti percentuali soltanto sulla stessa unità fisica, stesse date, ospiti, trattamento, cancellazione, imposte e pubblico; nessun delta è certificabile nei campioni eterogenei. Una data senza prezzo è un esito del campione, non prova di stagione chiusa.",
     "direct": "Il booking engine diretto restituisce preventivi datati per 16 tipologie in aprile-settembre 2027 e 14 tipologie il 15-18 ottobre 2026. Nel campione di maggio 2027 il range finale è EUR 51,34-161,98/notte, da Matrimoniale Basic a Suite La Perla; a luglio EUR 141,62-365,80/notte. In primavera compare un prezzo barrato e un prezzo finale inferiore di circa il 5%, ma non è indicato il nome della promozione: non chiamarlo early booking. Il 12-17 agosto 2027 molte unità mostrano 'soggiorno minimo di 7 notti'; passando al 12-19 agosto si quotano 16 tipologie a EUR 185,00-472,55/notte. Il mancato preventivo di 5 notti NON indica chiusura. La pagina Camera con Patio espone ancora un'offerta 2025 scaduta.",
     "policies": [
-      { "otaId": "booking", "plans": "Per la Villa con 1 Camera da Letto, 15-18 luglio 2027: non rimborsabile EUR 734/3 notti; parzialmente rimborsabile EUR 857; cancellazione gratuita fino al 10 luglio EUR 916. Tutti con colazione e prezzi riservati agli iscritti. Il 15-18 ottobre 2026 la scheda mostra 14 tipologie per 2 adulti, con piani non rimborsabile, parziale e flessibile; i piani non sono identici su tutte le camere.", "promotions": "Luglio 2027, villa non rimborsabile: prezzo iniziale EUR 985,39; Genius -98,54 (10% nella vista pubblica), offerta Prenota Prima creata dalla struttura -88,68, contributo Booking.com -63,85; totale EUR 734,32 (circa -25% combinato). Sui piani parziale e flessibile: Genius 10% + Prenota Prima, circa -19% combinato. Ottobre 2026: Offerta Last Minute della struttura, Genius e talvolta contributo Booking.com; per la Camera Accessibile non rimborsabile EUR 243,96 -> 161,60 (-34% combinato), di cui -43,91 Last Minute, -24,40 Genius e -14,05 Booking.com. Il livello Genius 2/3 o il 15% riferito dalla proprietà non sono determinabili da questa vista anonima e richiedono account/estranet.", "source": "booking", "confidence": "verificato su date e camere indicate" },
-      { "otaId": "agoda", "plans": "Presenza nell'elenco pubblico; piani flessibili/non rimborsabili per date future non documentati.", "promotions": "Sconti app, coupon e last minute della struttura non verificati.", "source": "agoda", "confidence": "da verificare" },
-      { "otaId": "priceline", "plans": "Scheda univoca non confermata; nessun piano attribuibile.", "promotions": "Nessuno sconto attribuibile senza scheda e data.", "source": "booking", "confidence": "non verificabile" },
-      { "otaId": "expedia", "plans": "Il 15-18 ottobre 2026 la ricerca mostra 'Luxury con Vista' a EUR 371/3 notti, ma la scheda è indicata come 'intera struttura, offerta da Vrbo'; un altro prodotto 'Perla Saracena Luxury Suites' è EUR 318/3 notti. Sono due prodotti distinti, non estremi della gamma camere hotel; cancellazione e identità dell'unità non allineate agli altri canali.", "promotions": "Nessuno sconto specifico verificato sui due preventivi del 15-18 ottobre; messaggio generico che invita ad accedere per extra e sconti, non quantificabile né attribuibile alla struttura.", "source": "expedia", "confidence": "copertura parziale" },
-      { "otaId": "hotels", "plans": "Scheda di singola camera; condizioni per date future non campionate.", "promotions": "Nessuno sconto member o last minute specifico documentato.", "source": "hotels", "confidence": "parziale" },
-      { "otaId": "travelocity", "plans": "Presenza non confermata; nessun piano attribuibile.", "promotions": "Nessuna promozione attribuibile.", "source": "expedia", "confidence": "non verificabile" },
-      { "otaId": "vrbo", "plans": "Annunci per singole unità; cancellazione da verificare per annuncio e soggiorno.", "promotions": "Nessuno sconto settimanale, last minute o early booking attribuito con certezza a date future.", "source": "vrbo", "confidence": "parziale" },
-      { "otaId": "airbnb", "plans": "Suite Attico Jacuzzi, 15-18 ottobre 2026, 2 adulti: non rimborsabile EUR 362,34 totali (cancellazione gratuita 24 ore dalla prenotazione, poi non rimborsabile); piano rimborsabile EUR 402,60, gratuito fino al 10 ottobre e poi rimborso parziale. È una singola unità, non il range dell'hotel.", "promotions": "Sul piano non rimborsabile del campione: 3 notti a EUR 130,20 = EUR 390,60; sconto last minute dell'host -EUR 28,26; totale EUR 362,34 (-7,24%). Altre promozioni non dimostrate.", "source": "airbnb", "confidence": "verificato su una suite e una data" },
-      { "otaId": "trip", "plans": "Scheda hotel presente; piani datati e regole di cancellazione non verificati in campione omogeneo.", "promotions": "Le promozioni generiche del portale non provano sconti finanziati dalla struttura.", "source": "trip", "confidence": "da verificare" },
-      { "otaId": "holidaycheck", "plans": "Profilo di una suite/aggregatore; offerte di terzi non identificano un piano gestito direttamente dall'hotel.", "promotions": "Sconti non attribuibili con certezza alla struttura.", "source": "holidaycheck", "confidence": "non attribuibile" }
+      {
+        "otaId": "booking",
+        "plans": "Per la Villa con 1 Camera da Letto, 15-18 luglio 2027: non rimborsabile EUR 734/3 notti; parzialmente rimborsabile EUR 857; cancellazione gratuita fino al 10 luglio EUR 916. Tutti con colazione e prezzi riservati agli iscritti. Il 15-18 ottobre 2026 la scheda mostra 14 tipologie per 2 adulti, con piani non rimborsabile, parziale e flessibile; i piani non sono identici su tutte le camere.",
+        "promotions": "Luglio 2027, villa non rimborsabile: prezzo iniziale EUR 985,39; Genius -98,54 (10% nella vista pubblica), offerta Prenota Prima creata dalla struttura -88,68, contributo Booking.com -63,85; totale EUR 734,32 (circa -25% combinato). Sui piani parziale e flessibile: Genius 10% + Prenota Prima, circa -19% combinato. Ottobre 2026: Offerta Last Minute della struttura, Genius e talvolta contributo Booking.com; per la Camera Accessibile non rimborsabile EUR 243,96 -> 161,60 (-34% combinato), di cui -43,91 Last Minute, -24,40 Genius e -14,05 Booking.com. Il livello Genius 2/3 o il 15% riferito dalla proprietà non sono determinabili da questa vista anonima e richiedono account/estranet.",
+        "source": "booking",
+        "confidence": "verificato su date e camere indicate"
+      },
+      {
+        "otaId": "agoda",
+        "plans": "Presenza nell'elenco pubblico; piani flessibili/non rimborsabili per date future non documentati.",
+        "promotions": "Sconti app, coupon e last minute della struttura non verificati.",
+        "source": "agoda",
+        "confidence": "da verificare"
+      },
+      {
+        "otaId": "priceline",
+        "plans": "Scheda univoca non confermata; nessun piano attribuibile.",
+        "promotions": "Nessuno sconto attribuibile senza scheda e data.",
+        "source": "booking",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "expedia",
+        "plans": "Il 15-18 ottobre 2026 la ricerca mostra 'Luxury con Vista' a EUR 371/3 notti, ma la scheda è indicata come 'intera struttura, offerta da Vrbo'; un altro prodotto 'Perla Saracena Luxury Suites' è EUR 318/3 notti. Sono due prodotti distinti, non estremi della gamma camere hotel; cancellazione e identità dell'unità non allineate agli altri canali.",
+        "promotions": "Nessuno sconto specifico verificato sui due preventivi del 15-18 ottobre; messaggio generico che invita ad accedere per extra e sconti, non quantificabile né attribuibile alla struttura.",
+        "source": "expedia",
+        "confidence": "copertura parziale"
+      },
+      {
+        "otaId": "hotels",
+        "plans": "Scheda di singola camera; condizioni per date future non campionate.",
+        "promotions": "Nessuno sconto member o last minute specifico documentato.",
+        "source": "hotels",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "travelocity",
+        "plans": "Presenza non confermata; nessun piano attribuibile.",
+        "promotions": "Nessuna promozione attribuibile.",
+        "source": "expedia",
+        "confidence": "non verificabile"
+      },
+      {
+        "otaId": "vrbo",
+        "plans": "Annunci per singole unità; cancellazione da verificare per annuncio e soggiorno.",
+        "promotions": "Nessuno sconto settimanale, last minute o early booking attribuito con certezza a date future.",
+        "source": "vrbo",
+        "confidence": "parziale"
+      },
+      {
+        "otaId": "airbnb",
+        "plans": "Suite Attico Jacuzzi, 15-18 ottobre 2026, 2 adulti: non rimborsabile EUR 362,34 totali (cancellazione gratuita 24 ore dalla prenotazione, poi non rimborsabile); piano rimborsabile EUR 402,60, gratuito fino al 10 ottobre e poi rimborso parziale. È una singola unità, non il range dell'hotel.",
+        "promotions": "Sul piano non rimborsabile del campione: 3 notti a EUR 130,20 = EUR 390,60; sconto last minute dell'host -EUR 28,26; totale EUR 362,34 (-7,24%). Altre promozioni non dimostrate.",
+        "source": "airbnb",
+        "confidence": "verificato su una suite e una data"
+      },
+      {
+        "otaId": "trip",
+        "plans": "Scheda hotel presente; piani datati e regole di cancellazione non verificati in campione omogeneo.",
+        "promotions": "Le promozioni generiche del portale non provano sconti finanziati dalla struttura.",
+        "source": "trip",
+        "confidence": "da verificare"
+      },
+      {
+        "otaId": "holidaycheck",
+        "plans": "Profilo di una suite/aggregatore; offerte di terzi non identificano un piano gestito direttamente dall'hotel.",
+        "promotions": "Sconti non attribuibili con certezza alla struttura.",
+        "source": "holidaycheck",
+        "confidence": "non attribuibile"
+      },
+      {
+        "otaId": "tripadvisor",
+        "plans": "Profilo, recensioni e offerte aggregate: nessun piano tariffario diretto viene attribuito senza una quotazione del fornitore identificato.",
+        "promotions": "Promozioni aggregate non attribuibili automaticamente alla struttura come tariffa diretta.",
+        "confidence": "metasearch/reputazione",
+        "source": "sito"
+      },
+      {
+        "otaId": "trivago",
+        "plans": "Metasearch: confronta offerte di fornitori terzi; non viene trattato come inventario tariffario diretto della struttura.",
+        "promotions": "Sconti e differenze prezzo vanno attribuiti al fornitore mostrato, non a Trivago come canale diretto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      },
+      {
+        "otaId": "googlehotels",
+        "plans": "Metasearch: prezzi e disponibilità sono aggregati da sito ufficiale e partner; nessun piano viene attribuito senza identificare il fornitore.",
+        "promotions": "Le offerte visualizzate vanno ricondotte al fornitore effettivo prima di qualsiasi confronto.",
+        "confidence": "metasearch",
+        "source": "sito"
+      }
     ],
     "comparisonSamples": [
-      { "stay": "15-18 ott 2026", "otaId": "sito", "roomType": "Matrimoniale Standard Accessibile", "nightly": 56.77, "conditions": "Piano meno caro mostrato; condizioni fiscali e cancellazione non allineate", "delta": "n.d.", "source": "listino" },
-      { "stay": "15-18 ott 2026", "otaId": "booking", "roomType": "Camera Accessibile", "nightly": 53.87, "conditions": "Non rimborsabile, prezzo iscritto; totale EUR 161,60/3", "delta": "base solo se unità e condizioni confermate", "source": "booking" },
-      { "stay": "15-18 ott 2026", "otaId": "airbnb", "roomType": "Suite Attico Jacuzzi", "nightly": 120.78, "conditions": "Non rimborsabile; totale EUR 362,34/3 con last minute", "delta": "n.d. - unità diversa/non mappata", "source": "airbnb" },
-      { "stay": "15-18 ott 2026", "otaId": "expedia", "roomType": "Luxury con Vista (offerta Vrbo)", "nightly": 123.67, "conditions": "Totale EUR 371/3; unità e cancellazione non allineate", "delta": "n.d. - unità diversa/non mappata", "source": "expedia" },
-      { "stay": "15-18 ott 2026", "otaId": "expedia", "roomType": "Perla Saracena Luxury Suites (altro prodotto)", "nightly": 106.00, "conditions": "Totale EUR 318/3; prodotto distinto dall'offerta Vrbo", "delta": "n.d. - unità diversa/non mappata", "source": "expedia" }
+      {
+        "stay": "15-18 ott 2026",
+        "otaId": "sito",
+        "roomType": "Matrimoniale Standard Accessibile",
+        "nightly": 56.77,
+        "conditions": "Piano meno caro mostrato; condizioni fiscali e cancellazione non allineate",
+        "delta": "n.d.",
+        "source": "listino"
+      },
+      {
+        "stay": "15-18 ott 2026",
+        "otaId": "booking",
+        "roomType": "Camera Accessibile",
+        "nightly": 53.87,
+        "conditions": "Non rimborsabile, prezzo iscritto; totale EUR 161,60/3",
+        "delta": "base solo se unità e condizioni confermate",
+        "source": "booking"
+      },
+      {
+        "stay": "15-18 ott 2026",
+        "otaId": "airbnb",
+        "roomType": "Suite Attico Jacuzzi",
+        "nightly": 120.78,
+        "conditions": "Non rimborsabile; totale EUR 362,34/3 con last minute",
+        "delta": "n.d. - unità diversa/non mappata",
+        "source": "airbnb"
+      },
+      {
+        "stay": "15-18 ott 2026",
+        "otaId": "expedia",
+        "roomType": "Luxury con Vista (offerta Vrbo)",
+        "nightly": 123.67,
+        "conditions": "Totale EUR 371/3; unità e cancellazione non allineate",
+        "delta": "n.d. - unità diversa/non mappata",
+        "source": "expedia"
+      },
+      {
+        "stay": "15-18 ott 2026",
+        "otaId": "expedia",
+        "roomType": "Perla Saracena Luxury Suites (altro prodotto)",
+        "nightly": 106,
+        "conditions": "Totale EUR 318/3; prodotto distinto dall'offerta Vrbo",
+        "delta": "n.d. - unità diversa/non mappata",
+        "source": "expedia"
+      }
     ],
     "monthlySamples": [
-      { "month": "2026-10", "stay": "15-18 ott", "nights": 3, "direct": { "low": 56.77, "high": 160.46, "scope": "14 tipologie", "lowRoom": "Matrimoniale Standard Accessibile", "highRoom": "Suite La Perla" }, "booking": { "low": 54.00, "high": 143.67, "scope": "14 tipologie; prezzo iscritto" }, "other": "Airbnb: Suite Attico Jacuzzi EUR 120,78/notte; Expedia: Luxury con Vista via Vrbo EUR 123,67/notte (solo singole unità).", "delta": "Non calcolabile: unità/piani/tasse e pubblico non omogenei." },
-      { "month": "2026-11", "stay": "15-18 nov", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2026-12", "stay": "15-18 dic", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2027-01", "stay": "15-18 gen", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2027-02", "stay": "15-18 feb", "nights": 3, "direct": { "status": "Verifica parziale; nessun prezzo riscontrato" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2027-03", "stay": "15-18 mar", "nights": 3, "direct": { "status": "Verifica parziale; nessun prezzo riscontrato" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2027-04", "stay": "15-18 apr", "nights": 3, "direct": { "low": 38.00, "high": 132.24, "scope": "16 tipologie", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 66.00, "high": 66.00, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile: Booking quota solo la villa." },
-      { "month": "2027-05", "stay": "15-18 mag", "nights": 3, "direct": { "low": 51.34, "high": 161.98, "scope": "16 tipologie", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 101.33, "high": 101.33, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile: Booking quota solo la villa." },
-      { "month": "2027-06", "stay": "15-18 giu", "nights": 3, "direct": { "low": 94.09, "high": 257.31, "scope": "16 tipologie", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 166.33, "high": 166.33, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile: Booking quota solo la villa." },
-      { "month": "2027-07", "stay": "15-18 lug", "nights": 3, "direct": { "low": 141.62, "high": 365.80, "scope": "16 tipologie", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 244.67, "high": 244.67, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile: Booking quota solo la villa." },
-      { "month": "2027-08", "stay": "Diretto 12-19 ago (7); Booking 22-27 ago (5)", "nights": 5, "direct": { "low": 185.00, "high": 472.55, "scope": "16 tipologie; 7 notti per minimo soggiorno", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 319.80, "high": 319.80, "scope": "solo Villa con 1 Camera da Letto; 22-27 ago, prezzo iscritto" }, "other": "Il tentativo 12-17 ago, 5 notti, incontra minimo 7 notti sul diretto", "delta": "Non calcolabile: date e durata diverse." },
-      { "month": "2027-09", "stay": "15-18 set", "nights": 3, "direct": { "low": 92.63, "high": 237.50, "scope": "16 tipologie", "lowRoom": "Matrimoniale Basic", "highRoom": "Suite La Perla" }, "booking": { "low": 233.33, "high": 233.33, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile: Booking quota solo la villa." },
-      { "month": "2027-10", "stay": "15-18 ott", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "low": 178.33, "high": 178.33, "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto" }, "other": "Non campionato per data", "delta": "Non calcolabile; verificare disallineamento disponibilità." },
-      { "month": "2027-11", "stay": "15-18 nov", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" },
-      { "month": "2027-12", "stay": "15-18 dic", "nights": 3, "direct": { "status": "Nessun prezzo nel campione" }, "booking": { "status": "Nessun prezzo nel campione" }, "other": "Non campionato per data", "delta": "Non calcolabile" }
+      {
+        "month": "2026-10",
+        "stay": "15-18 ott",
+        "nights": 3,
+        "direct": {
+          "low": 56.77,
+          "high": 160.46,
+          "scope": "14 tipologie",
+          "lowRoom": "Matrimoniale Standard Accessibile",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 54,
+          "high": 143.67,
+          "scope": "14 tipologie; prezzo iscritto"
+        },
+        "other": "Airbnb: Suite Attico Jacuzzi EUR 120,78/notte; Expedia: Luxury con Vista via Vrbo EUR 123,67/notte (solo singole unità).",
+        "delta": "Non calcolabile: unità/piani/tasse e pubblico non omogenei."
+      },
+      {
+        "month": "2026-11",
+        "stay": "15-18 nov",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2026-12",
+        "stay": "15-18 dic",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2027-01",
+        "stay": "15-18 gen",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2027-02",
+        "stay": "15-18 feb",
+        "nights": 3,
+        "direct": {
+          "status": "Verifica parziale; nessun prezzo riscontrato"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2027-03",
+        "stay": "15-18 mar",
+        "nights": 3,
+        "direct": {
+          "status": "Verifica parziale; nessun prezzo riscontrato"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2027-04",
+        "stay": "15-18 apr",
+        "nights": 3,
+        "direct": {
+          "low": 38,
+          "high": 132.24,
+          "scope": "16 tipologie",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 66,
+          "high": 66,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile: Booking quota solo la villa."
+      },
+      {
+        "month": "2027-05",
+        "stay": "15-18 mag",
+        "nights": 3,
+        "direct": {
+          "low": 51.34,
+          "high": 161.98,
+          "scope": "16 tipologie",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 101.33,
+          "high": 101.33,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile: Booking quota solo la villa."
+      },
+      {
+        "month": "2027-06",
+        "stay": "15-18 giu",
+        "nights": 3,
+        "direct": {
+          "low": 94.09,
+          "high": 257.31,
+          "scope": "16 tipologie",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 166.33,
+          "high": 166.33,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile: Booking quota solo la villa."
+      },
+      {
+        "month": "2027-07",
+        "stay": "15-18 lug",
+        "nights": 3,
+        "direct": {
+          "low": 141.62,
+          "high": 365.8,
+          "scope": "16 tipologie",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 244.67,
+          "high": 244.67,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile: Booking quota solo la villa."
+      },
+      {
+        "month": "2027-08",
+        "stay": "Diretto 12-19 ago (7); Booking 22-27 ago (5)",
+        "nights": 5,
+        "direct": {
+          "low": 185,
+          "high": 472.55,
+          "scope": "16 tipologie; 7 notti per minimo soggiorno",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 319.8,
+          "high": 319.8,
+          "scope": "solo Villa con 1 Camera da Letto; 22-27 ago, prezzo iscritto"
+        },
+        "other": "Il tentativo 12-17 ago, 5 notti, incontra minimo 7 notti sul diretto",
+        "delta": "Non calcolabile: date e durata diverse."
+      },
+      {
+        "month": "2027-09",
+        "stay": "15-18 set",
+        "nights": 3,
+        "direct": {
+          "low": 92.63,
+          "high": 237.5,
+          "scope": "16 tipologie",
+          "lowRoom": "Matrimoniale Basic",
+          "highRoom": "Suite La Perla"
+        },
+        "booking": {
+          "low": 233.33,
+          "high": 233.33,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile: Booking quota solo la villa."
+      },
+      {
+        "month": "2027-10",
+        "stay": "15-18 ott",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "low": 178.33,
+          "high": 178.33,
+          "scope": "solo Villa con 1 Camera da Letto; prezzo iscritto"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile; verificare disallineamento disponibilità."
+      },
+      {
+        "month": "2027-11",
+        "stay": "15-18 nov",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      },
+      {
+        "month": "2027-12",
+        "stay": "15-18 dic",
+        "nights": 3,
+        "direct": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "booking": {
+          "status": "Nessun prezzo nel campione"
+        },
+        "other": "Non campionato per data",
+        "delta": "Non calcolabile"
+      }
     ],
     "priceCalendar": {
       "from": "2026-10-01",
@@ -93,15 +586,43 @@
     "googleRating": "4,6/5 su circa 316 recensioni nella scheda Google Hotels consultata",
     "method": "Lettura qualitativa non statistica di recensioni Google visibili su Google Hotels e citate sul sito ufficiale; confronto separato con recensioni Booking 2026 (8,9/10 su 526 nella scheda indicizzata). Il profilo sembra accorpare esperienze hotel e ristorante; i temi vanno attribuiti alla relativa attività. Conteggi dinamici al 01/10/2026.",
     "strengths": [
-      { "theme": "Accoglienza e staff", "finding": "Commenti ripetuti su cortesia, disponibilità e attenzione della reception e del personale; Booking assegna circa 9,2/10 allo staff.", "action": "Valorizzare il servizio nelle schede e mantenere standard di pre-arrivo, accoglienza e risposta ai reclami." },
-      { "theme": "Design, camere e pulizia", "finding": "Struttura moderna, camere curate e pulizia sono ricorrenze positive; Booking segnala pulizia circa 9,2/10 e comfort circa 9,1/10.", "action": "Usare foto fedeli per ciascuna categoria e controllo qualità su manutenzione e pulizie." },
-      { "theme": "Piscina, vista e ristorante", "finding": "Roof-top, tramonto e ristorante emergono come elementi distintivi, con apprezzamenti per qualità dei piatti e colazione.", "action": "Creare pacchetti soggiorno+cena e contenuti video/foto della vista; distinguere recensioni ristorante da recensioni camere." }
+      {
+        "theme": "Accoglienza e staff",
+        "finding": "Commenti ripetuti su cortesia, disponibilità e attenzione della reception e del personale; Booking assegna circa 9,2/10 allo staff.",
+        "action": "Valorizzare il servizio nelle schede e mantenere standard di pre-arrivo, accoglienza e risposta ai reclami."
+      },
+      {
+        "theme": "Design, camere e pulizia",
+        "finding": "Struttura moderna, camere curate e pulizia sono ricorrenze positive; Booking segnala pulizia circa 9,2/10 e comfort circa 9,1/10.",
+        "action": "Usare foto fedeli per ciascuna categoria e controllo qualità su manutenzione e pulizie."
+      },
+      {
+        "theme": "Piscina, vista e ristorante",
+        "finding": "Roof-top, tramonto e ristorante emergono come elementi distintivi, con apprezzamenti per qualità dei piatti e colazione.",
+        "action": "Creare pacchetti soggiorno+cena e contenuti video/foto della vista; distinguere recensioni ristorante da recensioni camere."
+      }
     ],
     "weaknesses": [
-      { "theme": "Accesso e mobilità", "finding": "Una recensione pubblicata sul sito menziona buche all'ingresso; un'altra fonte segnala necessità dell'auto per spiagge attrezzate e centro.", "action": "Verificare e sistemare l'accesso carrabile; spiegare distanze reali, percorso pedonale e opzioni di trasporto." },
-      { "theme": "Privacy patio e zanzariere", "finding": "Su Booking una camera patio è stata descritta come esposta al passaggio; una recensione riportata dal sito suggerisce zanzariere.", "action": "Controllare schermature delle camere patio e installare zanzariere dove necessario, poi aggiornare foto e descrizioni." },
-      { "theme": "Colazione e coerenza del servizio", "finding": "Una recensione Booking distingue dolci apprezzati da salato giudicato debole; altri ospiti apprezzano il buffet: criticità specifica, non generale.", "action": "Audit dell'offerta salata e assaggio periodico; tracciare reclami per categoria e verificarne l'evoluzione." },
-      { "theme": "Aspettative sulla piscina e sul valore", "finding": "Tra i commenti ospitati sul sito si trovano piscina non ancora in uso in primavera e profondità percepita limitata; Booking segnala valore 8,8/10.", "action": "Indicare apertura stagionale, profondità e servizi esatti; non promettere piscina fruibile tutto l'anno senza verifica." }
+      {
+        "theme": "Accesso e mobilità",
+        "finding": "Una recensione pubblicata sul sito menziona buche all'ingresso; un'altra fonte segnala necessità dell'auto per spiagge attrezzate e centro.",
+        "action": "Verificare e sistemare l'accesso carrabile; spiegare distanze reali, percorso pedonale e opzioni di trasporto."
+      },
+      {
+        "theme": "Privacy patio e zanzariere",
+        "finding": "Su Booking una camera patio è stata descritta come esposta al passaggio; una recensione riportata dal sito suggerisce zanzariere.",
+        "action": "Controllare schermature delle camere patio e installare zanzariere dove necessario, poi aggiornare foto e descrizioni."
+      },
+      {
+        "theme": "Colazione e coerenza del servizio",
+        "finding": "Una recensione Booking distingue dolci apprezzati da salato giudicato debole; altri ospiti apprezzano il buffet: criticità specifica, non generale.",
+        "action": "Audit dell'offerta salata e assaggio periodico; tracciare reclami per categoria e verificarne l'evoluzione."
+      },
+      {
+        "theme": "Aspettative sulla piscina e sul valore",
+        "finding": "Tra i commenti ospitati sul sito si trovano piscina non ancora in uso in primavera e profondità percepita limitata; Booking segnala valore 8,8/10.",
+        "action": "Indicare apertura stagionale, profondità e servizi esatti; non promettere piscina fruibile tutto l'anno senza verifica."
+      }
     ]
   },
   "photoAssessment": {
@@ -115,9 +636,18 @@
     "summary1": "Perla Saracena dispone di un prodotto visivamente forte: design recente, rooftop con piscina, ristorante e alloggi differenziati. Il sito offre un widget di disponibilità e schede per molte tipologie, e la reputazione pubblica è positiva. Il vantaggio non è la mera presenza online: è rendere coerente la vendita di hotel e unità separate sui diversi canali.",
     "summary2": "Booking.com mostra circa 8,9/10, Google Hotels circa 4,6/5; staff, pulizia, piscina e ristorante sono punti di forza. Restano azioni puntuali su accesso, privacy dei patio, zanzariere e colazione salata. La presentazione visiva merita 7,5/10 nel campione osservato, ma il primo frame non mostra la struttura.",
     "actions": [
-      ["01  Architettura canali", "Mappare hotel e annunci di singole unità (Airbnb, Vrbo, Expedia/Hotels.com) nel channel manager, evitando duplicati di inventario e messaggi tariffari incoerenti."],
-      ["02  Conversione e campagne", "Aggiornare l'offerta diretta 2025 ancora online, verificare il percorso di checkout e misurare prezzi/condizioni per date future confrontabili, prima di proporre sconti."],
-      ["03  Qualità percepita", "Preservare i punti forti e chiudere problemi specifici: accesso auto, schermatura patio, zanzariere, colazione salata; chiarire apertura e caratteristiche della piscina."]
+      [
+        "01  Architettura canali",
+        "Mappare hotel e annunci di singole unità (Airbnb, Vrbo, Expedia/Hotels.com) nel channel manager, evitando duplicati di inventario e messaggi tariffari incoerenti."
+      ],
+      [
+        "02  Conversione e campagne",
+        "Aggiornare l'offerta diretta 2025 ancora online, verificare il percorso di checkout e misurare prezzi/condizioni per date future confrontabili, prima di proporre sconti."
+      ],
+      [
+        "03  Qualità percepita",
+        "Preservare i punti forti e chiudere problemi specifici: accesso auto, schermatura patio, zanzariere, colazione salata; chiarire apertura e caratteristiche della piscina."
+      ]
     ],
     "consulting": "La collaborazione può creare valore soprattutto in governo della distribuzione, revenue futuro e conversione diretta, pur con una reputazione già forte. Prima di stimare un incremento economico servono occupancy, costi dei canali, ricavi, disponibilità e contratti delle unità. L'audit pubblico non misura la performance gestionale interna.",
     "channel": "Riconciliare ogni unità fisica con gli annunci su Booking, Airbnb, Vrbo e gruppi Expedia/Booking: la stessa camera può comparire come hotel o inserzione autonoma. Verificare contratti, origini delle tariffe, restrizioni e policy per unità; evitare conclusioni basate sul solo numero delle schede.",
@@ -128,55 +658,540 @@
     "identity": "Torre Pali - Salve (LE) · capacità dichiarata fino a 58 ospiti · numero attuale di camere/unità non verificato. Consulente: non indicato."
   },
   "checks": [
-    { "id": "q6", "group": "Brand e posizionamento", "label": "Posizionamento", "status": "present", "evidence": "Design, piscina panoramica, ristorante e prossimità al mare compongono una proposta premium riconoscibile.", "sources": ["sito"] },
-    { "id": "q7", "group": "Brand e posizionamento", "label": "Target ospite", "status": "partial", "evidence": "Coppie e famiglie sono servite da tipologie diverse, ma manca un percorso dedicato per bisogno/occasione.", "sources": ["sito", "camere"] },
-    { "id": "q8", "group": "Brand e posizionamento", "label": "Promessa di soggiorno", "status": "present", "evidence": "Relax, design, tramonto, ristorante e mare sono spiegati e accompagnati da contenuti visivi.", "sources": ["sito"] },
-    { "id": "q9", "group": "Brand e posizionamento", "label": "Identità territoriale", "status": "present", "evidence": "Il sito collega architettura alle pajare salentine e promuove spiagge e sapori locali.", "sources": ["sito", "listino"] },
-    { "id": "q12", "group": "Sito e conversione", "label": "UX mobile", "status": "unverified", "evidence": "Non eseguito test strutturato su dispositivi e velocità mobile; serve misurazione dedicata.", "sources": ["sito"] },
-    { "id": "q13", "group": "Sito e conversione", "label": "Booking engine", "status": "partial", "evidence": "Il widget restituisce prezzi datati per 16 tipologie in diversi mesi 2027; checkout finale non testato. Il 12-17 agosto 2027, 5 notti, mostra una restrizione di soggiorno minimo 7 notti, non una chiusura.", "sources": ["sito", "listino"] },
-    { "id": "q14", "group": "Sito e conversione", "label": "Camere e tariffe", "status": "partial", "evidence": "Range datati verificati: 15-18 maggio 2027 EUR 51,34-161,98/notte tra 16 tipologie; 15-18 luglio EUR 141,62-365,80. Il listino 'a partire da' non rappresenta questi preventivi; le condizioni di cancellazione del diretto vanno chiarite prima di confronti OTA.", "sources": ["camere", "listino"] },
-    { "id": "q15", "group": "Sito e conversione", "label": "Elementi di fiducia", "status": "present", "evidence": "Testimonianze, informazioni societarie, recapito, social e schede recensioni pubbliche presenti.", "sources": ["sito", "google"] },
-    { "id": "q20", "group": "Sito e conversione", "label": "SSL", "status": "present", "evidence": "Sito ufficiale servito in HTTPS.", "sources": ["sito"] },
-    { "id": "q21", "group": "Sito e conversione", "label": "Cookie e consenso", "status": "partial", "evidence": "Banner consenso visibile; configurazione dei tracciamenti richiede audit tecnico separato.", "sources": ["sito", "privacy"] },
-    { "id": "q22", "group": "Sito e conversione", "label": "Privacy", "status": "present", "evidence": "Informativa privacy Iubenda collegata nel footer.", "sources": ["sito", "privacy"] },
-    { "id": "q24", "group": "Sito e conversione", "label": "Tracciamenti marketing", "status": "unverified", "evidence": "La presenza di cookie banner non dimostra che eventi di prenotazione e campagne siano misurati correttamente.", "sources": ["sito"] },
-    { "id": "q141", "group": "Conformità pubblica", "label": "CIR e CIN", "status": "partial", "evidence": "CIN IT075066A100034132 visibile nell'annuncio Airbnb campionato; allineamento con tutte le unità da verificare.", "sources": ["airbnb"] },
-    { "id": "q221", "group": "Conformità pubblica", "label": "Esposizione CIN", "status": "partial", "evidence": "CIN non rilevato nella homepage e nella pagina camere campionate; cercare in tutte le schede e verificare gli obblighi applicabili.", "sources": ["sito", "camere", "airbnb"] },
-    { "id": "q222", "group": "Conformità pubblica", "label": "Coerenza CIN sui portali", "status": "unverified", "evidence": "Un annuncio Airbnb espone un CIN; ogni unità e portale richiedono confronto individuale.", "sources": ["airbnb", "booking"] },
-    { "id": "q261", "group": "Prodotto e fotografie", "label": "Foto camere", "status": "present", "evidence": "Campione camere e unità nitido e luminoso; qualità editoriale preliminare 7,5/10.", "sources": ["camere"] },
-    { "id": "q263", "group": "Prodotto e fotografie", "label": "Foto aree comuni", "status": "present", "evidence": "Piscina, terrazza e ristorante documentati visivamente.", "sources": ["sito", "listino"] },
-    { "id": "q264", "group": "Prodotto e fotografie", "label": "Foto esterni", "status": "present", "evidence": "Esterni e contesto della struttura compaiono nelle schede; hero iniziale punta più sulla spiaggia che sull'hotel.", "sources": ["sito", "camere"] },
-    { "id": "q266", "group": "Prodotto e fotografie", "label": "Dettagli esperienziali", "status": "present", "evidence": "Roof-top, tramonto, spa e ristorante creano narrativa esperienziale concreta.", "sources": ["sito", "camere"] },
-    { "id": "q269", "group": "Prodotto e fotografie", "label": "Informazioni camere", "status": "partial", "evidence": "Capienza descritta nelle schede camere ma un metadato alloggi mostra 'Posti letto max: 1' in modo incoerente.", "sources": ["camere", "listino"] },
-    { "id": "q272", "group": "Prodotto e fotografie", "label": "Amenities", "status": "present", "evidence": "Climatizzazione, Wi-Fi, TV, posto auto e servizi distintivi esposti per tipologia.", "sources": ["camere"] },
-    { "id": "q279", "group": "Prodotto e fotografie", "label": "Descrizioni camere", "status": "partial", "evidence": "Schede per tipologia presenti, ma molte frasi premium sono ripetitive e non sempre aiutano il confronto.", "sources": ["camere"] },
-    { "id": "q280", "group": "Prodotto e fotografie", "label": "USP", "status": "present", "evidence": "Piscina infinity sul rooftop, vista, design e ristorante panoramico sono vantaggi chiari.", "sources": ["sito"] },
-    { "id": "q307", "group": "Visibilità e reputazione", "label": "Sito ufficiale", "status": "present", "evidence": "Sito ufficiale rintracciabile e multilingua.", "sources": ["sito"] },
-    { "id": "q308", "group": "Visibilità e reputazione", "label": "Presenza OTA", "status": "present", "evidence": "Hotel su Booking, Agoda, Trip.com; annunci di singole unità su Airbnb, Vrbo, Expedia/Hotels.com. Evitare doppi conteggi.", "sources": ["booking", "agoda", "trip", "airbnb", "vrbo", "expedia", "hotels"] },
-    { "id": "q309", "group": "Visibilità e reputazione", "label": "Metasearch", "status": "present", "evidence": "Scheda Google Hotels pubblica.", "sources": ["google"] },
-    { "id": "q310", "group": "Visibilità e reputazione", "label": "Profilo Google", "status": "present", "evidence": "Profilo con indirizzo, telefono, fotografie e recensioni: circa 4,6/5 su 316 recensioni al controllo.", "sources": ["google"] },
-    { "id": "q311", "group": "Visibilità e reputazione", "label": "Coerenza contenuti", "status": "partial", "evidence": "L'ecosistema alterna scheda hotel e schede per singola unità; allineare capienze, servizi, policy e denominazioni.", "sources": ["listino", "booking", "airbnb", "expedia"] },
-    { "id": "q314", "group": "Visibilità e reputazione", "label": "Booking.com", "status": "present", "evidence": "Scheda hotel con voto circa 8,9/10 e oltre 500 recensioni nella pagina indicizzata.", "sources": ["booking"] },
-    { "id": "q318", "group": "Visibilità e reputazione", "label": "Google Hotels", "status": "present", "evidence": "Profilo trovato; non prova da solo il collegamento di tariffe dirette.", "sources": ["google"] },
-    { "id": "q342", "group": "Visibilità e reputazione", "label": "Risposte alle recensioni", "status": "unverified", "evidence": "Tasso di risposta della direzione non stimabile dal campione accessibile.", "sources": ["google"] },
-    { "id": "q366", "group": "Prezzi e competitività", "label": "Comp set", "status": "unverified", "evidence": "Nessun confronto omogeneo di prezzo/prodotto con concorrenti nella stessa data e categoria.", "sources": ["booking", "google"] },
-    { "id": "q369", "group": "Prezzi e competitività", "label": "Recensioni competitive", "status": "partial", "evidence": "Booking 8,9/10 e Google 4,6/5 sono forti; manca comp set con categorie e volumi comparabili.", "sources": ["booking", "google"] },
-    { "id": "q370", "group": "Prezzi e competitività", "label": "Pricing", "status": "partial", "evidence": "Prezzi minimi per tipologia esposti; non costituiscono quotazioni mensili future.", "sources": ["listino"] },
-    { "id": "q372", "group": "Prezzi e competitività", "label": "Percezione del valore", "status": "present", "evidence": "Rapporto qualità-prezzo Booking circa 8,8/10; il feedback positivo prevale nel campione consultato.", "sources": ["bookingReviews"] },
-    { "id": "q382", "group": "Prezzi e competitività", "label": "Pricing dinamico visibile", "status": "unverified", "evidence": "I prezzi 'a partire da' e il widget non consentono di inferire la logica di revenue interna.", "sources": ["listino"] },
-    { "id": "q385", "group": "Prezzi e competitività", "label": "Parità tariffaria", "status": "unverified", "evidence": "Servono preventivi per medesima unità, data, occupazione, cancellazione e pubblico; schede separate complicano il confronto.", "sources": ["listino", "booking", "airbnb", "vrbo"] },
-    { "id": "q416", "group": "Contatto e conversione", "label": "Telefono", "status": "present", "evidence": "Numero telefonico nel sito come link click-to-call.", "sources": ["sito"] },
-    { "id": "q417", "group": "Contatto e conversione", "label": "Email", "status": "partial", "evidence": "Form informazioni presente; indirizzo email diretto non rilevato nella homepage campionata.", "sources": ["sito"] },
-    { "id": "q418", "group": "Contatto e conversione", "label": "WhatsApp", "status": "unverified", "evidence": "Nel campione visualizzato non è stata confermata una destinazione WhatsApp distinta dal telefono.", "sources": ["sito"] },
-    { "id": "q420", "group": "Contatto e conversione", "label": "Booking engine commerciale", "status": "partial", "evidence": "Selettore date/ospiti e disponibilità presente; completamento acquisto non verificato senza inviare prenotazioni.", "sources": ["sito", "listino"] },
-    { "id": "q446", "group": "Contatto e conversione", "label": "Tempo di risposta", "status": "unverified", "evidence": "Richiede test di contatto autorizzato; non effettuato.", "sources": ["sito"] },
-    { "id": "q669", "group": "Qualità percepita", "label": "Pulizia", "status": "present", "evidence": "Pulizia Booking circa 9,2/10 e citazioni positive nel campione di recensioni.", "sources": ["bookingReviews", "sito"] },
-    { "id": "q670", "group": "Qualità percepita", "label": "Manutenzione", "status": "partial", "evidence": "Una recensione sul sito segnala buche all'accesso auto; verifica fisica necessaria.", "sources": ["sito"] },
-    { "id": "q720", "group": "Qualità percepita", "label": "Stato camere", "status": "present", "evidence": "Design recente, camere apprezzate; campione fotografico coerente con descrizioni.", "sources": ["camere", "bookingReviews"] },
-    { "id": "q724", "group": "Qualità percepita", "label": "Manutenzioni visibili", "status": "partial", "evidence": "Accesso auto, zanzariere e schermature patio sono verifiche puntuali suggerite dai feedback.", "sources": ["sito", "bookingReviews"] },
-    { "id": "q734", "group": "Qualità percepita", "label": "Wi-Fi", "status": "present", "evidence": "Wi-Fi dichiarato nelle camere, Booking lo valuta circa 8,0/10.", "sources": ["sito", "booking"] },
-    { "id": "q744", "group": "Qualità percepita", "label": "Aspettative ospite", "status": "partial", "evidence": "Piscina stagionale e caratteristiche reali, privacy patio e distanza dalle spiagge attrezzate meritano maggiore chiarezza.", "sources": ["sito", "bookingReviews"] },
-    { "id": "q756", "group": "Offerte e servizi", "label": "Offerte dirette", "status": "partial", "evidence": "Offerta solo diretta pubblicata con validità 2025: pagina ancora raggiungibile nel 2026, da aggiornare.", "sources": ["offerta"] },
-    { "id": "q769", "group": "Offerte e servizi", "label": "Servizi ancillari", "status": "present", "evidence": "Ristorante, rooftop bar, piscina, spa in alcune soluzioni e servizi pet-friendly comunicati.", "sources": ["sito", "camere"] }
+    {
+      "id": "q6",
+      "group": "Brand e posizionamento",
+      "label": "Posizionamento",
+      "status": "present",
+      "evidence": "Design, piscina panoramica, ristorante e prossimità al mare compongono una proposta premium riconoscibile.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q7",
+      "group": "Brand e posizionamento",
+      "label": "Target ospite",
+      "status": "partial",
+      "evidence": "Coppie e famiglie sono servite da tipologie diverse, ma manca un percorso dedicato per bisogno/occasione.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q8",
+      "group": "Brand e posizionamento",
+      "label": "Promessa di soggiorno",
+      "status": "present",
+      "evidence": "Relax, design, tramonto, ristorante e mare sono spiegati e accompagnati da contenuti visivi.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q9",
+      "group": "Brand e posizionamento",
+      "label": "Identità territoriale",
+      "status": "present",
+      "evidence": "Il sito collega architettura alle pajare salentine e promuove spiagge e sapori locali.",
+      "sources": [
+        "sito",
+        "listino"
+      ]
+    },
+    {
+      "id": "q12",
+      "group": "Sito e conversione",
+      "label": "UX mobile",
+      "status": "unverified",
+      "evidence": "Non eseguito test strutturato su dispositivi e velocità mobile; serve misurazione dedicata.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q13",
+      "group": "Sito e conversione",
+      "label": "Booking engine",
+      "status": "partial",
+      "evidence": "Il widget restituisce prezzi datati per 16 tipologie in diversi mesi 2027; checkout finale non testato. Il 12-17 agosto 2027, 5 notti, mostra una restrizione di soggiorno minimo 7 notti, non una chiusura.",
+      "sources": [
+        "sito",
+        "listino"
+      ]
+    },
+    {
+      "id": "q14",
+      "group": "Sito e conversione",
+      "label": "Camere e tariffe",
+      "status": "partial",
+      "evidence": "Range datati verificati: 15-18 maggio 2027 EUR 51,34-161,98/notte tra 16 tipologie; 15-18 luglio EUR 141,62-365,80. Il listino 'a partire da' non rappresenta questi preventivi; le condizioni di cancellazione del diretto vanno chiarite prima di confronti OTA.",
+      "sources": [
+        "camere",
+        "listino"
+      ]
+    },
+    {
+      "id": "q15",
+      "group": "Sito e conversione",
+      "label": "Elementi di fiducia",
+      "status": "present",
+      "evidence": "Testimonianze, informazioni societarie, recapito, social e schede recensioni pubbliche presenti.",
+      "sources": [
+        "sito",
+        "google"
+      ]
+    },
+    {
+      "id": "q20",
+      "group": "Sito e conversione",
+      "label": "SSL",
+      "status": "present",
+      "evidence": "Sito ufficiale servito in HTTPS.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q21",
+      "group": "Sito e conversione",
+      "label": "Cookie e consenso",
+      "status": "partial",
+      "evidence": "Banner consenso visibile; configurazione dei tracciamenti richiede audit tecnico separato.",
+      "sources": [
+        "sito",
+        "privacy"
+      ]
+    },
+    {
+      "id": "q22",
+      "group": "Sito e conversione",
+      "label": "Privacy",
+      "status": "present",
+      "evidence": "Informativa privacy Iubenda collegata nel footer.",
+      "sources": [
+        "sito",
+        "privacy"
+      ]
+    },
+    {
+      "id": "q24",
+      "group": "Sito e conversione",
+      "label": "Tracciamenti marketing",
+      "status": "unverified",
+      "evidence": "La presenza di cookie banner non dimostra che eventi di prenotazione e campagne siano misurati correttamente.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q141",
+      "group": "Conformità pubblica",
+      "label": "CIR e CIN",
+      "status": "partial",
+      "evidence": "CIN IT075066A100034132 visibile nell'annuncio Airbnb campionato; allineamento con tutte le unità da verificare.",
+      "sources": [
+        "airbnb"
+      ]
+    },
+    {
+      "id": "q221",
+      "group": "Conformità pubblica",
+      "label": "Esposizione CIN",
+      "status": "partial",
+      "evidence": "CIN non rilevato nella homepage e nella pagina camere campionate; cercare in tutte le schede e verificare gli obblighi applicabili.",
+      "sources": [
+        "sito",
+        "camere",
+        "airbnb"
+      ]
+    },
+    {
+      "id": "q222",
+      "group": "Conformità pubblica",
+      "label": "Coerenza CIN sui portali",
+      "status": "unverified",
+      "evidence": "Un annuncio Airbnb espone un CIN; ogni unità e portale richiedono confronto individuale.",
+      "sources": [
+        "airbnb",
+        "booking"
+      ]
+    },
+    {
+      "id": "q261",
+      "group": "Prodotto e fotografie",
+      "label": "Foto camere",
+      "status": "present",
+      "evidence": "Campione camere e unità nitido e luminoso; qualità editoriale preliminare 7,5/10.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q263",
+      "group": "Prodotto e fotografie",
+      "label": "Foto aree comuni",
+      "status": "present",
+      "evidence": "Piscina, terrazza e ristorante documentati visivamente.",
+      "sources": [
+        "sito",
+        "listino"
+      ]
+    },
+    {
+      "id": "q264",
+      "group": "Prodotto e fotografie",
+      "label": "Foto esterni",
+      "status": "present",
+      "evidence": "Esterni e contesto della struttura compaiono nelle schede; hero iniziale punta più sulla spiaggia che sull'hotel.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q266",
+      "group": "Prodotto e fotografie",
+      "label": "Dettagli esperienziali",
+      "status": "present",
+      "evidence": "Roof-top, tramonto, spa e ristorante creano narrativa esperienziale concreta.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    },
+    {
+      "id": "q269",
+      "group": "Prodotto e fotografie",
+      "label": "Informazioni camere",
+      "status": "partial",
+      "evidence": "Capienza descritta nelle schede camere ma un metadato alloggi mostra 'Posti letto max: 1' in modo incoerente.",
+      "sources": [
+        "camere",
+        "listino"
+      ]
+    },
+    {
+      "id": "q272",
+      "group": "Prodotto e fotografie",
+      "label": "Amenities",
+      "status": "present",
+      "evidence": "Climatizzazione, Wi-Fi, TV, posto auto e servizi distintivi esposti per tipologia.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q279",
+      "group": "Prodotto e fotografie",
+      "label": "Descrizioni camere",
+      "status": "partial",
+      "evidence": "Schede per tipologia presenti, ma molte frasi premium sono ripetitive e non sempre aiutano il confronto.",
+      "sources": [
+        "camere"
+      ]
+    },
+    {
+      "id": "q280",
+      "group": "Prodotto e fotografie",
+      "label": "USP",
+      "status": "present",
+      "evidence": "Piscina infinity sul rooftop, vista, design e ristorante panoramico sono vantaggi chiari.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q307",
+      "group": "Visibilità e reputazione",
+      "label": "Sito ufficiale",
+      "status": "present",
+      "evidence": "Sito ufficiale rintracciabile e multilingua.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q308",
+      "group": "Visibilità e reputazione",
+      "label": "Presenza OTA",
+      "status": "present",
+      "evidence": "Hotel su Booking, Agoda, Trip.com; annunci di singole unità su Airbnb, Vrbo, Expedia/Hotels.com. Evitare doppi conteggi.",
+      "sources": [
+        "booking",
+        "agoda",
+        "trip",
+        "airbnb",
+        "vrbo",
+        "expedia",
+        "hotels"
+      ]
+    },
+    {
+      "id": "q309",
+      "group": "Visibilità e reputazione",
+      "label": "Metasearch",
+      "status": "present",
+      "evidence": "Scheda Google Hotels pubblica.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q310",
+      "group": "Visibilità e reputazione",
+      "label": "Profilo Google",
+      "status": "present",
+      "evidence": "Profilo con indirizzo, telefono, fotografie e recensioni: circa 4,6/5 su 316 recensioni al controllo.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q311",
+      "group": "Visibilità e reputazione",
+      "label": "Coerenza contenuti",
+      "status": "partial",
+      "evidence": "L'ecosistema alterna scheda hotel e schede per singola unità; allineare capienze, servizi, policy e denominazioni.",
+      "sources": [
+        "listino",
+        "booking",
+        "airbnb",
+        "expedia"
+      ]
+    },
+    {
+      "id": "q314",
+      "group": "Visibilità e reputazione",
+      "label": "Booking.com",
+      "status": "present",
+      "evidence": "Scheda hotel con voto circa 8,9/10 e oltre 500 recensioni nella pagina indicizzata.",
+      "sources": [
+        "booking"
+      ]
+    },
+    {
+      "id": "q318",
+      "group": "Visibilità e reputazione",
+      "label": "Google Hotels",
+      "status": "present",
+      "evidence": "Profilo trovato; non prova da solo il collegamento di tariffe dirette.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q342",
+      "group": "Visibilità e reputazione",
+      "label": "Risposte alle recensioni",
+      "status": "unverified",
+      "evidence": "Tasso di risposta della direzione non stimabile dal campione accessibile.",
+      "sources": [
+        "google"
+      ]
+    },
+    {
+      "id": "q366",
+      "group": "Prezzi e competitività",
+      "label": "Comp set",
+      "status": "unverified",
+      "evidence": "Nessun confronto omogeneo di prezzo/prodotto con concorrenti nella stessa data e categoria.",
+      "sources": [
+        "booking",
+        "google"
+      ]
+    },
+    {
+      "id": "q369",
+      "group": "Prezzi e competitività",
+      "label": "Recensioni competitive",
+      "status": "partial",
+      "evidence": "Booking 8,9/10 e Google 4,6/5 sono forti; manca comp set con categorie e volumi comparabili.",
+      "sources": [
+        "booking",
+        "google"
+      ]
+    },
+    {
+      "id": "q370",
+      "group": "Prezzi e competitività",
+      "label": "Pricing",
+      "status": "partial",
+      "evidence": "Prezzi minimi per tipologia esposti; non costituiscono quotazioni mensili future.",
+      "sources": [
+        "listino"
+      ]
+    },
+    {
+      "id": "q372",
+      "group": "Prezzi e competitività",
+      "label": "Percezione del valore",
+      "status": "present",
+      "evidence": "Rapporto qualità-prezzo Booking circa 8,8/10; il feedback positivo prevale nel campione consultato.",
+      "sources": [
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q382",
+      "group": "Prezzi e competitività",
+      "label": "Pricing dinamico visibile",
+      "status": "unverified",
+      "evidence": "I prezzi 'a partire da' e il widget non consentono di inferire la logica di revenue interna.",
+      "sources": [
+        "listino"
+      ]
+    },
+    {
+      "id": "q385",
+      "group": "Prezzi e competitività",
+      "label": "Parità tariffaria",
+      "status": "unverified",
+      "evidence": "Servono preventivi per medesima unità, data, occupazione, cancellazione e pubblico; schede separate complicano il confronto.",
+      "sources": [
+        "listino",
+        "booking",
+        "airbnb",
+        "vrbo"
+      ]
+    },
+    {
+      "id": "q416",
+      "group": "Contatto e conversione",
+      "label": "Telefono",
+      "status": "present",
+      "evidence": "Numero telefonico nel sito come link click-to-call.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q417",
+      "group": "Contatto e conversione",
+      "label": "Email",
+      "status": "partial",
+      "evidence": "Form informazioni presente; indirizzo email diretto non rilevato nella homepage campionata.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q418",
+      "group": "Contatto e conversione",
+      "label": "WhatsApp",
+      "status": "unverified",
+      "evidence": "Nel campione visualizzato non è stata confermata una destinazione WhatsApp distinta dal telefono.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q420",
+      "group": "Contatto e conversione",
+      "label": "Booking engine commerciale",
+      "status": "partial",
+      "evidence": "Selettore date/ospiti e disponibilità presente; completamento acquisto non verificato senza inviare prenotazioni.",
+      "sources": [
+        "sito",
+        "listino"
+      ]
+    },
+    {
+      "id": "q446",
+      "group": "Contatto e conversione",
+      "label": "Tempo di risposta",
+      "status": "unverified",
+      "evidence": "Richiede test di contatto autorizzato; non effettuato.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q669",
+      "group": "Qualità percepita",
+      "label": "Pulizia",
+      "status": "present",
+      "evidence": "Pulizia Booking circa 9,2/10 e citazioni positive nel campione di recensioni.",
+      "sources": [
+        "bookingReviews",
+        "sito"
+      ]
+    },
+    {
+      "id": "q670",
+      "group": "Qualità percepita",
+      "label": "Manutenzione",
+      "status": "partial",
+      "evidence": "Una recensione sul sito segnala buche all'accesso auto; verifica fisica necessaria.",
+      "sources": [
+        "sito"
+      ]
+    },
+    {
+      "id": "q720",
+      "group": "Qualità percepita",
+      "label": "Stato camere",
+      "status": "present",
+      "evidence": "Design recente, camere apprezzate; campione fotografico coerente con descrizioni.",
+      "sources": [
+        "camere",
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q724",
+      "group": "Qualità percepita",
+      "label": "Manutenzioni visibili",
+      "status": "partial",
+      "evidence": "Accesso auto, zanzariere e schermature patio sono verifiche puntuali suggerite dai feedback.",
+      "sources": [
+        "sito",
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q734",
+      "group": "Qualità percepita",
+      "label": "Wi-Fi",
+      "status": "present",
+      "evidence": "Wi-Fi dichiarato nelle camere, Booking lo valuta circa 8,0/10.",
+      "sources": [
+        "sito",
+        "booking"
+      ]
+    },
+    {
+      "id": "q744",
+      "group": "Qualità percepita",
+      "label": "Aspettative ospite",
+      "status": "partial",
+      "evidence": "Piscina stagionale e caratteristiche reali, privacy patio e distanza dalle spiagge attrezzate meritano maggiore chiarezza.",
+      "sources": [
+        "sito",
+        "bookingReviews"
+      ]
+    },
+    {
+      "id": "q756",
+      "group": "Offerte e servizi",
+      "label": "Offerte dirette",
+      "status": "partial",
+      "evidence": "Offerta solo diretta pubblicata con validità 2025: pagina ancora raggiungibile nel 2026, da aggiornare.",
+      "sources": [
+        "offerta"
+      ]
+    },
+    {
+      "id": "q769",
+      "group": "Offerte e servizi",
+      "label": "Servizi ancillari",
+      "status": "present",
+      "evidence": "Ristorante, rooftop bar, piscina, spa in alcune soluzioni e servizi pet-friendly comunicati.",
+      "sources": [
+        "sito",
+        "camere"
+      ]
+    }
   ]
 }
