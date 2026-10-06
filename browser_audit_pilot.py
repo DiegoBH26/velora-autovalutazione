@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v44"
+PILOT_BUILD = "velora-browser-pilot-v45"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "holidaycheck")
@@ -5360,17 +5360,20 @@ async def run(args: argparse.Namespace) -> dict:
                 ota_id for ota_id in OTA_DISCOVERY_ORDER
                 if ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
             ]
-            quick_retest=bool(args.months == 1 and known_ota_sources)
+            booking_only=set(channels)=={"booking"}
+            quick_retest=bool(known_ota_sources and (args.months == 1 or booking_only))
             if quick_retest:
                 master_discoveries={}
                 master_diag={
-                    "status":"reused_sources_quick_test",
+                    "status":"reused_sources_booking_scan" if booking_only and args.months != 1 else "reused_sources_quick_test",
                     "queries":[],
                     "candidates":len(known_ota_sources),
                     "knownSources":known_ota_sources,
                 }
                 print(
-                    "master search: riuso schede OTA già verificate per il test di un mese · "
+                    ("master search: riuso scheda Booking già verificata per scansione multi-mese · "
+                     if booking_only and args.months != 1
+                     else "master search: riuso schede OTA già verificate per il test di un mese · ") +
                     f"fonti note={','.join(known_ota_sources)}",
                     flush=True,
                 )
@@ -5402,7 +5405,11 @@ async def run(args: argparse.Namespace) -> dict:
                 )
             elif quick_retest:
                 print(
-                    f"quick test: discovery saltata; scraping delle {len(known_ota_sources)} OTA già note",
+                    (
+                        "booking multi-month: discovery saltata; uso della scheda Booking già verificata"
+                        if booking_only and args.months != 1
+                        else f"quick test: discovery saltata; scraping delle {len(known_ota_sources)} OTA già note"
+                    ),
                     flush=True,
                 )
 
