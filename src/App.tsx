@@ -3687,6 +3687,13 @@ type BrowserPilotResult = {
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
   reputation?: BrowserPilotReputation;
   photoAudit?: BrowserPilotPhotoAudit;
+  discoveryProgress?: {
+    stage?: string;
+    completed?: number;
+    total?: number;
+    otaId?: string;
+    label?: string;
+  };
   observations: BrowserPilotObservation[];
 };
 
@@ -5101,10 +5108,15 @@ export default function App() {
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
         const verifiedPilotRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
+        const discovery = status.result?.discoveryProgress;
+        const discoveryActive = status.running && discovery && Number(discovery.total || 0) > 0 && Number(discovery.completed || 0) < Number(discovery.total || 0);
+        const discoveryText = discoveryActive
+          ? `Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}${discovery.label ? ` · ${discovery.label}` : ""}. `
+          : "";
         setLocalPilotMessage(
           status.running
-            ? `${count} controlli completati · ${verifiedPilotRates} tariffe OTA validate pronte per l\'importazione.`
-            : `${count} controlli completati · ${verifiedPilotRates} tariffe OTA validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+            ? `${discoveryText}${count} controlli tariffari completati · ${verifiedPilotRates} tariffe OTA validate pronte per l\'importazione.`
+            : `${count} controlli tariffari completati · ${verifiedPilotRates} tariffe OTA validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
         );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
