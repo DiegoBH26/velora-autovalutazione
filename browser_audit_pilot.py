@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v53"
+PILOT_BUILD = "velora-browser-pilot-v54"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -4844,6 +4844,139 @@ async def booking_dated_search_observation(page, source: str, property_name: str
     )[:900]
     return record
 
+
+def shifted_reference_stay(stay: dict, offset_days: int) -> dict:
+    """Sposta il soggiorno mantenendo notti/ospiti e riallinea il mese alla data reale."""
+    start=date.fromisoformat(stay["checkin"]) + timedelta(days=offset_days)
+    nights=int(stay.get("nights") or 1)
+    end=start + timedelta(days=nights)
+    return {
+        **stay,
+        "month":start.strftime("%Y-%m"),
+        "checkin":start.isoformat(),
+        "checkout":end.isoformat(),
+        "nights":nights,
+    }
+
+
+async def booking_resolve_reference_stay(
+    context,
+    source: str,
+    property_name: str,
+    city: str,
+    stay: dict,
+    robots: dict,
+    initial_record: dict,
+) -> tuple[dict, dict, dict]:
+    """Trova una finestra Booking tariffata prima di interrogare le altre OTA.
+
+    Cambia data soltanto quando Booking ha dichiarato esplicitamente assenza di
+    tariffa pubblica. Stati tecnici/inconcludenti non vengono interpretati come
+    indisponibilità. Mantiene notti e ospiti invariati.
+    """
+    rate_statuses={"quote_candidates","quote_candidates_unverified"}
+    initial_status=str(initial_record.get("status") or "")
+    if initial_status in rate_statuses:
+        return stay,initial_record,{
+            "status":"initial_dates_available",
+            "requestedCheckin":stay["checkin"],
+            "requestedCheckout":stay["checkout"],
+            "resolvedCheckin":stay["checkin"],
+            "resolvedCheckout":stay["checkout"],
+            "attempts":1,
+        }
+
+    if initial_status!="no_public_rate":
+        return stay,initial_record,{
+            "status":"initial_dates_inconclusive",
+            "requestedCheckin":stay["checkin"],
+            "requestedCheckout":stay["checkout"],
+            "resolvedCheckin":stay["checkin"],
+            "resolvedCheckout":stay["checkout"],
+            "attempts":1,
+            "evidence":"Le date Booking iniziali non hanno dato un'indisponibilità certa; nessuno spostamento automatico applicato.",
+        }
+
+    # Prima cerca giorno per giorno vicino alla data campione. Se non trova
+    # disponibilità, allarga gradualmente l'orizzonte senza martellare il portale.
+    offsets=list(range(1,15)) + [21,28,35,42,49,56]
+    carrier=await context.new_page()
+    attempts=1
+    try:
+        for offset in offsets:
+            candidate=shifted_reference_stay(stay,offset)
+            attempts+=1
+            probe=await booking_probe_direct_dated_detail(carrier,source,candidate,robots)
+            probe_status=str((probe or {}).get("status") or "inconclusive")
+            print(
+                f"{stay['month']} booking-reference-date-search: +{offset}g "
+                f"{candidate['checkin']}→{candidate['checkout']} · {probe_status}",
+                flush=True,
+            )
+
+            if probe_status in rate_statuses:
+                resolved={
+                    "otaId":"booking",
+                    **candidate,
+                    "sourceUrl":source,
+                    "requestedUrl":dated_url("booking",source,candidate) or source,
+                    "observedAt":datetime.now(timezone.utc).isoformat(),
+                    "status":probe_status,
+                    "finalUrl":str((probe or {}).get("finalUrl") or ""),
+                    "title":str((probe or {}).get("title") or "")[:200],
+                    "quotes":(probe or {}).get("quotes") or [],
+                    "evidence":(
+                        f"Date Booking di riferimento trovate automaticamente dopo indisponibilità iniziale: "
+                        f"{stay['checkin']} → {stay['checkout']} sostituite con "
+                        f"{candidate['checkin']} → {candidate['checkout']} mantenendo "
+                        f"{candidate['nights']} notti e {candidate.get('adults',2)} ospiti. "
+                        f"{str((probe or {}).get('evidence') or '')}"
+                    )[:900],
+                }
+                return candidate,resolved,{
+                    "status":"shifted_to_available_booking_dates",
+                    "requestedCheckin":stay["checkin"],
+                    "requestedCheckout":stay["checkout"],
+                    "resolvedCheckin":candidate["checkin"],
+                    "resolvedCheckout":candidate["checkout"],
+                    "offsetDays":offset,
+                    "attempts":attempts,
+                    "evidence":"La stessa finestra Booking verrà usata per tutte le altre OTA del confronto.",
+                }
+
+            if probe_status=="rate_limited":
+                return stay,initial_record,{
+                    "status":"stopped_rate_limited",
+                    "requestedCheckin":stay["checkin"],
+                    "requestedCheckout":stay["checkout"],
+                    "resolvedCheckin":stay["checkin"],
+                    "resolvedCheckout":stay["checkout"],
+                    "attempts":attempts,
+                    "evidence":"Ricerca di una nuova data Booking interrotta per rate limit; nessun bypass eseguito.",
+                }
+
+            await asyncio.sleep(0.7)
+    finally:
+        try:
+            await carrier.close()
+        except Exception:
+            pass
+
+    initial_record["evidence"]=(
+        str(initial_record.get("evidence") or "") +
+        " | Velora ha cercato automaticamente una finestra Booking tariffata "
+        "nelle date successive (stessa durata), senza trovarne una entro l'orizzonte di ricerca."
+    )[:900]
+    return stay,initial_record,{
+        "status":"no_available_booking_date_found",
+        "requestedCheckin":stay["checkin"],
+        "requestedCheckout":stay["checkout"],
+        "resolvedCheckin":stay["checkin"],
+        "resolvedCheckout":stay["checkout"],
+        "attempts":attempts,
+    }
+
+
 async def booking_probe_direct_dated_detail(page, source: str, stay: dict, robots: dict) -> dict | None:
     """Prova la scheda Booking esatta con date direttamente nella URL, su una nuova tab.
 
@@ -6833,7 +6966,7 @@ async def run(args: argparse.Namespace) -> dict:
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
-              "reputation": {}, "photoAudit": {}, "observations": []}
+              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -7047,61 +7180,104 @@ async def run(args: argparse.Namespace) -> dict:
             else:
                 result["bookingEngine"]["evidence"] = "URL ufficiale non indicato."
             write_result(output, result)
-            for stay in plan:
+            for stay_index,planned_stay in enumerate(list(plan)):
+                effective_stay=dict(planned_stay)
+                precomputed_booking=None
+
+                # Booking è il riferimento temporale del confronto multi-OTA.
+                # Viene interrogato prima di tutti gli altri canali. Se dichiara
+                # esplicitamente indisponibilità, cerca una finestra successiva
+                # con la stessa durata; le altre OTA useranno esattamente quelle date.
+                booking_source=(sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
+                if "booking" in channels and booking_source:
+                    search_page=await context.new_page()
+                    try:
+                        initial_booking=await booking_dated_search_observation(
+                            search_page,
+                            booking_source,
+                            data.get("name",""),
+                            data.get("city",""),
+                            effective_stay,
+                            robots,
+                        )
+                    finally:
+                        await search_page.close()
+
+                    print(
+                        f"{effective_stay['month']} booking-dated-search: {initial_booking.get('status')} · "
+                        f"{str(initial_booking.get('evidence') or '')[:260]}",
+                        flush=True,
+                    )
+
+                    if initial_booking.get("status") not in {
+                        "quote_candidates","quote_candidates_unverified","no_public_rate","needs_human_review"
+                    }:
+                        page=await context.new_page()
+                        try:
+                            fallback_booking=await observe(page,"booking",booking_source,effective_stay,robots)
+                        finally:
+                            await page.close()
+                        if fallback_booking.get("status") in {"dates_unconfirmed","needs_human_review"}:
+                            fallback_booking["evidence"]=(
+                                str(fallback_booking.get("evidence") or "") +
+                                " | Ricerca Booking datata: " +
+                                str(initial_booking.get("evidence") or "")
+                            )[:900]
+                        initial_booking=fallback_booking
+
+                    effective_stay,precomputed_booking,resolution=await booking_resolve_reference_stay(
+                        context,
+                        booking_source,
+                        data.get("name",""),
+                        data.get("city",""),
+                        effective_stay,
+                        robots,
+                        initial_booking,
+                    )
+                    result["bookingDateResolution"].append(resolution)
+
+                    if effective_stay["checkin"] != planned_stay["checkin"]:
+                        plan[stay_index]=effective_stay
+                        print(
+                            f"{planned_stay['month']} booking-reference-resolved: "
+                            f"{planned_stay['checkin']}→{planned_stay['checkout']} => "
+                            f"{effective_stay['checkin']}→{effective_stay['checkout']} · "
+                            f"stesse date applicate a tutte le OTA",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"{planned_stay['month']} booking-reference-resolved: "
+                            f"{resolution.get('status')} · date={effective_stay['checkin']}→{effective_stay['checkout']}",
+                            flush=True,
+                        )
+                    write_result(output,result)
+
                 for channel in channels:
                     source = sources.get(channel, {}).get("url", "")
-                    if not source:
+                    if channel=="booking" and precomputed_booking is not None:
+                        record=precomputed_booking
+                    elif not source:
                         discovery = result.get("discoveredSources", {}).get(channel, {})
                         evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
                         if quick_retest and channel in OTA_DISCOVERY_ORDER:
-                            record = {"otaId": channel, **stay, "status": "source_not_retested", "quotes": [],
-                                      "evidence": "Test rapido: discovery non ripetuta; questa OTA non ha ancora una scheda verificata salvata."}
+                            record = {"otaId": channel, **effective_stay, "status": "source_not_retested", "quotes": [],
+                                      "evidence": "Scansione dedicata: discovery non ripetuta; questa OTA non ha una scheda verificata salvata."}
                         else:
-                            record = {"otaId": channel, **stay, "status": "source_missing", "quotes": [],
+                            record = {"otaId": channel, **effective_stay, "status": "source_missing", "quotes": [],
                                       "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
-                        if channel == "booking":
-                            search_page = await context.new_page()
-                            try:
-                                dated_record = await booking_dated_search_observation(
-                                    search_page,
-                                    source,
-                                    data.get("name", ""),
-                                    data.get("city", ""),
-                                    stay,
-                                    robots,
-                                )
-                            finally:
-                                await search_page.close()
-                            print(
-                                f"{stay['month']} booking-dated-search: {dated_record.get('status')} · "
-                                f"{str(dated_record.get('evidence') or '')[:260]}",
-                                flush=True,
-                            )
-                            if dated_record.get("status") in {"quote_candidates", "quote_candidates_unverified", "no_public_rate", "needs_human_review"}:
-                                record = dated_record
-                            else:
-                                page = await context.new_page()
-                                try:
-                                    record = await observe(page, channel, source, stay, robots)
-                                finally:
-                                    await page.close()
-                                if record.get("status") in {"dates_unconfirmed", "needs_human_review"}:
-                                    record["evidence"] = (
-                                        str(record.get("evidence") or "") +
-                                        " | Ricerca Booking datata: " +
-                                        str(dated_record.get("evidence") or "")
-                                    )[:900]
-                        else:
-                            page = await context.new_page()
-                            try:
-                                record = await observe(page, channel, source, stay, robots)
-                            finally:
-                                await page.close()
+                        page = await context.new_page()
+                        try:
+                            record = await observe(page, channel, source, effective_stay, robots)
+                        finally:
+                            await page.close()
+
                     result["observations"].append(record)
                     write_result(output, result)
                     print(
-                        f"{stay['month']} {channel}: {record['status']} · {str(record.get('evidence') or '')[:240]}",
+                        f"{effective_stay['month']} {channel}: {record['status']} · "
+                        f"{str(record.get('evidence') or '')[:240]}",
                         flush=True,
                     )
                     await asyncio.sleep(1)
