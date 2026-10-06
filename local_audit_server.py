@@ -860,7 +860,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v46 · tariffe Booking + Agoda + Airbnb + Vrbo automatiche",flush=True)
+    print("Versione agente: velora-local-agent-v47 · tariffe Booking + Agoda + Airbnb + Vrbo automatiche",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
