@@ -3875,7 +3875,7 @@ function normalizedRateToken(value: string | undefined): string {
 function pilotVerifiedRateQuotes(result: BrowserPilotResult): RateQuote[] {
   const rows: RateQuote[] = [];
   for (const observation of result.observations || []) {
-    if (!["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "trip"].includes(observation.otaId)) continue;
+    if (!["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip"].includes(observation.otaId)) continue;
     const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
     for (const quote of observation.quotes || []) {
       if (!quote.verified || !Number.isFinite(quote.total) || quote.total <= 0 || quote.nights < 1) continue;
@@ -4874,7 +4874,7 @@ export default function App() {
       setSelectedRateCohort((current) => current || rateCohortKey(automaticPilotQuotes[0]));
     }
     const automaticBookingCount = automaticPilotQuotes.filter((quote) => quote.otaId === "booking").length;
-    const automaticCounts = Object.fromEntries(["agoda", "airbnb", "vrbo", "expedia", "hotels", "trip"].map((otaId) => [otaId, automaticPilotQuotes.filter((quote) => quote.otaId === otaId).length]));
+    const automaticCounts = Object.fromEntries(["agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip"].map((otaId) => [otaId, automaticPilotQuotes.filter((quote) => quote.otaId === otaId).length]));
 
     const otaLabels: Record<string, string> = {
       booking: "Booking.com",
@@ -4884,6 +4884,11 @@ export default function App() {
       vrbo: "Vrbo",
       agoda: "Agoda",
       trip: "Trip.com",
+      priceline: "Priceline",
+      travelocity: "Travelocity",
+      tripadvisor: "Tripadvisor",
+      trivago: "Trivago",
+      googlehotels: "Google Hotels",
       holidaycheck: "HolidayCheck",
     };
 
@@ -4930,7 +4935,7 @@ export default function App() {
       });
     }
 
-    for (const otaId of ["agoda", "airbnb", "vrbo", "expedia", "hotels", "trip"] as const) {
+    for (const otaId of ["agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip"] as const) {
       const observations = result.observations.filter((item) => item.otaId === otaId);
       if (!observations.length) continue;
       const withQuotes = observations.filter((item) => Array.isArray(item.quotes) && item.quotes.length);
@@ -7258,7 +7263,7 @@ export default function App() {
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Le tariffe validate di Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com e Trip.com vengono importate automaticamente nell’archivio economico; il confronto tra OTA resta separato finché camera/unità, date e condizioni non sono omogenee. Un portale bloccato o una data non confermata restano “non verificati”, mai prezzo zero.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Le tariffe validate di Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity e Trip.com vengono importate automaticamente nell’archivio economico; Tripadvisor, Trivago e Google Hotels vengono invece usati come fonti di presenza/metasearch. Il confronto tra OTA resta separato finché camera/unità, date e condizioni non sono omogenee.</p>
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
@@ -7270,6 +7275,7 @@ export default function App() {
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["vrbo"])} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-black text-blue-900 disabled:opacity-50">Vrbo · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["expedia"])} className="rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2 text-xs font-black text-yellow-900 disabled:opacity-50">Expedia · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["hotels"])} className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-black text-orange-900 disabled:opacity-50">Hotels.com · verifica tutti i mesi</button>
+              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["travelocity"])} className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-black text-cyan-900 disabled:opacity-50">Travelocity · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["trip"])} className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-xs font-black text-violet-900 disabled:opacity-50">Trip.com · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all")} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Tutte le OTA · mesi futuri</button>
             </div>}
@@ -7339,7 +7345,7 @@ export default function App() {
           <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
             <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Seleziona camera e piano tariffario</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           </label>
-          {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "trip"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "trip"].includes(quote.otaId)).length} tariffe OTA validate</b> sono state importate automaticamente nell’archivio economico. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
+          {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip"].includes(quote.otaId)).length} tariffe OTA validate</b> sono state importate automaticamente nell’archivio economico. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
           <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(comparableQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? "—" : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} data/e{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
           <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? "rilevazione automatica validata" : (quote.promotion || "inserimento manuale")}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
