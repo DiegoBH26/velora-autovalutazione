@@ -3654,6 +3654,21 @@ type BrowserPilotObservation = {
   quotes?: BrowserPilotQuoteCandidate[];
 };
 
+type BrowserPilotOtaProfile = {
+  status: string;
+  url?: string;
+  title?: string;
+  rating?: number | null;
+  ratingScale?: number | null;
+  reviewCount?: number | null;
+  recommendationRate?: number | null;
+  visiblePrices?: { amount: number; currency: string; text?: string }[];
+  outboundHosts?: string[];
+  commercialHosts?: string[];
+  visibleExcerpt?: string;
+  evidence?: string;
+};
+
 type DiscoveredPilotSource = {
   status: string;
   url?: string;
@@ -3669,6 +3684,7 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   discoveredSources?: Record<string, DiscoveredPilotSource>;
+  otaProfiles?: Record<string, BrowserPilotOtaProfile>;
   reputation?: BrowserPilotReputation;
   photoAudit?: BrowserPilotPhotoAudit;
   observations: BrowserPilotObservation[];
@@ -3689,6 +3705,7 @@ function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefine
     createdAt: next.createdAt || previous.createdAt,
     bookingEngine: next.bookingEngine?.status && next.bookingEngine.status !== "unverified" ? next.bookingEngine : previous.bookingEngine,
     discoveredSources: { ...(previous.discoveredSources || {}), ...(next.discoveredSources || {}) },
+    otaProfiles: { ...(previous.otaProfiles || {}), ...(next.otaProfiles || {}) },
     reputation: next.reputation?.status ? next.reputation : previous.reputation,
     photoAudit: next.photoAudit?.status ? next.photoAudit : previous.photoAudit,
     observations: [...observations.values()].sort((a,b) => (a.month + a.otaId).localeCompare(b.month + b.otaId)),
@@ -4844,6 +4861,9 @@ export default function App() {
         discoveredSources: parsed.discoveredSources && typeof parsed.discoveredSources === "object"
           ? parsed.discoveredSources
           : undefined,
+        otaProfiles: parsed.otaProfiles && typeof parsed.otaProfiles === "object"
+          ? parsed.otaProfiles
+          : undefined,
         reputation: parsed.reputation && typeof parsed.reputation === "object" ? parsed.reputation : undefined,
         photoAudit: parsed.photoAudit && typeof parsed.photoAudit === "object" ? parsed.photoAudit : undefined,
         observations: parsed.observations
@@ -4916,6 +4936,36 @@ export default function App() {
             `Questo non prova che la struttura sia assente da ${otaLabels[otaId]}.`,
         });
       }
+    });
+
+    Object.entries(result.otaProfiles || {}).forEach(([otaId, profile]) => {
+      if (!otaLabels[otaId] || !profile || profile.status !== "sampled") return;
+      const rating = Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale)
+        ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}`
+        : "n.d.";
+      const reviewCount = profile.reviewCount ? String(profile.reviewCount) : "n.d.";
+      const recommendation = Number.isFinite(profile.recommendationRate)
+        ? `${Number(profile.recommendationRate).toFixed(1)}%`
+        : "n.d.";
+      const priceText = (profile.visiblePrices || []).length
+        ? (profile.visiblePrices || []).slice(0, 4).map((item) => `€${Number(item.amount).toFixed(2)}`).join(", ")
+        : "nessun prezzo EUR leggibile con certezza";
+      const commercialHosts = (profile.commercialHosts || []).length
+        ? (profile.commercialHosts || []).slice(0, 8).join(", ")
+        : "nessun partner commerciale riconosciuto nel campione";
+      updateAnswer(`audit-ota-${otaId}`, {
+        auditStatus: "present",
+        note:
+          "Esito: Presente\n" +
+          `Profilo pubblico ${otaLabels[otaId]} letto direttamente da Velora.\n` +
+          "Scheda: " + (profile.title || "titolo non disponibile") + "\n" +
+          "Rating: " + rating + " · recensioni: " + reviewCount + " · raccomandazione: " + recommendation + "\n" +
+          "Prezzi visibili non attribuiti a camera/piano: " + priceText + "\n" +
+          "Link commerciali rilevati: " + commercialHosts + "\n" +
+          "Fonte: " + (profile.url || "n.d.") + "\n" +
+          "Dettaglio tecnico: " + (profile.evidence || "nessun dettaglio aggiuntivo") +
+          "\nLimite: questi dati descrivono la scheda/metasearch e non entrano nel delta tariffario finché camera, date e condizioni non sono comparabili.",
+      });
     });
 
     const bookingObs = result.observations.filter((item) => item.otaId === "booking");
