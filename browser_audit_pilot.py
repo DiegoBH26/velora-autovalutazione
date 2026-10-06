@@ -6162,6 +6162,17 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
 
         record["finalUrl"] = page.url
         record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+        auth_wall=ota_auth_wall(page.url,record["title"],body)
+        if auth_wall:
+            record.update(
+                status="login_required",
+                evidence=(
+                    f"{OTA_META.get(channel,{}).get('label',channel)} ha reindirizzato verso una pagina di login/account "
+                    f"({auth_wall}). Nessun login viene tentato e nessun prezzo viene letto da questa pagina. "
+                    f"URL finale: {page.url}"
+                )[:900],
+            )
+            return record
         ui_date_evidence=""
         if channel == "booking" and not dates_confirmed:
             applied, ui_date_evidence = await booking_apply_dates_via_ui(page, stay)
@@ -7878,6 +7889,18 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
                     write_result(output,result)
+
+            metasearch_assist=await apply_metasearch_assist(
+                context,data,result,sources,robots
+            )
+            result["metasearchAssist"]=metasearch_assist
+            if metasearch_assist:
+                print(
+                    "metasearch assist completato · " +
+                    ", ".join(f"{item['otaId']} via {item['via']}" for item in metasearch_assist),
+                    flush=True,
+                )
+                write_result(output,result)
 
             # Salva tutte le schede OTA trovate insieme, non soltanto Booking.
             try:
