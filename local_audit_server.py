@@ -33,8 +33,8 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v64"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/c3cb7c4409ea7ab5f55dfa5900a3da7ad0e2a18f/browser_audit_pilot.py"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v65"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
@@ -639,15 +639,42 @@ def run_pilot(property_id,property_path,months,channels):
             today=None,
             dry_run=False,
         )
-        asyncio.run(run(args))
+
+        # Se Chrome dovesse davvero chiudersi/crashare (non soltanto non avere
+        # schede operative visibili), prova una sola ripartenza automatica.
+        for attempt in range(2):
+            try:
+                asyncio.run(run(args))
+                break
+            except Exception as exc:
+                message=f"{type(exc).__name__}: {str(exc)}"
+                lowered=message.lower()
+                browser_closed=(
+                    "browser has been closed" in lowered
+                    or "context or browser has been closed" in lowered
+                    or "target page, context or browser has been closed" in lowered
+                    or "targetclosederror" in lowered
+                )
+                if attempt==0 and browser_closed:
+                    print(
+                        "WATCHDOG CHROME: finestra/browser chiusi in modo inatteso. "
+                        "Riavvio automatico dell'audit una volta...",
+                        flush=True,
+                    )
+                    continue
+                raise
+
         try:
             latest=json.loads(Path(property_path).read_text(encoding="utf-8"))
             cache_ota_sources(latest)
         except (OSError,json.JSONDecodeError):
             pass
+        print(f"Pilot completato: {property_id}",flush=True)
     except Exception as exc:
+        error=f"{type(exc).__name__}: {str(exc)[:240]}"
         with STATE.lock:
-            STATE.error=f"{type(exc).__name__}: {str(exc)[:240]}"
+            STATE.error=error
+        print(f"ERRORE PILOT: {error}",flush=True)
     finally:
         with STATE.lock:
             STATE.running=False
@@ -711,7 +738,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v64",
+                "agentVersion":"velora-local-agent-v65",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -873,7 +900,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v64 · camera reference Booking + diagnostica OTA reale + fallback camera diversa segnalato",flush=True)
+    print("Versione agente: velora-local-agent-v65 · watchdog Chrome + discovery OTA ottimizzata + errori isolati",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:

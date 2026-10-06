@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v64"
+PILOT_BUILD = "velora-browser-pilot-v65"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -894,7 +894,7 @@ def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
                     "Accept-Language":"it-IT,it;q=0.9,en;q=0.7",
                 },
                 impersonate="chrome",
-                timeout=15,
+                timeout=8,
                 allow_redirects=True,
             )
             body=response.text or ""
@@ -1607,8 +1607,49 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
 
     for index,ota_id in enumerate(OTA_DISCOVERY_ORDER, start=1):
         current=discoveries.get(ota_id)
-        if not (current and current.get("status")=="found"):
-            targeted=await discover_single_ota_targeted(context,ota_id,data,robots)
+
+        # La ricerca master ha già interrogato più motori e più varianti.
+        # Non rifare da zero la stessa ricerca per ogni OTA se esiste già un candidato:
+        # era la causa principale dei 10-15 minuti di attesa apparentemente "bloccata".
+        # Booking viene risolto più avanti dal flusso specializzato, molto più affidabile.
+        needs_targeted = (
+            ota_id != "booking"
+            and (
+                not current
+                or (
+                    current.get("status")!="found"
+                    and not current.get("candidateUrl")
+                )
+            )
+        )
+        if needs_targeted:
+            try:
+                targeted=await asyncio.wait_for(
+                    discover_single_ota_targeted(context,ota_id,data,robots),
+                    timeout=45,
+                )
+            except asyncio.TimeoutError:
+                targeted={
+                    "status":"not_verified_present","url":"","title":"","score":0.0,
+                    "evidence":(
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 45 secondi. "
+                        "La scansione prosegue sulle altre OTA senza bloccare l'audit."
+                    ),
+                    "searchUrl":"",
+                    "discoveryMode":"targeted watchdog timeout",
+                    "identityVerified":False,
+                }
+            except Exception as exc:
+                targeted={
+                    "status":"not_verified_present","url":"","title":"","score":0.0,
+                    "evidence":(
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} non completata: "
+                        f"{type(exc).__name__}: {str(exc)[:180]}. La scansione prosegue."
+                    ),
+                    "searchUrl":"",
+                    "discoveryMode":"targeted isolated error",
+                    "identityVerified":False,
+                }
             if targeted.get("status")=="found":
                 discoveries[ota_id]=targeted
             elif ota_id not in discoveries:
@@ -7947,8 +7988,34 @@ async def run(args: argparse.Namespace) -> dict:
             viewport={"width":1440,"height":1000},
             chromium_sandbox=True,
         )
+
+        # Mantiene una scheda di controllo sempre aperta. Prima, durante le fasi
+        # basate su richieste HTTP o quando tutte le schede operative venivano chiuse,
+        # Chrome poteva non avere più finestre visibili e sembrava che l'agente fosse morto.
+        anchor_page = context.pages[0] if context.pages else await context.new_page()
+        try:
+            property_label=str(data.get("name") or "Struttura")
+            await anchor_page.set_content(
+                f"""<!doctype html>
+                <html><head><meta charset="utf-8"><title>Velora · audit in corso</title>
+                <style>
+                  body{{font-family:Arial,sans-serif;background:#f7f7f4;color:#20211f;margin:0;padding:48px}}
+                  .card{{max-width:720px;margin:8vh auto;background:white;border:1px solid #deded8;border-radius:18px;padding:34px;box-shadow:0 10px 35px rgba(0,0,0,.06)}}
+                  h1{{font-size:28px;margin:0 0 12px}} p{{font-size:17px;line-height:1.5;margin:8px 0}}
+                  .dot{{display:inline-block;width:10px;height:10px;border-radius:50%;background:#35a853;margin-right:9px}}
+                </style></head><body><div class="card">
+                <h1><span class="dot"></span>Velora sta lavorando</h1>
+                <p><strong>{property_label}</strong></p>
+                <p>Questa scheda resta aperta come controllo del browser. Le altre schede possono aprirsi e chiudersi durante la scansione.</p>
+                </div></body></html>""",
+                wait_until="domcontentloaded",
+                timeout=5000,
+            )
+        except Exception:
+            pass
+
         print(
-            f"browser mode: Chrome persistente visibile · profilo={profile_dir}",
+            f"browser mode: Chrome persistente visibile · profilo={profile_dir} · watchdog finestra attivo",
             flush=True,
         )
         try:
@@ -8297,11 +8364,48 @@ async def run(args: argparse.Namespace) -> dict:
                             record = {"otaId": channel, **effective_stay, "status": "source_missing", "quotes": [],
                                       "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
-                        page = await context.new_page()
+                        page = None
                         try:
-                            record = await observe(page, channel, source, effective_stay, robots)
+                            page = await context.new_page()
+                            record = await asyncio.wait_for(
+                                observe(page, channel, source, effective_stay, robots),
+                                timeout=75,
+                            )
+                        except asyncio.TimeoutError:
+                            record = {
+                                "otaId": channel, **effective_stay,
+                                "status": "needs_human_review", "quotes": [],
+                                "evidence": (
+                                    f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                    "controllo interrotto dal watchdog dopo 75 secondi; "
+                                    "l'audit continua sulle altre fonti."
+                                ),
+                            }
+                            print(
+                                f"{effective_stay['month']} {channel}: WATCHDOG 75s · continuo con la prossima fonte",
+                                flush=True,
+                            )
+                        except Exception as exc:
+                            record = {
+                                "otaId": channel, **effective_stay,
+                                "status": "needs_human_review", "quotes": [],
+                                "evidence": (
+                                    f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                    f"errore isolato {type(exc).__name__}: {str(exc)[:180]}. "
+                                    "L'audit continua sulle altre fonti."
+                                ),
+                            }
+                            print(
+                                f"{effective_stay['month']} {channel}: ERRORE ISOLATO · "
+                                f"{type(exc).__name__}: {str(exc)[:180]}",
+                                flush=True,
+                            )
                         finally:
-                            await page.close()
+                            if page is not None:
+                                try:
+                                    await page.close()
+                                except Exception:
+                                    pass
 
                     if record.get("quotes"):
                         record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
