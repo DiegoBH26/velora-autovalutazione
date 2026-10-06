@@ -5107,6 +5107,7 @@ export default function App() {
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
         const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
         const count = status.result?.observations?.length || 0;
+        const observedRows = status.result?.observations?.reduce((sum, item) => sum + (item.quotes?.length || 0), 0) || 0;
         const verifiedPilotRates = status.result ? pilotVerifiedRateQuotes(status.result).length : 0;
         const discovery = status.result?.discoveryProgress;
         const discoveryActive = status.running && discovery && Number(discovery.total || 0) > 0 && Number(discovery.completed || 0) < Number(discovery.total || 0);
@@ -5115,8 +5116,8 @@ export default function App() {
           : "";
         setLocalPilotMessage(
           status.running
-            ? `${discoveryText}${count} controlli tariffari completati · ${verifiedPilotRates} tariffe OTA validate pronte per l\'importazione.`
-            : `${count} controlli tariffari completati · ${verifiedPilotRates} tariffe OTA validate importate nella tabella economica.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+            ? `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
+            : `${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
         );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
@@ -7341,7 +7342,7 @@ export default function App() {
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota su PC prova date future nei portali pubblici e registra ciò che è verificabile. Nei test multi-OTA Booking viene interrogato per primo: se dichiara indisponibilità sulle date campione, Velora cerca in avanti una finestra realmente tariffata mantenendo la stessa durata e usa poi quelle stesse date su tutte le altre OTA. Le tariffe validate di Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline vengono importate automaticamente nell’archivio economico; Tripadvisor, Trivago e Google Hotels restano fonti di presenza/metasearch. Il delta resta separato finché camera/unità e condizioni non sono omogenee.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. Gli importi visibili ma non ancora attribuiti con certezza a camera/piano vengono conservati come osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
@@ -7362,8 +7363,9 @@ export default function App() {
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
             {browserPilotResult?.propertyId === activeAuditData.id && <>
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
-                {browserPilotResult.observations.length} controlli importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe tariffarie memorizzate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili OTA/metasearch · esiti inclusi nel prossimo report PDF.
+                {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotVerifiedRateQuotes(browserPilotResult).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
               </p>
+              <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 13 fonti complessive = 9 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
               {Object.keys(browserPilotResult.otaProfiles || {}).length > 0 && <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="min-w-[860px] w-full border-collapse text-[10px]">
                   <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">Profilo</th><th className="p-2 text-left">Rating</th><th className="p-2 text-left">Recensioni</th><th className="p-2 text-left">Raccomandazione</th><th className="p-2 text-left">Riscontro</th></tr></thead>
