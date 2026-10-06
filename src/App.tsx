@@ -3674,6 +3674,27 @@ type BrowserPilotResult = {
   observations: BrowserPilotObservation[];
 };
 
+function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefined, next: BrowserPilotResult): BrowserPilotResult {
+  if (!previous || previous.propertyId !== next.propertyId) return next;
+  const observations = new Map<string, BrowserPilotObservation>();
+  for (const item of previous.observations || []) {
+    observations.set([item.otaId,item.month,item.checkin,item.checkout].join("|"), item);
+  }
+  for (const item of next.observations || []) {
+    observations.set([item.otaId,item.month,item.checkin,item.checkout].join("|"), item);
+  }
+  return {
+    ...previous,
+    ...next,
+    createdAt: next.createdAt || previous.createdAt,
+    bookingEngine: next.bookingEngine?.status && next.bookingEngine.status !== "unverified" ? next.bookingEngine : previous.bookingEngine,
+    discoveredSources: { ...(previous.discoveredSources || {}), ...(next.discoveredSources || {}) },
+    reputation: next.reputation?.status ? next.reputation : previous.reputation,
+    photoAudit: next.photoAudit?.status ? next.photoAudit : previous.photoAudit,
+    observations: [...observations.values()].sort((a,b) => (a.month + a.otaId).localeCompare(b.month + b.otaId)),
+  };
+}
+
 type AvailabilityStatus = "no-rate" | "calendar-closed" | "blocked";
 
 type AvailabilityProbe = {
@@ -4968,7 +4989,7 @@ export default function App() {
     }
   }
 
-  async function startLocalPilot(months: 1 | "all") {
+  async function startLocalPilot(months: 1 | "all", channelIds?: string[]) {
     if (localPilotRunning) return;
     const token = await connectLocalAgent(false);
     if (!token) {
@@ -4985,6 +5006,7 @@ export default function App() {
         body: JSON.stringify({
           propertyId: activeAuditData.id,
           months,
+          channels: channelIds,
           propertyData: {
             id: activeAuditData.id,
             name: activeAuditData.name,
