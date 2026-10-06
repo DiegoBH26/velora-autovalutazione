@@ -6341,13 +6341,22 @@ export default function App() {
         }).join("")}</tbody></table>`
       : "";
     const pilotQuoteRows = pilotObservations.flatMap((observation) =>
-      (observation.quotes || []).map((quote) => ({ observation, quote }))
+      (observation.quotes || [])
+        .filter((quote) => quote.comparisonSelected !== false)
+        .map((quote) => ({ observation, quote }))
     );
     const pilotQuoteTableHtml = pilotQuoteRows.length
       ? `<h3>Tariffe rilevate automaticamente</h3><p>Per ogni OTA Velora normalizza il dato in €/notte e totale soggiorno senza cambiare la durata richiesta. Il report distingue il valore realmente mostrato dal portale da quello calcolato matematicamente; questo evita errori con minimum stay e portali che mostrano solo il totale.</p><table><thead><tr><th>Canale</th><th>Date</th><th>Camera / piano</th><th>€/notte</th><th>Totale soggiorno</th><th>Condizioni</th><th>Stato</th></tr></thead><tbody>${pilotQuoteRows.slice(0,120).map(({ observation, quote }) => {
           const platform = reportChannels.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId;
-          const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes, quote.priceDerivation].filter(Boolean).join(" · ");
-          const roomAndPlan = [quote.roomType || "Da verificare", quote.ratePlan].filter(Boolean).join(" · ");
+          const roomStatus = quote.roomMatchStatus === "booking-reference"
+            ? "REFERENCE BOOKING"
+            : quote.roomMatchStatus === "same-room"
+              ? "STESSA CAMERA DELLA REFERENCE BOOKING"
+              : quote.roomMatchStatus === "different-room-fallback"
+                ? "ATTENZIONE: CAMERA DIVERSA DALLA REFERENCE BOOKING"
+                : "";
+          const conditions = [quote.ratePlan, quote.board, quote.refund, quote.taxes, quote.priceDerivation, quote.comparisonWarning].filter(Boolean).join(" · ");
+          const roomAndPlan = [quote.roomType || "Da verificare", quote.ratePlan, roomStatus].filter(Boolean).join(" · ");
           const nightly = Number(quote.nightlyRate ?? (quote.total / Math.max(1, quote.nights)));
           const nightlyLabel = quote.displayedBasis === "nightly" ? "mostrato" : quote.displayedBasis === "stay-total" ? "calcolato dal totale" : "normalizzato";
           const totalLabel = quote.displayedBasis === "stay-total" ? "mostrato" : quote.displayedBasis === "nightly" ? "calcolato" : "registrato";
