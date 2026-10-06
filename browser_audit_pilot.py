@@ -3139,31 +3139,52 @@ async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -
 
         own_domains=tuple(OTA_META.get(ota_id,{}).get("domains") or ())
         try:
-            outbound=await page.evaluate(r"""(ownDomains) => {
-              const hosts=[]; const seen=new Set();
-              for (const a of Array.from(document.querySelectorAll('a[href]')).slice(0,600)) {
+            outbound_links=await page.evaluate(r"""(ownDomains) => {
+              const out=[]; const seen=new Set();
+              for (const a of Array.from(document.querySelectorAll('a[href]')).slice(0,900)) {
                 try {
                   const u=new URL(a.href,location.href);
                   const host=u.hostname.toLowerCase().replace(/^www\./,'');
                   if (!host || ownDomains.some(d => host===d || host.endsWith('.'+d))) continue;
                   if (!/^https?:$/.test(u.protocol)) continue;
-                  if (seen.has(host)) continue;
-                  seen.add(host); hosts.push(host);
+                  const url=u.href.split('#')[0];
+                  const key=host+'|'+url;
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  out.push({
+                    host,
+                    url,
+                    text:String(a.innerText || a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim().slice(0,220)
+                  });
                 } catch {}
               }
-              return hosts.slice(0,30);
+              return out.slice(0,80);
             }""",list(own_domains))
         except Exception:
-            outbound=[]
+            outbound_links=[]
 
-        commercial_hosts=[
-            host for host in outbound
-            if any(token in host for token in (
-                "booking.","expedia.","hotels.","agoda.","trip.com","priceline.",
-                "travelocity.","airbnb.","vrbo.","hotelbeds.","tui.","dertour.",
-                "hrs.","lastminute.","weg.de","check24.","kayak."
-            ))
-        ]
+        outbound=[]
+        for item in outbound_links:
+            host=str(item.get("host") or "")
+            if host and host not in outbound:
+                outbound.append(host)
+
+        commercial_links=[]
+        for item in outbound_links:
+            host=str(item.get("host") or "")
+            linked_ota=_commercial_ota_from_host(host)
+            if linked_ota:
+                commercial_links.append({
+                    "host":host,
+                    "url":str(item.get("url") or ""),
+                    "text":str(item.get("text") or "")[:220],
+                    "otaId":linked_ota,
+                })
+        commercial_hosts=[]
+        for item in commercial_links:
+            host=item["host"]
+            if host not in commercial_hosts:
+                commercial_hosts.append(host)
 
         evidence_parts=[]
         if rating is not None:
@@ -3190,6 +3211,7 @@ async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -
             "visiblePrices":visible_prices,
             "outboundHosts":outbound,
             "commercialHosts":commercial_hosts,
+            "commercialLinks":commercial_links[:30],
             "visibleExcerpt":re.sub(r"\s+"," ",body)[:700],
             "evidence":" · ".join(evidence_parts)[:1000],
         }
