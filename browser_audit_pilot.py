@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v60"
+PILOT_BUILD = "velora-browser-pilot-v61"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1710,6 +1710,117 @@ async def agoda_property_rate_context(page) -> tuple[bool,str]:
     return bool(property_path and has_identity and has_rate_area),", ".join(found[:8])
 
 
+
+def _price_fields(displayed_amount: float, displayed_basis: str, stay: dict) -> dict:
+    """Normalizza qualsiasi tariffa in €/notte + totale senza perdere il dato originale."""
+    nights=max(1,int(stay.get("nights") or 1))
+    amount=round(float(displayed_amount),2)
+    if displayed_basis=="nightly":
+        nightly=amount
+        total=round(amount*nights,2)
+        derivation=f"€{amount:.2f} mostrati a notte × {nights} notti = €{total:.2f} totale."
+    elif displayed_basis=="stay-total":
+        total=amount
+        nightly=round(amount/nights,2)
+        derivation=f"€{amount:.2f} totale mostrato ÷ {nights} notti = €{nightly:.2f}/notte."
+    else:
+        raise ValueError("Base prezzo non verificata")
+    return {
+        "total":total,
+        "nightlyRate":nightly,
+        "displayedAmount":amount,
+        "displayedBasis":displayed_basis,
+        "priceDerivation":derivation,
+    }
+
+
+async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
+    """Fallback Agoda conservativo sul layout corrente: prezzo isolato + camera + 'a notte/totale'."""
+    rows=await page.evaluate(r"""() => {
+      const clean=(value) => String(value || '').replace(/\s+/g,' ').trim();
+      const visible=(el) => {
+        if (!el) return false;
+        const st=getComputedStyle(el);
+        if (st.display==='none' || st.visibility==='hidden' || Number(st.opacity || '1')===0) return false;
+        if ((st.textDecorationLine || '').includes('line-through')) return false;
+        const r=el.getBoundingClientRect();
+        return r.width>0 && r.height>0;
+      };
+      const priceOnly=/^(?:€\s*)?\d{1,5}(?:[.,]\d{1,2})?\s*€?$/;
+      const roomRx=/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior|quadrupla|tripla|matrimoniale)\b/i;
+      const basisRx=/\b(a notte|per notte|per night|nightly|totale soggiorno|prezzo totale|stay total|total for|per stay)\b/i;
+      const nodes=Array.from(document.querySelectorAll('span,strong,b,div')).filter(el => {
+        if (!visible(el)) return false;
+        const own=clean(el.textContent);
+        return own.length<=40 && priceOnly.test(own);
+      }).slice(0,250);
+      const out=[]; const seen=new Set();
+      for (const priceNode of nodes) {
+        const price=clean(priceNode.textContent);
+        let container=priceNode;
+        let chosen=null;
+        for (let depth=0; depth<7 && container; depth++,container=container.parentElement) {
+          const text=clean(container.innerText || container.textContent);
+          if (!text || text.length>4500) continue;
+          if (!basisRx.test(text)) continue;
+          const headings=Array.from(container.querySelectorAll('h1,h2,h3,h4,[data-selenium="room-name"],[data-element-name*="room-name" i]'))
+            .map(el=>clean(el.textContent)).filter(Boolean);
+          const room=headings.find(v=>roomRx.test(v)) || headings[0] || '';
+          if (!room) continue;
+          chosen={price,room:room.slice(0,240),text:text.slice(0,3000)};
+          break;
+        }
+        if (!chosen) continue;
+        const key=(chosen.room+'|'+chosen.price+'|'+chosen.text.slice(0,500)).toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key); out.push(chosen);
+      }
+      return out.slice(0,60);
+    }""")
+    out=[]
+    for row in rows:
+        room=str(row.get("room") or "").strip()
+        text=str(row.get("text") or "").strip()
+        price=_money_value(str(row.get("price") or ""))
+        if not room or price is None or not text:
+            continue
+        low=text.lower()
+        if re.search(r"\b(a notte|per notte|per night|nightly)\b",low,re.I):
+            basis="nightly"
+        elif re.search(r"\b(totale soggiorno|prezzo totale|stay total|total for|per stay)\b",low,re.I):
+            basis="stay-total"
+        else:
+            continue
+        fields=_price_fields(price,basis,stay)
+        board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
+        if any(x in low for x in ("cancellazione gratuita","free cancellation")):
+            refund="Cancellazione gratuita"
+        elif any(x in low for x in ("non rimborsabile","non-refundable","non refundable")):
+            refund="Non rimborsabile"
+        else:
+            refund="Cancellazione da verificare"
+        taxes=(
+            "Tasse e costi indicati come inclusi"
+            if any(x in low for x in ("tasse e costi inclusi","taxes and fees included","incl. taxes"))
+            else "Da verificare nel dettaglio del preventivo"
+        )
+        out.append({
+            "roomType":room,
+            "ratePlan":" · ".join(x for x in (refund if refund!="Cancellazione da verificare" else "",board if board!="Trattamento da verificare" else "") if x) or "Piano tariffario da verificare",
+            **fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":board,"refund":refund,"audience":"Pubblico senza login","taxes":taxes,
+            "verified":True,
+            "evidence":(fields["priceDerivation"]+" "+text)[:1200],
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["nightlyRate"],item.get("ratePlan","").lower())
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:40]
+
+
 async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
     """Raccoglie su Agoda soltanto prezzi associati a una camera e a una base prezzo leggibile."""
     rows=await page.evaluate(r"""() => {
@@ -1785,7 +1896,10 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         basis=str(row.get("basis") or "")
         text=str(row.get("text") or "")
         low=text.lower()
-        total=price * int(stay["nights"]) if basis=="nightly" else price
+        if basis not in {"nightly","stay-total"}:
+            continue
+        fields=_price_fields(price,basis,stay)
+        total=fields["total"]
 
         if any(token in low for token in ("breakfast included","colazione inclusa","colazione compresa")):
             board="Colazione inclusa"
@@ -1830,7 +1944,7 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         out.append({
             "roomType":room,
             "ratePlan":rate_plan,
-            "total":round(total,2),
+            **fields,
             "currency":"EUR",
             "nights":stay["nights"],
             "guests":stay["adults"],
@@ -2986,7 +3100,7 @@ async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -
 
 
 async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
-    """FOURTH STEP: estrae prezzi visibili dal portale trovato, senza inventare condizioni."""
+    """Fallback conservativo: conserva SOLO importi con base prezzo esplicita."""
     rows=await page.evaluate(r"""() => {
       const selectors=[
         '[data-testid*="price"]','[class*="price"]','[data-stid*="price"]',
@@ -2994,67 +3108,43 @@ async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
       ];
       const result=[]; const seen=new Set();
       for (const selector of selectors) {
-        for (const node of Array.from(document.querySelectorAll(selector)).slice(0,160)) {
-          const container=node.closest('article,li,tr,[data-testid*="room"],[class*="room"],div') || node;
+        for (const node of Array.from(document.querySelectorAll(selector)).slice(0,180)) {
+          const container=node.closest('article,li,tr,section,[data-testid*="room"],[class*="room"],div') || node;
           const text=(container.innerText || container.textContent || '').replace(/\s+/g,' ').trim();
-          if (!text || text.length<8 || seen.has(text)) continue;
-          seen.add(text); result.push(text.slice(0,1800));
+          if (!text || text.length<8 || text.length>2400 || seen.has(text)) continue;
+          const low=text.toLowerCase();
+          if (!/(a notte|per notte|per night|nightly|totale soggiorno|prezzo totale|stay total|total for|per stay|per \d+ notti|for \d+ nights)/i.test(low)) continue;
+          seen.add(text); result.push(text);
         }
       }
       return result.slice(0,100);
     }""")
     out=[]
     for text_value in rows:
-        total=_money_value(str(text_value))
-        if total is None:
+        text=str(text_value)
+        low=text.lower()
+        if re.search(r"\b(a notte|per notte|per night|nightly)\b",low,re.I):
+            basis="nightly"
+        elif re.search(r"\b(totale soggiorno|prezzo totale|stay total|total for|per stay|per \d+ notti|for \d+ nights)\b",low,re.I):
+            basis="stay-total"
+        else:
             continue
-        low=str(text_value).lower()
-        explicit=any(token in low for token in (f"{stay['nights']} nott","totale","total","price for","prezzo per"))
+        amount=_money_value(text)
+        if amount is None:
+            continue
+        fields=_price_fields(amount,basis,stay)
         out.append({
             "roomType":"Tipologia camera da verificare",
-            "total":round(total,2),"currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            **fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
             "board":"Trattamento da verificare","refund":"Cancellazione da verificare",
             "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
             "verified":False,
-            "evidence":str(text_value)[:900] + (" | Totale soggiorno esplicito." if explicit else ""),
+            "evidence":(fields["priceDerivation"]+" Contesto: "+text[:900])[:1200],
         })
-    if not out:
-        # Fallback conservativo: cerca righe visibili con valuta e contesto tariffario.
-        try:
-            text_rows=await page.evaluate(r"""() => {
-              const body=(document.body?.innerText || '');
-              const lines=body.split(/\n+/).map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean);
-              const out=[]; const seen=new Set();
-              for (let i=0;i<lines.length;i++) {
-                const line=lines[i];
-                const low=line.toLowerCase();
-                if (!/(€|eur|\$|usd|£|gbp)/i.test(line)) continue;
-                const context=[lines[i-1]||'',line,lines[i+1]||''].join(' ').replace(/\s+/g,' ').trim();
-                const c=context.toLowerCase();
-                if (!/(notte|notti|night|nights|totale|total|soggiorno|stay|camera|room|prezzo|price)/i.test(c)) continue;
-                if (seen.has(context)) continue;
-                seen.add(context); out.push(context.slice(0,1200));
-              }
-              return out.slice(0,80);
-            }""")
-            for text_value in text_rows:
-                total=_money_value(str(text_value))
-                if total is None:
-                    continue
-                out.append({
-                    "roomType":"Tipologia camera da verificare",
-                    "total":round(total,2),"currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
-                    "board":"Trattamento da verificare","refund":"Cancellazione da verificare",
-                    "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
-                    "verified":False,
-                    "evidence":"Fallback testo visibile: "+str(text_value)[:850],
-                })
-        except Exception:
-            pass
-
     unique=[]; seen=set()
     for item in out:
-        key=(item["total"],item["evidence"][:180])
+        key=(item["displayedAmount"],item["displayedBasis"],item["evidence"][:180])
         if key in seen: continue
         seen.add(key); unique.append(item)
     return unique[:12]
@@ -3902,10 +3992,11 @@ async def booking_quote_candidates(page, stay: dict) -> list[dict]:
             and room != "Tipologia camera da verificare"
         )
 
+        booking_price_fields=_price_fields(total,"stay-total",stay)
         out.append({
             "roomType": room,
             "ratePlan": rate_plan,
-            "total": round(total, 2),
+            **booking_price_fields,
             "currency": "EUR",
             "nights": stay["nights"],
             "guests": stay["adults"],
@@ -6083,21 +6174,25 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    fallback=await generic_ota_quote_candidates(page,stay)
+                    fallback=await agoda_visible_rate_candidates(page,stay)
                     record["quotes"]=fallback
                     if fallback:
                         record.update(
-                            status="quote_candidates_unverified",
+                            status="quote_candidates",
                             evidence=(
-                                f"Date Agoda confermate. Il parser camera/piano non ha chiuso il match, ma sono stati letti "
-                                f"{len(fallback)} importi EUR nel contesto tariffario della scheda. "
-                                "Restano esclusi dai confronti finché camera e base prezzo non sono attribuite con certezza."
+                                f"Date Agoda confermate. Il layout standard non ha chiuso il match, ma il fallback specifico Agoda "
+                                f"ha associato {len(fallback)} prezzi a camera + base prezzo esplicita (a notte/totale). "
+                                f"Esempio: {fallback[0]['roomType']} · €{fallback[0]['nightlyRate']:.2f}/notte · "
+                                f"€{fallback[0]['total']:.2f} totale per {stay['nights']} notti."
                             )[:900],
                         )
                     else:
                         record.update(
                             status="needs_human_review",
-                            evidence="Date Agoda confermate, ma nessuna riga camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                            evidence=(
+                                "Date Agoda confermate, ma nessuna tariffa con camera + base prezzo esplicita è stata attribuita "
+                                "con sufficiente certezza. Gli importi EUR generici della pagina vengono ignorati."
+                            )
                         )
             elif channel in {"airbnb","vrbo"}:
                 candidates=await listing_sidebar_quote_candidates(page,stay,channel)
