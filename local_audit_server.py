@@ -33,8 +33,8 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v56"
-PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/4753cbd6618d5c419e8e3e48357a8f19505f1896/browser_audit_pilot.py"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v57"
+PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/9190489ca9b79972c6f44e95b4ef815c5db5112c/browser_audit_pilot.py"
 
 
 def ensure_pilot_sync():
@@ -112,12 +112,19 @@ from site_audit_builder import build_site_audit, public_url as validate_site_url
 
 ROOT=Path(__file__).resolve().parent
 DIST=ROOT/"dist"
-RUNTIME_PROPERTIES=ROOT/"tmp"/"runtime-properties"
-RUNTIME_AUDITS=ROOT/"tmp"/"runtime-audits"
-OTA_SOURCE_CACHE=ROOT/"tmp"/"ota-source-cache.json"
+
+# I file runtime NON devono vivere nella cartella del programma quando questa è
+# sincronizzata da OneDrive/Dropbox: Windows può bloccare per pochi istanti i
+# rename atomici e interrompere un audit lungo. Usa AppData\\Local\\Velora.
+_local_appdata=str(os.environ.get("LOCALAPPDATA") or "").strip()
+STATE_ROOT=(Path(_local_appdata)/"Velora") if _local_appdata else (ROOT/"tmp"/"velora-local-state")
+RUNTIME_PROPERTIES=STATE_ROOT/"runtime-properties"
+RUNTIME_AUDITS=STATE_ROOT/"runtime-audits"
+PILOT_RESULTS=STATE_ROOT/"pilot-results"
+OTA_SOURCE_CACHE=STATE_ROOT/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
-RUNTIME_PROPERTIES.mkdir(parents=True,exist_ok=True)
-RUNTIME_AUDITS.mkdir(parents=True,exist_ok=True)
+for _runtime_dir in (STATE_ROOT,RUNTIME_PROPERTIES,RUNTIME_AUDITS,PILOT_RESULTS):
+    _runtime_dir.mkdir(parents=True,exist_ok=True)
 
 PROPERTIES={
     "perla-saracena-torre-pali":ROOT/"src"/"perla-saracena-audit.json",
@@ -502,7 +509,7 @@ def auto_audit_output_path(property_id):
 
 
 def result_path(property_id):
-    return ROOT/f"dati_strutture_pilot_{safe_property_id(property_id)}.json"
+    return PILOT_RESULTS/f"dati_strutture_pilot_{safe_property_id(property_id)}.json"
 
 
 def prepare_runtime_property(payload):
@@ -704,7 +711,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v56",
+                "agentVersion":"velora-local-agent-v57",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -866,8 +873,9 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v56 · sentiment recensioni corretto + fallback prezzi osservati + Booking data reference rafforzato",flush=True)
+    print("Versione agente: velora-local-agent-v57 · runtime fuori da OneDrive + salvataggio resiliente ai lock Windows",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
+    print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
         print("ATTENZIONE: browser_audit_pilot.py non e aggiornato; Prova un mese restera' bloccata.",flush=True)
     print(f"Agente Velora: http://{HOST}:{PORT}/  (Ctrl+C per fermare)",flush=True)
