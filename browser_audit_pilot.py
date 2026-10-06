@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v63"
+PILOT_BUILD = "velora-browser-pilot-v64"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -7684,6 +7684,234 @@ async def frontend_photo_audit(context, data: dict, robots: dict) -> dict:
             pass
 
 
+
+ROOM_GENERIC_TOKENS={
+    "camera","camere","room","rooms","chambre","habitacion","stanza","alloggio",
+    "con","with","per","the","di","da","del","della","and","e","accesso"
+}
+ROOM_CANONICAL_TOKENS={
+    "matrimoniale":"double","doppia":"double","double":"double",
+    "quadrupla":"quadruple","quadruple":"quadruple","quad":"quadruple",
+    "tripla":"triple","triple":"triple",
+    "singola":"single","single":"single",
+    "familiare":"family","family":"family",
+    "appartamento":"apartment","apartment":"apartment",
+    "suite":"suite","junior":"junior","deluxe":"deluxe","superior":"superior","standard":"standard",
+    "twin":"twin","queen":"queen","king":"king",
+    "disabili":"accessible","disabile":"accessible","accessibile":"accessible","accessible":"accessible",
+}
+ROOM_CAPACITY_TOKENS={"single","double","triple","quadruple","family","twin"}
+
+
+def _room_signature(value: str) -> dict:
+    norm=_norm_name(value)
+    raw_tokens=[token for token in norm.split() if token]
+    tokens=[]
+    for token in raw_tokens:
+        canonical=ROOM_CANONICAL_TOKENS.get(token,token)
+        if canonical in ROOM_GENERIC_TOKENS or len(canonical)<2:
+            continue
+        tokens.append(canonical)
+    informative=[token for token in tokens if token not in {"letto","letti","bed","beds","ospiti","guest","guests"}]
+    capacities={token for token in informative if token in ROOM_CAPACITY_TOKENS}
+    return {
+        "text":" ".join(informative),
+        "tokens":set(informative),
+        "capacities":capacities,
+    }
+
+
+def _room_match_score(reference: str, candidate: str) -> float:
+    ref=_room_signature(reference)
+    cand=_room_signature(candidate)
+    if not ref["tokens"] or not cand["tokens"]:
+        return 0.0
+    if ref["capacities"] and cand["capacities"] and ref["capacities"].isdisjoint(cand["capacities"]):
+        return 0.0
+    inter=len(ref["tokens"] & cand["tokens"])
+    union=len(ref["tokens"] | cand["tokens"])
+    jaccard=inter/union if union else 0.0
+    sequence=SequenceMatcher(None,ref["text"],cand["text"]).ratio()
+    contains=1.0 if ref["text"] in cand["text"] or cand["text"] in ref["text"] else 0.0
+    capacity_bonus=0.10 if ref["capacities"] and ref["capacities"]==cand["capacities"] else 0.0
+    return round(min(1.0,0.48*sequence+0.42*jaccard+0.10*contains+capacity_bonus),3)
+
+
+def _quote_nightly_value(quote: dict) -> float:
+    try:
+        nightly=quote.get("nightlyRate")
+        if nightly is not None:
+            return float(nightly)
+        return float(quote.get("total") or 0)/max(1,int(quote.get("nights") or 1))
+    except Exception:
+        return 999999.0
+
+
+def _usable_room_name(value: str) -> bool:
+    norm=_norm_name(value)
+    return bool(
+        norm
+        and norm not in {"tipologia camera da verificare","camera da verificare","room to verify","da verificare"}
+        and "verificare" not in norm
+    )
+
+
+def apply_booking_room_reference(result: dict) -> None:
+    """Seleziona una camera Booking reference e una sola famiglia comparabile per ogni OTA/data.
+
+    - Booking è sempre il punto di partenza.
+    - Se una OTA espone la stessa tipologia, vengono selezionate solo le righe di quella tipologia.
+    - Se non esiste una corrispondenza sufficientemente forte, viene mostrata una sola tariffa alternativa
+      con avviso esplicito e senza referenceRoomKey: quindi non può produrre delta.
+    """
+    observations=result.get("observations") or []
+    stays={}
+    for obs in observations:
+        key=(str(obs.get("checkin") or ""),str(obs.get("checkout") or ""))
+        if not all(key):
+            continue
+        stays.setdefault(key,[]).append(obs)
+
+    room_references=[]
+    for (checkin,checkout),group in stays.items():
+        booking_quotes=[]
+        for obs in group:
+            if obs.get("otaId")!="booking":
+                continue
+            for quote in obs.get("quotes") or []:
+                if quote.get("verified") and _usable_room_name(str(quote.get("roomType") or "")):
+                    booking_quotes.append(quote)
+        if not booking_quotes:
+            continue
+
+        # Candidati Booking unici per nome stanza; sceglie quello che ha più corrispondenze
+        # sulle altre OTA. A parità usa la tariffa/notte più bassa.
+        room_candidates={}
+        for quote in booking_quotes:
+            room=str(quote.get("roomType") or "").strip()
+            sig=_room_signature(room)["text"] or _norm_name(room)
+            old=room_candidates.get(sig)
+            if old is None or _quote_nightly_value(quote)<_quote_nightly_value(old):
+                room_candidates[sig]=quote
+
+        scored=[]
+        for sig,booking_quote in room_candidates.items():
+            room=str(booking_quote.get("roomType") or "")
+            matched_otas=set()
+            best_scores={}
+            for obs in group:
+                ota_id=str(obs.get("otaId") or "")
+                if ota_id=="booking":
+                    continue
+                best=0.0
+                for quote in obs.get("quotes") or []:
+                    candidate_room=str(quote.get("roomType") or "")
+                    if not _usable_room_name(candidate_room):
+                        continue
+                    best=max(best,_room_match_score(room,candidate_room))
+                best_scores[ota_id]=best
+                if best>=0.74:
+                    matched_otas.add(ota_id)
+            scored.append((
+                len(matched_otas),
+                -_quote_nightly_value(booking_quote),
+                sig,
+                booking_quote,
+                best_scores,
+            ))
+        scored.sort(reverse=True,key=lambda row:(row[0],row[1]))
+        match_count,_,reference_sig,reference_quote,best_scores=scored[0]
+        reference_room=str(reference_quote.get("roomType") or "").strip()
+        reference_key=f"booking-ref:{checkin}:{reference_sig}"
+
+        room_references.append({
+            "checkin":checkin,
+            "checkout":checkout,
+            "roomType":reference_room,
+            "referenceRoomKey":reference_key,
+            "matchedOtas":match_count,
+            "evidence":(
+                f"Camera reference scelta da Booking: {reference_room}. "
+                f"Corrispondenza sufficientemente forte rilevata su {match_count} OTA."
+            ),
+        })
+
+        for obs in group:
+            ota_id=str(obs.get("otaId") or "")
+            quotes=obs.get("quotes") or []
+            if not quotes:
+                continue
+            for quote in quotes:
+                quote["comparisonSelected"]=False
+                quote["bookingReferenceRoom"]=reference_room
+                quote["referenceRoomKey"]=""
+                quote["roomMatchScore"]=0.0
+                quote["roomMatchStatus"]="not-selected"
+                quote["comparisonWarning"]=""
+
+            if ota_id=="booking":
+                selected=[]
+                for quote in quotes:
+                    score=_room_match_score(reference_room,str(quote.get("roomType") or ""))
+                    if score>=0.90:
+                        quote["comparisonSelected"]=True
+                        quote["referenceRoomKey"]=reference_key
+                        quote["roomMatchScore"]=score
+                        quote["roomMatchStatus"]="booking-reference"
+                        selected.append(quote)
+                if not selected:
+                    reference_quote["comparisonSelected"]=True
+                    reference_quote["referenceRoomKey"]=reference_key
+                    reference_quote["roomMatchScore"]=1.0
+                    reference_quote["roomMatchStatus"]="booking-reference"
+                continue
+
+            room_groups={}
+            for quote in quotes:
+                room=str(quote.get("roomType") or "")
+                if not _usable_room_name(room):
+                    continue
+                sig=_room_signature(room)["text"] or _norm_name(room)
+                room_groups.setdefault(sig,[]).append(quote)
+
+            best_sig=""
+            best_score=0.0
+            for sig,items in room_groups.items():
+                score=max(_room_match_score(reference_room,str(item.get("roomType") or "")) for item in items)
+                if score>best_score:
+                    best_score=score
+                    best_sig=sig
+
+            if best_sig and best_score>=0.74:
+                for quote in room_groups[best_sig]:
+                    quote["comparisonSelected"]=True
+                    quote["referenceRoomKey"]=reference_key
+                    quote["roomMatchScore"]=best_score
+                    quote["roomMatchStatus"]="same-room"
+            else:
+                # Nessuna camera uguale: mostra UNA sola alternativa utile, preferendo
+                # una riga verificata e poi il prezzo/notte più basso.
+                candidates=[quote for quote in quotes if _usable_room_name(str(quote.get("roomType") or ""))]
+                if not candidates:
+                    candidates=list(quotes)
+                if candidates:
+                    fallback=sorted(
+                        candidates,
+                        key=lambda quote:(0 if quote.get("verified") else 1,_quote_nightly_value(quote))
+                    )[0]
+                    fallback["comparisonSelected"]=True
+                    fallback["referenceRoomKey"]=""
+                    fallback["roomMatchScore"]=_room_match_score(reference_room,str(fallback.get("roomType") or ""))
+                    fallback["roomMatchStatus"]="different-room-fallback"
+                    fallback["comparisonWarning"]=(
+                        f"ATTENZIONE: camera diversa dalla reference Booking «{reference_room}». "
+                        "Mostrata solo perché su questa OTA non è stata trovata la stessa tipologia; "
+                        "questa tariffa non entra nel delta comparativo."
+                    )
+
+    result["roomReferences"]=room_references
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -8078,6 +8306,7 @@ async def run(args: argparse.Namespace) -> dict:
                     if record.get("quotes"):
                         record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
                     result["observations"].append(record)
+                    apply_booking_room_reference(result)
                     write_result(output, result)
                     print(
                         f"{effective_stay['month']} {channel}: {record['status']} · "
@@ -8085,6 +8314,8 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
                     await asyncio.sleep(1)
+            apply_booking_room_reference(result)
+            write_result(output,result)
         finally:
             await context.close()
     return result
