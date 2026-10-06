@@ -14,6 +14,7 @@ import base64
 import json
 import os
 import re
+import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from difflib import SequenceMatcher
@@ -29,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v56"
+PILOT_BUILD = "velora-browser-pilot-v57"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3816,11 +3817,45 @@ def booking_unavailability_message(text: str) -> str:
     return next((pattern for pattern in patterns if pattern in lowered), "")
 
 
-def write_result(path: Path, result: dict) -> None:
+def write_result(path: Path, result: dict) -> bool:
+    """Salvataggio progressivo resiliente ai lock temporanei di Windows/OneDrive.
+
+    I risultati runtime vengono normalmente salvati fuori dalla cartella OneDrive
+    dall'agente locale. Questo retry resta come seconda protezione contro antivirus,
+    indicizzazione o altri lock brevi del filesystem.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    payload=json.dumps(result, ensure_ascii=False, indent=2)
+    temporary=path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    last_error=None
+
+    for attempt in range(8):
+        try:
+            temporary.write_text(payload,encoding="utf-8")
+            os.replace(str(temporary),str(path))
+            return True
+        except PermissionError as exc:
+            last_error=exc
+            time.sleep(0.18*(attempt+1))
+        except OSError as exc:
+            last_error=exc
+            # Condivisione/lock Windows: lascia una breve finestra al processo che
+            # sta leggendo o sincronizzando il file; altri errori verranno comunque
+            # riprovati e registrati senza interrompere l'intero audit.
+            time.sleep(0.12*(attempt+1))
+
+    try:
+        if temporary.exists():
+            temporary.unlink()
+    except OSError:
+        pass
+
+    print(
+        f"warning: salvataggio progressivo non riuscito dopo retry · "
+        f"{path} · {type(last_error).__name__ if last_error else 'OSError'}: {str(last_error)[:180] if last_error else ''}",
+        flush=True,
+    )
+    return False
 
 
 
