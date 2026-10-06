@@ -29,7 +29,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v54"
+PILOT_BUILD = "velora-browser-pilot-v55"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -954,12 +954,26 @@ def _strong_search_evidence(score: float, reasons: str, engines: set[str]) -> bo
     return False
 
 
-async def verify_ota_candidate_page(context, ota_id: str, url: str, property_name: str, city: str, address: str, robots: dict) -> dict:
+async def verify_ota_candidate_page(
+    context,
+    ota_id: str,
+    url: str,
+    property_name: str,
+    city: str,
+    address: str,
+    robots: dict,
+    page=None,
+) -> dict:
     permission=await asyncio.to_thread(allowed_by_robots,url,robots)
     if permission is not True:
         return {"ok":False,"score":0.0,"title":"","evidence":"Pagina candidata non verificata: robots.txt non consente o non chiarisce l'accesso."}
-    page=await context.new_page()
+
+    own_page=page is None
+    if own_page:
+        page=await context.new_page()
     try:
+        # Riusa la stessa scheda di verifica quando viene fornita dal chiamante:
+        # riduce drasticamente i continui flash about:blank durante la discovery.
         response=await page.goto(url,wait_until="domcontentloaded",timeout=25000)
         if not response or response.status>=400:
             return {"ok":False,"score":0.0,"title":"","evidence":f"Pagina candidata HTTP {response.status if response else 'n.d.'}."}
@@ -980,7 +994,6 @@ async def verify_ota_candidate_page(context, ota_id: str, url: str, property_nam
         score,path_slug,text_score,url_score,reasons=_identity_match_score(
             property_name,city,address,title,body[:2500],page.url
         )
-        # La pagina candidata proviene già dal dominio OTA corretto: città/indirizzo sono segnali forti.
         ok=score>=0.70
         return {
             "ok":ok,"score":round(score,3),"title":title[:220],
@@ -991,7 +1004,11 @@ async def verify_ota_candidate_page(context, ota_id: str, url: str, property_nam
     except Exception as exc:
         return {"ok":False,"score":0.0,"title":"","evidence":f"Verifica pagina fallita: {type(exc).__name__}: {str(exc)[:120]}"}
     finally:
-        await page.close()
+        if own_page:
+            try:
+                await page.close()
+            except Exception:
+                pass
 
 
 async def discover_otas_from_master_search(context, data: dict, robots: dict) -> tuple[dict, dict]:
@@ -1011,31 +1028,36 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
     discoveries={}
     raw_candidates={ota_id:[] for ota_id in OTA_DISCOVERY_ORDER}
 
-    # Google per primo, ma su più varianti: una query esatta non può bloccare l'intero flusso.
-    for query in queries:
-        page=await context.new_page()
+    # Google per primo, ma riutilizzando UNA sola scheda per tutte le varianti:
+    # evita l'apertura/chiusura continua di about:blank.
+    search_page=await context.new_page()
+    try:
+        for query in queries:
+            try:
+                links,search_url=await _search_result_links(search_page,query,"Google")
+                before=diagnostics["candidates"]
+                for item in links:
+                    target=_decode_search_target(str(item.get("href") or ""))
+                    ota_id=_classify_ota_url(target)
+                    if not ota_id:
+                        continue
+                    score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                        name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+                    )
+                    raw_candidates[ota_id].append((score,target,str(item.get("text") or ""),reasons,query,"Google"))
+                    diagnostics["candidates"]+=1
+                diagnostics["queryStats"].append({
+                    "engine":"Google","query":query,"links":len(links),
+                    "otaCandidates":diagnostics["candidates"]-before,
+                    "searchUrl":search_url,
+                })
+            except Exception as exc:
+                diagnostics["queryStats"].append({"engine":"Google","query":query,"error":f"{type(exc).__name__}: {str(exc)[:120]}"})
+    finally:
         try:
-            links,search_url=await _search_result_links(page,query,"Google")
-            before=diagnostics["candidates"]
-            for item in links:
-                target=_decode_search_target(str(item.get("href") or ""))
-                ota_id=_classify_ota_url(target)
-                if not ota_id:
-                    continue
-                score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                    name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-                )
-                raw_candidates[ota_id].append((score,target,str(item.get("text") or ""),reasons,query,"Google"))
-                diagnostics["candidates"]+=1
-            diagnostics["queryStats"].append({
-                "engine":"Google","query":query,"links":len(links),
-                "otaCandidates":diagnostics["candidates"]-before,
-                "searchUrl":search_url,
-            })
-        except Exception as exc:
-            diagnostics["queryStats"].append({"engine":"Google","query":query,"error":f"{type(exc).__name__}: {str(exc)[:120]}"})
-        finally:
-            await page.close()
+            await search_page.close()
+        except Exception:
+            pass
 
     # Bing RSS per le stesse varianti: non aspetta che Google sia completamente vuoto.
     for query in queries:
@@ -1085,72 +1107,79 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
     diagnostics["status"]="results_collected" if diagnostics["candidates"] else "no_ota_candidates"
 
-    for ota_id in OTA_DISCOVERY_ORDER:
-        candidates=raw_candidates.get(ota_id) or []
-        grouped={}
-        for score,url,title,reasons,query,engine in candidates:
-            clean=_clean_listing_url(url)
-            entry=grouped.setdefault(clean,{
-                "score":score,"url":url,"title":title,"reasons":reasons,
-                "queries":set(),"engines":set(),
-            })
-            if score>entry["score"]:
-                entry.update(score=score,url=url,title=title,reasons=reasons)
-            entry["queries"].add(query)
-            entry["engines"].add(engine)
-        ordered=sorted(grouped.values(),key=lambda row:row["score"],reverse=True)
-        weak=[]
-        for entry in ordered[:10]:
-            score=entry["score"]; url=entry["url"]; title=entry["title"]; reasons=entry["reasons"]
-            engines=entry["engines"]; queries_used=entry["queries"]
-            verify=await verify_ota_candidate_page(context,ota_id,url,name,city,address,robots)
-            if verify.get("ok"):
+    verify_page=await context.new_page()
+    try:
+        for ota_id in OTA_DISCOVERY_ORDER:
+            candidates=raw_candidates.get(ota_id) or []
+            grouped={}
+            for score,url,title,reasons,query,engine in candidates:
+                clean=_clean_listing_url(url)
+                entry=grouped.setdefault(clean,{
+                    "score":score,"url":url,"title":title,"reasons":reasons,
+                    "queries":set(),"engines":set(),
+                })
+                if score>entry["score"]:
+                    entry.update(score=score,url=url,title=title,reasons=reasons)
+                entry["queries"].add(query)
+                entry["engines"].add(engine)
+            ordered=sorted(grouped.values(),key=lambda row:row["score"],reverse=True)
+            weak=[]
+            for entry in ordered[:10]:
+                score=entry["score"]; url=entry["url"]; title=entry["title"]; reasons=entry["reasons"]
+                engines=entry["engines"]; queries_used=entry["queries"]
+                verify=await verify_ota_candidate_page(context,ota_id,url,name,city,address,robots,page=verify_page)
+                if verify.get("ok"):
+                    discoveries[ota_id]={
+                        "status":"found",
+                        "url":verify.get("url") or url,
+                        "title":verify.get("title") or title,
+                        "score":verify.get("score",score),
+                        "evidence":(
+                            f"Ricerca master gratuita: {OTA_META[ota_id]['label']} trovato tramite "
+                            f"{', '.join(sorted(engines))}; match ricerca {score:.0%} ({reasons}). "
+                            f"Pagina OTA verificata direttamente: {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                        )[:900],
+                        "searchUrl":"",
+                        "discoveryMode":"free multi-engine search + page verification",
+                        "verification":"page",
+                    }
+                    break
+                if _strong_search_evidence(score,reasons,engines):
+                    discoveries[ota_id]={
+                        "status":"found",
+                        "url":_clean_listing_url(url),
+                        "title":title[:220],
+                        "score":round(score,3),
+                        "evidence":(
+                            f"Ricerca master gratuita: scheda {OTA_META[ota_id]['label']} attribuita tramite evidenza "
+                            f"convergente nei risultati pubblici ({', '.join(sorted(engines))}). "
+                            f"Match {score:.0%} ({reasons}); query: {' | '.join(sorted(queries_used))[:260]}. "
+                            f"La pagina OTA non è stata validata direttamente ({verify.get('evidence','')}); "
+                            "la successiva fase di scraping la controllerà senza aggirare eventuali blocchi."
+                        )[:900],
+                        "searchUrl":"",
+                        "discoveryMode":"free multi-engine correlated search evidence",
+                        "verification":"search_evidence",
+                    }
+                    break
+                weak.append((score,url,title,reasons,engines,queries_used,verify.get("evidence","")))
+            if ota_id not in discoveries and weak:
+                score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
                 discoveries[ota_id]={
-                    "status":"found",
-                    "url":verify.get("url") or url,
-                    "title":verify.get("title") or title,
-                    "score":verify.get("score",score),
+                    "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
                     "evidence":(
-                        f"Ricerca master gratuita: {OTA_META[ota_id]['label']} trovato tramite "
-                        f"{', '.join(sorted(engines))}; match ricerca {score:.0%} ({reasons}). "
-                        f"Pagina OTA verificata direttamente: {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                        f"Ricerca master gratuita: candidato {OTA_META[ota_id]['label']} trovato tramite "
+                        f"{', '.join(sorted(engines))} ({score:.0%}, {reasons}) ma non abbastanza forte per "
+                        f"attribuirlo automaticamente. {verify_evidence}"
                     )[:900],
                     "searchUrl":"",
-                    "discoveryMode":"free multi-engine search + page verification",
-                    "verification":"page",
+                    "discoveryMode":"free multi-engine candidate",
                 }
-                break
-            if _strong_search_evidence(score,reasons,engines):
-                discoveries[ota_id]={
-                    "status":"found",
-                    "url":_clean_listing_url(url),
-                    "title":title[:220],
-                    "score":round(score,3),
-                    "evidence":(
-                        f"Ricerca master gratuita: scheda {OTA_META[ota_id]['label']} attribuita tramite evidenza "
-                        f"convergente nei risultati pubblici ({', '.join(sorted(engines))}). "
-                        f"Match {score:.0%} ({reasons}); query: {' | '.join(sorted(queries_used))[:260]}. "
-                        f"La pagina OTA non è stata validata direttamente ({verify.get('evidence','')}); "
-                        "la successiva fase di scraping la controllerà senza aggirare eventuali blocchi."
-                    )[:900],
-                    "searchUrl":"",
-                    "discoveryMode":"free multi-engine correlated search evidence",
-                    "verification":"search_evidence",
-                }
-                break
-            weak.append((score,url,title,reasons,engines,queries_used,verify.get("evidence","")))
-        if ota_id not in discoveries and weak:
-            score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
-            discoveries[ota_id]={
-                "status":"needs_review","url":url,"title":title[:220],"score":round(score,3),
-                "evidence":(
-                    f"Ricerca master gratuita: candidato {OTA_META[ota_id]['label']} trovato tramite "
-                    f"{', '.join(sorted(engines))} ({score:.0%}, {reasons}) ma non abbastanza forte per "
-                    f"attribuirlo automaticamente. {verify_evidence}"
-                )[:900],
-                "searchUrl":"",
-                "discoveryMode":"free multi-engine candidate",
-            }
+    finally:
+        try:
+            await verify_page.close()
+        except Exception:
+            pass
     return discoveries,diagnostics
 
 
@@ -1187,90 +1216,96 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             seen.add(query.lower()); queries.append(query)
 
     weak=[]
-    for query in queries[:6]:
-        page=await context.new_page()
-        try:
-            links,search_url=await _search_result_links(page,query,"Google")
-            for item in links:
-                target=_decode_search_target(str(item.get("href") or ""))
+    search_page=await context.new_page()
+    verify_page=await context.new_page()
+    try:
+        for query in queries[:6]:
+            try:
+                links,search_url=await _search_result_links(search_page,query,"Google")
+                for item in links:
+                    target=_decode_search_target(str(item.get("href") or ""))
+                    if _classify_ota_url(target)!=ota_id:
+                        continue
+                    score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                        name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+                    )
+                    verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
+                    if verify.get("ok"):
+                        return {
+                            "status":"found","url":verify.get("url") or target,
+                            "title":verify.get("title") or str(item.get("text") or ""),
+                            "score":verify.get("score",score),
+                            "evidence":(
+                                f"Ricerca mirata Google su {meta['label']}: «{query}». "
+                                f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                            )[:900],
+                            "searchUrl":search_url,"discoveryMode":"progressive targeted Google + page verification",
+                        }
+                    weak.append((score,target,str(item.get("text") or ""),reasons,query,"Google",verify.get("evidence","")))
+                except Exception:
+                    pass
+
+            http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
+            for item in http_items:
+                target=str(item.get("url") or "")
                 if _classify_ota_url(target)!=ota_id:
                     continue
                 score,path_slug,text_score,url_score,reasons=_identity_match_score(
                     name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
                 )
-                verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
+                verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
                 if verify.get("ok"):
                     return {
                         "status":"found","url":verify.get("url") or target,
                         "title":verify.get("title") or str(item.get("text") or ""),
                         "score":verify.get("score",score),
                         "evidence":(
-                            f"Ricerca mirata Google su {meta['label']}: «{query}». "
+                            f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
-                        "searchUrl":search_url,"discoveryMode":"progressive targeted Google + page verification",
+                        "searchUrl":"","discoveryMode":"free targeted multi-engine + page verification",
                     }
-                weak.append((score,target,str(item.get("text") or ""),reasons,query,"Google",verify.get("evidence","")))
-        except Exception:
-            pass
-        finally:
-            await page.close()
+                if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
+                    return {
+                        "status":"found","url":_clean_listing_url(target),
+                        "title":str(item.get("text") or "")[:220],"score":round(score,3),
+                        "evidence":(
+                            f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: "
+                            f"candidato con match {score:.0%} ({reasons}). La pagina non è stata verificata direttamente; "
+                            "viene accettata come fonte da controllare nella fase di scraping."
+                        )[:900],
+                        "searchUrl":"","discoveryMode":"free targeted search evidence",
+                        "verification":"search_evidence",
+                    }
+                weak.append((score,target,str(item.get("text") or ""),reasons,query,str(item.get("engine") or "HTTP search"),verify.get("evidence","")))
 
-        http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
-        for item in http_items:
-            target=str(item.get("url") or "")
-            if _classify_ota_url(target)!=ota_id:
-                continue
-            score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-            )
-            verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
-            if verify.get("ok"):
-                return {
-                    "status":"found","url":verify.get("url") or target,
-                    "title":verify.get("title") or str(item.get("text") or ""),
-                    "score":verify.get("score",score),
-                    "evidence":(
-                        f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
-                        f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
-                    )[:900],
-                    "searchUrl":"","discoveryMode":"free targeted multi-engine + page verification",
-                }
-            if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
-                return {
-                    "status":"found","url":_clean_listing_url(target),
-                    "title":str(item.get("text") or "")[:220],"score":round(score,3),
-                    "evidence":(
-                        f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: "
-                        f"candidato con match {score:.0%} ({reasons}). La pagina non è stata verificata direttamente; "
-                        "viene accettata come fonte da controllare nella fase di scraping."
-                    )[:900],
-                    "searchUrl":"","discoveryMode":"free targeted search evidence",
-                    "verification":"search_evidence",
-                }
-            weak.append((score,target,str(item.get("text") or ""),reasons,query,str(item.get("engine") or "HTTP search"),verify.get("evidence","")))
-
-        items=await asyncio.to_thread(_bing_rss_items,query)
-        for item in items:
-            target=_decode_search_target(str(item.get("link") or ""))
-            if _classify_ota_url(target)!=ota_id:
-                continue
-            desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
-            score,path_slug,text_score,url_score,reasons=_identity_match_score(name,city,address,str(item.get("title") or ""),desc,target)
-            verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots)
-            if verify.get("ok"):
-                return {
-                    "status":"found","url":verify.get("url") or target,
-                    "title":verify.get("title") or str(item.get("title") or ""),
-                    "score":verify.get("score",score),
-                    "evidence":(
-                        f"Ricerca mirata {meta['label']} con Bing RSS: «{query}». "
-                        f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
-                    )[:900],
-                    "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
-                    "discoveryMode":"progressive targeted Bing RSS + page verification",
-                }
-            weak.append((score,target,str(item.get("title") or ""),reasons,query,"Bing RSS",verify.get("evidence","")))
+            items=await asyncio.to_thread(_bing_rss_items,query)
+            for item in items:
+                target=_decode_search_target(str(item.get("link") or ""))
+                if _classify_ota_url(target)!=ota_id:
+                    continue
+                desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
+                score,path_slug,text_score,url_score,reasons=_identity_match_score(name,city,address,str(item.get("title") or ""),desc,target)
+                verify=await verify_ota_candidate_page(context,ota_id,target,name,city,address,robots,page=verify_page)
+                if verify.get("ok"):
+                    return {
+                        "status":"found","url":verify.get("url") or target,
+                        "title":verify.get("title") or str(item.get("title") or ""),
+                        "score":verify.get("score",score),
+                        "evidence":(
+                            f"Ricerca mirata {meta['label']} con Bing RSS: «{query}». "
+                            f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
+                        )[:900],
+                        "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
+                        "discoveryMode":"progressive targeted Bing RSS + page verification",
+                    }
+                weak.append((score,target,str(item.get("title") or ""),reasons,query,"Bing RSS",verify.get("evidence","")))
+    finally:
+        for disposable in (search_page,verify_page):
+            try:
+                await disposable.close()
+            except Exception:
+                pass
 
     weak.sort(key=lambda row:row[0],reverse=True)
     if weak:
@@ -1456,18 +1491,35 @@ async def discover_otas_with_ai_web_search(data: dict) -> dict:
     return await asyncio.to_thread(_run_ai_web_search,data)
 
 
-async def discover_all_ota_sources(context, data: dict, robots: dict) -> tuple[dict,dict]:
-    """Pipeline: master search -> analisi risultati -> ricerca mirata delle OTA mancanti."""
+async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
+    """Pipeline discovery con avanzamento progressivo e senza falsi '0 controlli'."""
     discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots)
-    for ota_id in OTA_DISCOVERY_ORDER:
+    total=len(OTA_DISCOVERY_ORDER)
+    if on_progress:
+        await on_progress({
+            "stage":"targeted",
+            "completed":0,
+            "total":total,
+            "otaId":"",
+            "label":"Ricerca master completata",
+        },discoveries,diagnostics)
+
+    for index,ota_id in enumerate(OTA_DISCOVERY_ORDER, start=1):
         current=discoveries.get(ota_id)
-        if current and current.get("status")=="found":
-            continue
-        targeted=await discover_single_ota_targeted(context,ota_id,data,robots)
-        if targeted.get("status")=="found":
-            discoveries[ota_id]=targeted
-        elif ota_id not in discoveries:
-            discoveries[ota_id]=targeted
+        if not (current and current.get("status")=="found"):
+            targeted=await discover_single_ota_targeted(context,ota_id,data,robots)
+            if targeted.get("status")=="found":
+                discoveries[ota_id]=targeted
+            elif ota_id not in discoveries:
+                discoveries[ota_id]=targeted
+        if on_progress:
+            await on_progress({
+                "stage":"targeted",
+                "completed":index,
+                "total":total,
+                "otaId":ota_id,
+                "label":OTA_META[ota_id]["label"],
+            },discoveries,diagnostics)
     return discoveries,diagnostics
 
 
@@ -6966,7 +7018,7 @@ async def run(args: argparse.Namespace) -> dict:
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
-              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "observations": []}
+              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "discoveryProgress": {}, "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -6985,6 +7037,7 @@ async def run(args: argparse.Namespace) -> dict:
             locale="it-IT",
             timezone_id="Europe/Rome",
             viewport={"width":1440,"height":1000},
+            chromium_sandbox=True,
         )
         print(
             f"browser mode: Chrome persistente visibile · profilo={profile_dir}",
@@ -7060,7 +7113,30 @@ async def run(args: argparse.Namespace) -> dict:
                     flush=True,
                 )
             else:
-                master_discoveries,master_diag=await discover_all_ota_sources(context,data,robots)
+                result["discoveryProgress"]={
+                    "stage":"master",
+                    "completed":0,
+                    "total":len(OTA_DISCOVERY_ORDER),
+                    "otaId":"",
+                    "label":"Ricerca master OTA",
+                }
+                write_result(output,result)
+
+                async def save_discovery_progress(progress,partial,diag):
+                    result["discoveryProgress"]=progress
+                    result["masterSearch"]=diag
+                    for partial_id,partial_value in partial.items():
+                        result["discoveredSources"][partial_id]=partial_value
+                    write_result(output,result)
+                    print(
+                        f"discovery progress: {progress.get('completed',0)}/{progress.get('total',len(OTA_DISCOVERY_ORDER))} · "
+                        f"{progress.get('label','')}",
+                        flush=True,
+                    )
+
+                master_discoveries,master_diag=await discover_all_ota_sources(
+                    context,data,robots,on_progress=save_discovery_progress
+                )
                 if full_one_month_discovery:
                     master_diag["mode"]="full_discovery_one_month"
                 query_preview=" | ".join((master_diag.get("queries") or [])[:3])
