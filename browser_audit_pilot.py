@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v66"
+PILOT_BUILD = "velora-browser-pilot-v67"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -873,18 +873,23 @@ def _safe_node_text(node, limit: int = 1400) -> str:
             return ""
 
 
-def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
-    """Metasearch gratuita: prova pagine pubbliche HTML di più motori senza API a pagamento."""
+def _free_http_search_links(
+    query: str,
+    preferred_domains: tuple[str, ...] = (),
+) -> tuple[list[dict], list[dict]]:
+    """Metasearch gratuita. In ricerca mirata prova prima Yahoo e si ferma appena trova il dominio OTA."""
     engines=(
-        ("Google HTTP","https://www.google.com/search",{"q":query,"hl":"it","num":"20","filter":"0"}),
-        ("Bing HTTP","https://www.bing.com/search",{"q":query,"setlang":"it","count":"20"}),
-        ("DuckDuckGo HTML","https://html.duckduckgo.com/html/",{"q":query}),
         ("Yahoo HTTP","https://search.yahoo.com/search",{"p":query}),
+        ("Bing HTTP","https://www.bing.com/search",{"q":query,"setlang":"it","count":"20"}),
+        ("Google HTTP","https://www.google.com/search",{"q":query,"hl":"it","num":"20","filter":"0"}),
+        ("DuckDuckGo HTML","https://html.duckduckgo.com/html/",{"q":query}),
     )
     out=[]
     stats=[]
     seen=set()
+    preferred=tuple(str(domain or "").lower().removeprefix("www.") for domain in preferred_domains if domain)
     for engine,url,params in engines:
+        engine_hits=0
         try:
             response=requests.get(
                 url,
@@ -894,7 +899,7 @@ def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
                     "Accept-Language":"it-IT,it;q=0.9,en;q=0.7",
                 },
                 impersonate="chrome",
-                timeout=8,
+                timeout=5,
                 allow_redirects=True,
             )
             body=response.text or ""
@@ -913,7 +918,7 @@ def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
                 if not target:
                     continue
                 parsed=urlparse(target)
-                host=(parsed.hostname or "").lower()
+                host=(parsed.hostname or "").lower().removeprefix("www.")
                 if any(token in host for token in ("google.com","google.it","bing.com","duckduckgo.com","yahoo.com")):
                     continue
                 key=(engine,target)
@@ -931,7 +936,11 @@ def _free_http_search_links(query: str) -> tuple[list[dict], list[dict]]:
                     "query":query,
                 })
                 count+=1
+                if preferred and any(host==domain or host.endswith("."+domain) for domain in preferred):
+                    engine_hits+=1
             stats.append({"engine":engine,"query":query,"status":"ok","links":count})
+            if preferred and engine_hits:
+                break
         except Exception as exc:
             stats.append({"engine":engine,"query":query,"status":f"{type(exc).__name__}","links":0})
     return out,stats
@@ -1266,7 +1275,7 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """THIRD STEP: ricerca mirata progressiva sul singolo portale, riusando le stesse tab."""
+    """Ricerca mirata veloce: HTTP multi-engine prima, verifica browser solo sui candidati reali."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1299,43 +1308,35 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             queries.append(query)
 
     weak=[]
-    search_page=await context.new_page()
     verify_page=await context.new_page()
     try:
-        for query in queries[:6]:
-            try:
-                links,search_url=await _search_result_links(search_page,query,"Google")
-                for item in links:
-                    target=_decode_search_target(str(item.get("href") or ""))
-                    if _classify_ota_url(target)!=ota_id:
-                        continue
-                    score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                        name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-                    )
-                    verify=await verify_ota_candidate_page(
-                        context,ota_id,target,name,city,address,robots,page=verify_page
-                    )
-                    if verify.get("ok"):
-                        return {
-                            "status":"found","url":verify.get("url") or target,
-                            "title":verify.get("title") or str(item.get("text") or ""),
-                            "score":verify.get("score",score),
-                            "evidence":(
-                                f"Ricerca mirata Google su {meta['label']}: «{query}». "
-                                f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
-                            )[:900],
-                            "searchUrl":search_url,
-                            "discoveryMode":"progressive targeted Google + page verification","verification":"page_identity_lock","identityVerified":True,
-                        }
-                    weak.append((score,target,str(item.get("text") or ""),reasons,query,"Google",verify.get("evidence","")))
-            except Exception:
-                pass
+        # La master search ha già usato Google nel browser. Qui non lo ripetiamo:
+        # proviamo massimo tre query mirate via HTTP e verifichiamo nel browser
+        # soltanto i veri candidati OTA.
+        for query in queries[:3]:
+            http_items,http_stats=await asyncio.to_thread(
+                _free_http_search_links,
+                query,
+                tuple(meta["domains"]),
+            )
+            ota_http_items=[
+                item for item in http_items
+                if _classify_ota_url(str(item.get("url") or ""))==ota_id
+            ]
+            ota_http_items.sort(
+                key=lambda item:_identity_match_score(
+                    name,city,address,
+                    str(item.get("text") or ""),
+                    str(item.get("context") or ""),
+                    str(item.get("url") or ""),
+                )[0],
+                reverse=True,
+            )
 
-            http_items,http_stats=await asyncio.to_thread(_free_http_search_links,query)
-            for item in http_items:
+            # Verifica al massimo tre candidati per query: oltre questa soglia
+            # il costo cresce molto senza migliorare la precisione.
+            for item in ota_http_items[:3]:
                 target=str(item.get("url") or "")
-                if _classify_ota_url(target)!=ota_id:
-                    continue
                 score,path_slug,text_score,url_score,reasons=_identity_match_score(
                     name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
                 )
@@ -1348,30 +1349,29 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                         "title":verify.get("title") or str(item.get("text") or ""),
                         "score":verify.get("score",score),
                         "evidence":(
-                            f"Ricerca mirata gratuita {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
+                            f"Ricerca mirata veloce {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
                         "searchUrl":"",
-                        "discoveryMode":"free targeted multi-engine + page verification","verification":"page_identity_lock","identityVerified":True,
+                        "discoveryMode":"fast targeted HTTP + page verification",
+                        "verification":"page_identity_lock","identityVerified":True,
                     }
-                if _strong_search_evidence(score,reasons,{str(item.get("engine") or "HTTP search")}):
-                    weak.append((
-                        score,target,str(item.get("text") or ""),reasons,query,
-                        str(item.get("engine") or "HTTP search"),
-                        "Evidenza di ricerca forte ma pagina non accettata: serve verifica identità diretta con località coerente. "
-                        + str(verify.get("evidence") or "")
-                    ))
-                    continue
                 weak.append((
                     score,target,str(item.get("text") or ""),reasons,query,
                     str(item.get("engine") or "HTTP search"),verify.get("evidence","")
                 ))
 
+            # Bing RSS è leggero: usalo solo se la query HTTP non ha prodotto
+            # alcun candidato specifico per questa OTA.
+            if ota_http_items:
+                continue
             items=await asyncio.to_thread(_bing_rss_items,query)
+            ota_rss=[]
             for item in items:
                 target=_decode_search_target(str(item.get("link") or ""))
-                if _classify_ota_url(target)!=ota_id:
-                    continue
+                if _classify_ota_url(target)==ota_id:
+                    ota_rss.append((item,target))
+            for item,target in ota_rss[:2]:
                 desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
                 score,path_slug,text_score,url_score,reasons=_identity_match_score(
                     name,city,address,str(item.get("title") or ""),desc,target
@@ -1385,19 +1385,19 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                         "title":verify.get("title") or str(item.get("title") or ""),
                         "score":verify.get("score",score),
                         "evidence":(
-                            f"Ricerca mirata {meta['label']} con Bing RSS: «{query}». "
+                            f"Ricerca mirata veloce {meta['label']} con Bing RSS: «{query}». "
                             f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
                         )[:900],
                         "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
-                        "discoveryMode":"progressive targeted Bing RSS + page verification","verification":"page_identity_lock","identityVerified":True,
+                        "discoveryMode":"fast targeted Bing RSS + page verification",
+                        "verification":"page_identity_lock","identityVerified":True,
                     }
                 weak.append((score,target,str(item.get("title") or ""),reasons,query,"Bing RSS",verify.get("evidence","")))
     finally:
-        for disposable in (search_page,verify_page):
-            try:
-                await disposable.close()
-            except Exception:
-                pass
+        try:
+            await verify_page.close()
+        except Exception:
+            pass
 
     weak.sort(key=lambda row:row[0],reverse=True)
     if weak:
@@ -1405,23 +1405,22 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         return {
             "status":"not_verified_present","url":"","candidateUrl":url,"title":title[:220],"score":round(score,3),
             "evidence":(
-                f"Ricerca mirata {meta['label']} completata su più varianti. È stato trovato un candidato da {engine}, "
+                f"Ricerca mirata veloce {meta['label']} completata. Candidato da {engine}, "
                 f"query «{query}», match {score:.0%} ({reasons}), ma NON ha superato la verifica identità. "
                 f"{verify_evidence}. Nessun dato tariffario verrà letto da questa pagina."
             )[:900],
             "searchUrl":"",
-            "discoveryMode":"candidate rejected by identity lock",
+            "discoveryMode":"fast candidate rejected by identity lock",
             "identityVerified":False,
         }
     return {
         "status":"not_verified_present","url":"","title":"","score":0.0,
         "evidence":(
-            f"Ricerca mirata {meta['label']} completata su {len(queries)} varianti senza una scheda attribuibile "
-            "con certezza alla struttura. Questo NON significa assenza certa dal portale: significa che Velora "
-            "non userà alcuna fonte finché non potrà verificarla."
+            f"Ricerca mirata veloce {meta['label']} completata su {min(len(queries),3)} varianti senza una scheda "
+            "attribuibile con certezza alla struttura. Questo non prova l'assenza dal portale."
         ),
         "searchUrl":"",
-        "discoveryMode":"no verified source found",
+        "discoveryMode":"fast no verified source found",
         "identityVerified":False,
     }
 
@@ -1626,13 +1625,13 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
             try:
                 targeted=await asyncio.wait_for(
                     discover_single_ota_targeted(context,ota_id,data,robots),
-                    timeout=45,
+                    timeout=25,
                 )
             except asyncio.TimeoutError:
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 45 secondi. "
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 25 secondi. "
                         "La scansione prosegue sulle altre OTA senza bloccare l'audit."
                     ),
                     "searchUrl":"",
