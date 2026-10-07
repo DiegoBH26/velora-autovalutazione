@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v83"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v84"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -746,7 +746,7 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=False):
+def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=False,pricing_only=True):
     try:
         args=argparse.Namespace(
             property=str(property_path),
@@ -758,6 +758,7 @@ def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=Fal
             ghost=bool(ghost),
             assisted=bool(assisted),
             assist_callback=wait_for_pilot_intervention if assisted else None,
+            pricing_only=bool(pricing_only),
         )
 
         # Il pilot v73 recupera Chrome internamente tra discovery e pricing.
@@ -861,7 +862,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v83",
+                "agentVersion":"velora-local-agent-v84",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -995,8 +996,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(202,{"running":True,"message":"Analisi automatica avviata"})
                 return
 
-            if payload.get("months") not in (1,"all"):
-                raise ValueError("Periodo non supportato dal pilota")
+            if payload.get("months") not in (1,6,12):
+                raise ValueError("Periodo non supportato: scegli 1, 6 o 12 mesi")
             requested_channels=payload.get("channels")
             if requested_channels is None:
                 # La discovery delle fonti viene comunque eseguita su tutto OTA_DISCOVERY_ORDER.
@@ -1038,15 +1039,19 @@ class Handler(SimpleHTTPRequestHandler):
             STATE.intervention={}
             STATE.intervention_action=""
             STATE.intervention_event.clear()
-        months=1 if payload["months"]==1 else None
+        months=int(payload["months"])
         ghost=bool(payload.get("ghost",False))
         assisted=bool(payload.get("assisted",False))
+        pricing_only=bool(payload.get("pricingOnly",True))
         threading.Thread(
             target=run_pilot,
-            args=(property_id,property_path,months,requested_channels,ghost,assisted),
+            args=(property_id,property_path,months,requested_channels,ghost,assisted,pricing_only),
             daemon=True,
         ).start()
-        self._json(202,{"running":True,"propertyId":property_id,"ghost":ghost,"assisted":assisted})
+        self._json(202,{
+            "running":True,"propertyId":property_id,"ghost":ghost,"assisted":assisted,
+            "months":months,"channels":requested_channels,"pricingOnly":pricing_only,
+        })
 
 
 if __name__=="__main__":
@@ -1055,7 +1060,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v83 · frontend pubblico one-pass · 429 passa oltre · max tempi OTA · mai login",flush=True)
+    print("Versione agente: velora-local-agent-v84 · selezione OTA + 1/6/12 mesi · test prezzi rapido · mai login",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
