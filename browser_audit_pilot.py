@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v69"
+PILOT_BUILD = "velora-browser-pilot-v70"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -105,13 +105,13 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
             locale="it", currency="EUR",
         )
     elif channel in {"expedia", "hotels", "travelocity"}:
-        query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2")
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2", currency="EUR")
     elif channel == "vrbo":
-        query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2")
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2", currency="EUR")
     elif channel == "agoda":
-        query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0")
+        query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0", currency="EUR")
     elif channel == "trip":
-        query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1")
+        query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1", curr="EUR", locale="it-IT")
     elif channel == "priceline":
         # Priceline viene datato tramite UI: la scheda resta invariata finché
         # il date picker non conferma il soggiorno richiesto.
@@ -2589,6 +2589,217 @@ async def airbnb_quote_candidates(page, stay: dict) -> list[dict]:
         if key in seen: continue
         seen.add(key); unique.append(item)
     return unique[:8]
+
+
+async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tuple[bool,str]:
+    """Fallback frontend reale per OTA: apre il date picker, sceglie le date e conferma la ricerca."""
+    label=OTA_META.get(channel,{}).get("label",channel)
+    evidence=[]
+    opener_selectors={
+        "vrbo":(
+            'button[aria-label*="check-in" i]','button[aria-label*="date" i]',
+            '[data-stid*="date"]','[data-testid*="date"]',
+            'button:has-text("Check-in")','button:has-text("Date")',
+        ),
+        "expedia":(
+            'button[data-stid*="open-date-picker"]','button[aria-label*="date" i]',
+            '[data-stid*="date"]','button:has-text("Date")','button:has-text("Check-in")',
+        ),
+        "hotels":(
+            'button[data-stid*="open-date-picker"]','button[aria-label*="date" i]',
+            '[data-stid*="date"]','button:has-text("Date")','button:has-text("Check-in")',
+        ),
+        "travelocity":(
+            'button[data-stid*="open-date-picker"]','button[aria-label*="date" i]',
+            '[data-stid*="date"]','button:has-text("Date")','button:has-text("Check-in")',
+        ),
+        "agoda":(
+            '[data-selenium="checkInText"]','[data-element-name*="check-in" i]',
+            '[data-element-name*="checkin" i]','button[aria-label*="check-in" i]',
+            'input[name*="checkin" i]',
+        ),
+        "trip":(
+            '[data-testid*="checkin" i]','[class*="checkin" i]',
+            'button[aria-label*="check-in" i]','input[placeholder*="check-in" i]',
+            'button:has-text("Check-in")',
+        ),
+    }.get(channel,())
+
+    opener,_=await _first_visible_locator(page,opener_selectors)
+    if opener is None:
+        return False,f"{label}: controllo date frontend non individuato"
+    try:
+        await opener.scroll_into_view_if_needed(timeout=1200)
+    except Exception:
+        pass
+    try:
+        await opener.click(timeout=2200)
+        await page.wait_for_timeout(550)
+        evidence.append("date picker aperto")
+    except Exception as exc:
+        return False,f"{label}: date picker non apribile ({type(exc).__name__})"
+
+    async def click_day(target_iso: str) -> bool:
+        target=date.fromisoformat(target_iso)
+        labels=[
+            target_iso,
+            f"{target.day}/{target.month}/{target.year}",
+            f"{target.day:02d}/{target.month:02d}/{target.year}",
+            f"{target.day} {MONTH_NAMES[target.month][1]} {target.year}",
+            target.strftime("%B %d, %Y"),
+            target.strftime("%b %d, %Y"),
+        ]
+        selectors=[
+            f'[data-date="{target_iso}"]',
+            f'[data-testid*="{target_iso}"]',
+            f'[data-selenium*="{target_iso}"]',
+            f'button[aria-label*="{target_iso}"]',
+        ]
+        for value in labels:
+            selectors.extend((
+                f'button[aria-label*="{value}" i]',
+                f'[role="button"][aria-label*="{value}" i]',
+            ))
+        for selector in selectors:
+            try:
+                matches=page.locator(selector)
+                count=min(await matches.count(),25)
+            except Exception:
+                count=0
+            for idx in range(count):
+                node=matches.nth(idx)
+                try:
+                    if not await node.is_visible(timeout=220):
+                        continue
+                    if (await node.get_attribute("aria-disabled"))=="true":
+                        continue
+                    await node.click(timeout=1800)
+                    await page.wait_for_timeout(280)
+                    return True
+                except Exception:
+                    continue
+        return False
+
+    async def next_month() -> bool:
+        node,_=await _first_visible_locator(page,(
+            'button[aria-label*="next month" i]',
+            'button[aria-label*="mese successivo" i]',
+            'button[aria-label*="next" i]',
+            '[data-testid*="next-month" i]',
+            '[data-stid*="next-month" i]',
+            '[data-selenium*="next-month" i]',
+        ))
+        if node is None:
+            return False
+        try:
+            await node.click(timeout=1600)
+            await page.wait_for_timeout(250)
+            return True
+        except Exception:
+            return False
+
+    async def pick(target_iso: str) -> bool:
+        for _ in range(20):
+            if await click_day(target_iso):
+                return True
+            if not await next_month():
+                return False
+        return False
+
+    start_ok=await pick(stay["checkin"])
+    if not start_ok:
+        return False,f"{label}: check-in {stay['checkin']} non selezionabile dal frontend"
+    evidence.append(f"check-in {stay['checkin']}")
+    end_ok=await pick(stay["checkout"])
+    if not end_ok:
+        return False,f"{label}: check-out {stay['checkout']} non selezionabile dal frontend"
+    evidence.append(f"check-out {stay['checkout']}")
+
+    # Conferma/chiude il calendario. Evita CTA di pagamento: solo Search/Done/Apply/Availability.
+    action,_=await _first_visible_locator(page,(
+        'button:has-text("Cerca")','button:has-text("Search")',
+        'button:has-text("Applica")','button:has-text("Apply")',
+        'button:has-text("Fatto")','button:has-text("Done")',
+        'button:has-text("Aggiorna")','button:has-text("Update")',
+        'button:has-text("Controlla disponibilità")','button:has-text("Check availability")',
+        '[data-testid*="search"]','[data-stid*="search"]',
+    ))
+    if action is not None:
+        try:
+            await action.click(timeout=2200)
+            await page.wait_for_timeout(1400)
+            evidence.append("ricerca frontend confermata")
+        except Exception:
+            pass
+    else:
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        await page.wait_for_timeout(600)
+
+    # Conferma specifica per portale dopo l'interazione.
+    confirmed=False
+    confirm_evidence=""
+    try:
+        body=(await page.locator("body").inner_text(timeout=6000))[:14000]
+    except Exception:
+        body=""
+    if visible_dates_confirmed(body,stay):
+        confirmed=True
+        confirm_evidence="date visibili nella pagina"
+    elif channel=="vrbo":
+        confirmed=vrbo_url_dates_confirmed(page.url,stay)
+        confirm_evidence="date URL Vrbo" if confirmed else ""
+    elif channel in {"expedia","hotels","travelocity"}:
+        confirmed=expedia_group_url_dates_confirmed(page.url,stay)
+        confirm_evidence="date URL Expedia-group" if confirmed else ""
+    elif channel=="agoda":
+        confirmed,confirm_evidence=await agoda_dom_dates_confirmed(page,stay)
+        if not confirmed:
+            confirmed=agoda_url_dates_confirmed(page.url,stay)
+            if confirmed: confirm_evidence="date URL Agoda"
+    elif channel=="trip":
+        confirmed=trip_url_dates_confirmed(page.url,stay)
+        confirm_evidence="date URL Trip.com" if confirmed else ""
+
+    if confirmed:
+        evidence.append(confirm_evidence or "date confermate")
+    return confirmed,(" · ".join(evidence))[:900]
+
+
+async def vrbo_reveal_rates(page) -> str:
+    """Porta Vrbo al riepilogo/prezzo senza entrare nel pagamento."""
+    for selector in (
+        'button:has-text("Controlla disponibilità")',
+        'button:has-text("Check availability")',
+        'button:has-text("Vedi prezzi")',
+        'button:has-text("See prices")',
+        'button:has-text("View rates")',
+        '[data-stid*="availability"]',
+        '[data-stid*="price"]',
+        '[data-testid*="price"]',
+    ):
+        try:
+            node=page.locator(selector).first
+            if await node.count() and await node.is_visible(timeout=280):
+                await node.scroll_into_view_if_needed(timeout=1200)
+                text=re.sub(r"\s+"," ",(await node.inner_text(timeout=450)) or selector).strip()[:100]
+                if "price" not in selector and "availability" not in selector:
+                    try:
+                        await node.click(timeout=1800)
+                    except Exception:
+                        pass
+                await page.wait_for_timeout(1200)
+                return f"Vrbo frontend: area tariffaria raggiunta «{text or selector}»"
+        except Exception:
+            pass
+    try:
+        await page.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight*0.55))")
+        await page.wait_for_timeout(900)
+        return "Vrbo frontend: scroll area prenotazione eseguito"
+    except Exception:
+        return "Vrbo frontend: area tariffaria non individuata"
 
 
 def expedia_group_url_dates_confirmed(url: str, stay: dict) -> bool:
@@ -6616,6 +6827,13 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="priceline-ui-date-picker"
+        elif channel in {"vrbo","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
+            applied, ui_date_evidence = await generic_ota_frontend_apply_dates(page,channel,stay)
+            if applied:
+                record["finalUrl"] = page.url
+                record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+                if dates_confirmed and not date_confirmation_mode:
+                    date_confirmation_mode=f"{channel}-frontend-date-picker"
         render_diag={}
         if channel == "booking" and dates_confirmed:
             render_diag = await booking_settle_render(page)
@@ -6631,6 +6849,9 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         elif channel in {"airbnb","vrbo"} and dates_confirmed:
+            vrbo_reveal_evidence=""
+            if channel=="vrbo":
+                vrbo_reveal_evidence=await vrbo_reveal_rates(page)
             try:
                 selectors=(
                     '[data-testid="book-it-default"], [data-section-id="BOOK_IT_SIDEBAR"], [data-testid*="price"]'
@@ -6642,6 +6863,8 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 await page.wait_for_timeout(1200)
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+            if channel=="vrbo" and vrbo_reveal_evidence:
+                date_dom_excerpt=(str(date_dom_excerpt or "")+" | "+vrbo_reveal_evidence)[:800]
         elif channel in {"expedia","hotels","travelocity"} and dates_confirmed:
             reveal_evidence=await expedia_group_reveal_rates(page,channel)
             try:
@@ -6673,6 +6896,18 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 await page.wait_for_timeout(1400)
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+        if response and response.status in {403,429}:
+            # Alcune OTA restituiscono 403/429 sul documento iniziale ma completano comunque
+            # il frontend pubblico già aperto nel browser. Aspetta il rendering, senza retry
+            # aggressivi né bypass, e valuta ciò che l'utente vedrebbe realmente.
+            try:
+                await page.wait_for_timeout(2600)
+                await page.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight*0.35))")
+                await page.wait_for_timeout(700)
+                record["finalUrl"] = page.url
+                record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+            except Exception:
+                pass
         text = (record["title"] + " " + body).lower()
         soft_http_status=response.status if response and response.status in {403,429} else 0
         rendered_usable=bool(
