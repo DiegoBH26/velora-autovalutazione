@@ -1405,9 +1405,15 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     candidates.sort(key=lambda row:row[0],reverse=True)
     if candidates:
         score,target,title,reasons,engine=candidates[0]
+        candidate_urls=[]
+        for _,candidate_target,_,_,_ in candidates[:5]:
+            clean_candidate=normalize_ota_listing_url(ota_id,candidate_target)
+            if clean_candidate and clean_candidate not in candidate_urls:
+                candidate_urls.append(clean_candidate)
         return {
             "status":"not_verified_present","url":"",
             "candidateUrl":normalize_ota_listing_url(ota_id,target),
+            "candidateUrls":candidate_urls,
             "title":title[:220],"score":round(score,3),"presenceDetected":True,
             "evidence":(
                 f"Ricerca mirata {meta['label']} tramite {engine} con nome distintivo «{distinctive}». "
@@ -9163,6 +9169,51 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
                 discovery=master_discoveries.get(ota_id) or {}
+
+                # Se la prima scheda è vecchia/sbagliata (es. HTTP 410 Airbnb),
+                # prova i candidati alternativi della stessa ricerca prima di rinunciare.
+                if ota_id!="booking" and discovery.get("identityVerified") is not True:
+                    alternative_urls=[]
+                    for value in [
+                        discovery.get("candidateUrl"),
+                        *(discovery.get("candidateUrls") or []),
+                    ]:
+                        clean_value=normalize_ota_listing_url(ota_id,str(value or ""))
+                        if clean_value and clean_value not in alternative_urls and _plausible_ota_listing_url(ota_id,clean_value):
+                            alternative_urls.append(clean_value)
+                    for alternative_url in alternative_urls[:3]:
+                        try:
+                            alternative_check=await asyncio.wait_for(
+                                verify_ota_candidate_page(
+                                    context,ota_id,alternative_url,
+                                    data.get("name",""),data.get("city",""),data.get("address",""),robots,
+                                ),
+                                timeout=18,
+                            )
+                        except Exception:
+                            continue
+                        if not alternative_check.get("ok"):
+                            continue
+                        discovery={
+                            "status":"found",
+                            "url":alternative_check.get("url") or alternative_url,
+                            "title":alternative_check.get("title") or discovery.get("title",""),
+                            "score":alternative_check.get("score",discovery.get("score",1.0)),
+                            "presenceDetected":True,
+                            "identityVerified":True,
+                            "verification":"page_identity_lock",
+                            "discoveryMode":"ranked candidate verification",
+                            "evidence":(
+                                f"{OTA_META[ota_id]['label']}: candidato alternativo verificato prima del pricing. "
+                                + str(alternative_check.get("evidence") or "")
+                            )[:900],
+                        }
+                        print(
+                            f"{ota_id} candidate verified for pricing · {str(discovery.get('url') or '')[:180]}",
+                            flush=True,
+                        )
+                        break
+
                 # Booking mantiene il proprio fallback specializzato se la pipeline master non chiude il match.
                 if ota_id=="booking" and discovery.get("status")!="found":
                     await ensure_pricing_context("prima della discovery Booking specializzata")
