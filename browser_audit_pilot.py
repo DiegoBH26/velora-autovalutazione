@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v78"
+PILOT_BUILD = "velora-browser-pilot-v79"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -846,7 +846,12 @@ def _plausible_ota_listing_url(ota_id: str, url: str) -> bool:
     if ota_id=="agoda":
         return "/hotel/" in path and not any(token in path for token in ("/partners/","partnersearch","/search"))
     if ota_id=="trip":
-        return bool("hotel-detail" in path or re.search(r"/hotels?/",path)) and not any(token in path for token in ("/hot/","top-10","ranking"))
+        # Trip.com usa /hotels/<citta>-hotel-detail-<id>/... per le schede.
+        # Non accettare più le pagine elenco città (es. /hotels/barcelona-hotels-list-40795/):
+        # in v78 potevano diventare una falsa source della struttura.
+        return bool(re.search(r"hotel-detail-\d+",path)) and not any(
+            token in path for token in ("/hot/","top-10","ranking","hotels-list","hotel-list")
+        )
     if ota_id=="priceline":
         return "/relax/" in path or "hotel-deals" in path
     return True
@@ -1385,7 +1390,7 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """Discovery mirata: brand stabile + località, provando i domini pubblici dell'OTA."""
+    """Discovery mirata multi-strada: site search, indice RSS e browser search."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1394,9 +1399,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     variants=_property_name_query_variants(name)
     distinctive=(variants[0] if variants else name).strip()
 
-    queries=[]
-    # Prima prova il brand stabile su TUTTI i domini (.com/.it), poi allarga
-    # alle varianti più lunghe: così il watchdog non può fermarsi sul solo .com.
+    site_queries=[]
     for variant in variants[:3]:
         for domain in meta["domains"]:
             scope=(
@@ -1405,12 +1408,23 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 else f"site:{domain}"
             )
             if variant and location:
-                queries.append(f'{scope} "{variant}" "{location}"')
+                site_queries.append(f'{scope} "{variant}" "{location}"')
             if variant:
-                queries.append(f'{scope} "{variant}"')
+                site_queries.append(f'{scope} "{variant}"')
 
-    # Deduplica mantenendo l'ordine: brand stabile prima, nome completo solo dopo.
-    queries=list(dict.fromkeys(query for query in queries if query))[:12]
+    # I motori non sempre rispettano bene site: per Airbnb/Holidu/Priceline.
+    # Aggiungi query libere col nome del portale: è il caso reale di Perla Saracena,
+    # che gli indici pubblici trovano come "Hotel Perla Saracena ..." su Airbnb.
+    broad_queries=[]
+    for variant in variants[:2]:
+        if variant and location:
+            broad_queries.append(f'"{variant}" "{location}" {meta["label"]}')
+        if variant:
+            broad_queries.append(f'"{variant}" {meta["label"]}')
+    if distinctive:
+        broad_queries.append(f'"Hotel {distinctive}" {meta["label"]}')
+
+    queries=list(dict.fromkeys(query for query in [*site_queries,*broad_queries] if query))[:14]
     if not queries:
         return {
             "status":"not_verified_present","url":"","title":"","score":0.0,
@@ -1421,34 +1435,102 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
 
     candidates=[]
     used_query=""
-    for query in queries:
+
+    def collect_items(items, query, engine_label=""):
+        nonlocal used_query
+        used_query=query or used_query
+        for item in items or []:
+            target=str(item.get("url") or item.get("link") or "")
+            if not target:
+                continue
+            target=_decode_search_target(target) or target
+            if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
+                continue
+            text_value=str(item.get("text") or item.get("title") or "")
+            context_value=str(item.get("context") or item.get("description") or "")
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,text_value,context_value,target
+            )
+            candidates.append((
+                score,target,text_value,reasons,
+                str(item.get("engine") or engine_label or "search index")
+            ))
+
+    # 1) HTTP metasearch: rapido e gratuito.
+    for query in queries[:8]:
         try:
             http_items,_=await asyncio.wait_for(
                 asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
-                timeout=12,
+                timeout=8,
             )
         except asyncio.TimeoutError:
             continue
         except Exception:
             continue
-        used_query=query
-        for item in http_items:
-            target=str(item.get("url") or "")
-            if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
-                continue
-            score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-            )
-            candidates.append((score,target,str(item.get("text") or ""),reasons,str(item.get("engine") or "HTTP search")))
+        collect_items(http_items,query)
         if candidates:
             break
 
-    candidates.sort(key=lambda row:row[0],reverse=True)
+    # 2) Bing RSS: spesso espone risultati che la SERP HTML nasconde.
+    if not candidates:
+        for query in broad_queries[:3] or queries[:3]:
+            try:
+                rss_items=await asyncio.wait_for(
+                    asyncio.to_thread(_bing_rss_items,query),
+                    timeout=6,
+                )
+            except Exception:
+                continue
+            collect_items(rss_items,query,"Bing RSS")
+            if candidates:
+                break
+
+    # 3) Ultimo fallback: vera SERP nel browser pubblico, una sola query forte.
+    # Nessuna API a pagamento e nessun hard-code della struttura.
+    if not candidates and distinctive:
+        search_query=f'"{distinctive}" {meta["label"]}'
+        search_page=None
+        try:
+            search_page=await context.new_page()
+            links,_=await asyncio.wait_for(
+                _search_result_links(search_page,search_query,"Google"),
+                timeout=12,
+            )
+            browser_items=[]
+            for item in links:
+                browser_items.append({
+                    "url":_decode_search_target(str(item.get("href") or "")),
+                    "text":str(item.get("text") or ""),
+                    "context":str(item.get("context") or ""),
+                    "engine":"Google browser",
+                })
+            collect_items(browser_items,search_query,"Google browser")
+        except Exception:
+            pass
+        finally:
+            if search_page is not None:
+                try:
+                    await search_page.close()
+                except Exception:
+                    pass
+
+    # Deduplica URL e conserva il punteggio più alto.
+    grouped={}
+    for row in candidates:
+        score,target,title,reasons,engine=row
+        clean=normalize_ota_listing_url(ota_id,target)
+        old=grouped.get(clean)
+        if not old or score>old[0]:
+            grouped[clean]=(score,clean,title,reasons,engine)
+    candidates=sorted(grouped.values(),key=lambda row:row[0],reverse=True)
+
     if candidates:
         score,target,title,reasons,engine=candidates[0]
+        candidate_urls=[row[1] for row in candidates[:8]]
         if score < 0.38:
             return {
-                "status":"not_verified_present","url":"","candidateUrl":normalize_ota_listing_url(ota_id,target),
+                "status":"not_verified_present","url":"","candidateUrl":target,
+                "candidateUrls":candidate_urls,
                 "title":title[:220],"score":round(score,3),
                 "presenceDetected":True,
                 "evidence":(
@@ -1457,14 +1539,9 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 )[:900],
                 "searchUrl":"","discoveryMode":"weak candidate retained","identityVerified":False,
             }
-        candidate_urls=[]
-        for _,candidate_target,_,_,_ in candidates[:5]:
-            clean_candidate=normalize_ota_listing_url(ota_id,candidate_target)
-            if clean_candidate and clean_candidate not in candidate_urls:
-                candidate_urls.append(clean_candidate)
         return {
             "status":"not_verified_present","url":"",
-            "candidateUrl":normalize_ota_listing_url(ota_id,target),
+            "candidateUrl":target,
             "candidateUrls":candidate_urls,
             "title":title[:220],"score":round(score,3),"presenceDetected":True,
             "evidence":(
@@ -1472,17 +1549,17 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
                 f"Candidato pubblico trovato con match {score:.0%} ({reasons}); query «{used_query}». "
                 "Presenza registrata; identità e tariffe saranno verificate nella fase pricing."
             )[:900],
-            "searchUrl":"","discoveryMode":"stable-brand candidate deferred to pricing","identityVerified":False,
+            "searchUrl":"","discoveryMode":"multi-path targeted candidate deferred to pricing","identityVerified":False,
         }
     return {
         "status":"not_verified_present","url":"","title":"","score":0.0,
         "presenceDetected":False,
         "evidence":(
-            f"Ricerca mirata {meta['label']} completata con brand «{distinctive}»: "
+            f"Ricerca mirata {meta['label']} completata con brand «{distinctive}» su più indici pubblici: "
             "nessun candidato è emerso in questo passaggio automatico. "
             "Questo esito non dimostra che la struttura sia assente dal portale."
         )[:900],
-        "searchUrl":"","discoveryMode":"targeted no candidate in current pass","identityVerified":False,
+        "searchUrl":"","discoveryMode":"targeted multi-path no candidate","identityVerified":False,
     }
 
 async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
@@ -1519,13 +1596,13 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
             try:
                 targeted=await asyncio.wait_for(
                     discover_single_ota_targeted(context,ota_id,data,robots),
-                    timeout=24,
+                    timeout=38,
                 )
             except asyncio.TimeoutError:
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 24 secondi; "
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 38 secondi; "
                         "nessuna conclusione di assenza viene registrata. La scansione prosegue sulle altre OTA."
                     ),
                     "searchUrl":"",
@@ -1747,6 +1824,30 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
       }
       return out.slice(0,60);
     }""")
+    page_basis=""
+    try:
+        page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
+        nightly_hits=bool(re.search(r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",page_text,re.I))
+        total_hits=bool(re.search(r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",page_text,re.I))
+        if nightly_hits and not total_hits:
+            page_basis="nightly"
+        elif total_hits and not nightly_hits:
+            page_basis="stay-total"
+    except Exception:
+        page_basis=""
+
+    page_basis=""
+    try:
+        page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
+        nightly_hits=bool(re.search(r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",page_text,re.I))
+        total_hits=bool(re.search(r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",page_text,re.I))
+        if nightly_hits and not total_hits:
+            page_basis="nightly"
+        elif total_hits and not nightly_hits:
+            page_basis="stay-total"
+    except Exception:
+        page_basis=""
+
     out=[]
     for row in rows:
         room=str(row.get("room") or "").strip()
@@ -1755,11 +1856,13 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
         if not room or price is None or not text:
             continue
         low=text.lower()
-        if re.search(r"\b(a notte|per notte|per night|nightly)\b",low,re.I):
+        if re.search(r"\b(a notte|per notte|per night|nightly|prezzo per camera per notte|media per notte)\b",low,re.I):
             basis="nightly"
-        elif re.search(r"\b(totale soggiorno|prezzo totale|stay total|total for|per stay)\b",low,re.I):
+        elif re.search(r"\b(totale soggiorno|prezzo totale|stay total|total for|per stay|totale per il soggiorno)\b",low,re.I):
             basis="stay-total"
         else:
+            basis=page_basis
+        if basis not in {"nightly","stay-total"}:
             continue
         fields=_price_fields(price,basis,stay)
         board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
@@ -1880,7 +1983,7 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         price=_money_value(str(row.get("price") or ""))
         if not room or price is None:
             continue
-        basis=str(row.get("basis") or "")
+        basis=str(row.get("basis") or "") or page_basis
         text=str(row.get("text") or "")
         low=text.lower()
         if basis not in {"nightly","stay-total"}:
@@ -7557,6 +7660,20 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             elif channel == "agoda":
                 candidates=await agoda_quote_candidates(page,stay)
                 record["quotes"]=candidates
+                try:
+                    agoda_price_nodes=await page.locator(
+                        '[data-selenium*="price"], [data-ppapi*="price" i], [data-element-name*="price" i], [class*="price" i]'
+                    ).count()
+                    agoda_room_nodes=await page.locator(
+                        '[data-selenium*="room"], [data-ppapi*="room" i], [data-element-name*="room" i], [class*="room" i]'
+                    ).count()
+                except Exception:
+                    agoda_price_nodes=agoda_room_nodes=0
+                print(
+                    f"{stay['month']} agoda-rate-diagnostics: candidates={len(candidates)} · "
+                    f"priceNodes={agoda_price_nodes} · roomNodes={agoda_room_nodes} · url={page.url[:260]}",
+                    flush=True,
+                )
                 verified=[item for item in candidates if item.get("verified")]
                 if verified:
                     first=verified[0]
