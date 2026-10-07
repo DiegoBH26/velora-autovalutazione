@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v83"
+PILOT_BUILD = "velora-browser-pilot-v84"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1573,10 +1573,18 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         "searchUrl":"","discoveryMode":"targeted multi-path no candidate","identityVerified":False,
     }
 
-async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
-    """Pipeline discovery con avanzamento progressivo e senza falsi '0 controlli'."""
+async def discover_all_ota_sources(
+    context, data: dict, robots: dict, on_progress=None, selected_ota_ids=None
+) -> tuple[dict,dict]:
+    """Discovery limitata ai soli canali selezionati dall'utente."""
+    target_order=[
+        ota_id for ota_id in OTA_DISCOVERY_ORDER
+        if not selected_ota_ids or ota_id in set(selected_ota_ids)
+    ]
     discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots)
-    total=len(OTA_DISCOVERY_ORDER)
+    discoveries={ota_id:value for ota_id,value in discoveries.items() if ota_id in target_order}
+    diagnostics["selectedOtas"]=target_order
+    total=len(target_order)
     if on_progress:
         await on_progress({
             "stage":"targeted",
@@ -1586,7 +1594,7 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
             "label":"Ricerca master completata",
         },discoveries,diagnostics)
 
-    for index,ota_id in enumerate(OTA_DISCOVERY_ORDER, start=1):
+    for index,ota_id in enumerate(target_order, start=1):
         current=discoveries.get(ota_id)
 
         # La ricerca master ha già interrogato più motori e più varianti.
@@ -9693,7 +9701,10 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
-    plan = monthly_plan(today, limit=args.months)
+    # "12 mesi" = da questo mese fino allo stesso mese dell'anno prossimo:
+    # 13 campioni inclusivi (es. ottobre 2026 → ottobre 2027).
+    plan_limit = 13 if args.months == 12 else args.months
+    plan = monthly_plan(today, limit=plan_limit)
     channels = [part.strip() for part in args.channels.split(",") if part.strip()]
     unknown = set(channels) - set(CHANNELS)
     if unknown:
@@ -9701,6 +9712,7 @@ async def run(args: argparse.Namespace) -> dict:
     sources = data.get("sources", {})
     ghost=bool(getattr(args,"ghost",False))
     assisted=bool(getattr(args,"assisted",False))
+    pricing_only=bool(getattr(args,"pricing_only",False))
     assist_callback=getattr(args,"assist_callback",None) if assisted else None
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, solo frontend pubblico senza login: scheda → date → ospiti → cerca → tariffe; nessun account, registrazione, tariffa member/app o bypass.",
@@ -9742,28 +9754,33 @@ async def run(args: argparse.Namespace) -> dict:
             except OSError:
                 pass
 
-            reputation=await google_reputation_observation(context,data)
-            result["reputation"]=reputation
-            print(
-                f"reputation: {reputation.get('status','n.d.')} · "
-                f"rating={reputation.get('rating','n.d.')} · reviews={reputation.get('reviewCount','n.d.')} · "
-                f"sample={reputation.get('sampleSize',0)} · strengths={len(reputation.get('strengths') or [])} · "
-                f"weaknesses={len(reputation.get('weaknesses') or [])}",
-                flush=True,
-            )
-            write_result(output,result)
-
-            photo_audit=await frontend_photo_audit(context,data,robots)
-            result["photoAudit"]=photo_audit
-            print(
-                f"photo audit: {photo_audit.get('status','n.d.')} · score={photo_audit.get('score',0)} · "
-                f"pages={photo_audit.get('pagesSampled',0)} · images={photo_audit.get('imageCount',0)} · "
-                f"known-dim={photo_audit.get('knownDimensionCount',0)} · highres={photo_audit.get('highResolutionCount',0)} · "
-                f"alt={photo_audit.get('altTextCount',0)}",
-                flush=True,
-            )
-            write_result(output,result)
-
+            if pricing_only:
+                result["reputation"]={"status":"skipped_pricing_test","evidence":"Test OTA selettivo: reputazione non rieseguita."}
+                result["photoAudit"]={"status":"skipped_pricing_test","evidence":"Test OTA selettivo: audit fotografico non rieseguito."}
+                write_result(output,result)
+            else:
+                reputation=await google_reputation_observation(context,data)
+                result["reputation"]=reputation
+                print(
+                    f"reputation: {reputation.get('status','n.d.')} · "
+                    f"rating={reputation.get('rating','n.d.')} · reviews={reputation.get('reviewCount','n.d.')} · "
+                    f"sample={reputation.get('sampleSize',0)} · strengths={len(reputation.get('strengths') or [])} · "
+                    f"weaknesses={len(reputation.get('weaknesses') or [])}",
+                    flush=True,
+                )
+                write_result(output,result)
+    
+                photo_audit=await frontend_photo_audit(context,data,robots)
+                result["photoAudit"]=photo_audit
+                print(
+                    f"photo audit: {photo_audit.get('status','n.d.')} · score={photo_audit.get('score',0)} · "
+                    f"pages={photo_audit.get('pagesSampled',0)} · images={photo_audit.get('imageCount',0)} · "
+                    f"known-dim={photo_audit.get('knownDimensionCount',0)} · highres={photo_audit.get('highResolutionCount',0)} · "
+                    f"alt={photo_audit.get('altTextCount',0)}",
+                    flush=True,
+                )
+                write_result(output,result)
+    
             official_identity_url=(sources.get("sito") or {}).get("url","")
             known_ota_sources=[
                 ota_id for ota_id in OTA_DISCOVERY_ORDER
@@ -9773,10 +9790,9 @@ async def run(args: argparse.Namespace) -> dict:
             single_ota_id=channels[0] if single_ota_scan else ""
             single_ota_known=bool(single_ota_id and single_ota_id in known_ota_sources)
 
-            # "Prova un mese" deve essere un vero test end-to-end: anche se esistono
-            # schede OTA salvate da audit precedenti, ripete la discovery completa di
-            # tutti i canali richiesti. Il riuso della sorgente resta consentito solo
-            # per la scansione dedicata a una singola OTA già verificata.
+            selected_discovery_ids=[ota_id for ota_id in OTA_DISCOVERY_ORDER if ota_id in channels]
+            # Il test lavora esclusivamente sulle OTA selezionate: aggiungendo i canali
+            # uno alla volta si può isolare immediatamente quello che rallenta o fallisce.
             full_one_month_discovery=bool(args.months == 1 and not single_ota_scan)
             quick_retest=bool(single_ota_known and not full_one_month_discovery)
 
@@ -9798,7 +9814,7 @@ async def run(args: argparse.Namespace) -> dict:
                 result["discoveryProgress"]={
                     "stage":"master",
                     "completed":0,
-                    "total":len(OTA_DISCOVERY_ORDER),
+                    "total":len(selected_discovery_ids),
                     "otaId":"",
                     "label":"Ricerca master OTA",
                     "updatedAt":datetime.now(timezone.utc).isoformat(),
@@ -9814,13 +9830,14 @@ async def run(args: argparse.Namespace) -> dict:
                         result["discoveredSources"][partial_id]=partial_value
                     write_result(output,result)
                     print(
-                        f"discovery progress: {progress.get('completed',0)}/{progress.get('total',len(OTA_DISCOVERY_ORDER))} · "
+                        f"discovery progress: {progress.get('completed',0)}/{progress.get('total',len(selected_discovery_ids))} · "
                         f"{progress.get('label','')}",
                         flush=True,
                     )
 
                 master_discoveries,master_diag=await discover_all_ota_sources(
-                    context,data,robots,on_progress=save_discovery_progress
+                    context,data,robots,on_progress=save_discovery_progress,
+                    selected_ota_ids=selected_discovery_ids,
                 )
                 if full_one_month_discovery:
                     master_diag["mode"]="full_discovery_one_month"
@@ -10089,10 +10106,11 @@ async def run(args: argparse.Namespace) -> dict:
 
             # Per i portali non adatti al confronto tariffario mensile raccoglie comunque
             # un profilo pubblico strutturato: reputazione, prezzi generici e link commerciali.
-            run_profile_audit = len(channels) != 1 or channels[0] in PROFILE_AUDIT_CHANNELS
+            selected_profile_ids=[ota_id for ota_id in PROFILE_AUDIT_CHANNELS if ota_id in channels]
+            run_profile_audit = bool(selected_profile_ids) and not pricing_only
             if run_profile_audit:
                 await ensure_pricing_context("prima dei profili OTA")
-                for ota_id in PROFILE_AUDIT_CHANNELS:
+                for ota_id in selected_profile_ids:
                     profile_source=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                     if profile_source:
                         profile=await observe_ota_profile(context,ota_id,profile_source,robots)
@@ -10140,7 +10158,12 @@ async def run(args: argparse.Namespace) -> dict:
 
             official_url = sources.get("sito", {}).get("url", "")
             await ensure_pricing_context("prima della verifica booking engine diretto")
-            if official_url:
+            if pricing_only:
+                result["bookingEngine"]={
+                    "status":"skipped_pricing_test","provider":"","url":"","mode":"",
+                    "evidence":"Test OTA selettivo: booking engine del sito ufficiale non rieseguito."
+                }
+            elif official_url:
                 permission = await asyncio.to_thread(allowed_by_robots, official_url, robots)
                 if permission is True:
                     page = await context.new_page()
@@ -10544,6 +10567,7 @@ def main() -> None:
     parser.add_argument("--today", help="Data ISO per test riproducibili")
     parser.add_argument("--dry-run", action="store_true", help="Genera solo il piano date")
     parser.add_argument("--ghost", action="store_true", help="Mantiene Chrome minimizzato durante lo scraping")
+    parser.add_argument("--pricing-only", action="store_true", help="Esegue soltanto discovery e prezzi dei canali selezionati")
     args = parser.parse_args()
     asyncio.run(run(args))
 
