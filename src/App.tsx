@@ -4724,6 +4724,21 @@ function GuideToggle({
   );
 }
 
+const LOCAL_PILOT_OTA_OPTIONS = [
+  { id: "booking", label: "Booking.com", active: "border-emerald-500 bg-emerald-100 text-emerald-950 shadow-sm", idle: "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50" },
+  { id: "agoda", label: "Agoda", active: "border-sky-500 bg-sky-100 text-sky-950 shadow-sm", idle: "border-sky-300 bg-white text-sky-900 hover:bg-sky-50" },
+  { id: "airbnb", label: "Airbnb", active: "border-rose-500 bg-rose-100 text-rose-950 shadow-sm", idle: "border-rose-300 bg-white text-rose-900 hover:bg-rose-50" },
+  { id: "vrbo", label: "Vrbo", active: "border-blue-500 bg-blue-100 text-blue-950 shadow-sm", idle: "border-blue-300 bg-white text-blue-900 hover:bg-blue-50" },
+  { id: "expedia", label: "Expedia", active: "border-yellow-500 bg-yellow-100 text-yellow-950 shadow-sm", idle: "border-yellow-300 bg-white text-yellow-900 hover:bg-yellow-50" },
+  { id: "holidu", label: "Holidu", active: "border-teal-500 bg-teal-100 text-teal-950 shadow-sm", idle: "border-teal-300 bg-white text-teal-900 hover:bg-teal-50" },
+  { id: "hotels", label: "Hotels.com", active: "border-orange-500 bg-orange-100 text-orange-950 shadow-sm", idle: "border-orange-300 bg-white text-orange-900 hover:bg-orange-50" },
+  { id: "travelocity", label: "Travelocity", active: "border-cyan-500 bg-cyan-100 text-cyan-950 shadow-sm", idle: "border-cyan-300 bg-white text-cyan-900 hover:bg-cyan-50" },
+  { id: "trip", label: "Trip.com", active: "border-violet-500 bg-violet-100 text-violet-950 shadow-sm", idle: "border-violet-300 bg-white text-violet-900 hover:bg-violet-50" },
+  { id: "priceline", label: "Priceline", active: "border-indigo-500 bg-indigo-100 text-indigo-950 shadow-sm", idle: "border-indigo-300 bg-white text-indigo-900 hover:bg-indigo-50" },
+] as const;
+
+type LocalPilotPeriod = 1 | 6 | 12;
+
 export default function App() {
   const initialUiState = useMemo(() => loadUiState(), []);
   const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
@@ -4743,6 +4758,20 @@ export default function App() {
   const [localPilotMessage, setLocalPilotMessage] = useState("");
   const [localPilotGhost, setLocalPilotGhost] = useState(() => window.localStorage.getItem("velora-pilot-ghost") === "1");
   const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") === "1");
+  const [localPilotPeriod, setLocalPilotPeriod] = useState<LocalPilotPeriod>(() => {
+    const stored = Number(window.localStorage.getItem("velora-pilot-period") || "1");
+    return stored === 6 || stored === 12 ? stored : 1;
+  });
+  const [localPilotSelectedChannels, setLocalPilotSelectedChannels] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem("velora-pilot-selected-channels") || "[]");
+      return Array.isArray(parsed)
+        ? LOCAL_PILOT_OTA_OPTIONS.map((item) => item.id).filter((id) => parsed.includes(id))
+        : [];
+    } catch {
+      return [];
+    }
+  });
   const [localPilotIntervention, setLocalPilotIntervention] = useState<null | {
     id?: string; type?: string; otaId?: string; label?: string; reason?: string; instructions?: string;
     propertyName?: string; city?: string; url?: string; stay?: { checkin?: string; checkout?: string; adults?: number };
@@ -5258,8 +5287,12 @@ export default function App() {
     }
   }
 
-  async function startLocalPilot(months: 1 | "all", channelIds?: string[]) {
+  async function startLocalPilot(months: LocalPilotPeriod, channelIds: string[]) {
     if (localPilotRunning) return;
+    if (!channelIds.length) {
+      setLocalPilotMessage("Seleziona almeno una OTA prima di avviare l'analisi.");
+      return;
+    }
     const token = await connectLocalAgent(false);
     if (!token) {
       setLocalPilotMessage("L'agente locale non e' attivo. Avvialo sul PC e riprova.");
@@ -5281,6 +5314,7 @@ export default function App() {
           channels: channelIds,
           ghost: localPilotGhost,
           assisted: localPilotAssisted,
+          pricingOnly: true,
           propertyData: {
             id: activeAuditData.id,
             name: activeAuditData.name,
@@ -5319,8 +5353,8 @@ export default function App() {
           : status.running
             ? `Elaborazione tariffe · ${elapsed} trascorsi. `
             : "";
-        const expectedChannels = Math.max(1, channelIds?.length || 10);
-        const expectedMonths = Math.max(1, status.result?.plan?.length || (months === 1 ? 1 : 1));
+        const expectedChannels = Math.max(1, channelIds.length);
+        const expectedMonths = Math.max(1, status.result?.plan?.length || (months === 12 ? 13 : months));
         const expectedChecks = expectedChannels * expectedMonths;
         if (status.intervention) {
           setLocalPilotProgress(Math.max(40, localPilotProgress));
