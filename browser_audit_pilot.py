@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v73"
+PILOT_BUILD = "velora-browser-pilot-v74"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1322,322 +1322,67 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """Ricerca mirata veloce: HTTP multi-engine prima, verifica browser solo sui candidati reali."""
+    """Discovery mirata rapida: trova un candidato pubblico e rimanda la verifica reale alla fase pricing."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
     address=str(data.get("address") or "")
-    phone=str(data.get("phone") or "")
-    normalized=_norm_name(name)
     location=address or city
     base_domain=meta["domains"][0]
-
-    variants=[]
     if name and location:
-        variants.append(f'site:{base_domain} "{name}" "{location}"')
-        variants.append(f"site:{base_domain} {name} {location}")
+        query=f'site:{base_domain} "{name}" "{location}"'
     elif name:
-        variants.append(f'site:{base_domain} "{name}"')
-        variants.append(f"site:{base_domain} {name}")
-    if normalized and location:
-        variants.append(f"site:{base_domain} {normalized} {location}")
-    elif normalized:
-        variants.append(f"site:{base_domain} {normalized}")
-    if phone:
-        variants.append(f'site:{base_domain} "{phone}"')
-
-    queries=[]
-    seen=set()
-    for query in variants:
-        query=" ".join(query.split())
-        if query.lower() not in seen:
-            seen.add(query.lower())
-            queries.append(query)
-
-    weak=[]
-    verify_page=await context.new_page()
-    try:
-        # La master search ha già usato Google nel browser. Qui non lo ripetiamo:
-        # proviamo massimo tre query mirate via HTTP e verifichiamo nel browser
-        # soltanto i veri candidati OTA.
-        for query in queries[:3]:
-            http_items,http_stats=await asyncio.to_thread(
-                _free_http_search_links,
-                query,
-                tuple(meta["domains"]),
-            )
-            ota_http_items=[
-                item for item in http_items
-                if _classify_ota_url(str(item.get("url") or ""))==ota_id
-            ]
-            ota_http_items.sort(
-                key=lambda item:_identity_match_score(
-                    name,city,address,
-                    str(item.get("text") or ""),
-                    str(item.get("context") or ""),
-                    str(item.get("url") or ""),
-                )[0],
-                reverse=True,
-            )
-
-            # Verifica al massimo tre candidati per query: oltre questa soglia
-            # il costo cresce molto senza migliorare la precisione.
-            for item in ota_http_items[:3]:
-                target=str(item.get("url") or "")
-                score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                    name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-                )
-                verify=await verify_ota_candidate_page(
-                    context,ota_id,target,name,city,address,robots,page=verify_page
-                )
-                if verify.get("ok"):
-                    return {
-                        "status":"found","url":verify.get("url") or target,
-                        "title":verify.get("title") or str(item.get("text") or ""),
-                        "score":verify.get("score",score),
-                        "evidence":(
-                            f"Ricerca mirata veloce {meta['label']} tramite {item.get('engine','HTTP search')}: «{query}». "
-                            f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
-                        )[:900],
-                        "searchUrl":"",
-                        "discoveryMode":"fast targeted HTTP + page verification",
-                        "verification":"page_identity_lock","identityVerified":True,
-                    }
-                weak.append((
-                    score,target,str(item.get("text") or ""),reasons,query,
-                    str(item.get("engine") or "HTTP search"),verify.get("evidence","")
-                ))
-
-            # Bing RSS è leggero: usalo solo se la query HTTP non ha prodotto
-            # alcun candidato specifico per questa OTA.
-            if ota_http_items:
-                continue
-            items=await asyncio.to_thread(_bing_rss_items,query)
-            ota_rss=[]
-            for item in items:
-                target=_decode_search_target(str(item.get("link") or ""))
-                if _classify_ota_url(target)==ota_id:
-                    ota_rss.append((item,target))
-            for item,target in ota_rss[:2]:
-                desc=re.sub(r"<[^>]+>"," ",str(item.get("description") or ""))
-                score,path_slug,text_score,url_score,reasons=_identity_match_score(
-                    name,city,address,str(item.get("title") or ""),desc,target
-                )
-                verify=await verify_ota_candidate_page(
-                    context,ota_id,target,name,city,address,robots,page=verify_page
-                )
-                if verify.get("ok"):
-                    return {
-                        "status":"found","url":verify.get("url") or target,
-                        "title":verify.get("title") or str(item.get("title") or ""),
-                        "score":verify.get("score",score),
-                        "evidence":(
-                            f"Ricerca mirata veloce {meta['label']} con Bing RSS: «{query}». "
-                            f"Pagina verificata con match {verify.get('score',0):.0%} ({verify.get('evidence','')})."
-                        )[:900],
-                        "searchUrl":"https://www.bing.com/search?"+urlencode({"q":query}),
-                        "discoveryMode":"fast targeted Bing RSS + page verification",
-                        "verification":"page_identity_lock","identityVerified":True,
-                    }
-                weak.append((score,target,str(item.get("title") or ""),reasons,query,"Bing RSS",verify.get("evidence","")))
-    finally:
-        try:
-            await verify_page.close()
-        except Exception:
-            pass
-
-    weak.sort(key=lambda row:row[0],reverse=True)
-    if weak:
-        score,url,title,reasons,query,engine,verify_evidence=weak[0]
+        query=f'site:{base_domain} "{name}"'
+    else:
         return {
-            "status":"not_verified_present","url":"","candidateUrl":normalize_ota_listing_url(ota_id,url),"title":title[:220],"score":round(score,3),
-            "presenceDetected":True,
-            "evidence":(
-                f"Ricerca mirata veloce {meta['label']} completata. Candidato da {engine}, "
-                f"query «{query}», match {score:.0%} ({reasons}), ma NON ha superato la verifica identità. "
-                f"{verify_evidence}. Nessun dato tariffario verrà letto da questa pagina."
-            )[:900],
-            "searchUrl":"",
-            "discoveryMode":"fast candidate rejected by identity lock",
-            "identityVerified":False,
+            "status":"not_verified_present","url":"","title":"","score":0.0,
+            "evidence":f"Ricerca mirata {meta['label']} saltata: nome struttura non disponibile.",
+            "searchUrl":"","discoveryMode":"fast discovery","identityVerified":False,
         }
-    return {
-        "status":"not_verified_present","url":"","title":"","score":0.0,
-        "evidence":(
-            f"Ricerca mirata veloce {meta['label']} completata su {min(len(queries),3)} varianti senza una scheda "
-            "attribuibile con certezza alla struttura. Questo non prova l'assenza dal portale."
-        ),
-        "searchUrl":"",
-        "discoveryMode":"fast no verified source found",
-        "identityVerified":False,
-    }
-
-
-def _openai_api_key() -> str:
-    return str(os.environ.get("VELORA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
-
-
-def _extract_response_output_text(payload: dict) -> str:
-    parts=[]
-    for item in payload.get("output") or []:
-        if not isinstance(item,dict) or item.get("type")!="message":
-            continue
-        for content in item.get("content") or []:
-            if isinstance(content,dict) and content.get("type")=="output_text":
-                parts.append(str(content.get("text") or ""))
-    return "\n".join(parts).strip()
-
-
-def _ai_discovery_schema() -> dict:
-    return {
-        "type":"object",
-        "properties":{
-            "property_match":{
-                "type":"object",
-                "properties":{
-                    "canonical_name":{"type":"string"},
-                    "city":{"type":"string"},
-                    "address":{"type":"string"},
-                    "summary":{"type":"string"},
-                },
-                "required":["canonical_name","city","address","summary"],
-                "additionalProperties":False,
-            },
-            "listings":{
-                "type":"array",
-                "items":{
-                    "type":"object",
-                    "properties":{
-                        "ota_id":{"type":"string","enum":list(OTA_DISCOVERY_ORDER)},
-                        "status":{"type":"string","enum":["found","not_found","uncertain"]},
-                        "url":{"type":"string"},
-                        "title":{"type":"string"},
-                        "confidence":{"type":"number","minimum":0,"maximum":1},
-                        "evidence":{"type":"string"},
-                    },
-                    "required":["ota_id","status","url","title","confidence","evidence"],
-                    "additionalProperties":False,
-                },
-            },
-        },
-        "required":["property_match","listings"],
-        "additionalProperties":False,
-    }
-
-
-def _run_ai_web_search(data: dict) -> dict:
-    """Fallback agentico: OpenAI web_search live. La chiave resta solo nell'ambiente locale."""
-    api_key=_openai_api_key()
-    if not api_key:
-        return {"status":"not_configured","discoveries":{},"evidence":"VELORA_OPENAI_API_KEY non configurata sul PC."}
-
-    sources=data.get("sources") or {}
-    official=((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or ""
-    identity={
-        "name":str(data.get("name") or ""),
-        "city":str(data.get("city") or ""),
-        "province":str(data.get("province") or ""),
-        "address":str(data.get("address") or ""),
-        "phone":str(data.get("phone") or ""),
-        "email":str(data.get("email") or ""),
-        "official_website":official,
-    }
-    prompt=(
-        "You are the web-discovery layer of Velora, a hospitality audit system. "
-        "Use live web search to identify the exact public OTA listing pages belonging to ONE lodging property. "
-        "The property name may contain typos or differ from OTA naming, so reason across name variants, physical address, city, "
-        "official website, phone, email, snippets, and other public corroborating signals. "
-        "Search broadly first, then use targeted searches for Booking.com, Airbnb, Expedia, Hotels.com, Vrbo, Agoda, Trip.com, Priceline, Travelocity, Tripadvisor, Trivago, Google Hotels and HolidayCheck. "
-        "Return FOUND only when the URL is a specific listing/profile page attributable to this exact property; never return a homepage, search page, "
-        "destination page or guessed URL. If evidence is insufficient, return uncertain/not_found instead of inventing. "
-        "Do not report Google Hotels as one of the OTA ids in the schema. "
-        "Property identity JSON: " + json.dumps(identity,ensure_ascii=False)
-    )
-    payload={
-        "model":str(os.environ.get("VELORA_OPENAI_MODEL") or "gpt-6-luna"),
-        "tools":[{"type":"web_search"}],
-        "tool_choice":"required",
-        "input":prompt,
-        "text":{
-            "format":{
-                "type":"json_schema",
-                "name":"velora_ota_discovery",
-                "strict":True,
-                "schema":_ai_discovery_schema(),
-            }
-        },
-        "max_output_tokens":3500,
-    }
     try:
-        response=requests.post(
-            "https://api.openai.com/v1/responses",
-            headers={
-                "Authorization":f"Bearer {api_key}",
-                "Content-Type":"application/json",
-            },
-            json=payload,
-            timeout=90,
+        http_items,_=await asyncio.wait_for(
+            asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
+            timeout=12,
         )
-        if response.status_code>=400:
-            detail=re.sub(r"\s+"," ",response.text or "")[:300]
-            return {"status":"api_error","discoveries":{},"evidence":f"OpenAI API HTTP {response.status_code}: {detail}"}
-        raw=response.json()
-        text=_extract_response_output_text(raw)
-        if not text:
-            return {"status":"empty_response","discoveries":{},"evidence":"OpenAI web search non ha restituito output strutturato."}
-        parsed=json.loads(text)
-        discoveries={}
-        for item in parsed.get("listings") or []:
-            ota_id=str(item.get("ota_id") or "")
-            status=str(item.get("status") or "")
-            url=str(item.get("url") or "").strip()
-            confidence=float(item.get("confidence") or 0)
-            classified=_classify_ota_url(url) if url else ""
-            if ota_id not in OTA_META:
-                continue
-            if status=="found" and url and classified==ota_id and confidence>=0.78:
-                discoveries[ota_id]={
-                    "status":"found",
-                    "url":url,
-                    "title":str(item.get("title") or "")[:220],
-                    "score":round(confidence,3),
-                    "evidence":(
-                        "Fallback AI web search: scheda individuata tramite ricerca web live e attribuita alla struttura. "
-                        + str(item.get("evidence") or "")
-                    )[:900],
-                    "searchUrl":"",
-                    "discoveryMode":"OpenAI web_search fallback",
-                    "verification":"web_search_evidence",
-                }
-            elif status in {"found","uncertain"} and url and classified==ota_id:
-                discoveries[ota_id]={
-                    "status":"needs_review",
-                    "url":url,
-                    "title":str(item.get("title") or "")[:220],
-                    "score":round(confidence,3),
-                    "evidence":(
-                        "Fallback AI web search: candidato trovato ma confidenza insufficiente per accettarlo automaticamente. "
-                        + str(item.get("evidence") or "")
-                    )[:900],
-                    "searchUrl":"",
-                    "discoveryMode":"OpenAI web_search fallback",
-                }
+    except asyncio.TimeoutError:
         return {
-            "status":"ok",
-            "discoveries":discoveries,
-            "propertyMatch":parsed.get("property_match") or {},
-            "evidence":f"OpenAI web search completata; {len(discoveries)} OTA candidate/risolte.",
+            "status":"not_verified_present","url":"","title":"","score":0.0,
+            "evidence":f"Ricerca mirata {meta['label']} fermata dopo 12 secondi; la scansione prosegue.",
+            "searchUrl":"","discoveryMode":"fast timeout","identityVerified":False,
         }
     except Exception as exc:
         return {
-            "status":"error","discoveries":{},
-            "evidence":f"OpenAI web search non completata: {type(exc).__name__}: {str(exc)[:220]}"
+            "status":"not_verified_present","url":"","title":"","score":0.0,
+            "evidence":f"Ricerca mirata {meta['label']} non completata: {type(exc).__name__}: {str(exc)[:160]}.",
+            "searchUrl":"","discoveryMode":"fast isolated error","identityVerified":False,
         }
-
-
-async def discover_otas_with_ai_web_search(data: dict) -> dict:
-    return await asyncio.to_thread(_run_ai_web_search,data)
-
+    candidates=[]
+    for item in http_items:
+        target=str(item.get("url") or "")
+        if _classify_ota_url(target)!=ota_id:
+            continue
+        score,path_slug,text_score,url_score,reasons=_identity_match_score(
+            name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+        )
+        candidates.append((score,target,str(item.get("text") or ""),reasons,str(item.get("engine") or "HTTP search")))
+    candidates.sort(key=lambda row:row[0],reverse=True)
+    if candidates:
+        score,target,title,reasons,engine=candidates[0]
+        return {
+            "status":"not_verified_present","url":"",
+            "candidateUrl":normalize_ota_listing_url(ota_id,target),
+            "title":title[:220],"score":round(score,3),"presenceDetected":True,
+            "evidence":(
+                f"Ricerca mirata rapida {meta['label']} tramite {engine}: candidato pubblico trovato "
+                f"con match {score:.0%} ({reasons}). Identità e tariffe saranno verificate nella fase pricing."
+            )[:900],
+            "searchUrl":"","discoveryMode":"fast candidate deferred to pricing","identityVerified":False,
+        }
+    return {
+        "status":"not_verified_present","url":"","title":"","score":0.0,
+        "evidence":f"Ricerca mirata rapida {meta['label']} completata senza candidato specifico. La scansione prosegue.",
+        "searchUrl":"","discoveryMode":"fast no candidate","identityVerified":False,
+    }
 
 async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
     """Pipeline discovery con avanzamento progressivo e senza falsi '0 controlli'."""
@@ -1673,13 +1418,13 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
             try:
                 targeted=await asyncio.wait_for(
                     discover_single_ota_targeted(context,ota_id,data,robots),
-                    timeout=25,
+                    timeout=15,
                 )
             except asyncio.TimeoutError:
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 25 secondi. "
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 15 secondi. "
                         "La scansione prosegue sulle altre OTA senza bloccare l'audit."
                     ),
                     "searchUrl":"",
@@ -9073,10 +8818,13 @@ async def run(args: argparse.Namespace) -> dict:
                     "total":len(OTA_DISCOVERY_ORDER),
                     "otaId":"",
                     "label":"Ricerca master OTA",
+                    "updatedAt":datetime.now(timezone.utc).isoformat(),
                 }
                 write_result(output,result)
 
                 async def save_discovery_progress(progress,partial,diag):
+                    progress=dict(progress)
+                    progress["updatedAt"]=datetime.now(timezone.utc).isoformat()
                     result["discoveryProgress"]=progress
                     result["masterSearch"]=diag
                     for partial_id,partial_value in partial.items():
