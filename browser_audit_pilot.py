@@ -9852,7 +9852,7 @@ async def run(args: argparse.Namespace) -> dict:
             result["masterSearch"]=master_diag
 
             unresolved=[
-                ota_id for ota_id in OTA_DISCOVERY_ORDER
+                ota_id for ota_id in selected_discovery_ids
                 if (master_discoveries.get(ota_id) or {}).get("status")!="found"
                 and not ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
             ]
@@ -9941,7 +9941,7 @@ async def run(args: argparse.Namespace) -> dict:
                     raise
 
             unverified_source_ids=set()
-            for ota_id in OTA_DISCOVERY_ORDER:
+            for ota_id in selected_discovery_ids:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                 if existing_url:
                     try:
