@@ -3162,6 +3162,105 @@ async def expedia_group_quote_candidates(page, stay: dict, channel: str) -> list
 
 
 
+async def expedia_group_semantic_quote_candidates(page, stay: dict, channel: str) -> list[dict]:
+    """Fallback frontend: conserva prezzi con durata esplicita anche se il markup OTA cambia."""
+    rows=await page.evaluate(r"""(nights) => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el) return false;
+        const st=getComputedStyle(el);
+        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+        const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+      };
+      const duration=new RegExp('(?:per|for)\\s*'+nights+'\\s*(?:notti|nights?)','i');
+      const nightly=/(a notte|per notte|per night|\/night)/i;
+      const euro=/(€|eur)\s*[0-9]|[0-9][0-9.,\s]*\s*(€|eur)/i;
+      const out=[]; const seen=new Set();
+      for(const node of Array.from(document.querySelectorAll('article,li,section,div')).filter(visible)){
+        const text=clean(node.innerText||node.textContent);
+        if(text.length<35||text.length>2800||!euro.test(text)) continue;
+        if(!duration.test(text) && !nightly.test(text)) continue;
+        let room='';
+        for(const sel of ['[data-stid*="room-name"]','[data-testid*="room-name"]','h2','h3','h4']){
+          const v=clean(node.querySelector(sel)?.textContent);
+          if(v && v.length<260){room=v;break}
+        }
+        const key=(room+'|'+text).toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key); out.push({room,text});
+      }
+      out.sort((a,b)=>a.text.length-b.text.length);
+      return out.slice(0,60);
+    }""",int(stay["nights"]))
+
+    total_rx=re.compile(
+        r'(?:(?:€|EUR)\s*[0-9]{1,6}(?:[.,][0-9]{1,2})?|[0-9]{1,6}(?:[.,][0-9]{1,2})?\s*(?:€|EUR))'
+        r'\s*(?:per|for)\s*'+re.escape(str(stay["nights"]))+r'\s*(?:notti|nights?)',
+        re.I,
+    )
+    nightly_rx=re.compile(
+        r'(?:(?:€|EUR)\s*[0-9]{1,6}(?:[.,][0-9]{1,2})?|[0-9]{1,6}(?:[.,][0-9]{1,2})?\s*(?:€|EUR))'
+        r'\s*(?:a notte|per notte|per night|/night)',
+        re.I,
+    )
+    try:
+        property_title=(await page.locator("h1").first.inner_text(timeout=700)).strip()
+    except Exception:
+        property_title=OTA_META[channel]["label"]+" · unità disponibile"
+
+    out=[]
+    for row in rows:
+        text=str(row.get("text") or "").strip()
+        room=str(row.get("room") or "").strip()
+        if not text:
+            continue
+        total_match=total_rx.search(text)
+        nightly_match=nightly_rx.search(text)
+        basis=""
+        amount=None
+        if total_match:
+            amount=_money_value(total_match.group(0))
+            basis="stay-total"
+        elif nightly_match:
+            amount=_money_value(nightly_match.group(0))
+            basis="nightly"
+        if amount is None or amount<=0:
+            continue
+        fields=_price_fields(float(amount),basis,stay)
+        low=text.lower()
+        board="Colazione inclusa" if any(t in low for t in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
+        refund=(
+            "Cancellazione gratuita" if any(t in low for t in ("cancellazione gratuita","free cancellation","fully refundable"))
+            else "Non rimborsabile" if any(t in low for t in ("non rimborsabile","non-refundable","non refundable"))
+            else "Cancellazione da verificare"
+        )
+        room_known=bool(room and re.search(
+            r'\b(room|camera|suite|apartment|appartamento|studio|double|twin|family|familiare|king|queen|deluxe|superior|casa|attico|villa)\b',
+            room,re.I
+        ))
+        out.append({
+            "roomType":(room if room_known else property_title+" · tipologia da verificare")[:240],
+            "ratePlan":refund if refund!="Cancellazione da verificare" else "Piano tariffario da verificare",
+            **fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":board,"refund":refund,"audience":"Pubblico senza login",
+            "taxes":"Da verificare nel dettaglio del preventivo",
+            "verified":bool(room_known),
+            "evidence":(
+                f"{OTA_META[channel]['label']} frontend: prezzo e durata espliciti nel medesimo blocco. "
+                + text[:900]
+            )[:1100],
+        })
+
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["total"])
+        if key in seen:
+            continue
+        seen.add(key); unique.append(item)
+    return unique[:30]
+
+
 def trip_url_dates_confirmed(url: str, stay: dict) -> bool:
     try:
         query={str(key).lower():str(value) for key,value in parse_qsl(urlparse(url).query,keep_blank_values=True)}
@@ -7262,21 +7361,23 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    fallback=await generic_ota_quote_candidates(page,stay)
+                    semantic=await expedia_group_semantic_quote_candidates(page,stay,channel)
+                    fallback=semantic or await generic_ota_quote_candidates(page,stay)
                     record["quotes"]=fallback
+                    verified_semantic=[item for item in fallback if item.get("verified")]
                     if fallback:
                         record.update(
-                            status="quote_candidates_unverified",
+                            status="quote_candidates" if verified_semantic else "quote_candidates_unverified",
                             evidence=(
-                                f"Date {OTA_META[channel]['label']} confermate. Il parser delle card non ha chiuso il match "
-                                f"camera/prezzo, ma sono stati isolati {len(fallback)} importi EUR nel contesto tariffario. "
-                                "Restano osservazioni non validate e non entrano nel delta."
+                                f"Date {OTA_META[channel]['label']} confermate. Il parser strutturato non ha chiuso il match, "
+                                f"ma il frontend mostra {len(fallback)} prezzo/i con durata esplicita. "
+                                + ("Camera e prezzo sono associati nello stesso blocco." if verified_semantic else "La tipologia camera resta da verificare: il prezzo viene mostrato ma non entra nel delta.")
                             )[:900],
                         )
                     else:
                         record.update(
                             status="needs_human_review",
-                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
+                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun prezzo con durata esplicita è stato isolato nel frontend."
                         )
             elif channel == "trip":
                 candidates=await trip_quote_candidates(page,stay)
