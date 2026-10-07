@@ -7752,22 +7752,115 @@ export default function App() {
                 <button type="button" onClick={() => void respondLocalPilotIntervention("skip")} className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-xs font-black text-amber-950">Salta questa OTA</button>
               </div>
             </div>}
-            {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!localPilotToken ? <div className="mt-4 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
-            </div> : <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot(1)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Prova un mese · discovery completa</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["booking"])} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-900 disabled:opacity-50">Booking · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["agoda"])} className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-xs font-black text-sky-900 disabled:opacity-50">Agoda · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["airbnb"])} className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-black text-rose-900 disabled:opacity-50">Airbnb · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["vrbo"])} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-black text-blue-900 disabled:opacity-50">Vrbo · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["expedia"])} className="rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2 text-xs font-black text-yellow-900 disabled:opacity-50">Expedia · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["holidu"])} className="rounded-xl border border-teal-300 bg-teal-50 px-4 py-2 text-xs font-black text-teal-900 disabled:opacity-50">Holidu · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["hotels"])} className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-black text-orange-900 disabled:opacity-50">Hotels.com · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["travelocity"])} className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-black text-cyan-900 disabled:opacity-50">Travelocity · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["trip"])} className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-xs font-black text-violet-900 disabled:opacity-50">Trip.com · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["priceline"])} className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-xs font-black text-indigo-900 disabled:opacity-50">Priceline · verifica tutti i mesi</button>
-              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all")} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A] disabled:opacity-50">Tutte le OTA · discovery + prezzi futuri</button>
+            </div> : <div className="mt-4 rounded-2xl border border-[#E5DDF1] bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wide text-[#23124A]">Configura test OTA</p>
+                  <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Scegli periodo e canali. Bianco = escluso; colorato = selezionato. Velora analizzerà soltanto le OTA che scegli.</p>
+                </div>
+                <div className="rounded-xl bg-[#F6F2FA] px-3 py-2 text-[10px] font-black text-[#23124A]">
+                  {localPilotSelectedChannels.length}/10 OTA · {localPilotPeriod === 12 ? "12 mesi avanti" : `${localPilotPeriod} ${localPilotPeriod === 1 ? "mese" : "mesi"}`}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-[#50627F]">Periodo</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { value: 1 as LocalPilotPeriod, label: "1 mese", detail: "mese corrente" },
+                    { value: 6 as LocalPilotPeriod, label: "6 mesi", detail: "mese corrente + 5" },
+                    { value: 12 as LocalPilotPeriod, label: "12 mesi", detail: "fino allo stesso mese dell’anno prossimo" },
+                  ]).map((option) => {
+                    const selected = localPilotPeriod === option.value;
+                    return <button
+                      key={option.value}
+                      type="button"
+                      disabled={localPilotRunning}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setLocalPilotPeriod(option.value);
+                        window.localStorage.setItem("velora-pilot-period", String(option.value));
+                      }}
+                      className={`rounded-xl border px-4 py-2 text-left text-xs font-black transition disabled:opacity-50 ${selected ? "border-[#23124A] bg-[#23124A] text-white shadow-sm" : "border-[#D8CEE7] bg-white text-[#50627F] hover:border-[#8F79AE] hover:bg-[#F8F5FB]"}`}
+                    >
+                      <span className="block">{option.label}</span>
+                      <span className={`block text-[9px] font-semibold ${selected ? "text-white/75" : "text-[#7A6A91]"}`}>{option.detail}</span>
+                    </button>;
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-[#50627F]">OTA da analizzare</p>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      disabled={localPilotRunning}
+                      onClick={() => {
+                        const all = LOCAL_PILOT_OTA_OPTIONS.map((item) => item.id);
+                        setLocalPilotSelectedChannels([...all]);
+                        window.localStorage.setItem("velora-pilot-selected-channels", JSON.stringify(all));
+                      }}
+                      className="text-[10px] font-black text-[#23124A] underline decoration-[#C8A96B] underline-offset-2 disabled:opacity-50"
+                    >Seleziona tutte</button>
+                    <button
+                      type="button"
+                      disabled={localPilotRunning}
+                      onClick={() => {
+                        setLocalPilotSelectedChannels([]);
+                        window.localStorage.setItem("velora-pilot-selected-channels", "[]");
+                      }}
+                      className="text-[10px] font-black text-[#50627F] underline decoration-[#D8CEE7] underline-offset-2 disabled:opacity-50"
+                    >Deseleziona tutte</button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {LOCAL_PILOT_OTA_OPTIONS.map((ota) => {
+                    const selected = localPilotSelectedChannels.includes(ota.id);
+                    return <button
+                      key={ota.id}
+                      type="button"
+                      disabled={localPilotRunning}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        const next = selected
+                          ? localPilotSelectedChannels.filter((id) => id !== ota.id)
+                          : [...localPilotSelectedChannels, ota.id];
+                        const ordered = LOCAL_PILOT_OTA_OPTIONS.map((item) => item.id).filter((id) => next.includes(id));
+                        setLocalPilotSelectedChannels(ordered);
+                        window.localStorage.setItem("velora-pilot-selected-channels", JSON.stringify(ordered));
+                      }}
+                      className={`rounded-xl border px-4 py-2 text-xs font-black transition disabled:opacity-50 ${selected ? ota.active : ota.idle}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span className={`flex h-4 w-4 items-center justify-center rounded-full border text-[9px] ${selected ? "border-current bg-white/70" : "border-current/40 bg-white"}`}>{selected ? "✓" : ""}</span>
+                        {ota.label}
+                      </span>
+                    </button>;
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#EEE8F4] pt-4">
+                <div className="text-[10px] leading-4 text-[#50627F]">
+                  <b className="text-[#23124A]">Selezione:</b> {localPilotSelectedChannels.length
+                    ? LOCAL_PILOT_OTA_OPTIONS.filter((ota) => localPilotSelectedChannels.includes(ota.id)).map((ota) => ota.label).join(" · ")
+                    : "nessuna OTA selezionata"}
+                </div>
+                <button
+                  type="button"
+                  disabled={localPilotRunning || localPilotSelectedChannels.length === 0}
+                  onClick={() => void startLocalPilot(localPilotPeriod, localPilotSelectedChannels)}
+                  className="rounded-xl bg-[#23124A] px-5 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-[#33205B] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {localPilotRunning ? "Analisi in corso…" : "Avvia analisi selezionata"}
+                </button>
+              </div>
             </div>}
             {localPilotMessage && <p className="mt-2 text-[11px] font-semibold text-[#23124A]" role="status">{localPilotMessage}</p>}
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
