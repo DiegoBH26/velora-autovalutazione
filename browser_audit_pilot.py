@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v74"
+PILOT_BUILD = "velora-browser-pilot-v75"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -110,7 +110,7 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
     elif channel in {"expedia", "hotels", "travelocity"}:
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2", currency="EUR")
     elif channel == "vrbo":
-        query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2", currency="EUR")
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], d1=stay["checkin"], d2=stay["checkout"], startDate=stay["checkin"], endDate=stay["checkout"], adults="2", currency="EUR")
     elif channel == "holidu":
         query.update(checkin=stay["checkin"], checkout=stay["checkout"], adults="2", currency="EUR")
     elif channel == "agoda":
@@ -796,6 +796,33 @@ def _classify_ota_url(url: str) -> str:
     return ""
 
 
+def _plausible_ota_listing_url(ota_id: str, url: str) -> bool:
+    """Scarta pagine generiche/search/partner prima che diventino sorgenti tariffarie."""
+    if _classify_ota_url(url) != ota_id:
+        return False
+    try:
+        path=(urlparse(url).path or "").lower()
+    except Exception:
+        return False
+    if ota_id=="airbnb":
+        return bool(re.search(r"/rooms/\\d+",path))
+    if ota_id in {"expedia","travelocity"}:
+        return bool(re.search(r"\\.h\\d+\\.",path) or "hotel-information" in path or "informazioni-hotel" in path) and not any(token in path for token in ("travel-guide","hotel-search","top-10","/search"))
+    if ota_id=="hotels":
+        return bool(re.search(r"/ho\\d+",path) or "hotel-information" in path or "informazioni-hotel" in path)
+    if ota_id=="vrbo":
+        return bool("/pdp/" in path or re.search(r"/\\d+(?:ha|vb|vr)?/?$",path) or "/vacation-rental/" in path or "/holiday-rental/" in path)
+    if ota_id=="holidu":
+        return bool(re.search(r"/d/\\d+",path))
+    if ota_id=="agoda":
+        return "/hotel/" in path and not any(token in path for token in ("/partners/","partnersearch","/search"))
+    if ota_id=="trip":
+        return bool("hotel-detail" in path or re.search(r"/hotels?/",path)) and not any(token in path for token in ("/hot/","top-10","ranking"))
+    if ota_id=="priceline":
+        return "/relax/" in path or "hotel-deals" in path
+    return True
+
+
 def normalize_ota_listing_url(ota_id: str, url: str) -> str:
     """Normalizza una scheda OTA senza cambiare la struttura identificata."""
     try:
@@ -1359,7 +1386,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     candidates=[]
     for item in http_items:
         target=str(item.get("url") or "")
-        if _classify_ota_url(target)!=ota_id:
+        if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
             continue
         score,path_slug,text_score,url_score,reasons=_identity_match_score(
             name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
@@ -3699,6 +3726,7 @@ async def apply_metasearch_assist(
     result: dict,
     sources: dict,
     robots: dict,
+    unverified_source_ids: set[str] | None = None,
 ) -> list[dict]:
     """Usa link commerciali dei metasearch come scorciatoie, ma sempre con identity lock."""
     candidates=[]
@@ -3723,7 +3751,7 @@ async def apply_metasearch_assist(
     accepted=[]
     for candidate in candidates[:40]:
         ota_id=candidate["otaId"]
-        if (sources.get(ota_id) or {}).get("url"):
+        if (sources.get(ota_id) or {}).get("url") and ota_id not in (unverified_source_ids or set()):
             continue
         verification=await verify_ota_candidate_page(
             context,
@@ -3738,6 +3766,8 @@ async def apply_metasearch_assist(
             continue
         final_url=verification.get("url") or candidate["url"]
         sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":final_url}
+        if unverified_source_ids is not None:
+            unverified_source_ids.discard(ota_id)
         result.setdefault("discoveredSources",{})[ota_id]={
             "status":"found",
             "url":final_url,
@@ -9043,7 +9073,7 @@ async def run(args: argparse.Namespace) -> dict:
                             discovery.get("url") if discovery.get("presenceDetected") else ""
                         ),
                     )
-                    if candidate_url and _classify_ota_url(candidate_url)==ota_id:
+                    if candidate_url and _classify_ota_url(candidate_url)==ota_id and _plausible_ota_listing_url(ota_id,candidate_url):
                         sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":candidate_url}
                         unverified_source_ids.add(ota_id)
                         discovery["presenceDetected"]=True
@@ -9083,7 +9113,7 @@ async def run(args: argparse.Namespace) -> dict:
 
             await ensure_pricing_context("prima del metasearch assist")
             metasearch_assist=await apply_metasearch_assist(
-                context,data,result,sources,robots
+                context,data,result,sources,robots,unverified_source_ids
             )
             result["metasearchAssist"]=metasearch_assist
             if metasearch_assist:
