@@ -30,16 +30,17 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v71"
+PILOT_BUILD = "velora-browser-pilot-v72"
 SCHEMA = "velora-browser-audit-pilot-v1"
-CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
-OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
+CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
+OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_META = {
     "booking": {"label": "Booking.com", "domains": ("booking.com",)},
     "airbnb": {"label": "Airbnb", "domains": ("airbnb.com", "airbnb.it")},
     "expedia": {"label": "Expedia", "domains": ("expedia.com", "expedia.it")},
     "hotels": {"label": "Hotels.com", "domains": ("hotels.com",)},
     "vrbo": {"label": "Vrbo", "domains": ("vrbo.com", "vrbo.it")},
+    "holidu": {"label": "Holidu", "domains": ("holidu.com", "holidu.it")},
     "agoda": {"label": "Agoda", "domains": ("agoda.com",)},
     "trip": {"label": "Trip.com", "domains": ("trip.com",)},
     "priceline": {"label": "Priceline", "domains": ("priceline.com",)},
@@ -51,7 +52,7 @@ OTA_META = {
 }
 DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels"}
 PROFILE_AUDIT_CHANNELS = ("tripadvisor", "trivago", "googlehotels", "holidaycheck")
-FRONTEND_FIRST_CHANNELS = {"airbnb","vrbo"}
+FRONTEND_FIRST_CHANNELS = {"airbnb","vrbo","holidu"}
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -110,6 +111,8 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2", currency="EUR")
     elif channel == "vrbo":
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], adults="2", currency="EUR")
+    elif channel == "holidu":
+        query.update(checkin=stay["checkin"], checkout=stay["checkout"], adults="2", currency="EUR")
     elif channel == "agoda":
         query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0", currency="EUR")
     elif channel == "trip":
@@ -779,6 +782,8 @@ def _classify_ota_url(url: str) -> str:
                 return ""
             if ota_id=="airbnb" and not any(token in path for token in ("/rooms/","/hotel/")):
                 return ""
+            if ota_id=="holidu" and "/d/" not in path:
+                return ""
             if ota_id in {"expedia","hotels","travelocity"} and any(token in path.lower() for token in ("/hotel-search","/search")):
                 return ""
             if ota_id=="priceline" and any(token in path.lower() for token in ("/search","/hotels/")) and "/relax/" not in path:
@@ -806,6 +811,8 @@ def normalize_ota_listing_url(ota_id: str, url: str) -> str:
                 fragment="",
             ))
         if ota_id=="vrbo" and "/pdp/" in path.lower():
+            return urlunparse(parsed._replace(query="",fragment=""))
+        if ota_id=="holidu" and "/d/" in path.lower():
             return urlunparse(parsed._replace(query="",fragment=""))
         tracking_prefixes=("utm_","referrer","source_","semcid","siteid","gclid","fbclid","rfrr","pwa_","_x_")
         clean_query={
@@ -2633,6 +2640,11 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
             'button[data-stid*="open-date-picker"]','button[aria-label*="date" i]',
             '[data-stid*="date"]','button:has-text("Date")','button:has-text("Check-in")',
         ),
+        "holidu":(
+            'button:has-text("Select dates")','button:has-text("Choose dates")',
+            'button:has-text("Date")','[data-testid*="date" i]',
+            'button[aria-label*="check-in" i]','input[placeholder*="check-in" i]',
+        ),
         "agoda":(
             '[data-selenium="checkInText"]','[data-element-name*="check-in" i]',
             '[data-element-name*="checkin" i]','button[aria-label*="check-in" i]',
@@ -2826,6 +2838,9 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
     elif channel=="vrbo":
         confirmed=vrbo_url_dates_confirmed(page.url,stay)
         confirm_evidence="date URL Vrbo" if confirmed else ""
+    elif channel=="holidu":
+        confirmed=holidu_url_dates_confirmed(page.url,stay)
+        confirm_evidence="date URL Holidu" if confirmed else ""
     elif channel in {"expedia","hotels","travelocity"}:
         confirmed=expedia_group_url_dates_confirmed(page.url,stay)
         confirm_evidence="date URL Expedia-group" if confirmed else ""
@@ -2991,6 +3006,112 @@ async def vrbo_quote_candidates(page, stay: dict) -> list[dict]:
         seen.add(key); unique.append(item)
     return unique[:24]
 
+
+
+def holidu_url_dates_confirmed(url: str, stay: dict) -> bool:
+    try:
+        query={str(k).lower():str(v) for k,v in parse_qsl(urlparse(url).query,keep_blank_values=True)}
+    except Exception:
+        return False
+    return (
+        (query.get("checkin") or query.get("check_in") or "")==stay["checkin"]
+        and (query.get("checkout") or query.get("check_out") or "")==stay["checkout"]
+    )
+
+
+async def holidu_reveal_rates(page, source: str, stay: dict) -> str:
+    clean=normalize_ota_listing_url("holidu",source)
+    source_path=(urlparse(clean).path or "").rstrip("/")
+    match=re.search(r"/d/(\d+)",source_path,re.I)
+    offer_id=match.group(1) if match else ""
+    evidence=[]
+    current_path=(urlparse(page.url).path or "").rstrip("/")
+    if offer_id and "/d/" not in current_path.lower():
+        try:
+            link=page.locator(f'a[href*="/d/{offer_id}"]').first
+            if await link.count() and await link.is_visible(timeout=700):
+                await link.click(timeout=2200)
+                await page.wait_for_timeout(1500)
+                await dismiss_cookie(page)
+                evidence.append("stessa proprietà riaperta dai risultati Holidu")
+        except Exception as exc:
+            evidence.append(f"rientro proprietà Holidu: {type(exc).__name__}")
+    try:
+        reserve,_=await _first_visible_locator(page,(
+            'button:has-text("Reserve")','button:has-text("Prenota")',
+            'button:has-text("Book")','button:has-text("Select dates")',
+        ))
+        if reserve is not None:
+            await reserve.scroll_into_view_if_needed(timeout=1200)
+        await page.wait_for_timeout(900)
+        body=(await page.locator("body").inner_text(timeout=5000))[:18000]
+        if "total price" in body.lower() or re.search(r'€\s*\d+[.,]?\d*\s*[x×]\s*\d+\s*nights?',body,re.I):
+            evidence.append("riepilogo Holidu con totale soggiorno renderizzato")
+    except Exception:
+        pass
+    return " · ".join(evidence)[:900] or "Holidu: riepilogo tariffario non individuato"
+
+
+async def holidu_quote_candidates(page, stay: dict) -> list[dict]:
+    payload=await page.evaluate(r"""() => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el) return false; const st=getComputedStyle(el);
+        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+        const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+      };
+      const title=clean(document.querySelector('h1')?.textContent).slice(0,260);
+      const buttons=Array.from(document.querySelectorAll('button')).filter(visible);
+      const reserve=buttons.find(el=>/^(reserve|prenota|book)$/i.test(clean(el.textContent)));
+      let root=reserve?.closest('aside,section,article,div') || null;
+      if(reserve){
+        let n=reserve.parentElement;
+        while(n&&n!==document.body){
+          const t=clean(n.innerText||n.textContent);
+          if(t.length>50&&t.length<3200&&/(total price|€|eur)/i.test(t)){root=n;break}
+          n=n.parentElement;
+        }
+      }
+      if(!root){
+        root=Array.from(document.querySelectorAll('aside,section,article,div')).find(el=>{
+          if(!visible(el)) return false;
+          const t=clean(el.innerText||el.textContent);
+          return t.length>50&&t.length<3200&&/(total price)/i.test(t)&&/(€|eur)/i.test(t);
+        })||null;
+      }
+      return {title,text:clean(root?.innerText||root?.textContent).slice(0,3200)};
+    }""")
+    title=str(payload.get("title") or "").strip() or "Alloggio Holidu"
+    text=str(payload.get("text") or "").strip()
+    if not text:
+        return []
+    low=text.lower()
+    values=[_money_value(match.group(0)) for match in PRICE_RE.finditer(text)]
+    values=[v for v in values if v is not None]
+    if not values:
+        return []
+    total=values[-1] if ("total price" in low or re.search(r'\b(total|totale)\b',low)) else None
+    if total is None:
+        return []
+    fields=_price_fields(float(total),"stay-total",stay)
+    refund=(
+        "Cancellazione gratuita" if "free cancellation" in low or "cancellazione gratuita" in low
+        else "Non rimborsabile" if "non-refundable" in low or "non rimborsabile" in low
+        else "Cancellazione da verificare"
+    )
+    return [{
+        "roomType":title[:240],
+        "ratePlan":refund if refund!="Cancellazione da verificare" else "Piano tariffario da verificare",
+        **fields,
+        "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+        "board":"Trattamento da verificare","refund":refund,
+        "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
+        "verified":True,
+        "evidence":(
+            f"Holidu frontend: date {stay['checkin']}→{stay['checkout']}, {stay['adults']} adulti; "
+            f"totale soggiorno esplicito €{float(total):.2f}. Contesto: {text[:760]}"
+        )[:1100],
+    }]
 
 def expedia_group_url_dates_confirmed(url: str, stay: dict) -> bool:
     try:
@@ -6972,6 +7093,10 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         "URL finale Vrbo mantiene check-in/check-out richiesti; "
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
                     )
+            if channel == "holidu" and not confirmed and holidu_url_dates_confirmed(page.url, stay):
+                confirmed=True
+                mode="holidu-final-url"
+                dom_excerpt="URL finale Holidu mantiene check-in/check-out richiesti."
             if channel in {"expedia","hotels","travelocity"} and not confirmed and expedia_group_url_dates_confirmed(page.url, stay):
                 property_context, context_evidence = await expedia_group_property_rate_context(page,channel)
                 if property_context:
@@ -7029,7 +7154,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="priceline-ui-date-picker"
-        elif channel in {"vrbo","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
+        elif channel in {"vrbo","holidu","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
             applied, ui_date_evidence = await generic_ota_frontend_apply_dates(page,channel,stay)
             if applied:
                 record["finalUrl"] = page.url
@@ -7067,6 +7192,12 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
             if channel=="vrbo" and vrbo_reveal_evidence:
                 date_dom_excerpt=(str(date_dom_excerpt or "")+" | "+vrbo_reveal_evidence)[:800]
+        elif channel == "holidu" and dates_confirmed:
+            holidu_evidence=await holidu_reveal_rates(page,source,stay)
+            await page.wait_for_timeout(900)
+            record["finalUrl"]=page.url
+            record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+            date_dom_excerpt=(str(date_dom_excerpt or "")+" | "+holidu_evidence)[:800]
         elif channel in {"expedia","hotels","travelocity"} and dates_confirmed:
             reveal_evidence=await expedia_group_reveal_rates(page,channel)
             try:
@@ -7307,6 +7438,25 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                             status="needs_human_review",
                             evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
                         )
+            elif channel == "holidu":
+                candidates=await holidu_quote_candidates(page,stay)
+                record["quotes"]=candidates
+                if candidates:
+                    first=candidates[0]
+                    record.update(
+                        status="quote_candidates",
+                        evidence=(
+                            f"Date Holidu confermate ({date_confirmation_mode or 'pagina renderizzata'}). "
+                            f"Rilevata tariffa frontend per {first['roomType']} · €{first['total']:.2f} per {stay['nights']} notti."
+                        )[:900],
+                    )
+                else:
+                    fallback=await generic_ota_quote_candidates(page,stay)
+                    record["quotes"]=fallback
+                    record.update(
+                        status="quote_candidates_unverified" if fallback else "needs_human_review",
+                        evidence=(f"Date Holidu confermate. Rilevati {len(fallback)} prezzi visibili da verificare." if fallback else "Date Holidu confermate, ma nessun riepilogo prezzo attribuibile automaticamente.")[:900],
+                    )
             elif channel in {"expedia","hotels","travelocity"}:
                 candidates=await expedia_group_quote_candidates(page,stay,channel)
                 record["quotes"]=candidates
