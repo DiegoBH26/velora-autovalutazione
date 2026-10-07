@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v84"
+PILOT_BUILD = "velora-browser-pilot-v85"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3042,14 +3042,513 @@ async def frontend_discover_ota_source(
 
 
 def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
-    """Pricing pubblico: entra nella scheda pulita e usa il frontend per date/ospiti.
-    Booking resta sull'adapter già stabile; tutte le altre OTA tariffarie NON ricevono
-    deep-link datati costruiti da Velora.
-    """
+    """Pricing pubblico: usa il frontend reale, senza deep-link artificiali."""
     clean=normalize_ota_listing_url(channel,source)
+    if channel=="agoda":
+        # Agoda viene interrogata come farebbe un utente: homepage -> ricerca struttura
+        # -> date/ospiti -> Cerca -> card struttura -> pagina camere/tariffe.
+        return "https://www.agoda.com/it-it/"
     if channel in PUBLIC_FRONTEND_PRICING_CHANNELS:
         return clean
     return dated_url(channel,clean,stay)
+
+
+def _agoda_search_term(property_name: str, source: str) -> str:
+    """Riduce il nome alla parte distintiva usata nella ricerca Agoda."""
+    raw=str(property_name or "").strip()
+    if not raw:
+        slug=(urlparse(source).path or "").split("/hotel/")[0].strip("/").split("/")[-1]
+        raw=re.sub(r"^\d+[-_ ]*","",slug.replace("-"," ").replace("_"," "))
+    tokens=[]
+    for token in re.findall(r"[A-Za-zÀ-ÿ0-9&']+",raw):
+        low=token.lower()
+        if low in IDENTITY_GENERIC_NAME_WORDS or low in {
+            "by","barbarhouse","camera","matrimoniale","familiare","standard","accessibile",
+            "premium","deluxe","superior","vista","mare"
+        }:
+            continue
+        if token.isdigit():
+            continue
+        tokens.append(token)
+    return " ".join(tokens[:5]).strip() or raw[:80]
+
+
+async def agoda_prepare_frontend(
+    page, source: str, stay: dict, property_name: str="", city: str=""
+) -> tuple[bool,str]:
+    """Replica il flusso Agoda pubblico mostrato da un utente reale.
+
+    Homepage -> nome struttura -> suggerimento struttura (non singola unità) ->
+    date -> 2 adulti -> Cerca -> card struttura -> pagina hotel -> Vedi offerta/camere.
+    """
+    evidence=[]
+    target_name=_agoda_search_term(property_name,source)
+    target_city=str(city or "").strip()
+
+    try:
+        await dismiss_cookie(page)
+    except Exception:
+        pass
+
+    destination,_=await _first_visible_locator(page,(
+        'input[placeholder*="Inserisci una destinazione" i]',
+        'input[placeholder*="destinazione" i]',
+        'input[placeholder*="destination" i]',
+        'input[data-selenium*="search" i]',
+        '[data-selenium="textInput"] input',
+        '[data-selenium="textInput"]',
+        '[data-selenium*="searchTextBox" i]',
+        '[data-element-name*="search" i] input',
+        'input[aria-label*="destinazione" i]',
+        'input[aria-label*="destination" i]',
+    ))
+    if destination is None:
+        return False,"Agoda: campo destinazione/struttura non individuato nella homepage"
+
+    try:
+        await destination.click(timeout=1800)
+        try:
+            await destination.fill(target_name,timeout=2200)
+        except Exception:
+            await page.keyboard.press("Control+A")
+            await page.keyboard.type(target_name,delay=35)
+        await page.wait_for_timeout(1100)
+        evidence.append(f"ricerca struttura «{target_name}»")
+    except Exception as exc:
+        return False,f"Agoda: impossibile compilare la ricerca struttura ({type(exc).__name__})"
+
+    # Preferisce la struttura principale: penalizza risultati numerati/unità Barbarhouse.
+    try:
+        suggestion=await page.evaluate(r"""({name,city}) => {
+          const norm=v=>String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+            .replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+          const visible=el=>{
+            if(!el) return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+            return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||'1')!==0&&r.width>0&&r.height>0;
+          };
+          const wanted=norm(name).split(' ').filter(x=>x.length>2);
+          const cityNorm=norm(city);
+          const roots=Array.from(document.querySelectorAll(
+            '[role="option"],li,[data-selenium*="suggest" i],[data-element-name*="suggest" i],[class*="suggest" i]'
+          )).filter(visible).slice(0,160);
+          let best=null;
+          for(const el of roots){
+            const text=String(el.innerText||el.textContent||'').replace(/\s+/g,' ').trim();
+            if(!text||text.length<4||text.length>520) continue;
+            const n=norm(text);
+            const matched=wanted.filter(t=>n.includes(t)).length;
+            if(!matched) continue;
+            let score=matched*28;
+            if(wanted.length && matched===wanted.length) score+=45;
+            if(cityNorm && n.includes(cityNorm)) score+=35;
+            if(/hotel\s*&?\s*restaurant|hotel\s+and\s+restaurant/i.test(text)) score+=30;
+            if(/^\s*\d{3,}\b/.test(text)) score-=60;
+            if(/barbarhouse/i.test(text)) score-=22;
+            if(/camera|matrimoniale|suite\s+-|familiare|deluxe|standard|accessibile/i.test(text) && /^\s*\d{3,}/.test(text)) score-=35;
+            if(!best||score>best.score) best={score,text,el};
+          }
+          if(!best) return null;
+          best.el.setAttribute('data-velora-agoda-suggestion','1');
+          return {score:best.score,text:best.text.slice(0,320)};
+        }""",{"name":target_name,"city":target_city})
+    except Exception:
+        suggestion=None
+
+    if suggestion:
+        try:
+            await page.locator('[data-velora-agoda-suggestion="1"]').first.click(timeout=2400)
+            await page.wait_for_timeout(700)
+            evidence.append("suggerimento struttura principale selezionato")
+        except Exception:
+            suggestion=None
+    if not suggestion:
+        try:
+            await page.keyboard.press("ArrowDown")
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(650)
+            evidence.append("primo suggerimento ricerca selezionato")
+        except Exception:
+            return False,"Agoda: nessun suggerimento struttura selezionabile"
+
+    opener,_=await _first_visible_locator(page,(
+        '[data-selenium="checkInText"]',
+        '[data-element-name*="check-in" i]',
+        '[data-element-name*="checkin" i]',
+        'button[aria-label*="check-in" i]',
+        'input[name*="checkin" i]',
+        'div:has-text("check-in")',
+    ))
+    if opener is None:
+        return False,"Agoda: controllo check-in non individuato dopo la selezione struttura"
+    try:
+        await opener.click(timeout=2200)
+        await page.wait_for_timeout(650)
+        evidence.append("calendario aperto")
+    except Exception as exc:
+        return False,f"Agoda: calendario non apribile ({type(exc).__name__})"
+
+    async def mark_and_click_day(target_iso: str) -> bool:
+        target=date.fromisoformat(target_iso)
+        month_words=list(MONTH_NAMES[target.month])
+        try:
+            result=await page.evaluate(r"""({iso,day,year,months}) => {
+              const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+              const norm=v=>clean(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+              const visible=el=>{
+                if(!el) return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+                return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||'1')!==0&&r.width>10&&r.height>10;
+              };
+              document.querySelectorAll('[data-velora-agoda-day]').forEach(el=>el.removeAttribute('data-velora-agoda-day'));
+              const exactSelectors=[
+                '[data-date="'+iso+'"]','[data-value="'+iso+'"]',
+                '[data-selenium-date="'+iso+'"]','[data-testid*="'+iso+'"]',
+                '[aria-label*="'+iso+'"]'
+              ];
+              for(const sel of exactSelectors){
+                for(const el of Array.from(document.querySelectorAll(sel)).filter(visible)){
+                  const clickable=el.closest('button,[role="button"],td')||el;
+                  if(clickable.getAttribute('aria-disabled')==='true'||clickable.hasAttribute('disabled')) continue;
+                  clickable.setAttribute('data-velora-agoda-day','1');
+                  return {mode:'exact',text:clean(clickable.textContent).slice(0,120)};
+                }
+              }
+              const candidates=Array.from(document.querySelectorAll('button,[role="button"],td,div,span')).filter(visible);
+              let best=null;
+              for(const raw of candidates){
+                const own=clean(raw.textContent);
+                if(own!==String(day)) continue;
+                const el=raw.closest('button,[role="button"],td')||raw;
+                if(el.getAttribute('aria-disabled')==='true'||el.hasAttribute('disabled')) continue;
+                let score=0, p=el, context='';
+                for(let depth=0;depth<7&&p;depth++,p=p.parentElement){
+                  const t=norm(p.innerText||p.textContent).slice(0,2200);
+                  context+=' '+t;
+                  const cls=String(p.className||'').toLowerCase();
+                  if(/calendar|datepicker|daypicker|date-picker|month/.test(cls)) score+=12;
+                  if(p.getAttribute&&String(p.getAttribute('data-selenium')||'').toLowerCase().includes('calendar')) score+=18;
+                }
+                const monthHit=months.some(m=>context.includes(norm(m)));
+                if(monthHit) score+=35;
+                if(context.includes(String(year))) score+=25;
+                const aria=norm(el.getAttribute?.('aria-label')||'');
+                if(months.some(m=>aria.includes(norm(m)))) score+=35;
+                if(aria.includes(String(year))) score+=25;
+                const r=el.getBoundingClientRect();
+                if(r.width>=20&&r.width<=90&&r.height>=20&&r.height<=90) score+=12;
+                if(!best||score>best.score) best={el,score,text:own};
+              }
+              if(!best||best.score<20) return null;
+              best.el.setAttribute('data-velora-agoda-day','1');
+              return {mode:'scored',score:best.score,text:best.text};
+            }""",{"iso":target_iso,"day":target.day,"year":target.year,"months":month_words})
+        except Exception:
+            result=None
+        if not result:
+            return False
+        try:
+            await page.locator('[data-velora-agoda-day="1"]').first.click(timeout=2000)
+            await page.wait_for_timeout(300)
+            return True
+        except Exception:
+            return False
+
+    async def next_month() -> bool:
+        node,_=await _first_visible_locator(page,(
+            'button[aria-label*="next month" i]',
+            'button[aria-label*="mese successivo" i]',
+            'button[aria-label*="successivo" i]',
+            '[data-selenium*="next" i]',
+            '[data-element-name*="next" i]',
+            '[class*="calendar" i] button:has-text("›")',
+            '[class*="calendar" i] button:has-text(">")',
+        ))
+        if node is None:
+            try:
+                marked=await page.evaluate(r"""() => {
+                  const visible=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
+                  const nodes=Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+                  let best=null;
+                  for(const el of nodes){
+                    const t=String(el.innerText||el.textContent||el.getAttribute('aria-label')||'').trim().toLowerCase();
+                    if(!/(next|successiv|›|»|→|>)/.test(t)) continue;
+                    let p=el, inCalendar=false;
+                    for(let d=0;d<5&&p;d++,p=p.parentElement){
+                      if(/calendar|date|month/i.test(String(p.className||''))){inCalendar=true;break}
+                    }
+                    if(!inCalendar) continue;
+                    const r=el.getBoundingClientRect();
+                    const score=r.left;
+                    if(!best||score>best.score) best={el,score};
+                  }
+                  if(!best) return false;
+                  best.el.setAttribute('data-velora-agoda-next','1'); return true;
+                }""")
+                if marked:
+                    node=page.locator('[data-velora-agoda-next="1"]').first
+            except Exception:
+                node=None
+        if node is None:
+            return False
+        try:
+            await node.click(timeout=1800)
+            await page.wait_for_timeout(280)
+            return True
+        except Exception:
+            return False
+
+    async def pick(target_iso: str) -> bool:
+        for _ in range(15):
+            if await mark_and_click_day(target_iso):
+                return True
+            if not await next_month():
+                return False
+        return False
+
+    if not await pick(stay["checkin"]):
+        return False,f"Agoda: check-in {stay['checkin']} non selezionabile nel calendario pubblico"
+    evidence.append(f"check-in {stay['checkin']}")
+    if not await pick(stay["checkout"]):
+        return False,f"Agoda: check-out {stay['checkout']} non selezionabile nel calendario pubblico"
+    evidence.append(f"check-out {stay['checkout']}")
+
+    # Agoda apre di norma con 2 adulti/1 camera. Se il riepilogo visibile lo conferma,
+    # non tocca il controllo ospiti.
+    try:
+        guest_text=(await page.locator("body").inner_text(timeout=4500))[:9000]
+    except Exception:
+        guest_text=""
+    if re.search(r"\b2\s*(?:adulti|adults)\b",guest_text,re.I):
+        evidence.append("2 adulti confermati")
+    else:
+        guest_trigger,_=await _first_visible_locator(page,(
+            '[data-selenium*="occupancy" i]','[data-element-name*="occupancy" i]',
+            '[data-element-name*="guest" i]','button:has-text("adulti")','button:has-text("adults")',
+        ))
+        if guest_trigger is not None:
+            try:
+                await guest_trigger.click(timeout=1800)
+                await page.wait_for_timeout(300)
+                state=await page.evaluate(r"""(target) => {
+                  const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+                  const vis=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
+                  document.querySelectorAll('[data-velora-agoda-minus],[data-velora-agoda-plus]').forEach(el=>{el.removeAttribute('data-velora-agoda-minus');el.removeAttribute('data-velora-agoda-plus')});
+                  for(const label of Array.from(document.querySelectorAll('div,span,p,label')).filter(vis)){
+                    if(!/^(adulti|adults)$/i.test(clean(label.textContent))) continue;
+                    let row=label;
+                    for(let d=0;d<6&&row;d++,row=row.parentElement){
+                      const buttons=Array.from(row.querySelectorAll('button')).filter(vis);
+                      const nums=Array.from(row.querySelectorAll('span,div')).map(el=>clean(el.textContent)).filter(v=>/^\d+$/.test(v));
+                      if(buttons.length>=2&&nums.length){
+                        const current=Number(nums[nums.length-1]);
+                        if(!Number.isFinite(current)) continue;
+                        buttons[0].setAttribute('data-velora-agoda-minus','1');
+                        buttons[buttons.length-1].setAttribute('data-velora-agoda-plus','1');
+                        return {current,target};
+                      }
+                    }
+                  }
+                  return null;
+                }""",int(stay.get("adults") or 2))
+                if state:
+                    current=int(state["current"]); target=int(stay.get("adults") or 2)
+                    while current<target:
+                        await page.locator('[data-velora-agoda-plus="1"]').click(timeout=1000); current+=1
+                        await page.wait_for_timeout(120)
+                    while current>target:
+                        await page.locator('[data-velora-agoda-minus="1"]').click(timeout=1000); current-=1
+                        await page.wait_for_timeout(120)
+                    evidence.append(f"ospiti {target} adulti")
+                try: await page.keyboard.press("Escape")
+                except Exception: pass
+            except Exception:
+                pass
+
+    search,_=await _first_visible_locator(page,(
+        'button:has-text("CERCA")','button:has-text("Cerca")','button:has-text("Search")',
+        '[data-selenium="searchButton"]','[data-selenium*="search" i]',
+        '[data-element-name*="search" i] button',
+    ))
+    if search is None:
+        return False,"Agoda: pulsante Cerca non individuato"
+    try:
+        await search.click(timeout=2400)
+        evidence.append("Cerca cliccato")
+        try: await page.wait_for_load_state("domcontentloaded",timeout=8000)
+        except Exception: pass
+        await page.wait_for_timeout(1800)
+        await dismiss_cookie(page)
+    except Exception as exc:
+        return False,f"Agoda: ricerca non avviata ({type(exc).__name__})"
+
+    # Se siamo nella lista risultati, entra nella card della struttura principale,
+    # non nelle singole unità numerate.
+    if "/hotel/" not in (urlparse(page.url).path or "").lower():
+        try:
+            card=await page.evaluate(r"""({name,city}) => {
+              const norm=v=>String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+              const visible=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
+              const wanted=norm(name).split(' ').filter(x=>x.length>2), cityNorm=norm(city);
+              let best=null;
+              const roots=Array.from(document.querySelectorAll('article,li,[data-selenium*="hotel" i],[data-element-name*="property" i],div')).filter(visible).slice(0,500);
+              for(const root of roots){
+                const text=String(root.innerText||root.textContent||'').replace(/\s+/g,' ').trim();
+                if(!text||text.length<20||text.length>3200) continue;
+                const n=norm(text), matched=wanted.filter(t=>n.includes(t)).length;
+                if(!matched) continue;
+                const links=Array.from(root.querySelectorAll('a[href]')).filter(visible);
+                const link=links.find(a=>/\/hotel\//i.test(a.getAttribute('href')||''))||links[0];
+                if(!link) continue;
+                let score=matched*30;
+                if(wanted.length&&matched===wanted.length) score+=50;
+                if(cityNorm&&n.includes(cityNorm)) score+=35;
+                if(/hotel\s*&?\s*restaurant|hotel\s+and\s+restaurant/i.test(text)) score+=25;
+                if(/^\s*\d{3,}\b/.test(text)||/barbarhouse/i.test(text)) score-=35;
+                if(!best||score>best.score) best={score,text,url:link.href};
+              }
+              return best ? {score:best.score,text:best.text.slice(0,260),url:best.url} : null;
+            }""",{"name":target_name,"city":target_city})
+        except Exception:
+            card=None
+        if not card or not card.get("url"):
+            return False,"Agoda: risultati caricati, ma la card della struttura principale non è stata individuata"
+        try:
+            await page.goto(str(card["url"]),wait_until="domcontentloaded",timeout=22000)
+            await dismiss_cookie(page)
+            await page.wait_for_timeout(1500)
+            evidence.append("card struttura principale aperta")
+        except Exception as exc:
+            return False,f"Agoda: apertura card struttura non completata ({type(exc).__name__})"
+
+    # Sulla scheda hotel, porta il frontend fino alle offerte/camere.
+    offer,_=await _first_visible_locator(page,(
+        'button:has-text("Vedi offerta")','a:has-text("Vedi offerta")',
+        'button:has-text("See offer")','a:has-text("See offer")',
+        'button:has-text("Camere")','a:has-text("Camere")',
+        '[data-selenium*="room" i]',
+    ))
+    if offer is not None:
+        try:
+            await offer.scroll_into_view_if_needed(timeout=1200)
+            await offer.click(timeout=1800)
+            await page.wait_for_timeout(1200)
+            evidence.append("area offerte/camere aperta")
+        except Exception:
+            pass
+    try:
+        for fraction in (0.42,0.58,0.72):
+            await page.evaluate(f"window.scrollTo(0, Math.floor(document.body.scrollHeight*{fraction}))")
+            await page.wait_for_timeout(500)
+            body=(await page.locator("body").inner_text(timeout=4500))[:22000]
+            if re.search(r"\b(a notte|per notte|per night)\b",body,re.I) and re.search(r"\b(?:€|EUR)\s*\d|\d\s*(?:€|EUR)",body,re.I):
+                break
+    except Exception:
+        pass
+
+    confirmed,dom_evidence=await agoda_dom_dates_confirmed(page,stay)
+    if not confirmed:
+        try:
+            body=(await page.locator("body").inner_text(timeout=5000))[:16000]
+        except Exception:
+            body=""
+        confirmed=visible_dates_confirmed(body,stay) or agoda_url_dates_confirmed(page.url,stay)
+    if confirmed:
+        evidence.append("date confermate nella scheda hotel")
+    else:
+        evidence.append("date non riconfermate nella scheda hotel")
+    if dom_evidence:
+        evidence.append(dom_evidence[:260])
+    return confirmed,(" · ".join(evidence))[:1200]
+
+
+async def agoda_offer_row_candidates(page, stay: dict) -> list[dict]:
+    """Parser Agoda aderente al frontend: una riga offerta vicino al pulsante Prenota/Book."""
+    rows=await page.evaluate(r"""(wantedAdults) => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el)return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+        if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity||'1')===0||r.width<=0||r.height<=0) return false;
+        if((s.textDecorationLine||'').includes('line-through')) return false;
+        return true;
+      };
+      const roomRx=/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior|quadrupla|tripla|matrimoniale)\b/i;
+      const priceRx=/(?:€|EUR)\s*([0-9]{1,5}(?:[.,][0-9]{1,2})?)|([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*(?:€|EUR)/i;
+      const out=[],seen=new Set();
+      const buttons=Array.from(document.querySelectorAll('button,a,[role="button"]')).filter(visible)
+        .filter(el=>/^(prenota|book|reserve)$/i.test(clean(el.innerText||el.textContent||el.getAttribute('aria-label')||'')));
+      for(const button of buttons.slice(0,120)){
+        let offer=button, offerText='';
+        for(let d=0;d<7&&offer;d++,offer=offer.parentElement){
+          const t=clean(offer.innerText||offer.textContent);
+          if(t.length>25&&t.length<2400&&priceRx.test(t)&&/(a notte|per notte|per night)/i.test(t)){offerText=t;break}
+        }
+        if(!offer||!offerText) continue;
+        const low=offerText.toLowerCase();
+        if(/numero massimo di persone.*superato|massimo di persone.*superato|maximum occupancy.*exceed|max occupancy.*exceed/i.test(low)) continue;
+        const adultMatch=offerText.match(/\b(\d+)\s*(?:adulti|adults?)\b/i);
+        if(adultMatch&&Number(adultMatch[1])!==Number(wantedAdults)) continue;
+
+        let room='',root=offer;
+        for(let d=0;d<9&&root;d++,root=root.parentElement){
+          const heads=Array.from(root.querySelectorAll('h2,h3,h4,[data-selenium="room-name"],[data-element-name*="room-name" i],[data-ppapi*="room-name" i]'))
+            .filter(visible).map(el=>clean(el.textContent)).filter(v=>v&&v.length<260);
+          room=heads.find(v=>roomRx.test(v))||'';
+          if(room) break;
+        }
+        if(!room) continue;
+
+        const priceNodes=Array.from(offer.querySelectorAll('span,strong,b,div')).filter(visible)
+          .map(el=>clean(el.textContent)).filter(v=>v.length<=45&&priceRx.test(v));
+        let priceText=priceNodes.find(v=>priceRx.test(v))||'';
+        if(!priceText){
+          const m=offerText.match(priceRx); priceText=m?m[0]:'';
+        }
+        if(!priceText) continue;
+        const key=(room+'|'+priceText+'|'+offerText.slice(0,700)).toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key); out.push({room,price:priceText,text:offerText});
+      }
+      return out.slice(0,80);
+    }""",int(stay.get("adults") or 2))
+
+    out=[]
+    for row in rows:
+        room=str(row.get("room") or "").strip()
+        text=str(row.get("text") or "").strip()
+        price=_money_value(str(row.get("price") or ""))
+        if not room or not text or price is None or price<=0:
+            continue
+        low=text.lower()
+        fields=_price_fields(price,"nightly",stay)
+        board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
+        if any(x in low for x in ("cancellazione gratuita","free cancellation")):
+            refund="Cancellazione gratuita"
+        elif any(x in low for x in ("non rimborsabile","non-refundable","non refundable")):
+            refund="Non rimborsabile"
+        else:
+            refund="Cancellazione da verificare"
+        taxes=(
+            "Tasse e costi inclusi"
+            if any(x in low for x in ("tasse e costi inclusi","tasse incluse","taxes and fees included","taxes included"))
+            else "Da verificare nel dettaglio del preventivo"
+        )
+        out.append({
+            "roomType":room[:240],
+            "ratePlan":" · ".join(x for x in (
+                refund if refund!="Cancellazione da verificare" else "",
+                board if board!="Trattamento da verificare" else ""
+            ) if x) or "Piano tariffario pubblico",
+            **fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":board,"refund":refund,"audience":"Pubblico senza login","taxes":taxes,
+            "verified":True,
+            "evidence":(fields["priceDerivation"]+" Riga offerta Agoda frontend: "+text)[:1200],
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["nightlyRate"],item["refund"],item["board"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:40]
 
 
 async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tuple[bool,str]:
@@ -7571,7 +8070,10 @@ async def booking_settle_render(page) -> dict:
     return diagnostics
 
 
-async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> dict:
+async def observe(
+    page, channel: str, source: str, stay: dict, robots: dict,
+    property_name: str="", city: str=""
+) -> dict:
     requested = frontend_entry_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
               "observedAt": datetime.now(timezone.utc).isoformat(), "status": "not_attempted",
@@ -7755,7 +8257,15 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="priceline-ui-date-picker"
-        elif channel in {"airbnb","vrbo","holidu","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
+        elif channel == "agoda" and not dates_confirmed:
+            applied, ui_date_evidence = await agoda_prepare_frontend(
+                page,source,stay,property_name=property_name,city=city
+            )
+            record["finalUrl"] = page.url
+            record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
+            if applied and dates_confirmed:
+                date_confirmation_mode="agoda-home-search+frontend"
+        elif channel in {"airbnb","vrbo","holidu","expedia","hotels","travelocity","trip"} and not dates_confirmed:
             applied, ui_date_evidence = await generic_ota_frontend_apply_dates(page,channel,stay)
             if applied:
                 record["finalUrl"] = page.url
@@ -7969,7 +8479,9 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                             )[:900],
                         )
             elif channel == "agoda":
-                candidates=await agoda_quote_candidates(page,stay)
+                candidates=await agoda_offer_row_candidates(page,stay)
+                if not candidates:
+                    candidates=await agoda_quote_candidates(page,stay)
                 record["quotes"]=candidates
                 try:
                     agoda_price_nodes=await page.locator(
@@ -10226,7 +10738,7 @@ async def run(args: argparse.Namespace) -> dict:
                     }:
                         page=await context.new_page()
                         try:
-                            fallback_booking=await observe(page,"booking",booking_source,effective_stay,robots)
+                            fallback_booking=await observe(page,"booking",booking_source,effective_stay,robots,data.get("name",""),data.get("city",""))
                         finally:
                             await page.close()
                         if fallback_booking.get("status") in {"dates_unconfirmed","needs_human_review"}:
@@ -10328,7 +10840,7 @@ async def run(args: argparse.Namespace) -> dict:
                             try:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
-                                    observe(page, channel, source, effective_stay, robots),
+                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city","")),
                                     timeout=AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
@@ -10359,7 +10871,7 @@ async def run(args: argparse.Namespace) -> dict:
                                     try:
                                         page=await context.new_page()
                                         record=await asyncio.wait_for(
-                                            observe(page,channel,source,effective_stay,robots),
+                                            observe(page,channel,source,effective_stay,robots,data.get("name",""),data.get("city","")),
                                             timeout=75,
                                         )
                                         print(
@@ -10478,7 +10990,7 @@ async def run(args: argparse.Namespace) -> dict:
                                         try:
                                             retry_page=await context.new_page()
                                             retry_record=await asyncio.wait_for(
-                                                observe(retry_page,channel,assisted_source,effective_stay,robots),
+                                                observe(retry_page,channel,assisted_source,effective_stay,robots,data.get("name",""),data.get("city","")),
                                                 timeout=AUTO_OTA_OBSERVE_TIMEOUT,
                                             )
                                             if retry_record.get("quotes") or retry_record.get("status") not in assisted_weak_statuses:
