@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v79"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v80"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -815,7 +815,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v79",
+                "agentVersion":"velora-local-agent-v80",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -988,7 +988,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v79 · discovery OTA multi-strada + fix Trip + diagnostica Agoda + Ghost off-screen",flush=True)
+    print("Versione agente: velora-local-agent-v80 · discovery OTA libera anticipata + fallback prezzi Agoda + diagnostica estesa + Ghost off-screen",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
