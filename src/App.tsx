@@ -6527,7 +6527,9 @@ export default function App() {
             ? Number(profile.recommendationRate).toFixed(1) + "%"
             : "n.d.";
           const commercial = (profile.commercialHosts || []).slice(0, 8).join(", ");
-          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(profile.status)}</td><td>${safe(rating)}</td><td>${safe(profile.reviewCount ? String(profile.reviewCount) : "n.d.")}</td><td>${safe(recommendation)}</td><td>${safe(commercial || profile.evidence || "Nessun dettaglio aggiuntivo")}</td></tr>`;
+          const visiblePrices = (profile.visiblePrices || []).slice(0, 8).map((item) => "€" + Number(item.amount).toFixed(2)).join(" · ");
+          const profileProof = [profile.evidence || "", visiblePrices ? "Prezzi EUR visibili: " + visiblePrices + " (non attribuiti a camera/date)" : "", commercial ? "Link commerciali: " + commercial : ""].filter(Boolean).join(" · ");
+          return `<tr><td><b>${safe(platform)}</b></td><td>${safe(profile.status)}</td><td>${safe(rating)}</td><td>${safe(profile.reviewCount ? String(profile.reviewCount) : "n.d.")}</td><td>${safe(recommendation)}</td><td>${safe(profileProof || "Nessun dettaglio aggiuntivo")}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
     const pilotQuoteRows = pilotObservations.flatMap((observation) =>
@@ -7688,7 +7690,11 @@ export default function App() {
                     <td className="p-2">{Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale) ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}` : pilotProfileMetricFallback(profile)}</td>
                     <td className="p-2">{Number.isFinite(profile.reviewCount) ? Number(profile.reviewCount).toLocaleString("it-IT") : pilotProfileMetricFallback(profile)}</td>
                     <td className="p-2">{pilotProfileMetric(profile.recommendationRate, profile, "%")}</td>
-                    <td className="p-2">{profile.evidence || "Profilo letto senza metriche strutturate"}{(profile.commercialHosts || []).length > 0 && <span className="block mt-1 text-[9px] text-[#50627F]">Link commerciali: {(profile.commercialHosts || []).slice(0, 6).join(", ")}</span>}</td>
+                    <td className="p-2">
+                      {profile.evidence || "Profilo letto senza metriche strutturate"}
+                      {(profile.visiblePrices || []).length > 0 && <span className="block mt-1 font-black text-[#23124A]">Prezzi EUR visibili sul profilo: {(profile.visiblePrices || []).slice(0, 8).map((item) => `€${Number(item.amount).toFixed(2)}`).join(" · ")} <span className="font-medium text-[#50627F]">(non attribuiti a camera/date, quindi esclusi dal delta)</span></span>}
+                      {(profile.commercialHosts || []).length > 0 && <span className="block mt-1 text-[9px] text-[#50627F]">Link commerciali: {(profile.commercialHosts || []).slice(0, 6).join(", ")}</span>}
+                    </td>
                   </tr>)}</tbody>
                 </table>
               </div>}
