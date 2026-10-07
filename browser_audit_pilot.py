@@ -9630,8 +9630,10 @@ async def run(args: argparse.Namespace) -> dict:
         raise ValueError(f"Canali sconosciuti: {', '.join(sorted(unknown))}")
     sources = data.get("sources", {})
     ghost=bool(getattr(args,"ghost",False))
+    assisted=bool(getattr(args,"assisted",False))
+    assist_callback=getattr(args,"assist_callback",None) if assisted else None
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
-              "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
+              "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; automatico con handoff umano opzionale sui blocchi; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
@@ -10169,8 +10171,11 @@ async def run(args: argparse.Namespace) -> dict:
                         if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids):
                             try:
                                 frontend_source=await asyncio.wait_for(
-                                    frontend_discover_ota_source(context,channel,data,effective_stay,robots),
-                                    timeout=35,
+                                    frontend_discover_ota_source(
+                                        context,channel,data,effective_stay,robots,
+                                        assist_callback=assist_callback,ghost=ghost,
+                                    ),
+                                    timeout=330 if assisted else 35,
                                 )
                             except asyncio.TimeoutError:
                                 frontend_source={
@@ -10297,8 +10302,11 @@ async def run(args: argparse.Namespace) -> dict:
                             ):
                                 try:
                                     recovery_source=await asyncio.wait_for(
-                                        frontend_discover_ota_source(context,channel,data,effective_stay,robots),
-                                        timeout=35,
+                                        frontend_discover_ota_source(
+                                            context,channel,data,effective_stay,robots,
+                                            assist_callback=assist_callback,ghost=ghost,
+                                        ),
+                                        timeout=330 if assisted else 35,
                                     )
                                 except Exception:
                                     recovery_source={}
@@ -10333,6 +10341,123 @@ async def run(args: argparse.Namespace) -> dict:
                                                 await retry_page.close()
                                             except Exception:
                                                 pass
+
+                    assisted_weak_statuses={
+                        "rate_limited","http_error","dates_unconfirmed","navigation_error",
+                        "needs_human_review","login_required","blocked","empty_page"
+                    }
+                    if (
+                        assisted and callable(assist_callback)
+                        and channel!="booking"
+                        and source
+                        and not record.get("quotes")
+                        and record.get("status") in assisted_weak_statuses
+                    ):
+                        assist_page=None
+                        try:
+                            assist_page=await context.new_page()
+                            target=frontend_entry_url(channel,source,effective_stay) or source
+                            try:
+                                await assist_page.goto(target,wait_until="domcontentloaded",timeout=25000)
+                                await dismiss_cookie(assist_page)
+                                await assist_page.wait_for_timeout(800)
+                            except Exception:
+                                pass
+                            action=await _human_assist(
+                                assist_page,assist_callback,{
+                                    "type":"portal_block_or_rate",
+                                    "otaId":channel,
+                                    "label":OTA_META[channel]["label"],
+                                    "reason":str(record.get("evidence") or record.get("status") or "")[:700],
+                                    "instructions":(
+                                        f"Controlla nel Chrome aperto la scheda {OTA_META[channel]['label']} di «{data.get('name','')}». "
+                                        f"Se il portale chiede consenso/cookie o una verifica, completala manualmente. "
+                                        f"Se la pagina pubblica è navigabile, assicurati di essere sulla struttura corretta e, se possibile, "
+                                        f"imposta {effective_stay['checkin']} → {effective_stay['checkout']} per {effective_stay.get('adults',2)} adulti. "
+                                        "Non è necessario effettuare login. Poi torna su Velora e premi «Ho completato · riprendi»."
+                                    ),
+                                    "propertyName":data.get("name",""),
+                                    "city":data.get("city",""),
+                                    "stay":effective_stay,
+                                    "url":target,
+                                },ghost,
+                            )
+                            if action in {"continue","done"}:
+                                identity=await _current_page_identity(assist_page,channel,data)
+                                if identity.get("ok"):
+                                    assisted_source=identity.get("url") or source
+                                    source=assisted_source
+                                    sources[channel]={"label":OTA_META[channel]["label"],"url":assisted_source}
+                                    unverified_source_ids.discard(channel)
+
+                                    if channel=="agoda":
+                                        dates_ok=agoda_url_dates_confirmed(str(assist_page.url or ""),effective_stay)
+                                        if not dates_ok:
+                                            dates_ok,_=await agoda_dom_dates_confirmed(assist_page,effective_stay)
+                                        if dates_ok:
+                                            direct_quotes=await agoda_quote_candidates(assist_page,effective_stay)
+                                            if not direct_quotes:
+                                                direct_quotes=await agoda_visible_rate_candidates(assist_page,effective_stay)
+                                            if not direct_quotes:
+                                                direct_quotes=await agoda_geometric_rate_candidates(assist_page,effective_stay)
+                                            if direct_quotes:
+                                                record={
+                                                    "otaId":channel,**effective_stay,
+                                                    "sourceUrl":assisted_source,
+                                                    "requestedUrl":str(assist_page.url or assisted_source),
+                                                    "observedAt":datetime.now(timezone.utc).isoformat(),
+                                                    "status":"quote_candidates" if any(q.get("verified") for q in direct_quotes) else "quote_candidates_unverified",
+                                                    "finalUrl":str(assist_page.url or assisted_source),
+                                                    "title":identity.get("title") or "",
+                                                    "quotes":direct_quotes,
+                                                    "sourceIdentityVerified":True,
+                                                    "evidence":(
+                                                        f"Assistenza umana completata: scheda Agoda riconfermata e {len(direct_quotes)} "
+                                                        "riga/e prezzo lette direttamente dallo stato frontend lasciato aperto dall'utente."
+                                                    ),
+                                                }
+
+                                    if not record.get("quotes"):
+                                        retry_page=None
+                                        try:
+                                            retry_page=await context.new_page()
+                                            retry_record=await asyncio.wait_for(
+                                                observe(retry_page,channel,assisted_source,effective_stay,robots),
+                                                timeout=90,
+                                            )
+                                            if retry_record.get("quotes") or retry_record.get("status") not in assisted_weak_statuses:
+                                                record=retry_record
+                                            else:
+                                                record["evidence"]=(
+                                                    str(record.get("evidence") or "")+
+                                                    " | Handoff umano completato e identità riconfermata, ma il portale continua a non esporre una tariffa leggibile: "+
+                                                    str(retry_record.get("evidence") or "")
+                                                )[:1200]
+                                        finally:
+                                            if retry_page is not None:
+                                                try:
+                                                    await retry_page.close()
+                                                except Exception:
+                                                    pass
+                                else:
+                                    record["evidence"]=(
+                                        str(record.get("evidence") or "")+
+                                        " | Handoff umano: pagina aperta non accettata perché non supera il controllo identità. "+
+                                        str(identity.get("evidence") or "")
+                                    )[:1200]
+                            if ghost:
+                                await _set_interaction_window(assist_page,False)
+                        except Exception as assist_exc:
+                            record["evidence"]=(
+                                str(record.get("evidence") or "")+
+                                f" | Handoff umano non completato: {type(assist_exc).__name__}: {str(assist_exc)[:160]}"
+                            )[:1200]
+                        finally:
+                            if assist_page is not None:
+                                try:
+                                    await assist_page.close()
+                                except Exception:
+                                    pass
 
                     if record.get("quotes"):
                         record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
