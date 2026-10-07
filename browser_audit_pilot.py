@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v77"
+PILOT_BUILD = "velora-browser-pilot-v78"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -62,6 +62,14 @@ PRICE_RE = re.compile(r"(?:€|EUR)\s*([0-9]{1,5}(?:[.,][0-9]{2})?)|([0-9]{1,5}(
 GENERIC_NAME_WORDS = {
     "hotel", "aparthotel", "resort", "b&b", "bb", "bed", "breakfast", "apartments",
     "apartment", "appartamenti", "appartamento", "rooms", "room", "suite", "suites",
+}
+
+# Descrittori commerciali che cambiano spesso tra sito ufficiale e OTA.
+# Non sono parte dell'identità stabile della struttura: es. "Luxury Suites"
+# e "Luxury Hotel & Restaurant" devono continuare a riconoscere "Perla Saracena".
+IDENTITY_GENERIC_NAME_WORDS = GENERIC_NAME_WORDS | {
+    "luxury", "restaurant", "ristorante", "boutique", "spa",
+    "hotel", "hotels", "restaurant", "restaurants",
 }
 
 
@@ -690,8 +698,29 @@ async def booking_apply_dates_via_ui(page, stay: dict) -> tuple[bool, str]:
 def _norm_name(value: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii").lower()
     ascii_text = re.sub(r"\bb\s*&\s*b\b|\bb\s+and\s+b\b|\bbed\s*&?\s*breakfast\b", " ", ascii_text)
-    tokens = [token for token in re.findall(r"[a-z0-9]+", ascii_text) if token not in GENERIC_NAME_WORDS]
+    tokens = [token for token in re.findall(r"[a-z0-9]+", ascii_text) if token not in IDENTITY_GENERIC_NAME_WORDS]
     return " ".join(tokens)
+
+
+def _property_name_query_variants(value: str) -> list[str]:
+    """Varianti di ricerca stabili: mai lasciare '&' o descrittori commerciali come nome distintivo."""
+    original=" ".join(str(value or "").split()).strip()
+    normalized=_norm_name(original)
+    full_without_symbols=re.sub(r"\s*&\s*"," ",original)
+    full_without_symbols=re.sub(r"\s+"," ",full_without_symbols).strip()
+
+    variants=[]
+    for candidate in (normalized,full_without_symbols,original):
+        candidate=" ".join(str(candidate or "").split()).strip()
+        if not candidate:
+            continue
+        # Una variante composta solo da punteggiatura/simboli non deve mai entrare nelle query.
+        if not re.search(r"[A-Za-zÀ-ÿ0-9]",candidate):
+            continue
+        key=_norm_name(candidate) or candidate.lower()
+        if key and all((_norm_name(item) or item.lower()) != key for item in variants):
+            variants.append(candidate)
+    return variants[:4]
 
 
 def _name_similarity(expected: str, observed: str) -> float:
@@ -985,7 +1014,14 @@ def _free_http_search_links(
                     continue
                 parsed=urlparse(target)
                 host=(parsed.hostname or "").lower().removeprefix("www.")
-                if any(token in host for token in ("google.com","google.it","bing.com","duckduckgo.com","yahoo.com")):
+                search_engine_host=any(token in host for token in ("google.com","google.it","bing.com","duckduckgo.com","yahoo.com"))
+                google_hotels_target=(
+                    host in {"google.com","google.it","www.google.com","www.google.it"}
+                    and (parsed.path or "").lower().startswith("/travel/hotels")
+                    and preferred
+                    and any(domain in {"google.com","google.it"} for domain in preferred)
+                )
+                if search_engine_host and not google_hotels_target:
                     continue
                 key=(engine,target)
                 if key in seen:
@@ -1349,38 +1385,41 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """Discovery mirata rapida: nome distintivo + località, senza navigazione browser."""
+    """Discovery mirata: brand stabile + località, provando i domini pubblici dell'OTA."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
     address=str(data.get("address") or "")
     location=city or address
-    base_domain=meta["domains"][0]
+    variants=_property_name_query_variants(name)
+    distinctive=(variants[0] if variants else name).strip()
 
-    name_tokens=[
-        token for token in re.findall(r"[\wÀ-ÿ&'-]+",name,flags=re.UNICODE)
-        if token.lower() not in GENERIC_NAME_WORDS
-        and token.lower() not in {"luxury","restaurant","ristorante","boutique","spa"}
-    ]
-    distinctive=" ".join(name_tokens[:4]).strip() or name
     queries=[]
-    if distinctive and location:
-        queries.append(f'site:{base_domain} "{distinctive}" "{location}"')
-    if distinctive:
-        queries.append(f'site:{base_domain} "{distinctive}"')
-    if name and location and name != distinctive:
-        queries.append(f'site:{base_domain} "{name}" "{location}"')
+    for domain in meta["domains"]:
+        scope=(
+            f"site:{domain}/travel/hotels"
+            if ota_id=="googlehotels"
+            else f"site:{domain}"
+        )
+        for variant in variants[:3]:
+            if variant and location:
+                queries.append(f'{scope} "{variant}" "{location}"')
+            if variant:
+                queries.append(f'{scope} "{variant}"')
 
+    # Deduplica mantenendo l'ordine: brand stabile prima, nome completo solo dopo.
+    queries=list(dict.fromkeys(query for query in queries if query))[:12]
     if not queries:
         return {
             "status":"not_verified_present","url":"","title":"","score":0.0,
+            "presenceDetected":False,
             "evidence":f"Ricerca mirata {meta['label']} saltata: nome struttura non disponibile.",
-            "searchUrl":"","discoveryMode":"fast discovery","identityVerified":False,
+            "searchUrl":"","discoveryMode":"targeted discovery","identityVerified":False,
         }
 
     candidates=[]
     used_query=""
-    for query in queries[:2]:
+    for query in queries:
         try:
             http_items,_=await asyncio.wait_for(
                 asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
@@ -1407,13 +1446,14 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         score,target,title,reasons,engine=candidates[0]
         if score < 0.38:
             return {
-                "status":"not_verified_present","url":"","title":title[:220],"score":round(score,3),
-                "presenceDetected":False,
+                "status":"not_verified_present","url":"","candidateUrl":normalize_ota_listing_url(ota_id,target),
+                "title":title[:220],"score":round(score,3),
+                "presenceDetected":True,
                 "evidence":(
-                    f"Ricerca mirata {meta['label']}: candidato scartato perché il match identità è troppo debole "
-                    f"({score:.0%}: {reasons}). Non verrà aperta una struttura probabilmente diversa."
+                    f"Ricerca mirata {meta['label']}: candidato pubblico trovato ma identità ancora debole "
+                    f"({score:.0%}: {reasons}). Presenza candidata registrata; nessun prezzo viene attribuito."
                 )[:900],
-                "searchUrl":"","discoveryMode":"weak candidate rejected","identityVerified":False,
+                "searchUrl":"","discoveryMode":"weak candidate retained","identityVerified":False,
             }
         candidate_urls=[]
         for _,candidate_target,_,_,_ in candidates[:5]:
@@ -1426,19 +1466,21 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             "candidateUrls":candidate_urls,
             "title":title[:220],"score":round(score,3),"presenceDetected":True,
             "evidence":(
-                f"Ricerca mirata {meta['label']} tramite {engine} con nome distintivo «{distinctive}». "
+                f"Ricerca mirata {meta['label']} tramite {engine} con brand «{distinctive}». "
                 f"Candidato pubblico trovato con match {score:.0%} ({reasons}); query «{used_query}». "
-                "Identità e tariffe saranno verificate nella fase pricing."
+                "Presenza registrata; identità e tariffe saranno verificate nella fase pricing."
             )[:900],
-            "searchUrl":"","discoveryMode":"distinctive-name candidate deferred to pricing","identityVerified":False,
+            "searchUrl":"","discoveryMode":"stable-brand candidate deferred to pricing","identityVerified":False,
         }
     return {
         "status":"not_verified_present","url":"","title":"","score":0.0,
+        "presenceDetected":False,
         "evidence":(
-            f"Ricerca mirata {meta['label']} completata con nome distintivo «{distinctive}» "
-            "senza una scheda proprietà plausibile. La scansione prosegue."
+            f"Ricerca mirata {meta['label']} completata con brand «{distinctive}»: "
+            "nessun candidato è emerso in questo passaggio automatico. "
+            "Questo esito non dimostra che la struttura sia assente dal portale."
         )[:900],
-        "searchUrl":"","discoveryMode":"distinctive-name no candidate","identityVerified":False,
+        "searchUrl":"","discoveryMode":"targeted no candidate in current pass","identityVerified":False,
     }
 
 async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
@@ -1481,8 +1523,8 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 15 secondi. "
-                        "La scansione prosegue sulle altre OTA senza bloccare l'audit."
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 15 secondi; "
+                        "nessuna conclusione di assenza viene registrata. La scansione prosegue sulle altre OTA."
                     ),
                     "searchUrl":"",
                     "discoveryMode":"targeted watchdog timeout",
@@ -1608,6 +1650,8 @@ async def agoda_property_rate_context(page) -> tuple[bool,str]:
         '[data-selenium="room-name"]',
         '[data-selenium="display-price"]',
         '[data-selenium*="room-price"]',
+        '[data-ppapi*="room-price" i]',
+        '[data-ppapi*="price" i]',
         '[data-element-name*="room" i]',
     )
     found=[]
@@ -1762,10 +1806,14 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         '[data-selenium="display-price"]',
         '[data-selenium="room-price"]',
         '[data-selenium*="current-price"]',
+        '[data-ppapi*="room-price" i]',
+        '[data-ppapi*="price" i]',
         '[data-element-name*="price" i]'
       ];
       const roomSelectors=[
         '[data-selenium="room-name"]',
+        '[data-ppapi*="room-name" i]',
+        '[data-ppapi*="room-title" i]',
         '[data-element-name*="room-name" i]',
         '[data-element-name*="room-title" i]',
         'h2','h3','h4'
@@ -1801,8 +1849,21 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         if (!text || !room) continue;
         const low=text.toLowerCase();
         let basis='';
-        if (/(total price|total for|prezzo totale|totale soggiorno|stay total|per stay)/i.test(low)) basis='stay-total';
-        else if (/(per night|\/night|a notte|per notte|nightly)/i.test(low)) basis='nightly';
+        if (/(total price|total for|prezzo totale|totale soggiorno|stay total|per stay|price for .* nights?|prezzo per .* notti)/i.test(low)) basis='stay-total';
+        else if (/(per night|\/night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte)/i.test(low)) basis='nightly';
+
+        // Agoda spesso mostra la base ("Price per night") nell'intestazione della
+        // griglia e non la ripete in ogni riga camera. In quel caso ereditiamo la
+        // base solo dalla stessa griglia/tabella, mai da testo generico della pagina.
+        if (!basis) {
+          const grid=container.closest('[data-selenium="room-grid"], [data-element-name*="room-grid" i], table, [role="table"]');
+          const headerText=clean(
+            Array.from(grid?.querySelectorAll('th,[role="columnheader"],[data-selenium*="price"],[data-ppapi*="price"]') || [])
+              .slice(0,40).map(el=>el.textContent || '').join(' ')
+          ).toLowerCase();
+          if (/(total price|prezzo totale|totale soggiorno|stay total|per stay)/i.test(headerText)) basis='stay-total';
+          else if (/(per night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte)/i.test(headerText)) basis='nightly';
+        }
         const key=(room+'|'+price+'|'+basis+'|'+text.slice(0,700)).toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
@@ -2440,20 +2501,18 @@ async def frontend_discover_ota_source(context, channel: str, data: dict, stay: 
     name=str(data.get("name") or "").strip()
     city=str(data.get("city") or "").strip()
     address=str(data.get("address") or "").strip()
-    name_tokens=[
-        token for token in re.findall(r"[\wÀ-ÿ&'-]+",name,flags=re.UNICODE)
-        if token.lower() not in GENERIC_NAME_WORDS
-        and token.lower() not in {"luxury","restaurant","ristorante","boutique","spa"}
-    ]
-    distinctive=" ".join(name_tokens[:4]).strip() or name
+    variants=_property_name_query_variants(name)
+    distinctive=(variants[0] if variants else name).strip()
     queries=[]
-    if distinctive and city:
-        queries.append(f"{distinctive} {city}")
-    if distinctive:
-        queries.append(distinctive)
+    for variant in variants[:3]:
+        if variant and city:
+            queries.append(f"{variant} {city}")
+        if variant:
+            queries.append(variant)
+    # Solo come ultimo fallback usa la località da sola: non deve prevalere sul brand.
     if city:
         queries.append(city)
-    queries=list(dict.fromkeys(q for q in queries if q))[:3]
+    queries=list(dict.fromkeys(q for q in queries if q))[:7]
     if not queries:
         return {"status":"not_found","url":"","evidence":f"{label}: nome/località non disponibili per la ricerca interna."}
 
