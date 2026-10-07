@@ -3714,7 +3714,9 @@ type BrowserPilotResult = {
     total?: number;
     otaId?: string;
     label?: string;
+    updatedAt?: string;
   };
+  plan?: { month?: string; checkin?: string; checkout?: string; nights?: number; adults?: number }[];
   roomReferences?: {
     checkin: string;
     checkout: string;
@@ -4721,6 +4723,9 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
+  const [localPilotGhost, setLocalPilotGhost] = useState(() => window.localStorage.getItem("velora-pilot-ghost") === "1");
+  const [localPilotProgress, setLocalPilotProgress] = useState(0);
+  const [localPilotPhase, setLocalPilotPhase] = useState("");
   const [autoAuditDraft, setAutoAuditDraft] = useState(
     initialUiState.autoAuditDraft ?? { name: "", website: "", city: "", province: "", rooms: "" }
   );
@@ -5238,6 +5243,8 @@ export default function App() {
       return;
     }
     setLocalPilotRunning(true);
+    setLocalPilotProgress(1);
+    setLocalPilotPhase("Avvio scraping");
     const pilotStartedAt = Date.now();
     setLocalPilotMessage("Rilevazione in corso · 00:00 trascorsi. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
@@ -5249,6 +5256,7 @@ export default function App() {
           propertyId: activeAuditData.id,
           months,
           channels: channelIds,
+          ghost: localPilotGhost,
           propertyData: {
             id: activeAuditData.id,
             name: activeAuditData.name,
@@ -5280,6 +5288,21 @@ export default function App() {
           : status.running
             ? `Elaborazione tariffe · ${elapsed} trascorsi. `
             : "";
+        const expectedChannels = Math.max(1, channelIds?.length || 10);
+        const expectedMonths = Math.max(1, status.result?.plan?.length || (months === 1 ? 1 : 1));
+        const expectedChecks = expectedChannels * expectedMonths;
+        if (discoveryActive) {
+          const fraction = Math.min(1, Number(discovery.completed || 0) / Math.max(1, Number(discovery.total || 1)));
+          setLocalPilotProgress(Math.max(2, Math.round(5 + fraction * 35)));
+          setLocalPilotPhase(`Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}`);
+        } else if (status.running) {
+          const fraction = Math.min(1, count / expectedChecks);
+          setLocalPilotProgress(Math.max(40, Math.round(40 + fraction * 55)));
+          setLocalPilotPhase(`Verifica prezzi OTA · ${count}/${expectedChecks}`);
+        } else {
+          setLocalPilotProgress(status.error ? Math.min(99, localPilotProgress) : 100);
+          setLocalPilotPhase(status.error ? "Scraping interrotto" : "Scraping completato");
+        }
         setLocalPilotMessage(
           status.running
             ? `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
@@ -7580,6 +7603,34 @@ export default function App() {
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 14 canali: 10 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Holidu, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. La durata del soggiorno non viene forzata a una sola notte: Velora conserva la finestra valida trovata da Booking e normalizza ogni tariffa in €/notte + totale soggiorno, indicando quale valore era mostrato dal portale e quale è stato calcolato. Quando disponibili, Trivago/Google Hotels/Tripadvisor vengono usati anche come supporto di discovery: i link commerciali verso le OTA vengono verificati con nome + località/indirizzo prima di essere usati. Gli importi non attribuiti con certezza a camera/piano restano osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${localPilotGhost ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-[#E5DDF1] bg-white text-[#50627F]"}`}>
+                <input
+                  type="checkbox"
+                  checked={localPilotGhost}
+                  disabled={localPilotRunning}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setLocalPilotGhost(enabled);
+                    window.localStorage.setItem("velora-pilot-ghost", enabled ? "1" : "0");
+                  }}
+                />
+                Modalità Ghost · browser minimizzato
+              </label>
+              {localPilotRunning && <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-800">
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
+                Scraping in corso
+              </span>}
+            </div>
+            {localPilotRunning && <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3">
+              <div className="mb-1 flex items-center justify-between gap-3 text-[10px] font-black text-[#23124A]">
+                <span>{localPilotPhase || "Velora sta lavorando"}</span>
+                <span>{Math.max(1, Math.min(99, localPilotProgress))}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-[#EEE8F4]">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(1, Math.min(99, localPilotProgress))}%` }} />
+              </div>
+            </div>}
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
