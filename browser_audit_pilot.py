@@ -1782,7 +1782,7 @@ def _price_fields(displayed_amount: float, displayed_basis: str, stay: dict) -> 
 
 
 async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
-    """Fallback Agoda conservativo sul layout corrente: prezzo isolato + camera + 'a notte/totale'."""
+    """Fallback Agoda: prezzo visibile + camera nello stesso blocco; base locale o pagina univoca."""
     rows=await page.evaluate(r"""() => {
       const clean=(value) => String(value || '').replace(/\s+/g,' ').trim();
       const visible=(el) => {
@@ -1795,52 +1795,48 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
       };
       const priceOnly=/^(?:€\s*)?\d{1,5}(?:[.,]\d{1,2})?\s*€?$/;
       const roomRx=/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior|quadrupla|tripla|matrimoniale)\b/i;
-      const basisRx=/\b(a notte|per notte|per night|nightly|totale soggiorno|prezzo totale|stay total|total for|per stay)\b/i;
+      const basisRx=/\b(a notte|per notte|per night|nightly|totale soggiorno|prezzo totale|stay total|total for|per stay|media per notte|price per room per night)\b/i;
       const nodes=Array.from(document.querySelectorAll('span,strong,b,div')).filter(el => {
         if (!visible(el)) return false;
         const own=clean(el.textContent);
         return own.length<=40 && priceOnly.test(own);
-      }).slice(0,250);
+      }).slice(0,300);
       const out=[]; const seen=new Set();
       for (const priceNode of nodes) {
         const price=clean(priceNode.textContent);
         let container=priceNode;
         let chosen=null;
-        for (let depth=0; depth<7 && container; depth++,container=container.parentElement) {
+        for (let depth=0; depth<9 && container; depth++,container=container.parentElement) {
           const text=clean(container.innerText || container.textContent);
-          if (!text || text.length>4500) continue;
-          if (!basisRx.test(text)) continue;
-          const headings=Array.from(container.querySelectorAll('h1,h2,h3,h4,[data-selenium="room-name"],[data-element-name*="room-name" i]'))
-            .map(el=>clean(el.textContent)).filter(Boolean);
+          if (!text || text.length>6500) continue;
+          const headings=Array.from(container.querySelectorAll(
+            'h1,h2,h3,h4,[data-selenium="room-name"],[data-ppapi*="room-name" i],[data-element-name*="room-name" i]'
+          )).map(el=>clean(el.textContent)).filter(Boolean);
           const room=headings.find(v=>roomRx.test(v)) || headings[0] || '';
           if (!room) continue;
-          chosen={price,room:room.slice(0,240),text:text.slice(0,3000)};
-          break;
+          const basisText=basisRx.test(text) ? text : '';
+          chosen={price,room:room.slice(0,240),text:text.slice(0,4200),hasLocalBasis:Boolean(basisText)};
+          if (basisText) break;
         }
         if (!chosen) continue;
         const key=(chosen.room+'|'+chosen.price+'|'+chosen.text.slice(0,500)).toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key); out.push(chosen);
       }
-      return out.slice(0,60);
+      return out.slice(0,80);
     }""")
-    page_basis=""
-    try:
-        page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
-        nightly_hits=bool(re.search(r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",page_text,re.I))
-        total_hits=bool(re.search(r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",page_text,re.I))
-        if nightly_hits and not total_hits:
-            page_basis="nightly"
-        elif total_hits and not nightly_hits:
-            page_basis="stay-total"
-    except Exception:
-        page_basis=""
 
     page_basis=""
     try:
         page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
-        nightly_hits=bool(re.search(r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",page_text,re.I))
-        total_hits=bool(re.search(r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",page_text,re.I))
+        nightly_hits=bool(re.search(
+            r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",
+            page_text,re.I
+        ))
+        total_hits=bool(re.search(
+            r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",
+            page_text,re.I
+        ))
         if nightly_hits and not total_hits:
             page_basis="nightly"
         elif total_hits and not nightly_hits:
@@ -1856,7 +1852,7 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
         if not room or price is None or not text:
             continue
         low=text.lower()
-        if re.search(r"\b(a notte|per notte|per night|nightly|prezzo per camera per notte|media per notte)\b",low,re.I):
+        if re.search(r"\b(a notte|per notte|per night|nightly|prezzo per camera per notte|media per notte|price per room per night)\b",low,re.I):
             basis="nightly"
         elif re.search(r"\b(totale soggiorno|prezzo totale|stay total|total for|per stay|totale per il soggiorno)\b",low,re.I):
             basis="stay-total"
@@ -1879,7 +1875,10 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
         )
         out.append({
             "roomType":room,
-            "ratePlan":" · ".join(x for x in (refund if refund!="Cancellazione da verificare" else "",board if board!="Trattamento da verificare" else "") if x) or "Piano tariffario da verificare",
+            "ratePlan":" · ".join(x for x in (
+                refund if refund!="Cancellazione da verificare" else "",
+                board if board!="Trattamento da verificare" else ""
+            ) if x) or "Piano tariffario da verificare",
             **fields,
             "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
             "board":board,"refund":refund,"audience":"Pubblico senza login","taxes":taxes,
@@ -1889,13 +1888,14 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
     unique=[]; seen=set()
     for item in out:
         key=(item["roomType"].lower(),item["nightlyRate"],item.get("ratePlan","").lower())
-        if key in seen: continue
+        if key in seen:
+            continue
         seen.add(key); unique.append(item)
     return unique[:40]
 
 
 async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
-    """Raccoglie su Agoda soltanto prezzi associati a una camera e a una base prezzo leggibile."""
+    """Raccoglie prezzi Agoda associati a camera; la base può essere locale, di griglia o pagina univoca."""
     rows=await page.evaluate(r"""() => {
       const result=[]; const seen=new Set();
       const clean=(value) => String(value || '').replace(/\s+/g,' ').trim();
@@ -1913,7 +1913,8 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         '[data-selenium*="current-price"]',
         '[data-ppapi*="room-price" i]',
         '[data-ppapi*="price" i]',
-        '[data-element-name*="price" i]'
+        '[data-element-name*="price" i]',
+        '[class*="price" i]'
       ];
       const roomSelectors=[
         '[data-selenium="room-name"]',
@@ -1931,51 +1932,69 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         return null;
       };
       const containers=Array.from(document.querySelectorAll(
-        '[data-selenium="room-grid"], [data-selenium="room-item"], [data-element-name*="room-card" i], ' +
-        '[data-element-name*="room-grid" i], tr'
-      )).slice(0,160);
+        '[data-selenium="room-grid"], [data-selenium="room-item"], [data-ppapi*="room" i], ' +
+        '[data-element-name*="room-card" i], [data-element-name*="room-grid" i], tr, [role="row"]'
+      )).slice(0,220);
       for (const container of containers) {
         if (!visible(container)) continue;
         const priceNode=pick(container,priceSelectors);
         if (!priceNode) continue;
         const price=clean(priceNode.textContent).slice(0,180);
-        if (!price) continue;
+        if (!price || !/(€|EUR|\d)/i.test(price)) continue;
         let room='';
         for (const selector of roomSelectors) {
           const node=container.querySelector(selector);
           const candidate=clean(node?.textContent);
           if (!candidate) continue;
           if (selector==='h2' || selector==='h3' || selector==='h4') {
-            if (!/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior)\b/i.test(candidate)) continue;
+            if (!/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior|quadrupla|tripla|matrimoniale)\b/i.test(candidate)) continue;
           }
           room=candidate.slice(0,240); break;
         }
-        const text=clean(container.innerText || container.textContent).slice(0,2600);
+        const text=clean(container.innerText || container.textContent).slice(0,4200);
         if (!text || !room) continue;
         const low=text.toLowerCase();
         let basis='';
         if (/(total price|total for|prezzo totale|totale soggiorno|stay total|per stay|price for .* nights?|prezzo per .* notti)/i.test(low)) basis='stay-total';
-        else if (/(per night|\/night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte)/i.test(low)) basis='nightly';
+        else if (/(per night|\/night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte|media per notte)/i.test(low)) basis='nightly';
 
-        // Agoda spesso mostra la base ("Price per night") nell'intestazione della
-        // griglia e non la ripete in ogni riga camera. In quel caso ereditiamo la
-        // base solo dalla stessa griglia/tabella, mai da testo generico della pagina.
         if (!basis) {
-          const grid=container.closest('[data-selenium="room-grid"], [data-element-name*="room-grid" i], table, [role="table"]');
+          const grid=container.closest(
+            '[data-selenium="room-grid"], [data-element-name*="room-grid" i], [data-ppapi*="room" i], table, [role="table"]'
+          );
           const headerText=clean(
-            Array.from(grid?.querySelectorAll('th,[role="columnheader"],[data-selenium*="price"],[data-ppapi*="price"]') || [])
-              .slice(0,40).map(el=>el.textContent || '').join(' ')
+            Array.from(grid?.querySelectorAll(
+              'th,[role="columnheader"],[data-selenium*="price"],[data-ppapi*="price"],[data-element-name*="price"]'
+            ) || []).slice(0,60).map(el=>el.textContent || '').join(' ')
           ).toLowerCase();
           if (/(total price|prezzo totale|totale soggiorno|stay total|per stay)/i.test(headerText)) basis='stay-total';
-          else if (/(per night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte)/i.test(headerText)) basis='nightly';
+          else if (/(per night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte|media per notte)/i.test(headerText)) basis='nightly';
         }
         const key=(room+'|'+price+'|'+basis+'|'+text.slice(0,700)).toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
         result.push({room,price,text,basis,isolated:true});
       }
-      return result.slice(0,120);
+      return result.slice(0,160);
     }""")
+
+    page_basis=""
+    try:
+        page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
+        nightly_hits=bool(re.search(
+            r"\b(price per night|per night|a notte|per notte|nightly|prezzo per camera per notte|media per notte)\b",
+            page_text,re.I
+        ))
+        total_hits=bool(re.search(
+            r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",
+            page_text,re.I
+        ))
+        if nightly_hits and not total_hits:
+            page_basis="nightly"
+        elif total_hits and not nightly_hits:
+            page_basis="stay-total"
+    except Exception:
+        page_basis=""
 
     out=[]
     for row in rows:
@@ -2028,8 +2047,6 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
             f"Prezzo per notte visibile (€{price:.2f}) × {stay['nights']} notti = €{total:.2f}."
             if basis=="nightly"
             else "Totale soggiorno indicato nel blocco tariffario."
-            if basis=="stay-total"
-            else "Base del prezzo non confermata."
         )
         out.append({
             "roomType":room,
@@ -2053,7 +2070,6 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
             continue
         seen.add(key); unique.append(item)
     return unique[:40]
-
 
 
 def airbnb_url_dates_confirmed(url: str, stay: dict) -> bool:
