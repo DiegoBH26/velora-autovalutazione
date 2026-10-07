@@ -1876,11 +1876,9 @@ def vrbo_url_dates_confirmed(url: str, stay: dict) -> bool:
         query={str(key).lower():str(value) for key,value in parse_qsl(urlparse(url).query,keep_blank_values=True)}
     except Exception:
         return False
-    return (
-        (query.get("chkin") or query.get("checkin") or query.get("check_in") or "") == stay["checkin"]
-        and (query.get("chkout") or query.get("checkout") or query.get("check_out") or "") == stay["checkout"]
-    )
-
+    start=(query.get("chkin") or query.get("checkin") or query.get("check_in") or query.get("d1") or query.get("startdate") or "")
+    end=(query.get("chkout") or query.get("checkout") or query.get("check_out") or query.get("d2") or query.get("enddate") or "")
+    return start == stay["checkin"] and end == stay["checkout"]
 
 async def listing_property_rate_context(page, channel: str) -> tuple[bool,str]:
     selector_map={
@@ -8863,7 +8861,7 @@ def _browser_closed_exception(exc: Exception) -> bool:
     )
 
 
-async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str):
+async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str, ghost: bool = False):
     """Apre una sessione Chrome persistente dedicata a una singola fase dell'audit."""
     profile_dir.mkdir(parents=True,exist_ok=True)
     last_exc=None
@@ -8877,6 +8875,7 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 timezone_id="Europe/Rome",
                 viewport={"width":1440,"height":1000},
                 chromium_sandbox=True,
+                args=["--start-minimized"] if ghost else [],
             )
             anchor_page=context.pages[0] if context.pages else await context.new_page()
             try:
@@ -8900,8 +8899,19 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 )
             except Exception:
                 pass
+            if ghost:
+                try:
+                    cdp=await context.new_cdp_session(anchor_page)
+                    window_info=await cdp.send("Browser.getWindowForTarget")
+                    await cdp.send("Browser.setWindowBounds",{
+                        "windowId":window_info["windowId"],
+                        "bounds":{"windowState":"minimized"},
+                    })
+                    await cdp.detach()
+                except Exception:
+                    pass
             print(
-                f"browser mode: Chrome persistente visibile · fase={phase_label} · profilo={profile_dir} · watchdog finestra attivo",
+                f"browser mode: {'Ghost/minimizzato' if ghost else 'Chrome persistente visibile'} · fase={phase_label} · profilo={profile_dir} · watchdog finestra attivo",
                 flush=True,
             )
             return context
@@ -8924,6 +8934,7 @@ async def run(args: argparse.Namespace) -> dict:
     if unknown:
         raise ValueError(f"Canali sconosciuti: {', '.join(sorted(unknown))}")
     sources = data.get("sources", {})
+    ghost=bool(getattr(args,"ghost",False))
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
@@ -8942,7 +8953,7 @@ async def run(args: argparse.Namespace) -> dict:
         discovery_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-discovery"
         pricing_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-pricing"
         context=await _launch_velora_context(
-            playwright,discovery_profile_dir,data,"discovery OTA"
+            playwright,discovery_profile_dir,data,"discovery OTA",ghost
         )
         result["browserPhases"].append({
             "phase":"discovery","status":"running","profile":str(discovery_profile_dir)
@@ -9095,7 +9106,7 @@ async def run(args: argparse.Namespace) -> dict:
                 pass
             await asyncio.sleep(0.8)
             context=await _launch_velora_context(
-                playwright,pricing_profile_dir,data,"verifica schede e tariffe"
+                playwright,pricing_profile_dir,data,"verifica schede e tariffe",ghost
             )
             result["browserPhases"].append({
                 "phase":"pricing","status":"running","profile":str(pricing_profile_dir)
@@ -9114,7 +9125,7 @@ async def run(args: argparse.Namespace) -> dict:
                     pass
                 await asyncio.sleep(0.8)
                 context=await _launch_velora_context(
-                    playwright,pricing_profile_dir,data,"verifica schede e tariffe · recovery"
+                    playwright,pricing_profile_dir,data,"verifica schede e tariffe · recovery",ghost
                 )
                 result["browserPhases"].append({
                     "phase":"pricing",
@@ -9573,6 +9584,7 @@ def main() -> None:
     parser.add_argument("--months", type=int, help="Solo i primi N mesi futuri (per test)")
     parser.add_argument("--today", help="Data ISO per test riproducibili")
     parser.add_argument("--dry-run", action="store_true", help="Genera solo il piano date")
+    parser.add_argument("--ghost", action="store_true", help="Mantiene Chrome minimizzato durante lo scraping")
     args = parser.parse_args()
     asyncio.run(run(args))
 
