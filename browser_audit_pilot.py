@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v70"
+PILOT_BUILD = "velora-browser-pilot-v71"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -51,9 +51,11 @@ OTA_META = {
 }
 DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels"}
 PROFILE_AUDIT_CHANNELS = ("tripadvisor", "trivago", "googlehotels", "holidaycheck")
+FRONTEND_FIRST_CHANNELS = {"airbnb","vrbo"}
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
+    "mostra di essere umano", "dimostra di essere umano", "show you're human", "prove you're human",
 )
 PRICE_RE = re.compile(r"(?:€|EUR)\s*([0-9]{1,5}(?:[.,][0-9]{2})?)|([0-9]{1,5}(?:[.,][0-9]{2})?)\s*(?:€|EUR)", re.I)
 GENERIC_NAME_WORDS = {
@@ -790,17 +792,27 @@ def _classify_ota_url(url: str) -> str:
 
 
 def normalize_ota_listing_url(ota_id: str, url: str) -> str:
-    """Normalizza host/lingua/valuta senza inventare una pagina struttura diversa."""
+    """Normalizza una scheda OTA senza cambiare la struttura identificata."""
     try:
         parsed=urlparse(str(url or ""))
         if parsed.scheme not in {"http","https"} or not parsed.hostname:
             return str(url or "")
         query=dict(parse_qsl(parsed.query,keep_blank_values=True))
-        if ota_id=="airbnb" and "/rooms/" in (parsed.path or "").lower():
-            query["locale"]="it"
-            query["currency"]="EUR"
-            return urlunparse(parsed._replace(netloc="www.airbnb.it",query=urlencode(query),fragment=""))
-        return urlunparse(parsed._replace(fragment=""))
+        path=parsed.path or ""
+        if ota_id=="airbnb" and "/rooms/" in path.lower():
+            return urlunparse(parsed._replace(
+                netloc="www.airbnb.it",
+                query=urlencode({"locale":"it","currency":"EUR"}),
+                fragment="",
+            ))
+        if ota_id=="vrbo" and "/pdp/" in path.lower():
+            return urlunparse(parsed._replace(query="",fragment=""))
+        tracking_prefixes=("utm_","referrer","source_","semcid","siteid","gclid","fbclid","rfrr","pwa_","_x_")
+        clean_query={
+            key:value for key,value in query.items()
+            if not any(str(key).lower().startswith(prefix) for prefix in tracking_prefixes)
+        }
+        return urlunparse(parsed._replace(query=urlencode(clean_query),fragment=""))
     except Exception:
         return str(url or "")
 
@@ -2591,6 +2603,14 @@ async def airbnb_quote_candidates(page, stay: dict) -> list[dict]:
     return unique[:8]
 
 
+def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
+    """Airbnb/Vrbo partono dalla PDP pulita; gli altri usano il normale adapter date."""
+    clean=normalize_ota_listing_url(channel,source)
+    if channel in FRONTEND_FIRST_CHANNELS:
+        return clean
+    return dated_url(channel,clean,stay)
+
+
 async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tuple[bool,str]:
     """Fallback frontend reale per OTA: apre il date picker, sceglie le date e conferma la ricerca."""
     label=OTA_META.get(channel,{}).get("label",channel)
@@ -2715,6 +2735,61 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
         return False,f"{label}: check-out {stay['checkout']} non selezionabile dal frontend"
     evidence.append(f"check-out {stay['checkout']}")
 
+    # Imposta gli ospiti quando il frontend espone un selettore standard.
+    try:
+        guest_trigger,_=await _first_visible_locator(page,(
+            'button:has-text("Ospiti")','button:has-text("Guests")',
+            '[data-testid*="guest" i]','[data-stid*="guest" i]',
+            '[data-element-name*="guest" i]',
+        ))
+        if guest_trigger is not None:
+            await guest_trigger.click(timeout=1800)
+            await page.wait_for_timeout(350)
+            state=await page.evaluate(r"""(target) => {
+              const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+              const visible=el=>{
+                if(!el) return false; const st=getComputedStyle(el);
+                if(st.display==='none'||st.visibility==='hidden') return false;
+                const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+              };
+              document.querySelectorAll('[data-velora-minus],[data-velora-plus]').forEach(el=>{
+                el.removeAttribute('data-velora-minus'); el.removeAttribute('data-velora-plus');
+              });
+              const labels=Array.from(document.querySelectorAll('div,span,p,label')).filter(el =>
+                visible(el) && /^(adulti|adults)$/i.test(clean(el.textContent))
+              );
+              for(const label of labels){
+                let row=label;
+                for(let depth=0;depth<6&&row;depth++,row=row.parentElement){
+                  const buttons=Array.from(row.querySelectorAll('button')).filter(visible);
+                  const nums=Array.from(row.querySelectorAll('span,div')).map(el=>clean(el.textContent)).filter(v=>/^\d+$/.test(v));
+                  const current=nums.length?Number(nums[nums.length-1]):NaN;
+                  if(buttons.length>=2&&Number.isFinite(current)){
+                    buttons[0].setAttribute('data-velora-minus','1');
+                    buttons[buttons.length-1].setAttribute('data-velora-plus','1');
+                    return {current,target};
+                  }
+                }
+              }
+              return null;
+            }""",int(stay.get("adults") or 2))
+            if state and Number.isFinite(Number(state.get("current"))):
+                current=int(state["current"]); target=int(stay.get("adults") or 2)
+                while current<target:
+                    await page.locator('[data-velora-plus="1"]').click(timeout=1100); current+=1
+                    await page.wait_for_timeout(150)
+                while current>target:
+                    await page.locator('[data-velora-minus="1"]').click(timeout=1100); current-=1
+                    await page.wait_for_timeout(150)
+                evidence.append(f"ospiti {target} adulti")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            await page.wait_for_timeout(250)
+    except Exception:
+        pass
+
     # Conferma/chiude il calendario. Evita CTA di pagamento: solo Search/Done/Apply/Availability.
     action,_=await _first_visible_locator(page,(
         'button:has-text("Cerca")','button:has-text("Search")',
@@ -2768,38 +2843,153 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
     return confirmed,(" · ".join(evidence))[:900]
 
 
-async def vrbo_reveal_rates(page) -> str:
-    """Porta Vrbo al riepilogo/prezzo senza entrare nel pagamento."""
+async def vrbo_reveal_rates(page, source: str, stay: dict) -> str:
+    """Vrbo: se Cerca apre i risultati, rientra nella stessa PDP e porta a vista le unità."""
+    evidence=[]
+    clean_source=normalize_ota_listing_url("vrbo",source)
+    source_path=(urlparse(clean_source).path or "").rstrip("/")
+    listing_id=""
+    match=re.search(r"/(\d{5,})(?:/)?$",source_path)
+    if match:
+        listing_id=match.group(1)
+
+    current_path=(urlparse(page.url).path or "").rstrip("/")
+    if source_path and current_path!=source_path and listing_id:
+        try:
+            link=page.locator(f'a[href*="{listing_id}"]').first
+            if await link.count() and await link.is_visible(timeout=700):
+                await link.click(timeout=2200)
+                await page.wait_for_timeout(1600)
+                await dismiss_cookie(page)
+                evidence.append("stessa struttura riaperta dalla lista risultati")
+        except Exception as exc:
+            evidence.append(f"rientro PDP: {type(exc).__name__}")
+
     for selector in (
-        'button:has-text("Controlla disponibilità")',
-        'button:has-text("Check availability")',
-        'button:has-text("Vedi prezzi")',
-        'button:has-text("See prices")',
-        'button:has-text("View rates")',
-        '[data-stid*="availability"]',
-        '[data-stid*="price"]',
-        '[data-testid*="price"]',
+        'button:has-text("Seleziona la tua unità")',
+        'a:has-text("Seleziona la tua unità")',
+        'button:has-text("Tariffe")',
+        'a:has-text("Tariffe")',
+        'button:has-text("Choose your unit")',
+        'button:has-text("Rates")',
     ):
         try:
             node=page.locator(selector).first
-            if await node.count() and await node.is_visible(timeout=280):
+            if await node.count() and await node.is_visible(timeout=350):
                 await node.scroll_into_view_if_needed(timeout=1200)
-                text=re.sub(r"\s+"," ",(await node.inner_text(timeout=450)) or selector).strip()[:100]
-                if "price" not in selector and "availability" not in selector:
-                    try:
-                        await node.click(timeout=1800)
-                    except Exception:
-                        pass
-                await page.wait_for_timeout(1200)
-                return f"Vrbo frontend: area tariffaria raggiunta «{text or selector}»"
+                try:
+                    await node.click(timeout=1800)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(1000)
+                evidence.append("area unità/tariffe aperta")
+                break
         except Exception:
             pass
+
     try:
-        await page.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight*0.55))")
-        await page.wait_for_timeout(900)
-        return "Vrbo frontend: scroll area prenotazione eseguito"
+        for fraction in (0.45,0.65,0.80,0.92):
+            await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight*{fraction})")
+            await page.wait_for_timeout(600)
+            body=(await page.locator("body").inner_text(timeout=4500))[:22000]
+            if (
+                ("condizioni di cancellazione" in body.lower() or "cancellation" in body.lower())
+                and re.search(r'\d[\d.,]*\s*€',body)
+            ):
+                evidence.append("card unità con prezzi renderizzate")
+                break
     except Exception:
-        return "Vrbo frontend: area tariffaria non individuata"
+        pass
+    return " · ".join(evidence)[:900] or "Vrbo: area tariffaria non individuata"
+
+
+async def vrbo_quote_candidates(page, stay: dict) -> list[dict]:
+    """Estrae card unità Vrbo con totale, €/notte e supplementi di cancellazione."""
+    rows=await page.evaluate(r"""(nights) => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el) return false; const st=getComputedStyle(el);
+        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+        const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+      };
+      const out=[]; const seen=new Set();
+      for(const node of Array.from(document.querySelectorAll('article,section,li,div')).filter(visible)){
+        const text=clean(node.innerText||node.textContent);
+        if(!text||text.length<80||text.length>4200) continue;
+        const low=text.toLowerCase();
+        if(!/(condizioni di cancellazione|cancellation)/i.test(low)) continue;
+        if(!new RegExp('(?:per|for)\\s*'+nights+'\\s*(?:notti|nights?)','i').test(text)) continue;
+        if(!/(€|eur)/i.test(text)) continue;
+        let room='';
+        for(const sel of ['h2','h3','h4','[data-stid*="room-name"]','[data-testid*="room-name"]']){
+          const h=node.querySelector(sel); const v=clean(h?.textContent);
+          if(v&&v.length<260){room=v;break}
+        }
+        if(!room) continue;
+        const key=(room+'|'+text.slice(-900)).toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key); out.push({room,text});
+      }
+      return out.slice(0,30);
+    }""",int(stay["nights"]))
+
+    out=[]
+    total_rx=re.compile(r'([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*€\s*(?:per|for)\s*'+re.escape(str(stay["nights"]))+r'\s*(?:notti|nights?)',re.I)
+    nightly_rx=re.compile(r'([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*€\s*(?:a notte|per notte|per night)',re.I)
+    partial_rx=re.compile(r'(?:parzialmente rimborsabile|partially refundable)[^€+]{0,80}\+\s*([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*€',re.I)
+    for row in rows:
+        room=str(row.get("room") or "").strip()
+        text=str(row.get("text") or "").strip()
+        if not room or not text:
+            continue
+        total_match=total_rx.search(text)
+        if not total_match:
+            continue
+        total=_localized_number(total_match.group(1))
+        if total is None or total<=0:
+            continue
+        nightly_match=nightly_rx.search(text)
+        nightly=_localized_number(nightly_match.group(1)) if nightly_match else None
+        low=text.lower()
+        board="Colazione inclusa" if ("colazione inclusa" in low or "breakfast included" in low) else "Trattamento da verificare"
+        taxes=(
+            "Tasse e oneri inclusi"
+            if any(token in low for token in ("tasse e oneri inclusi","taxes and fees included","taxes included"))
+            else "Da verificare nel dettaglio del preventivo"
+        )
+        base_fields=_price_fields(float(total),"stay-total",stay)
+        if nightly is not None and abs(float(nightly)-base_fields["nightlyRate"])<=1.5:
+            base_fields["nightlyRate"]=round(float(nightly),2)
+            base_fields["priceDerivation"]+=f" Vrbo mostra anche €{float(nightly):.2f}/notte."
+        out.append({
+            "roomType":room[:240],"ratePlan":"Non rimborsabile",**base_fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":board,"refund":"Non rimborsabile","audience":"Pubblico senza login",
+            "taxes":taxes,"verified":True,
+            "evidence":("Vrbo card unità: totale e durata espliciti. "+text[:850])[:1100],
+        })
+        extra=partial_rx.search(text)
+        if extra:
+            surcharge=_localized_number(extra.group(1))
+            if surcharge is not None and surcharge>=0:
+                partial_total=round(float(total)+float(surcharge),2)
+                fields=_price_fields(partial_total,"stay-total",stay)
+                out.append({
+                    "roomType":room[:240],"ratePlan":"Parzialmente rimborsabile",**fields,
+                    "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+                    "board":board,"refund":"Parzialmente rimborsabile","audience":"Pubblico senza login",
+                    "taxes":taxes,"verified":True,
+                    "evidence":(
+                        f"Vrbo card unità: base €{float(total):.2f} + supplemento cancellazione "
+                        f"€{float(surcharge):.2f} = €{partial_total:.2f}. "+text[:760]
+                    )[:1100],
+                })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["ratePlan"].lower(),item["total"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:24]
 
 
 def expedia_group_url_dates_confirmed(url: str, stay: dict) -> bool:
@@ -3855,7 +4045,7 @@ async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -
 
 
 async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
-    """Fallback conservativo: conserva SOLO importi con base prezzo esplicita."""
+    """Fallback frontend: usa importi visibili con base esplicita; valida solo se identifica anche l'unità."""
     rows=await page.evaluate(r"""() => {
       const selectors=[
         '[data-testid*="price"]','[class*="price"]','[data-stid*="price"]',
@@ -3869,14 +4059,20 @@ async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
           if (!text || text.length<8 || text.length>2400 || seen.has(text)) continue;
           const low=text.toLowerCase();
           if (!/(a notte|per notte|per night|nightly|totale soggiorno|prezzo totale|stay total|total for|per stay|per \d+ notti|for \d+ nights)/i.test(low)) continue;
-          seen.add(text); result.push(text);
+          let room='';
+          for(const sel of ['h2','h3','h4','[data-testid*="room-name"]','[data-stid*="room-name"]','[class*="room-name" i]']){
+            const h=container.querySelector(sel); const v=(h?.textContent||'').replace(/\s+/g,' ').trim();
+            if(v&&v.length<260){room=v;break}
+          }
+          seen.add(text); result.push({text,room});
         }
       }
       return result.slice(0,100);
     }""")
     out=[]
-    for text_value in rows:
-        text=str(text_value)
+    for row in rows:
+        text=str((row or {}).get("text") or "")
+        room=str((row or {}).get("room") or "").strip()
         low=text.lower()
         if re.search(r"\b(a notte|per notte|per night|nightly)\b",low,re.I):
             basis="nightly"
@@ -3888,13 +4084,19 @@ async def generic_ota_quote_candidates(page, stay: dict) -> list[dict]:
         if amount is None:
             continue
         fields=_price_fields(amount,basis,stay)
+        refund=(
+            "Cancellazione gratuita" if any(x in low for x in ("cancellazione gratuita","free cancellation","fully refundable"))
+            else "Non rimborsabile" if any(x in low for x in ("non rimborsabile","non-refundable","non refundable"))
+            else "Cancellazione da verificare"
+        )
+        board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
         out.append({
-            "roomType":"Tipologia camera da verificare",
+            "roomType":room or "Tipologia camera da verificare",
             **fields,
             "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
-            "board":"Trattamento da verificare","refund":"Cancellazione da verificare",
+            "board":board,"refund":refund,
             "audience":"Pubblico senza login","taxes":"Da verificare nel dettaglio del preventivo",
-            "verified":False,
+            "verified":bool(room),
             "evidence":(fields["priceDerivation"]+" Contesto: "+text[:900])[:1200],
         })
     unique=[]; seen=set()
@@ -6684,7 +6886,7 @@ async def booking_settle_render(page) -> dict:
 
 
 async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> dict:
-    requested = dated_url(channel, source, stay)
+    requested = frontend_entry_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
               "observedAt": datetime.now(timezone.utc).isoformat(), "status": "not_attempted",
               "finalUrl": "", "title": "", "evidence": "", "quotes": []}
@@ -6851,7 +7053,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         elif channel in {"airbnb","vrbo"} and dates_confirmed:
             vrbo_reveal_evidence=""
             if channel=="vrbo":
-                vrbo_reveal_evidence=await vrbo_reveal_rates(page)
+                vrbo_reveal_evidence=await vrbo_reveal_rates(page,source,stay)
             try:
                 selectors=(
                     '[data-testid="book-it-default"], [data-section-id="BOOK_IT_SIDEBAR"], [data-testid*="price"]'
@@ -7073,7 +7275,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 candidates=(
                     await airbnb_quote_candidates(page,stay)
                     if channel=="airbnb"
-                    else await listing_sidebar_quote_candidates(page,stay,channel)
+                    else await vrbo_quote_candidates(page,stay)
                 )
                 record["quotes"]=candidates
                 if candidates:
