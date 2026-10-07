@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v85"
+PILOT_BUILD = "velora-browser-pilot-v86"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3458,6 +3458,103 @@ async def agoda_prepare_frontend(
     if dom_evidence:
         evidence.append(dom_evidence[:260])
     return confirmed,(" · ".join(evidence))[:1200]
+
+
+async def agoda_room_offer_visual_candidates(page, stay: dict) -> list[dict]:
+    """Parser visuale Agoda per il layout camere/offerte mostrato nel frontend italiano."""
+    payload=await page.evaluate(r"""(wantedAdults) => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el)return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+        return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||'1')!==0&&r.width>0&&r.height>0;
+      };
+      const money=/(?:€|EUR)\s*([0-9]{1,5}(?:[.,][0-9]{1,2})?)|([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*(?:€|EUR)/i;
+      const roomRx=/\b(camera|suite|appartamento|apartment|room|studio|villa|matrimoniale|deluxe|superior|familiare|family|tripla|quadrupla|king|queen|twin|double)\b/i;
+      const roomNodes=Array.from(document.querySelectorAll(
+        'h2,h3,h4,[data-selenium="room-name"],[data-element-name*="room-name" i],[data-ppapi*="room-name" i]'
+      )).filter(visible).map(el=>{
+        const r=el.getBoundingClientRect(), text=clean(el.textContent);
+        return {el,text,left:r.left,top:r.top,bottom:r.bottom};
+      }).filter(x=>x.text&&x.text.length<260&&roomRx.test(x.text));
+
+      const out=[],seen=new Set();
+      const priceNodes=Array.from(document.querySelectorAll('span,strong,b,div')).filter(visible).filter(el=>{
+        const t=clean(el.textContent);
+        return t.length<=55&&money.test(t);
+      }).slice(0,500);
+
+      for(const priceEl of priceNodes){
+        const pr=priceEl.getBoundingClientRect();
+        let box=priceEl, text='';
+        for(let d=0;d<7&&box;d++,box=box.parentElement){
+          const t=clean(box.innerText||box.textContent);
+          if(t.length>=20&&t.length<=2600&&/(a notte|per notte|per night)/i.test(t)&&money.test(t)){
+            text=t; break;
+          }
+        }
+        if(!box||!text) continue;
+        const low=text.toLowerCase();
+        const adultMatch=text.match(/\b(\d+)\s*(?:adulti|adults?)\b/i);
+        if(adultMatch&&Number(adultMatch[1])!==Number(wantedAdults)) continue;
+        if(/numero massimo di persone.*superato|massimo di persone.*superato|maximum occupancy.*exceed|max occupancy.*exceed/i.test(low)) continue;
+
+        // Camera più vicina verticalmente sopra o sulla stessa riga della tariffa.
+        let best=null;
+        for(const room of roomNodes){
+          const dy=pr.top-room.top;
+          if(dy < -80 || dy > 950) continue;
+          const score=Math.abs(dy) + Math.max(0,room.left-pr.left)*0.05;
+          if(!best||score<best.score) best={...room,score};
+        }
+        if(!best) continue;
+        const price=clean(priceEl.textContent);
+        const key=(best.text+'|'+price+'|'+text.slice(0,700)).toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key);
+        out.push({room:best.text,price,text,dy:Math.round(pr.top-best.top)});
+      }
+      return out.slice(0,100);
+    }""",int(stay.get("adults") or 2))
+
+    out=[]
+    for row in payload:
+        room=str(row.get("room") or "").strip()
+        text=str(row.get("text") or "").strip()
+        price=_money_value(str(row.get("price") or ""))
+        if not room or not text or price is None or price<=0:
+            continue
+        low=text.lower()
+        fields=_price_fields(price,"nightly",stay)
+        board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
+        if any(x in low for x in ("cancellazione gratuita","free cancellation")):
+            refund="Cancellazione gratuita"
+        elif any(x in low for x in ("non rimborsabile","non-refundable","non refundable")):
+            refund="Non rimborsabile"
+        else:
+            refund="Cancellazione da verificare"
+        taxes="Tasse e costi inclusi" if any(x in low for x in ("tasse e costi inclusi","tasse incluse","taxes included","taxes and fees included")) else "Da verificare nel dettaglio del preventivo"
+        out.append({
+            "roomType":room[:240],
+            "ratePlan":" · ".join(x for x in (
+                refund if refund!="Cancellazione da verificare" else "",
+                board if board!="Trattamento da verificare" else ""
+            ) if x) or "Piano tariffario pubblico",
+            **fields,
+            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
+            "board":board,"refund":refund,"audience":"Pubblico senza login","taxes":taxes,
+            "verified":True,
+            "evidence":(
+                fields["priceDerivation"]+
+                f" Agoda frontend: camera associata visualmente alla riga tariffa (Δy {row.get('dy','?')}px). "+
+                text
+            )[:1200],
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["nightlyRate"],item["refund"],item["board"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:40]
 
 
 async def agoda_offer_row_candidates(page, stay: dict) -> list[dict]:
@@ -8148,8 +8245,16 @@ async def observe(
         async def snapshot_and_confirm():
             current_title=(await page.title())[:200]
             current_body=(await page.locator("body").inner_text(timeout=7000))[:12000]
-            confirmed=visible_dates_confirmed(current_body, stay)
-            mode="visible-text" if confirmed else ""
+            # Agoda: mai confermare le date dal testo generico della pagina.
+            # La homepage può contenere numeri/date incidentali (es. offerte/carousel)
+            # e in v85 questo poteva produrre un falso positivo, saltando il vero flusso
+            # homepage -> struttura -> date -> Cerca -> camere/tariffe.
+            if channel=="agoda":
+                confirmed=False
+                mode=""
+            else:
+                confirmed=visible_dates_confirmed(current_body, stay)
+                mode="visible-text" if confirmed else ""
             dom_excerpt=""
             if channel == "booking" and not confirmed:
                 confirmed, dom_excerpt = await booking_dom_dates_confirmed(page, stay)
@@ -8261,10 +8366,25 @@ async def observe(
             applied, ui_date_evidence = await agoda_prepare_frontend(
                 page,source,stay,property_name=property_name,city=city
             )
+            print(
+                f"{stay['month']} agoda-frontend-flow: applied={applied} · "
+                f"url={page.url[:320]} · {ui_date_evidence[:700]}",
+                flush=True,
+            )
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
             if applied and dates_confirmed:
                 date_confirmation_mode="agoda-home-search+frontend"
+            elif applied and not dates_confirmed:
+                # Il helper ha completato la UI ma la conferma finale non deve dipendere
+                # dal testo generico: prova una volta il DOM Agoda e la URL della scheda.
+                dom_ok,dom_ev=await agoda_dom_dates_confirmed(page,stay)
+                url_ok=agoda_url_dates_confirmed(page.url,stay)
+                property_ok,property_ev=await agoda_property_rate_context(page)
+                if dom_ok or (url_ok and property_ok):
+                    dates_confirmed=True
+                    date_confirmation_mode="agoda-home-search+frontend"
+                    date_dom_excerpt=(dom_ev or property_ev or "Agoda frontend completato")[:800]
         elif channel in {"airbnb","vrbo","holidu","expedia","hotels","travelocity","trip"} and not dates_confirmed:
             applied, ui_date_evidence = await generic_ota_frontend_apply_dates(page,channel,stay)
             if applied:
@@ -8353,6 +8473,15 @@ async def observe(
             except Exception:
                 pass
         text = (record["title"] + " " + body).lower()
+        if channel=="agoda":
+            agoda_path=(urlparse(page.url).path or "").lower().rstrip("/")
+            if agoda_path in {"","/it-it","/en-us","/"}:
+                dates_confirmed=False
+                date_confirmation_mode=""
+                date_dom_excerpt=(
+                    "Agoda è rimasta sulla homepage: il flusso struttura/date/Cerca non è arrivato "
+                    "alla scheda hotel. Nessun prezzo della homepage può essere considerato tariffa struttura."
+                )
         post_auth_wall=ota_auth_wall(page.url,record["title"],body)
         if post_auth_wall:
             record.update(
@@ -8479,7 +8608,9 @@ async def observe(
                             )[:900],
                         )
             elif channel == "agoda":
-                candidates=await agoda_offer_row_candidates(page,stay)
+                candidates=await agoda_room_offer_visual_candidates(page,stay)
+                if not candidates:
+                    candidates=await agoda_offer_row_candidates(page,stay)
                 if not candidates:
                     candidates=await agoda_quote_candidates(page,stay)
                 record["quotes"]=candidates
