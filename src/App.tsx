@@ -5262,7 +5262,7 @@ export default function App() {
         const body = await started.json() as { error?: string };
         throw new Error(body.error || "Avvio non riuscito");
       }
-      for (let attempt = 0; attempt < 360; attempt += 1) {
+      for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
         const response = await fetch(localAgentUrl("/api/pilot/status"), { cache: "no-store", mode: "cors" });
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
@@ -5273,8 +5273,10 @@ export default function App() {
         const discovery = status.result?.discoveryProgress;
         const discoveryActive = status.running && discovery && Number(discovery.total || 0) > 0 && Number(discovery.completed || 0) < Number(discovery.total || 0);
         const elapsed = formatPilotElapsed(Date.now() - pilotStartedAt);
+        const progressUpdatedAt = discovery?.updatedAt ? Date.parse(discovery.updatedAt) : NaN;
+        const progressAgeSeconds = Number.isFinite(progressUpdatedAt) ? Math.max(0, Math.round((Date.now() - progressUpdatedAt) / 1000)) : 0;
         const discoveryText = discoveryActive
-          ? `Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}${discovery.label ? ` · ${discovery.label}` : ""} · ${elapsed} trascorsi. `
+          ? `Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}${discovery.label ? ` · ${discovery.label}` : ""} · ${elapsed} trascorsi${progressAgeSeconds > 45 ? ` · watchdog: ultimo avanzamento ${progressAgeSeconds}s fa` : ""}. `
           : status.running
             ? `Elaborazione tariffe · ${elapsed} trascorsi. `
             : "";
