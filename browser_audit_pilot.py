@@ -1349,49 +1349,59 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
 
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
-    """Discovery mirata rapida: trova un candidato pubblico e rimanda la verifica reale alla fase pricing."""
+    """Discovery mirata rapida: nome distintivo + località, senza navigazione browser."""
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
     address=str(data.get("address") or "")
-    location=address or city
+    location=city or address
     base_domain=meta["domains"][0]
-    if name and location:
-        query=f'site:{base_domain} "{name}" "{location}"'
-    elif name:
-        query=f'site:{base_domain} "{name}"'
-    else:
+
+    name_tokens=[
+        token for token in re.findall(r"[\wÀ-ÿ&'-]+",name,flags=re.UNICODE)
+        if token.lower() not in GENERIC_NAME_WORDS
+        and token.lower() not in {"luxury","restaurant","ristorante","boutique","spa"}
+    ]
+    distinctive=" ".join(name_tokens[:4]).strip() or name
+    queries=[]
+    if distinctive and location:
+        queries.append(f'site:{base_domain} "{distinctive}" "{location}"')
+    if distinctive:
+        queries.append(f'site:{base_domain} "{distinctive}"')
+    if name and location and name != distinctive:
+        queries.append(f'site:{base_domain} "{name}" "{location}"')
+
+    if not queries:
         return {
             "status":"not_verified_present","url":"","title":"","score":0.0,
             "evidence":f"Ricerca mirata {meta['label']} saltata: nome struttura non disponibile.",
             "searchUrl":"","discoveryMode":"fast discovery","identityVerified":False,
         }
-    try:
-        http_items,_=await asyncio.wait_for(
-            asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
-            timeout=12,
-        )
-    except asyncio.TimeoutError:
-        return {
-            "status":"not_verified_present","url":"","title":"","score":0.0,
-            "evidence":f"Ricerca mirata {meta['label']} fermata dopo 12 secondi; la scansione prosegue.",
-            "searchUrl":"","discoveryMode":"fast timeout","identityVerified":False,
-        }
-    except Exception as exc:
-        return {
-            "status":"not_verified_present","url":"","title":"","score":0.0,
-            "evidence":f"Ricerca mirata {meta['label']} non completata: {type(exc).__name__}: {str(exc)[:160]}.",
-            "searchUrl":"","discoveryMode":"fast isolated error","identityVerified":False,
-        }
+
     candidates=[]
-    for item in http_items:
-        target=str(item.get("url") or "")
-        if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
+    used_query=""
+    for query in queries[:2]:
+        try:
+            http_items,_=await asyncio.wait_for(
+                asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
+                timeout=12,
+            )
+        except asyncio.TimeoutError:
             continue
-        score,path_slug,text_score,url_score,reasons=_identity_match_score(
-            name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-        )
-        candidates.append((score,target,str(item.get("text") or ""),reasons,str(item.get("engine") or "HTTP search")))
+        except Exception:
+            continue
+        used_query=query
+        for item in http_items:
+            target=str(item.get("url") or "")
+            if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
+                continue
+            score,path_slug,text_score,url_score,reasons=_identity_match_score(
+                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+            )
+            candidates.append((score,target,str(item.get("text") or ""),reasons,str(item.get("engine") or "HTTP search")))
+        if candidates:
+            break
+
     candidates.sort(key=lambda row:row[0],reverse=True)
     if candidates:
         score,target,title,reasons,engine=candidates[0]
@@ -1400,15 +1410,19 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             "candidateUrl":normalize_ota_listing_url(ota_id,target),
             "title":title[:220],"score":round(score,3),"presenceDetected":True,
             "evidence":(
-                f"Ricerca mirata rapida {meta['label']} tramite {engine}: candidato pubblico trovato "
-                f"con match {score:.0%} ({reasons}). Identità e tariffe saranno verificate nella fase pricing."
+                f"Ricerca mirata {meta['label']} tramite {engine} con nome distintivo «{distinctive}». "
+                f"Candidato pubblico trovato con match {score:.0%} ({reasons}); query «{used_query}». "
+                "Identità e tariffe saranno verificate nella fase pricing."
             )[:900],
-            "searchUrl":"","discoveryMode":"fast candidate deferred to pricing","identityVerified":False,
+            "searchUrl":"","discoveryMode":"distinctive-name candidate deferred to pricing","identityVerified":False,
         }
     return {
         "status":"not_verified_present","url":"","title":"","score":0.0,
-        "evidence":f"Ricerca mirata rapida {meta['label']} completata senza candidato specifico. La scansione prosegue.",
-        "searchUrl":"","discoveryMode":"fast no candidate","identityVerified":False,
+        "evidence":(
+            f"Ricerca mirata {meta['label']} completata con nome distintivo «{distinctive}» "
+            "senza una scheda proprietà plausibile. La scansione prosegue."
+        )[:900],
+        "searchUrl":"","discoveryMode":"distinctive-name no candidate","identityVerified":False,
     }
 
 async def discover_all_ota_sources(context, data: dict, robots: dict, on_progress=None) -> tuple[dict,dict]:
