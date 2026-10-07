@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v82"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v83"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -191,7 +191,7 @@ def wait_for_pilot_intervention(payload: dict) -> str:
         f"{intervention['reason'][:220]}",
         flush=True,
     )
-    signaled=STATE.intervention_event.wait(timeout=300)
+    signaled=STATE.intervention_event.wait(timeout=120)
     with STATE.lock:
         action=STATE.intervention_action if signaled else "timeout"
         STATE.intervention={}
@@ -746,7 +746,7 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=True):
+def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=False):
     try:
         args=argparse.Namespace(
             property=str(property_path),
@@ -861,7 +861,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v82",
+                "agentVersion":"velora-local-agent-v83",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -1040,7 +1040,7 @@ class Handler(SimpleHTTPRequestHandler):
             STATE.intervention_event.clear()
         months=1 if payload["months"]==1 else None
         ghost=bool(payload.get("ghost",False))
-        assisted=bool(payload.get("assisted",True))
+        assisted=bool(payload.get("assisted",False))
         threading.Thread(
             target=run_pilot,
             args=(property_id,property_path,months,requested_channels,ghost,assisted),
@@ -1055,7 +1055,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v82 · solo frontend pubblico · mai login/account/member · date + ospiti + cerca + tariffe",flush=True)
+    print("Versione agente: velora-local-agent-v83 · frontend pubblico one-pass · 429 passa oltre · max tempi OTA · mai login",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
