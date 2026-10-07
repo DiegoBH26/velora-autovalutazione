@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v80"
+PILOT_BUILD = "velora-browser-pilot-v81"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -2765,7 +2765,10 @@ OTA_FRONTEND_SEARCH_HOME={
 }
 
 
-async def frontend_discover_ota_source(context, channel: str, data: dict, stay: dict, robots: dict) -> dict:
+async def frontend_discover_ota_source(
+    context, channel: str, data: dict, stay: dict, robots: dict,
+    assist_callback=None, ghost: bool = False,
+) -> dict:
     """Trova una scheda direttamente nel portale, senza dipendere dalla discovery esterna."""
     home=OTA_FRONTEND_SEARCH_HOME.get(channel,"")
     label=OTA_META.get(channel,{}).get("label",channel)
@@ -2809,13 +2812,13 @@ async def frontend_discover_ota_source(context, channel: str, data: dict, stay: 
             except Exception:
                 current_title=""; body=""
             if _plausible_ota_listing_url(channel,page.url):
-                score,_,_,_,reasons=_identity_match_score(name,city,address,current_title,body[:2500],page.url)
-                if score>=0.40:
+                strict=_strict_ota_identity_match(name,city,address,current_title,body[:6000],page.url)
+                if strict.get("ok"):
                     return {
                         "status":"found","url":normalize_ota_listing_url(channel,page.url),
-                        "title":current_title,"score":round(score,3),"identityVerified":True,
-                        "evidence":f"{label}: scheda raggiunta dalla ricerca interna; identità {score:.0%} ({reasons}).",
-                        "discoveryMode":"OTA frontend internal search",
+                        "title":current_title,"score":strict.get("score",1.0),"identityVerified":True,
+                        "evidence":f"{label}: scheda raggiunta dalla ricerca interna; {strict.get('evidence','identità verificata')}.",
+                        "discoveryMode":"OTA frontend internal search + strict identity lock",
                     }
             try:
                 links=await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,1200).map(a=>{
@@ -2842,14 +2845,28 @@ async def frontend_discover_ota_source(context, channel: str, data: dict, stay: 
                 )
                 ranked.append((score,target,str(item.get("text") or ""),reasons))
             ranked.sort(key=lambda row:row[0],reverse=True)
-            if ranked and ranked[0][0]>=0.38:
-                score,target,title,reasons=ranked[0]
-                return {
-                    "status":"found","url":normalize_ota_listing_url(channel,target),
-                    "title":title[:240],"score":round(score,3),"identityVerified":True,
-                    "evidence":f"{label}: scheda trovata nei risultati interni; match {score:.0%} ({reasons}).",
-                    "discoveryMode":"OTA frontend results match",
-                }
+            for score,target,title,reasons in ranked[:4]:
+                if score<0.38:
+                    continue
+                try:
+                    verification=await verify_ota_candidate_page(
+                        context,channel,target,name,city,address,robots
+                    )
+                except Exception:
+                    verification={}
+                if verification.get("ok"):
+                    return {
+                        "status":"found",
+                        "url":verification.get("url") or normalize_ota_listing_url(channel,target),
+                        "title":verification.get("title") or title[:240],
+                        "score":verification.get("score",score),
+                        "identityVerified":True,
+                        "evidence":(
+                            f"{label}: risultato interno verificato sulla scheda reale; "
+                            f"{verification.get('evidence','identità verificata')}."
+                        )[:900],
+                        "discoveryMode":"OTA frontend results + strict page verification",
+                    }
             return None
 
         opener_selectors=(
@@ -2951,6 +2968,49 @@ async def frontend_discover_ota_source(context, channel: str, data: dict, stay: 
             candidate=await find_candidate()
             if candidate:
                 return candidate
+
+        if callable(assist_callback):
+            action=await _human_assist(
+                page,assist_callback,{
+                    "type":"source_selection",
+                    "otaId":channel,
+                    "label":label,
+                    "reason":"La ricerca automatica non ha individuato una scheda verificabile.",
+                    "instructions":(
+                        f"Nel Chrome aperto cerca «{name}» a «{city}» su {label} e apri la scheda ESATTA della struttura. "
+                        "Se compare un consenso/cookie o una verifica del portale, completala manualmente. "
+                        "Non è necessario effettuare login. Quando sei sulla scheda corretta torna su Velora e premi «Ho completato · riprendi»."
+                    ),
+                    "propertyName":name,
+                    "city":city,
+                    "stay":stay,
+                },ghost,
+            )
+            if action in {"continue","done"}:
+                identity=await _current_page_identity(page,channel,data)
+                if identity.get("ok"):
+                    if ghost:
+                        await _set_interaction_window(page,False)
+                    return {
+                        "status":"found","url":identity.get("url") or page.url,
+                        "title":identity.get("title") or "",
+                        "score":identity.get("score",1.0),
+                        "identityVerified":True,
+                        "evidence":f"{label}: scheda selezionata manualmente e poi verificata da Velora; {identity.get('evidence','')}.",
+                        "discoveryMode":"human-assisted source selection + strict identity lock",
+                    }
+                if ghost:
+                    await _set_interaction_window(page,False)
+                return {
+                    "status":"not_found","url":"","identityVerified":False,
+                    "evidence":(
+                        f"{label}: intervento manuale concluso, ma la pagina aperta non supera il controllo identità "
+                        f"nome + località/indirizzo. {identity.get('evidence','')}"
+                    )[:900],
+                    "discoveryMode":"human-assisted source selection rejected by identity lock",
+                }
+            if ghost:
+                await _set_interaction_window(page,False)
 
         return {
             "status":"not_found","url":"","identityVerified":False,
@@ -9425,6 +9485,71 @@ def _browser_closed_exception(exc: Exception) -> bool:
         or "browser has been closed" in lowered
         or "browsercontext.new_page" in lowered and "closed" in lowered
     )
+
+
+
+async def _set_interaction_window(page, visible: bool) -> None:
+    """Mostra o minimizza Chrome senza cambiare pagina/sessione."""
+    try:
+        await page.bring_to_front()
+    except Exception:
+        pass
+    try:
+        cdp=await page.context.new_cdp_session(page)
+        info=await cdp.send("Browser.getWindowForTarget")
+        if visible:
+            await cdp.send("Browser.setWindowBounds",{
+                "windowId":info["windowId"],
+                "bounds":{"windowState":"normal","left":80,"top":60,"width":1380,"height":920},
+            })
+        else:
+            await cdp.send("Browser.setWindowBounds",{
+                "windowId":info["windowId"],
+                "bounds":{"windowState":"minimized"},
+            })
+        await cdp.detach()
+    except Exception:
+        pass
+
+
+async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> str:
+    """Handoff esplicito all'utente. Nessun CAPTCHA o login viene automatizzato."""
+    if not callable(callback):
+        return "disabled"
+    payload=dict(payload or {})
+    payload.setdefault("url",str(page.url or ""))
+    payload.setdefault("requestedAt",datetime.now(timezone.utc).isoformat())
+    await _set_interaction_window(page,True)
+    print(
+        f"ASSISTENZA UMANA RICHIESTA · {payload.get('label') or payload.get('otaId') or 'OTA'} · "
+        f"{str(payload.get('reason') or '')[:220]}",
+        flush=True,
+    )
+    try:
+        action=await asyncio.to_thread(callback,payload)
+    except Exception as exc:
+        print(f"assistenza umana non disponibile: {type(exc).__name__}: {str(exc)[:160]}",flush=True)
+        action="error"
+    return str(action or "timeout").lower()
+
+
+async def _current_page_identity(page, ota_id: str, data: dict) -> dict:
+    """Verifica la pagina lasciata aperta dall'utente senza rinavigare."""
+    try:
+        url=str(page.url or "")
+        title=(await page.title())[:260]
+        body=(await page.locator("body").inner_text(timeout=6000))[:18000]
+    except Exception:
+        return {"ok":False,"url":str(getattr(page,"url","") or ""),"title":"","evidence":"Pagina non leggibile dopo l'intervento."}
+    if _classify_ota_url(url)!=ota_id or not _plausible_ota_listing_url(ota_id,url):
+        return {"ok":False,"url":url,"title":title,"evidence":"La pagina aperta non è una scheda struttura valida del portale."}
+    identity=_strict_ota_identity_match(
+        str(data.get("name") or ""),
+        str(data.get("city") or ""),
+        str(data.get("address") or ""),
+        title,body,url,
+    )
+    return {**identity,"url":normalize_ota_listing_url(ota_id,url),"title":title,"body":body}
 
 
 async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str, ghost: bool = False):
