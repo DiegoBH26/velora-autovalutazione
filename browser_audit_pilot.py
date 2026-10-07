@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v75"
+PILOT_BUILD = "velora-browser-pilot-v76"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1405,6 +1405,16 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     candidates.sort(key=lambda row:row[0],reverse=True)
     if candidates:
         score,target,title,reasons,engine=candidates[0]
+        if score < 0.38:
+            return {
+                "status":"not_verified_present","url":"","title":title[:220],"score":round(score,3),
+                "presenceDetected":False,
+                "evidence":(
+                    f"Ricerca mirata {meta['label']}: candidato scartato perché il match identità è troppo debole "
+                    f"({score:.0%}: {reasons}). Non verrà aperta una struttura probabilmente diversa."
+                )[:900],
+                "searchUrl":"","discoveryMode":"weak candidate rejected","identityVerified":False,
+            }
         candidate_urls=[]
         for _,candidate_target,_,_,_ in candidates[:5]:
             clean_candidate=normalize_ota_listing_url(ota_id,candidate_target)
@@ -2415,6 +2425,14 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
     label=OTA_META.get(channel,{}).get("label",channel)
     evidence=[]
     opener_selectors={
+        "airbnb":(
+            'button:has-text("Aggiungi una data")',
+            'button:has-text("Check-in")',
+            'button[aria-label*="check-in" i]',
+            'button[aria-label*="date" i]',
+            '[data-testid*="change-dates"]',
+            '[data-testid*="date"]',
+        ),
         "vrbo":(
             'button[aria-label*="check-in" i]','button[aria-label*="date" i]',
             '[data-stid*="date"]','[data-testid*="date"]',
@@ -7048,7 +7066,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="priceline-ui-date-picker"
-        elif channel in {"vrbo","holidu","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
+        elif channel in {"airbnb","vrbo","holidu","expedia","hotels","travelocity","agoda","trip"} and not dates_confirmed:
             applied, ui_date_evidence = await generic_ota_frontend_apply_dates(page,channel,stay)
             if applied:
                 record["finalUrl"] = page.url
