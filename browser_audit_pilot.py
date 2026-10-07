@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v81"
+PILOT_BUILD = "velora-browser-pilot-v82"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -52,7 +52,8 @@ OTA_META = {
 }
 DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "trivago", "googlehotels"}
 PROFILE_AUDIT_CHANNELS = ("tripadvisor", "trivago", "googlehotels", "holidaycheck")
-FRONTEND_FIRST_CHANNELS = {"airbnb","vrbo","holidu"}
+PUBLIC_FRONTEND_PRICING_CHANNELS = {"airbnb","expedia","vrbo","holidu","hotels","agoda","trip","priceline","travelocity"}
+FRONTEND_FIRST_CHANNELS = set(PUBLIC_FRONTEND_PRICING_CHANNELS)
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -3030,9 +3031,12 @@ async def frontend_discover_ota_source(
 
 
 def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
-    """Airbnb/Vrbo partono dalla PDP pulita; gli altri usano il normale adapter date."""
+    """Pricing pubblico: entra nella scheda pulita e usa il frontend per date/ospiti.
+    Booking resta sull'adapter già stabile; tutte le altre OTA tariffarie NON ricevono
+    deep-link datati costruiti da Velora.
+    """
     clean=normalize_ota_listing_url(channel,source)
-    if channel in FRONTEND_FIRST_CHANNELS:
+    if channel in PUBLIC_FRONTEND_PRICING_CHANNELS:
         return clean
     return dated_url(channel,clean,stay)
 
@@ -3769,11 +3773,9 @@ async def expedia_group_quote_candidates(page, stay: dict, channel: str) -> list
         else:
             taxes="Da verificare nel dettaglio del preventivo"
 
-        audience=(
-            "Tariffa member visibile; accesso da verificare"
-            if any(token in low for token in ("member price","member rate","members save","prezzo soci","tariffa soci"))
-            else "Pubblico senza login"
-        )
+        if any(token in low for token in ("member price","member rate","members save","prezzo soci","tariffa soci","sign in","accedi per","app price","mobile app price")):
+            continue
+        audience="Pubblico senza login"
         plan_parts=[]
         if refund!="Cancellazione da verificare": plan_parts.append(refund)
         if board!="Trattamento da verificare": plan_parts.append(board)
@@ -4027,11 +4029,9 @@ async def trip_quote_candidates(page, stay: dict) -> list[dict]:
             if any(token in low for token in ("taxes excluded","excluding taxes","before taxes","tasse escluse","imposte escluse"))
             else "Da verificare nel dettaglio del preventivo"
         )
-        audience=(
-            "Tariffa member visibile; accesso da verificare"
-            if any(token in low for token in ("member price","member rate","sign in","accedi per"))
-            else "Pubblico senza login"
-        )
+        if any(token in low for token in ("member price","member rate","members save","sign in","accedi per","app price","mobile app price")):
+            continue
+        audience="Pubblico senza login"
         plan_parts=[]
         if refund!="Cancellazione da verificare": plan_parts.append(refund)
         if board!="Trattamento da verificare": plan_parts.append(board)
@@ -4322,11 +4322,9 @@ async def priceline_quote_candidates(page, stay: dict) -> list[dict]:
             else "Non rimborsabile" if any(token in low for token in ("non-refundable","non refundable","non rimborsabile"))
             else "Cancellazione da verificare"
         )
-        audience=(
-            "Tariffa VIP/member visibile; accesso da verificare"
-            if any(token in low for token in ("vip member","member price","member rate","sign in"))
-            else "Pubblico senza login"
-        )
+        if any(token in low for token in ("vip member","member price","member rate","members save","sign in","app price","mobile app price")):
+            continue
+        audience="Pubblico senza login"
         taxes=(
             "Tasse e commissioni indicate come incluse"
             if any(token in low for token in ("taxes included","taxes and fees included","tasse incluse"))
@@ -5700,6 +5698,28 @@ def write_result(path: Path, result: dict) -> bool:
     return False
 
 
+
+
+PUBLIC_MEMBER_TOKENS=(
+    "member price","member rate","members save","member only","members only",
+    "vip member","vip access","sign in to","sign in for","sign in and save",
+    "accedi per","accedi e risparmia","effettua l'accesso","tariffa soci","prezzo soci",
+    "logged in","login required","app price","mobile app price","prezzo app",
+)
+
+
+def public_quote_without_login(quote: dict) -> bool:
+    """Accetta esclusivamente tariffe pubbliche fruibili senza login/account/app."""
+    audience=str(quote.get("audience") or "").strip().lower()
+    rate_plan=str(quote.get("ratePlan") or "").strip().lower()
+    evidence=str(quote.get("evidence") or "").strip().lower()
+    warning=str(quote.get("comparisonWarning") or "").strip().lower()
+    combined=" ".join((audience,rate_plan,evidence,warning))
+    if audience and audience not in {"pubblico senza login","public without login","pubblico"}:
+        return False
+    if any(token in combined for token in PUBLIC_MEMBER_TOKENS):
+        return False
+    return True
 
 
 def normalize_quote_price_fields(quote: dict) -> dict:
@@ -7668,8 +7688,8 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                 status="login_required",
                 evidence=(
                     f"{OTA_META.get(channel,{}).get('label',channel)} ha reindirizzato verso una pagina di login/account "
-                    f"({auth_wall}). Nessun login viene tentato e nessun prezzo viene letto da questa pagina. "
-                    f"URL finale: {page.url}"
+                    f"({auth_wall}). FLUSSO PUBBLICO INTERROTTO: Velora non effettua e non tenterà mai login, "
+                    f"registrazione o accesso account; nessun prezzo di questa pagina viene usato. URL finale: {page.url}"
                 )[:900],
             )
             return record
@@ -7776,6 +7796,17 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
             except Exception:
                 pass
         text = (record["title"] + " " + body).lower()
+        post_auth_wall=ota_auth_wall(page.url,record["title"],body)
+        if post_auth_wall:
+            record.update(
+                status="login_required",
+                evidence=(
+                    f"{OTA_META.get(channel,{}).get('label',channel)} ha portato il flusso pubblico verso login/account "
+                    f"({post_auth_wall}). Velora NON procede: nessun login, registrazione o account viene mai tentato. "
+                    f"URL finale: {page.url}"
+                )[:900],
+            )
+            return record
         soft_http_status=response.status if response and response.status in {403,429} else 0
         rendered_usable=bool(
             soft_http_status
@@ -9633,7 +9664,7 @@ async def run(args: argparse.Namespace) -> dict:
     assisted=bool(getattr(args,"assisted",False))
     assist_callback=getattr(args,"assist_callback",None) if assisted else None
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
-              "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; automatico con handoff umano opzionale sui blocchi; nessun bypass o prezzo stimato.",
+              "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, solo frontend pubblico senza login: scheda → date → ospiti → cerca → tariffe; nessun account, registrazione, tariffa member/app o bypass.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
@@ -10344,7 +10375,7 @@ async def run(args: argparse.Namespace) -> dict:
 
                     assisted_weak_statuses={
                         "rate_limited","http_error","dates_unconfirmed","navigation_error",
-                        "needs_human_review","login_required","blocked","empty_page"
+                        "needs_human_review","blocked","empty_page"
                     }
                     if (
                         assisted and callable(assist_callback)
@@ -10460,7 +10491,17 @@ async def run(args: argparse.Namespace) -> dict:
                                     pass
 
                     if record.get("quotes"):
-                        record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
+                        normalized_quotes=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
+                        public_quotes=[item for item in normalized_quotes if public_quote_without_login(item)]
+                        removed_private=len(normalized_quotes)-len(public_quotes)
+                        record["quotes"]=public_quotes
+                        if removed_private:
+                            record["evidence"]=(
+                                str(record.get("evidence") or "")+
+                                f" | {removed_private} tariffa/e member-login-app escluse: Velora conserva solo prezzi pubblici senza account."
+                            )[:1200]
+                        if normalized_quotes and not public_quotes and record.get("status") in {"quote_candidates","quote_candidates_unverified"}:
+                            record["status"]="no_public_rate"
                     if channel in unverified_source_ids:
                         record["sourceIdentityVerified"]=False
                         record["sourcePresence"]="candidate_found"
