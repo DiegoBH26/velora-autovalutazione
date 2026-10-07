@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v80"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v81"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -148,6 +148,9 @@ class PilotState:
         self.error=""
         self.property_id=""
         self.property_path=None
+        self.intervention={}
+        self.intervention_action=""
+        self.intervention_event=threading.Event()
 
 
 class AutoAuditState:
@@ -162,6 +165,44 @@ class AutoAuditState:
 
 STATE=PilotState()
 AUTO_STATE=AutoAuditState()
+
+
+def wait_for_pilot_intervention(payload: dict) -> str:
+    """Espone una richiesta di assistenza all'interfaccia e attende la risposta dell'utente."""
+    intervention={
+        "id":secrets.token_hex(8),
+        "type":str(payload.get("type") or "portal_help"),
+        "otaId":str(payload.get("otaId") or ""),
+        "label":str(payload.get("label") or payload.get("otaId") or "OTA"),
+        "reason":str(payload.get("reason") or "")[:1200],
+        "instructions":str(payload.get("instructions") or "")[:1800],
+        "propertyName":str(payload.get("propertyName") or "")[:220],
+        "city":str(payload.get("city") or "")[:160],
+        "url":str(payload.get("url") or "")[:1800],
+        "stay":payload.get("stay") if isinstance(payload.get("stay"),dict) else {},
+        "requestedAt":str(payload.get("requestedAt") or ""),
+    }
+    with STATE.lock:
+        STATE.intervention=intervention
+        STATE.intervention_action=""
+        STATE.intervention_event.clear()
+    print(
+        f"INTERVENTO UTENTE · {intervention['label']} · {intervention['type']} · "
+        f"{intervention['reason'][:220]}",
+        flush=True,
+    )
+    signaled=STATE.intervention_event.wait(timeout=300)
+    with STATE.lock:
+        action=STATE.intervention_action if signaled else "timeout"
+        STATE.intervention={}
+        STATE.intervention_action=""
+        STATE.intervention_event.clear()
+    if not signaled:
+        print(f"INTERVENTO UTENTE scaduto · {intervention['label']}",flush=True)
+    else:
+        print(f"INTERVENTO UTENTE risposta={action} · {intervention['label']}",flush=True)
+    return action or "timeout"
+
 
 
 def _norm(value):
@@ -705,7 +746,7 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months,channels,ghost=False):
+def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=True):
     try:
         args=argparse.Namespace(
             property=str(property_path),
@@ -715,6 +756,8 @@ def run_pilot(property_id,property_path,months,channels,ghost=False):
             today=None,
             dry_run=False,
             ghost=bool(ghost),
+            assisted=bool(assisted),
+            assist_callback=wait_for_pilot_intervention if assisted else None,
         )
 
         # Il pilot v73 recupera Chrome internamente tra discovery e pricing.
@@ -755,6 +798,9 @@ def run_pilot(property_id,property_path,months,channels,ghost=False):
     finally:
         with STATE.lock:
             STATE.running=False
+            STATE.intervention={}
+            STATE.intervention_action=""
+            STATE.intervention_event.set()
 
 
 async def render_pdf(html):
@@ -815,7 +861,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v80",
+                "agentVersion":"velora-local-agent-v81",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -831,12 +877,13 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(403,{"error":"Origine non autorizzata"}); return
             with STATE.lock:
                 running,error,property_id=STATE.running,STATE.error,STATE.property_id
+                intervention=dict(STATE.intervention or {})
             output=result_path(property_id) if property_id else None
             try:
                 result=json.loads(output.read_text(encoding="utf-8")) if output and output.exists() else None
             except (OSError,json.JSONDecodeError):
                 result=None
-            self._json(200,{"running":running,"error":error,"propertyId":property_id,"result":result})
+            self._json(200,{"running":running,"error":error,"propertyId":property_id,"result":result,"intervention":intervention or None})
             return
         if route=="/api/audit/status":
             if self.headers.get("Origin") and not self._allowed_origin():
@@ -857,7 +904,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/audit/start","/api/report/pdf"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -871,6 +918,18 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/pilot/intervention":
+                action=str(payload.get("action") or "").strip().lower()
+                if action not in {"continue","done","skip"}:
+                    raise ValueError("Azione intervento non valida")
+                with STATE.lock:
+                    if not STATE.running or not STATE.intervention:
+                        self._json(409,{"error":"Nessun intervento utente attivo"}); return
+                    STATE.intervention_action="continue" if action in {"continue","done"} else "skip"
+                    STATE.intervention_event.set()
+                self._json(200,{"ok":True,"action":STATE.intervention_action})
+                return
 
             if route=="/api/pilot/reset":
                 try:
@@ -976,10 +1035,18 @@ class Handler(SimpleHTTPRequestHandler):
             STATE.error=""
             STATE.property_id=property_id
             STATE.property_path=property_path
+            STATE.intervention={}
+            STATE.intervention_action=""
+            STATE.intervention_event.clear()
         months=1 if payload["months"]==1 else None
         ghost=bool(payload.get("ghost",False))
-        threading.Thread(target=run_pilot,args=(property_id,property_path,months,requested_channels,ghost),daemon=True).start()
-        self._json(202,{"running":True,"propertyId":property_id,"ghost":ghost})
+        assisted=bool(payload.get("assisted",True))
+        threading.Thread(
+            target=run_pilot,
+            args=(property_id,property_path,months,requested_channels,ghost,assisted),
+            daemon=True,
+        ).start()
+        self._json(202,{"running":True,"propertyId":property_id,"ghost":ghost,"assisted":assisted})
 
 
 if __name__=="__main__":
@@ -988,7 +1055,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v80 · discovery OTA libera anticipata + fallback prezzi Agoda + diagnostica estesa + Ghost off-screen",flush=True)
+    print("Versione agente: velora-local-agent-v81 · handoff umano assistito + identity lock OTA + scraping automatico-first",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
