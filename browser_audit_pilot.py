@@ -1395,13 +1395,15 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     distinctive=(variants[0] if variants else name).strip()
 
     queries=[]
-    for domain in meta["domains"]:
-        scope=(
-            f"site:{domain}/travel/hotels"
-            if ota_id=="googlehotels"
-            else f"site:{domain}"
-        )
-        for variant in variants[:3]:
+    # Prima prova il brand stabile su TUTTI i domini (.com/.it), poi allarga
+    # alle varianti più lunghe: così il watchdog non può fermarsi sul solo .com.
+    for variant in variants[:3]:
+        for domain in meta["domains"]:
+            scope=(
+                f"site:{domain}/travel/hotels"
+                if ota_id=="googlehotels"
+                else f"site:{domain}"
+            )
             if variant and location:
                 queries.append(f'{scope} "{variant}" "{location}"')
             if variant:
@@ -1517,13 +1519,13 @@ async def discover_all_ota_sources(context, data: dict, robots: dict, on_progres
             try:
                 targeted=await asyncio.wait_for(
                     discover_single_ota_targeted(context,ota_id,data,robots),
-                    timeout=15,
+                    timeout=24,
                 )
             except asyncio.TimeoutError:
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 15 secondi; "
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 24 secondi; "
                         "nessuna conclusione di assenza viene registrata. La scansione prosegue sulle altre OTA."
                     ),
                     "searchUrl":"",
