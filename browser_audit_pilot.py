@@ -9663,89 +9663,176 @@ async def run(args: argparse.Namespace) -> dict:
                     source = sources.get(channel, {}).get("url", "")
                     if channel=="booking" and precomputed_booking is not None:
                         record=precomputed_booking
-                    elif not source:
-                        discovery = result.get("discoveredSources", {}).get(channel, {})
-                        evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
-                        if quick_retest and channel in OTA_DISCOVERY_ORDER:
-                            record = {"otaId": channel, **effective_stay, "status": "source_not_retested", "quotes": [],
-                                      "evidence": "Scansione dedicata: discovery non ripetuta; questa OTA non ha una scheda verificata salvata."}
-                        else:
-                            record = {"otaId": channel, **effective_stay, "status": "source_missing", "quotes": [],
-                                      "evidence": evidence or "Nessuna scheda univoca conosciuta per questo portale."}
                     else:
-                        page = None
-                        try:
-                            page = await context.new_page()
-                            record = await asyncio.wait_for(
-                                observe(page, channel, source, effective_stay, robots),
-                                timeout=75,
-                            )
-                        except asyncio.TimeoutError:
-                            record = {
-                                "otaId": channel, **effective_stay,
-                                "status": "needs_human_review", "quotes": [],
-                                "evidence": (
-                                    f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
-                                    "controllo interrotto dal watchdog dopo 75 secondi; "
-                                    "l'audit continua sulle altre fonti."
-                                ),
-                            }
-                            print(
-                                f"{effective_stay['month']} {channel}: WATCHDOG 75s · continuo con la prossima fonte",
-                                flush=True,
-                            )
-                        except Exception as exc:
-                            if _browser_closed_exception(exc):
-                                if page is not None:
-                                    try:
-                                        await page.close()
-                                    except Exception:
-                                        pass
-                                    page=None
-                                await restart_pricing_context(
-                                    f"{effective_stay['month']} {channel}: {type(exc).__name__}"
+                        # Percorso alternativo indipendente dalla discovery esterna:
+                        # se manca una source o è soltanto candidata, cerca direttamente nel portale.
+                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids):
+                            try:
+                                frontend_source=await asyncio.wait_for(
+                                    frontend_discover_ota_source(context,channel,data,effective_stay,robots),
+                                    timeout=35,
                                 )
-                                try:
-                                    page=await context.new_page()
-                                    record=await asyncio.wait_for(
-                                        observe(page,channel,source,effective_stay,robots),
-                                        timeout=75,
-                                    )
-                                    print(
-                                        f"{effective_stay['month']} {channel}: retry dopo recovery Chrome completato",
-                                        flush=True,
-                                    )
-                                except Exception as retry_exc:
-                                    record={
-                                        "otaId":channel, **effective_stay,
-                                        "status":"needs_human_review","quotes":[],
-                                        "evidence":(
-                                            f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
-                                            f"sessione Chrome riavviata ma il secondo tentativo non è riuscito "
-                                            f"({type(retry_exc).__name__}: {str(retry_exc)[:160]})."
-                                        ),
-                                    }
+                            except asyncio.TimeoutError:
+                                frontend_source={
+                                    "status":"timeout","url":"",
+                                    "evidence":f"{OTA_META[channel]['label']}: ricerca interna fermata dopo 35 secondi."
+                                }
+                            except Exception as exc:
+                                frontend_source={
+                                    "status":"error","url":"",
+                                    "evidence":f"{OTA_META[channel]['label']}: ricerca interna fallita ({type(exc).__name__}: {str(exc)[:150]})."
+                                }
+
+                            if frontend_source.get("status")=="found" and frontend_source.get("url"):
+                                source=frontend_source["url"]
+                                sources[channel]={"label":OTA_META[channel]["label"],"url":source}
+                                unverified_source_ids.discard(channel)
+                                result.setdefault("discoveredSources",{})[channel]=frontend_source
+                                print(
+                                    f"{effective_stay['month']} {channel}: FRONTEND SOURCE · "
+                                    f"{str(frontend_source.get('evidence') or '')[:260]}",
+                                    flush=True,
+                                )
+                                write_result(output,result)
+
+                        if not source:
+                            discovery = result.get("discoveredSources", {}).get(channel, {})
+                            evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
+                            if quick_retest and channel in OTA_DISCOVERY_ORDER:
+                                record = {
+                                    "otaId": channel, **effective_stay, "status": "source_not_retested", "quotes": [],
+                                    "evidence": "Scansione dedicata: discovery non ripetuta e ricerca interna OTA senza match verificabile."
+                                }
                             else:
+                                record = {
+                                    "otaId": channel, **effective_stay, "status": "source_missing", "quotes": [],
+                                    "evidence": evidence or "Nessuna scheda univoca trovata né da discovery né dalla ricerca interna OTA."
+                                }
+                        else:
+                            page = None
+                            try:
+                                page = await context.new_page()
+                                record = await asyncio.wait_for(
+                                    observe(page, channel, source, effective_stay, robots),
+                                    timeout=75,
+                                )
+                            except asyncio.TimeoutError:
                                 record = {
                                     "otaId": channel, **effective_stay,
                                     "status": "needs_human_review", "quotes": [],
                                     "evidence": (
                                         f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
-                                        f"errore isolato {type(exc).__name__}: {str(exc)[:180]}. "
-                                        "L'audit continua sulle altre fonti."
+                                        "controllo interrotto dal watchdog dopo 75 secondi; "
+                                        "l'audit continua sulle altre fonti."
                                     ),
                                 }
                                 print(
-                                    f"{effective_stay['month']} {channel}: ERRORE ISOLATO · "
-                                    f"{type(exc).__name__}: {str(exc)[:180]}",
+                                    f"{effective_stay['month']} {channel}: WATCHDOG 75s · continuo con la prossima fonte",
                                     flush=True,
                                 )
-                        finally:
-                            if page is not None:
+                            except Exception as exc:
+                                if _browser_closed_exception(exc):
+                                    if page is not None:
+                                        try:
+                                            await page.close()
+                                        except Exception:
+                                            pass
+                                        page=None
+                                    await restart_pricing_context(
+                                        f"{effective_stay['month']} {channel}: {type(exc).__name__}"
+                                    )
+                                    try:
+                                        page=await context.new_page()
+                                        record=await asyncio.wait_for(
+                                            observe(page,channel,source,effective_stay,robots),
+                                            timeout=75,
+                                        )
+                                        print(
+                                            f"{effective_stay['month']} {channel}: retry dopo recovery Chrome completato",
+                                            flush=True,
+                                        )
+                                    except Exception as retry_exc:
+                                        record={
+                                            "otaId":channel, **effective_stay,
+                                            "status":"needs_human_review","quotes":[],
+                                            "evidence":(
+                                                f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                                f"sessione Chrome riavviata ma il secondo tentativo non è riuscito "
+                                                f"({type(retry_exc).__name__}: {str(retry_exc)[:160]})."
+                                            ),
+                                        }
+                                else:
+                                    record = {
+                                        "otaId": channel, **effective_stay,
+                                        "status": "needs_human_review", "quotes": [],
+                                        "evidence": (
+                                            f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                            f"errore isolato {type(exc).__name__}: {str(exc)[:180]}. "
+                                            "L'audit continua sulle altre fonti."
+                                        ),
+                                    }
+                                    print(
+                                        f"{effective_stay['month']} {channel}: ERRORE ISOLATO · "
+                                        f"{type(exc).__name__}: {str(exc)[:180]}",
+                                        flush=True,
+                                    )
+                            finally:
+                                if page is not None:
+                                    try:
+                                        await page.close()
+                                    except Exception:
+                                        pass
+
+                            # Se una source preesistente porta a 403/429, date non confermate o pagina inconcludente,
+                            # tenta una seconda strada passando dalla ricerca interna dell'OTA e ripete la lettura.
+                            weak_statuses={
+                                "rate_limited","http_error","dates_unconfirmed","navigation_error",
+                                "needs_human_review","login_required"
+                            }
+                            if (
+                                channel!="booking"
+                                and channel in OTA_DISCOVERY_ORDER
+                                and not record.get("quotes")
+                                and record.get("status") in weak_statuses
+                            ):
                                 try:
-                                    await page.close()
+                                    recovery_source=await asyncio.wait_for(
+                                        frontend_discover_ota_source(context,channel,data,effective_stay,robots),
+                                        timeout=35,
+                                    )
                                 except Exception:
-                                    pass
+                                    recovery_source={}
+                                recovery_url=str(recovery_source.get("url") or "")
+                                if recovery_source.get("status")=="found" and recovery_url:
+                                    sources[channel]={"label":OTA_META[channel]["label"],"url":recovery_url}
+                                    unverified_source_ids.discard(channel)
+                                    result.setdefault("discoveredSources",{})[channel]=recovery_source
+                                    retry_page=None
+                                    try:
+                                        retry_page=await context.new_page()
+                                        retry_record=await asyncio.wait_for(
+                                            observe(retry_page,channel,recovery_url,effective_stay,robots),
+                                            timeout=75,
+                                        )
+                                        if retry_record.get("quotes") or retry_record.get("status") not in weak_statuses:
+                                            record=retry_record
+                                        else:
+                                            record["evidence"]=(
+                                                str(record.get("evidence") or "")+
+                                                " | Ricerca interna OTA eseguita; secondo tentativo: "+
+                                                str(retry_record.get("evidence") or "")
+                                            )[:900]
+                                    except Exception as retry_exc:
+                                        record["evidence"]=(
+                                            str(record.get("evidence") or "")+
+                                            f" | Retry da ricerca interna fallito: {type(retry_exc).__name__}: {str(retry_exc)[:130]}"
+                                        )[:900]
+                                    finally:
+                                        if retry_page is not None:
+                                            try:
+                                                await retry_page.close()
+                                            except Exception:
+                                                pass
 
                     if record.get("quotes"):
                         record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
