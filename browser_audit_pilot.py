@@ -1876,9 +1876,11 @@ def vrbo_url_dates_confirmed(url: str, stay: dict) -> bool:
         query={str(key).lower():str(value) for key,value in parse_qsl(urlparse(url).query,keep_blank_values=True)}
     except Exception:
         return False
-    start=(query.get("chkin") or query.get("checkin") or query.get("check_in") or query.get("d1") or query.get("startdate") or "")
-    end=(query.get("chkout") or query.get("checkout") or query.get("check_out") or query.get("d2") or query.get("enddate") or "")
-    return start == stay["checkin"] and end == stay["checkout"]
+    return (
+        (query.get("chkin") or query.get("checkin") or query.get("check_in") or "") == stay["checkin"]
+        and (query.get("chkout") or query.get("checkout") or query.get("check_out") or "") == stay["checkout"]
+    )
+
 
 async def listing_property_rate_context(page, channel: str) -> tuple[bool,str]:
     selector_map={
@@ -1917,8 +1919,10 @@ async def listing_property_rate_context(page, channel: str) -> tuple[bool,str]:
     else:
         property_path=bool(
             re.search(r'/(?:p|property)/?\d+',path)
-            or "/pdp/" in path
-            or re.search(r'/\d+(?:ha|vb|vr)?/?
+            or "/vacation-rental/" in path
+            or "/holiday-rental/" in path
+            or "/affitto-vacanze/" in path
+        )
         has_rate=any(item in found for item in (
             '[data-stid="price-lockup-text"]',
             '[data-stid*="price"]',
@@ -3144,105 +3148,6 @@ async def expedia_group_quote_candidates(page, stay: dict, channel: str) -> list
 
 
 
-async def expedia_group_semantic_quote_candidates(page, stay: dict, channel: str) -> list[dict]:
-    """Fallback frontend: prezzo + durata nello stesso blocco anche con markup Expedia variabile."""
-    rows=await page.evaluate(r"""(nights) => {
-      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
-      const visible=el=>{
-        if(!el) return false;
-        const st=getComputedStyle(el);
-        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
-        const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
-      };
-      const duration=new RegExp('(?:per|for)\\s*'+nights+'\\s*(?:notti|nights?)','i');
-      const nightly=/(a notte|per notte|per night|\/night)/i;
-      const euro=/(€|eur)\s*[0-9]|[0-9][0-9.,\s]*\s*(€|eur)/i;
-      const out=[]; const seen=new Set();
-      for(const node of Array.from(document.querySelectorAll('article,li,section,div')).filter(visible)){
-        const text=clean(node.innerText||node.textContent);
-        if(text.length<35||text.length>2800||!euro.test(text)) continue;
-        if(!duration.test(text) && !nightly.test(text)) continue;
-        let room='';
-        for(const sel of ['[data-stid*="room-name"]','[data-testid*="room-name"]','h2','h3','h4']){
-          const v=clean(node.querySelector(sel)?.textContent);
-          if(v && v.length<260){room=v;break}
-        }
-        const key=(room+'|'+text).toLowerCase();
-        if(seen.has(key)) continue;
-        seen.add(key); out.push({room,text});
-      }
-      out.sort((a,b)=>a.text.length-b.text.length);
-      return out.slice(0,60);
-    }""",int(stay["nights"]))
-
-    total_rx=re.compile(
-        r'(?:(?:€|EUR)\s*[0-9]{1,6}(?:[.,][0-9]{1,2})?|[0-9]{1,6}(?:[.,][0-9]{1,2})?\s*(?:€|EUR))'
-        r'\s*(?:per|for)\s*'+re.escape(str(stay["nights"]))+r'\s*(?:notti|nights?)',
-        re.I,
-    )
-    nightly_rx=re.compile(
-        r'(?:(?:€|EUR)\s*[0-9]{1,6}(?:[.,][0-9]{1,2})?|[0-9]{1,6}(?:[.,][0-9]{1,2})?\s*(?:€|EUR))'
-        r'\s*(?:a notte|per notte|per night|/night)',
-        re.I,
-    )
-    try:
-        property_title=(await page.locator("h1").first.inner_text(timeout=700)).strip()
-    except Exception:
-        property_title=OTA_META[channel]["label"]+" · unità disponibile"
-
-    out=[]
-    for row in rows:
-        text=str(row.get("text") or "").strip()
-        room=str(row.get("room") or "").strip()
-        if not text:
-            continue
-        total_match=total_rx.search(text)
-        nightly_match=nightly_rx.search(text)
-        basis=""
-        amount=None
-        if total_match:
-            amount=_money_value(total_match.group(0))
-            basis="stay-total"
-        elif nightly_match:
-            amount=_money_value(nightly_match.group(0))
-            basis="nightly"
-        if amount is None or amount<=0:
-            continue
-        fields=_price_fields(float(amount),basis,stay)
-        low=text.lower()
-        board="Colazione inclusa" if any(t in low for t in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
-        refund=(
-            "Cancellazione gratuita" if any(t in low for t in ("cancellazione gratuita","free cancellation","fully refundable"))
-            else "Non rimborsabile" if any(t in low for t in ("non rimborsabile","non-refundable","non refundable"))
-            else "Cancellazione da verificare"
-        )
-        room_known=bool(room and re.search(
-            r'\b(room|camera|suite|apartment|appartamento|studio|double|twin|family|familiare|king|queen|deluxe|superior|casa|attico|villa)\b',
-            room,re.I
-        ))
-        out.append({
-            "roomType":(room if room_known else property_title+" · tipologia da verificare")[:240],
-            "ratePlan":refund if refund!="Cancellazione da verificare" else "Piano tariffario da verificare",
-            **fields,
-            "currency":"EUR","nights":stay["nights"],"guests":stay["adults"],
-            "board":board,"refund":refund,"audience":"Pubblico senza login",
-            "taxes":"Da verificare nel dettaglio del preventivo",
-            "verified":bool(room_known),
-            "evidence":(
-                f"{OTA_META[channel]['label']} frontend: prezzo e durata espliciti nel medesimo blocco. "
-                + text[:900]
-            )[:1100],
-        })
-
-    unique=[]; seen=set()
-    for item in out:
-        key=(item["roomType"].lower(),item["total"])
-        if key in seen:
-            continue
-        seen.add(key); unique.append(item)
-    return unique[:30]
-
-
 def trip_url_dates_confirmed(url: str, stay: dict) -> bool:
     try:
         query={str(key).lower():str(value) for key,value in parse_qsl(urlparse(url).query,keep_blank_values=True)}
@@ -3889,82 +3794,6 @@ async def apply_metasearch_assist(
             flush=True,
         )
     return accepted
-
-
-def _short_property_name(name: str) -> str:
-    tokens=[
-        token for token in re.findall(r"[\wÀ-ÿ&'-]+",str(name or ""),flags=re.UNICODE)
-        if token.lower() not in GENERIC_NAME_WORDS
-        and token.lower() not in {"luxury","restaurant","ristorante","residence","boutique"}
-    ]
-    return " ".join(tokens[:3]).strip()
-
-
-async def resolve_verified_pricing_source(context, ota_id: str, data: dict, robots: dict, current_url: str = "") -> dict:
-    """Risoluzione finale sorgente OTA prima del pricing: pagina reale, non guide/search."""
-    name=str(data.get("name") or "")
-    city=str(data.get("city") or "")
-    address=str(data.get("address") or "")
-    tried=set()
-
-    async def verify(url: str):
-        clean=normalize_ota_listing_url(ota_id,url)
-        if not clean or clean in tried or not _plausible_ota_listing_url(ota_id,clean):
-            return None
-        tried.add(clean)
-        verification=await verify_ota_candidate_page(context,ota_id,clean,name,city,address,robots)
-        if verification.get("ok"):
-            return {
-                "url":verification.get("url") or clean,
-                "title":verification.get("title") or "",
-                "score":verification.get("score",1.0),
-                "evidence":verification.get("evidence") or "",
-            }
-        return None
-
-    if current_url:
-        direct=await verify(current_url)
-        if direct:
-            return direct
-
-    short_name=_short_property_name(name)
-    domain=OTA_META[ota_id]["domains"][0]
-    queries=[]
-    if short_name and city:
-        queries.append(f'site:{domain} "{short_name}" "{city}"')
-    if short_name:
-        queries.append(f'site:{domain} "{short_name}"')
-    if name and city:
-        queries.append(f'site:{domain} "{name}" "{city}"')
-
-    candidates=[]
-    seen=set()
-    for query in queries[:3]:
-        try:
-            items,_=await asyncio.wait_for(
-                asyncio.to_thread(_free_http_search_links,query,tuple(OTA_META[ota_id]["domains"])),
-                timeout=12,
-            )
-        except Exception:
-            continue
-        for item in items:
-            target=str(item.get("url") or "")
-            if target in seen or not _plausible_ota_listing_url(ota_id,target):
-                continue
-            seen.add(target)
-            score,*_=_identity_match_score(
-                name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
-            )
-            candidates.append((score,target))
-        if candidates:
-            break
-
-    candidates.sort(key=lambda row:row[0],reverse=True)
-    for _,target in candidates[:5]:
-        verified=await verify(target)
-        if verified:
-            return verified
-    return {}
 
 
 async def observe_ota_profile(context, ota_id: str, source: str, robots: dict) -> dict:
@@ -7419,23 +7248,21 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         )[:900],
                     )
                 else:
-                    semantic=await expedia_group_semantic_quote_candidates(page,stay,channel)
-                    fallback=semantic or await generic_ota_quote_candidates(page,stay)
+                    fallback=await generic_ota_quote_candidates(page,stay)
                     record["quotes"]=fallback
-                    verified_semantic=[item for item in fallback if item.get("verified")]
                     if fallback:
                         record.update(
-                            status="quote_candidates" if verified_semantic else "quote_candidates_unverified",
+                            status="quote_candidates_unverified",
                             evidence=(
-                                f"Date {OTA_META[channel]['label']} confermate. Il parser strutturato non ha chiuso il match, "
-                                f"ma il frontend mostra {len(fallback)} prezzo/i con durata esplicita. "
-                                + ("Camera e prezzo sono associati nello stesso blocco." if verified_semantic else "La tipologia camera resta da verificare: il prezzo viene mostrato ma non entra nel delta.")
+                                f"Date {OTA_META[channel]['label']} confermate. Il parser delle card non ha chiuso il match "
+                                f"camera/prezzo, ma sono stati isolati {len(fallback)} importi EUR nel contesto tariffario. "
+                                "Restano osservazioni non validate e non entrano nel delta."
                             )[:900],
                         )
                     else:
                         record.update(
                             status="needs_human_review",
-                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun prezzo con durata esplicita è stato isolato nel frontend."
+                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessuna card camera/prezzo attribuibile automaticamente con sufficiente certezza."
                         )
             elif channel == "trip":
                 candidates=await trip_quote_candidates(page,stay)
@@ -8861,7 +8688,7 @@ def _browser_closed_exception(exc: Exception) -> bool:
     )
 
 
-async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str, ghost: bool = False):
+async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str):
     """Apre una sessione Chrome persistente dedicata a una singola fase dell'audit."""
     profile_dir.mkdir(parents=True,exist_ok=True)
     last_exc=None
@@ -8875,7 +8702,6 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 timezone_id="Europe/Rome",
                 viewport={"width":1440,"height":1000},
                 chromium_sandbox=True,
-                args=["--start-minimized"] if ghost else [],
             )
             anchor_page=context.pages[0] if context.pages else await context.new_page()
             try:
@@ -8899,19 +8725,8 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 )
             except Exception:
                 pass
-            if ghost:
-                try:
-                    cdp=await context.new_cdp_session(anchor_page)
-                    window_info=await cdp.send("Browser.getWindowForTarget")
-                    await cdp.send("Browser.setWindowBounds",{
-                        "windowId":window_info["windowId"],
-                        "bounds":{"windowState":"minimized"},
-                    })
-                    await cdp.detach()
-                except Exception:
-                    pass
             print(
-                f"browser mode: {'Ghost/minimizzato' if ghost else 'Chrome persistente visibile'} · fase={phase_label} · profilo={profile_dir} · watchdog finestra attivo",
+                f"browser mode: Chrome persistente visibile · fase={phase_label} · profilo={profile_dir} · watchdog finestra attivo",
                 flush=True,
             )
             return context
@@ -8934,7 +8749,6 @@ async def run(args: argparse.Namespace) -> dict:
     if unknown:
         raise ValueError(f"Canali sconosciuti: {', '.join(sorted(unknown))}")
     sources = data.get("sources", {})
-    ghost=bool(getattr(args,"ghost",False))
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, Chrome pubblico senza login; nessun bypass o prezzo stimato.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
@@ -8953,7 +8767,7 @@ async def run(args: argparse.Namespace) -> dict:
         discovery_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-discovery"
         pricing_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-pricing"
         context=await _launch_velora_context(
-            playwright,discovery_profile_dir,data,"discovery OTA",ghost
+            playwright,discovery_profile_dir,data,"discovery OTA"
         )
         result["browserPhases"].append({
             "phase":"discovery","status":"running","profile":str(discovery_profile_dir)
@@ -9106,7 +8920,7 @@ async def run(args: argparse.Namespace) -> dict:
                 pass
             await asyncio.sleep(0.8)
             context=await _launch_velora_context(
-                playwright,pricing_profile_dir,data,"verifica schede e tariffe",ghost
+                playwright,pricing_profile_dir,data,"verifica schede e tariffe"
             )
             result["browserPhases"].append({
                 "phase":"pricing","status":"running","profile":str(pricing_profile_dir)
@@ -9125,7 +8939,7 @@ async def run(args: argparse.Namespace) -> dict:
                     pass
                 await asyncio.sleep(0.8)
                 context=await _launch_velora_context(
-                    playwright,pricing_profile_dir,data,"verifica schede e tariffe · recovery",ghost
+                    playwright,pricing_profile_dir,data,"verifica schede e tariffe · recovery"
                 )
                 result["browserPhases"].append({
                     "phase":"pricing",
@@ -9308,33 +9122,6 @@ async def run(args: argparse.Namespace) -> dict:
                     ", ".join(f"{item['otaId']} via {item['via']}" for item in metasearch_assist),
                     flush=True,
                 )
-                write_result(output,result)
-
-            # Prima di leggere i prezzi, ripara sorgenti deboli/mancanti con una
-            # ricerca esatta e una verifica sulla pagina reale.
-            for ota_id in [item for item in channels if item in DATE_URL_ADAPTERS and item!="booking"]:
-                current=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
-                if current and ota_id not in unverified_source_ids:
-                    continue
-                resolved=await resolve_verified_pricing_source(context,ota_id,data,robots,current or "")
-                if not resolved.get("url"):
-                    continue
-                sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":resolved["url"]}
-                unverified_source_ids.discard(ota_id)
-                result["discoveredSources"][ota_id]={
-                    "status":"found",
-                    "url":resolved["url"],
-                    "title":resolved.get("title",""),
-                    "score":resolved.get("score",1.0),
-                    "identityVerified":True,
-                    "verification":"page_identity_lock",
-                    "discoveryMode":"pricing source resolution",
-                    "evidence":(
-                        f"Sorgente tariffaria {OTA_META[ota_id]['label']} risolta prima del pricing: "
-                        f"{resolved.get('evidence','')}"
-                    )[:900],
-                }
-                print(f"{ota_id} pricing source resolved · {resolved['url'][:180]}",flush=True)
                 write_result(output,result)
 
             # Salva tutte le schede OTA trovate insieme, non soltanto Booking.
@@ -9584,7 +9371,6 @@ def main() -> None:
     parser.add_argument("--months", type=int, help="Solo i primi N mesi futuri (per test)")
     parser.add_argument("--today", help="Data ISO per test riproducibili")
     parser.add_argument("--dry-run", action="store_true", help="Genera solo il piano date")
-    parser.add_argument("--ghost", action="store_true", help="Mantiene Chrome minimizzato durante lo scraping")
     args = parser.parse_args()
     asyncio.run(run(args))
 
