@@ -3954,10 +3954,68 @@ function normalizedRateToken(value: string | undefined): string {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+const PILOT_TARIFF_OTA_IDS = ["booking","agoda","airbnb","vrbo","holidu","expedia","hotels","travelocity","trip","priceline"] as const;
+const PILOT_OTA_LABELS: Record<string,string> = {
+  booking:"Booking.com", airbnb:"Airbnb", expedia:"Expedia", hotels:"Hotels.com", vrbo:"Vrbo",
+  holidu:"Holidu", agoda:"Agoda", trip:"Trip.com", priceline:"Priceline", travelocity:"Travelocity",
+  tripadvisor:"Tripadvisor", trivago:"Trivago", googlehotels:"Google Hotels", holidaycheck:"HolidayCheck",
+};
+
+type OtaDistributionAsymmetry = {
+  checkin: string; checkout: string; otaId: string; otaLabel: string;
+  unitCount: number; maxUnitCount: number; referenceChannels: string[]; units: string[]; finding: string;
+};
+
+function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefined): OtaDistributionAsymmetry[] {
+  if (!result) return [];
+  const stayMap = new Map<string, Map<string, { units:Set<string>; labels:Map<string,string>; explicitNoRate:boolean }>>();
+  for (const observation of result.observations || []) {
+    if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
+    const key=[observation.checkin,observation.checkout].join("|");
+    if (!stayMap.has(key)) stayMap.set(key,new Map());
+    const byOta=stayMap.get(key)!;
+    if (!byOta.has(observation.otaId)) byOta.set(observation.otaId,{units:new Set(),labels:new Map(),explicitNoRate:false});
+    const slot=byOta.get(observation.otaId)!;
+    if (observation.status==="no_public_rate") slot.explicitNoRate=true;
+    for (const quote of observation.quotes || []) {
+      if (!quote.verified) continue;
+      const room=String(quote.roomType || "").trim();
+      if (!room || /tipologia camera da verificare/i.test(room)) continue;
+      const normalized=normalizedRateToken(room);
+      slot.units.add(normalized);
+      if (!slot.labels.has(normalized)) slot.labels.set(normalized,room);
+    }
+  }
+  const out: OtaDistributionAsymmetry[]=[];
+  for (const [stayKey,byOta] of stayMap) {
+    const [checkin,checkout]=stayKey.split("|");
+    const positive=[...byOta.entries()].filter(([,slot])=>slot.units.size>0);
+    if (positive.length<2) continue;
+    const maxUnitCount=Math.max(...positive.map(([,slot])=>slot.units.size));
+    if (maxUnitCount<2) continue;
+    const referenceChannels=positive.filter(([,slot])=>slot.units.size===maxUnitCount).map(([otaId])=>PILOT_OTA_LABELS[otaId]||otaId);
+    for (const [otaId,slot] of byOta) {
+      const count=slot.units.size;
+      if (count>0 && count<maxUnitCount) {
+        const units=[...slot.labels.values()];
+        out.push({
+          checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:count,maxUnitCount,referenceChannels,units,
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" espone "+count+" tipologia/e vendibile/i, mentre "+referenceChannels.join(", ")+" ne espone/espongono "+maxUnitCount+" sulle stesse date. Asimmetria distributiva verificata da frontend. Possibili cause da approfondire: mapping inventario incompleto, disponibilità/restrizioni diverse, configurazione parziale del canale o sincronizzazione channel manager non omogenea.",
+        });
+      } else if (count===0 && slot.explicitNoRate && maxUnitCount>0) {
+        out.push({
+          checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:0,maxUnitCount,referenceChannels,units:[],
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" non espone tipologie prenotabili sulle date testate, mentre "+referenceChannels.join(", ")+" ne espone/espongono "+maxUnitCount+". Asimmetria di disponibilità verificata da frontend; non prova da sola un errore del channel manager e richiede verifica di allotment, stop-sale, minimum stay e mapping.",
+        });
+      }
+    }
+  }
+  return out.slice(0,40);
+}
 function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
   const rows: RateQuote[] = [];
   for (const observation of result.observations || []) {
-    if (!["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(observation.otaId)) continue;
+    if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
     const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
     for (const quote of observation.quotes || []) {
       if (quote.comparisonSelected === false) continue;
@@ -4689,7 +4747,7 @@ export default function App() {
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
   const activeStructure = structures.find((item) => item.id === activeStructureId);
-  const activeAuditData: AuditData = activeStructure?.auditData
+  const activeAuditDataBase: AuditData = activeStructure?.auditData
     ?? knownAuditData(activeStructureId)
     ?? blankAuditDataForStructure({
       id: activeStructureId || "bozza-corrente",
@@ -4699,6 +4757,23 @@ export default function App() {
       rooms: ownerInfo.rooms,
       website: activeStructure?.website,
     });
+  const activeAuditData = useMemo(() => {
+    const data=JSON.parse(JSON.stringify(activeAuditDataBase)) as any;
+    if (!Array.isArray(data.otaPresence)) data.otaPresence=[];
+    if (!data.otaPresence.some((item:any)=>item?.id==="holidu")) {
+      data.otaPresence.push({
+        id:"holidu", platform:"Holidu", group:"Holidu",
+        status:"unverified", finding:"Da verificare su fonte pubblica.", source:"sito",
+      });
+    }
+    if (data.pricingAudit && Array.isArray(data.pricingAudit.policies) && !data.pricingAudit.policies.some((item:any)=>item?.otaId==="holidu")) {
+      data.pricingAudit.policies.push({
+        otaId:"holidu", plans:"Non verificato", promotions:"Non verificato",
+        confidence:"Da verificare", source:"sito",
+      });
+    }
+    return data as AuditData;
+  }, [activeAuditDataBase]);
 
   async function connectLocalAgent(silent = false): Promise<string> {
     try {
@@ -4967,23 +5042,9 @@ export default function App() {
       setSelectedRateCohort((current) => current || rateCohortKey(automaticPilotQuotes[0]));
     }
     const automaticBookingCount = automaticPilotQuotes.filter((quote) => quote.otaId === "booking").length;
-    const automaticCounts = Object.fromEntries(["agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].map((otaId) => [otaId, automaticPilotQuotes.filter((quote) => quote.otaId === otaId).length]));
+    const automaticCounts = Object.fromEntries(PILOT_TARIFF_OTA_IDS.filter((otaId)=>otaId!=="booking").map((otaId) => [otaId, automaticPilotQuotes.filter((quote) => quote.otaId === otaId).length]));
 
-    const otaLabels: Record<string, string> = {
-      booking: "Booking.com",
-      airbnb: "Airbnb",
-      expedia: "Expedia",
-      hotels: "Hotels.com",
-      vrbo: "Vrbo",
-      agoda: "Agoda",
-      trip: "Trip.com",
-      priceline: "Priceline",
-      travelocity: "Travelocity",
-      tripadvisor: "Tripadvisor",
-      trivago: "Trivago",
-      googlehotels: "Google Hotels",
-      holidaycheck: "HolidayCheck",
-    };
+    const otaLabels: Record<string,string> = PILOT_OTA_LABELS;
 
     Object.entries(result.discoveredSources || {}).forEach(([otaId, discovery]) => {
       if (!otaLabels[otaId] || !discovery) return;
@@ -7492,7 +7553,7 @@ export default function App() {
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 13 canali: 9 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. La durata del soggiorno non viene forzata a una sola notte: Velora conserva la finestra valida trovata da Booking e normalizza ogni tariffa in €/notte + totale soggiorno, indicando quale valore era mostrato dal portale e quale è stato calcolato. Quando disponibili, Trivago/Google Hotels/Tripadvisor vengono usati anche come supporto di discovery: i link commerciali verso le OTA vengono verificati con nome + località/indirizzo prima di essere usati. Gli importi non attribuiti con certezza a camera/piano restano osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 14 canali: 10 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Holidu, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. La durata del soggiorno non viene forzata a una sola notte: Velora conserva la finestra valida trovata da Booking e normalizza ogni tariffa in €/notte + totale soggiorno, indicando quale valore era mostrato dal portale e quale è stato calcolato. Quando disponibili, Trivago/Google Hotels/Tripadvisor vengono usati anche come supporto di discovery: i link commerciali verso le OTA vengono verificati con nome + località/indirizzo prima di essere usati. Gli importi non attribuiti con certezza a camera/piano restano osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
@@ -7503,6 +7564,7 @@ export default function App() {
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["airbnb"])} className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-black text-rose-900 disabled:opacity-50">Airbnb · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["vrbo"])} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-black text-blue-900 disabled:opacity-50">Vrbo · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["expedia"])} className="rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2 text-xs font-black text-yellow-900 disabled:opacity-50">Expedia · verifica tutti i mesi</button>
+              <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["holidu"])} className="rounded-xl border border-teal-300 bg-teal-50 px-4 py-2 text-xs font-black text-teal-900 disabled:opacity-50">Holidu · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["hotels"])} className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-black text-orange-900 disabled:opacity-50">Hotels.com · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["travelocity"])} className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-black text-cyan-900 disabled:opacity-50">Travelocity · verifica tutti i mesi</button>
               <button type="button" disabled={localPilotRunning} onClick={() => startLocalPilot("all", ["trip"])} className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-xs font-black text-violet-900 disabled:opacity-50">Trip.com · verifica tutti i mesi</button>
