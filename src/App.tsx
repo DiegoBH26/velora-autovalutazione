@@ -3907,7 +3907,7 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
     dates_unconfirmed: "Date non confermate dal portale",
     date_adapter_missing: "Date non applicate automaticamente",
     source_not_retested: "Scheda non ritestata nel test rapido",
-    source_missing: "Nessuna scheda OTA verificata: nessun dato tariffario usato",
+    source_missing: "Scheda non individuata automaticamente in questo passaggio",
     rate_limited: "Portale limita temporaneamente la verifica",
     blocked: "Verifica impedita dal portale",
     http_error: "Errore HTTP durante la verifica",
@@ -3917,6 +3917,24 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
     login_required: "Login richiesto dal portale · nessun prezzo usato",
   };
   return labels[item.status] || item.status || "";
+}
+
+function pilotProfileMetricFallback(profile: BrowserPilotOtaProfile): string {
+  const labels: Record<string,string> = {
+    source_missing: "Non individuato in questa scansione",
+    http_error: "Non leggibile (HTTP)",
+    rate_limited: "Temporaneamente limitato",
+    blocked: "Bloccato dal portale",
+    robots_denied: "Accesso automatico non consentito",
+    robots_unavailable: "Verifica non conclusiva",
+    navigation_error: "Verifica non conclusiva",
+    sampled: "Dato non esposto",
+  };
+  return labels[profile.status] || "Dato non disponibile";
+}
+
+function pilotProfileMetric(value: number | null | undefined, profile: BrowserPilotOtaProfile, suffix = ""): string {
+  return Number.isFinite(value) ? `${Number(value).toFixed(suffix === "%" ? 1 : 0)}${suffix}` : pilotProfileMetricFallback(profile);
 }
 
 function monthlyCoverageSummary(quotes: RateQuote[], probes: AvailabilityProbe[], month: string, otaId: string, pilotResult?: BrowserPilotResult | null): string {
@@ -7667,9 +7685,9 @@ export default function App() {
                   <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">Profilo</th><th className="p-2 text-left">Rating</th><th className="p-2 text-left">Recensioni</th><th className="p-2 text-left">Raccomandazione</th><th className="p-2 text-left">Riscontro</th></tr></thead>
                   <tbody>{Object.entries(browserPilotResult.otaProfiles || {}).map(([otaId, profile]) => <tr key={`profile-${otaId}`} className="border-t border-[#EEE8F4] align-top">
                     <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform || otaId}<span className="block text-[9px] font-medium text-[#50627F]">{profile.status}</span></td>
-                    <td className="p-2">{Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale) ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}` : "n.d."}</td>
-                    <td className="p-2">{profile.reviewCount || "n.d."}</td>
-                    <td className="p-2">{Number.isFinite(profile.recommendationRate) ? `${Number(profile.recommendationRate).toFixed(1)}%` : "n.d."}</td>
+                    <td className="p-2">{Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale) ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}` : pilotProfileMetricFallback(profile)}</td>
+                    <td className="p-2">{Number.isFinite(profile.reviewCount) ? Number(profile.reviewCount).toLocaleString("it-IT") : pilotProfileMetricFallback(profile)}</td>
+                    <td className="p-2">{pilotProfileMetric(profile.recommendationRate, profile, "%")}</td>
                     <td className="p-2">{profile.evidence || "Profilo letto senza metriche strutturate"}{(profile.commercialHosts || []).length > 0 && <span className="block mt-1 text-[9px] text-[#50627F]">Link commerciali: {(profile.commercialHosts || []).slice(0, 6).join(", ")}</span>}</td>
                   </tr>)}</tbody>
                 </table>
@@ -7752,8 +7770,8 @@ export default function App() {
           <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
             <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Seleziona camera e piano tariffario</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           </label>
-          {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).length} prezzi/tariffe OTA rilevati</b> sono stati importati automaticamente nell’archivio economico. I valori non validati restano visibili ma non alimentano il delta. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
-          <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(rateQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? "—" : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} rilevazione/i · {cell.verified} validate{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
+          {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).length} righe tariffarie automatiche rilevate su {new Set(rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).map((quote) => quote.otaId)).size} canale/i</b>. I valori non validati restano visibili ma non alimentano il delta. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(rateQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{cell.average === null ? <span className="text-[10px] leading-4 text-[#50627F]">{pilotCoverageSummary(browserPilotResult, month, channel.id) || "—"}</span> : <><b>€{cell.average.toFixed(2)}</b><span className="block text-[10px] text-[#50627F]">{cell.count} rilevazione/i · {cell.verified} validate{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span></>}</td>; })}</tr>)}</tbody></table></div>
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
           <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.promotion || "inserimento manuale")}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
