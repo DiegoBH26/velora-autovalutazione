@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v82"
+PILOT_BUILD = "velora-browser-pilot-v83"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -54,6 +54,9 @@ DATE_URL_ADAPTERS = set(CHANNELS) - {"sito", "holidaycheck", "tripadvisor", "tri
 PROFILE_AUDIT_CHANNELS = ("tripadvisor", "trivago", "googlehotels", "holidaycheck")
 PUBLIC_FRONTEND_PRICING_CHANNELS = {"airbnb","expedia","vrbo","holidu","hotels","agoda","trip","priceline","travelocity"}
 FRONTEND_FIRST_CHANNELS = set(PUBLIC_FRONTEND_PRICING_CHANNELS)
+AUTO_SOURCE_DISCOVERY_TIMEOUT=28
+AUTO_OTA_OBSERVE_TIMEOUT=55
+HUMAN_ASSIST_TIMEOUT=120
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
@@ -7579,15 +7582,51 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
     if permission is None:
         record["robotsNotice"]="robots.txt non disponibile/chiarificatore; lettura effettuata nel browser pubblico senza bypass."
     try:
-        response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
+        response = await page.goto(requested, wait_until="domcontentloaded", timeout=22000)
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
         try:
-            await page.locator("body").wait_for(state="visible", timeout=5000)
-            await page.wait_for_timeout(1500)
+            await page.locator("body").wait_for(state="visible", timeout=4200)
+            await page.wait_for_timeout(1100)
         except PlaywrightTimeout:
             pass
+
+        # 429/403 non devono consumare un intero ciclo né chiedere intervento umano
+        # quando il portale non ha reso disponibile un frontend pubblico utilizzabile.
+        if response and response.status in {403,429}:
+            try:
+                early=await page.evaluate(r"""() => {
+                  const body=(document.body?.innerText || '').replace(/\s+/g,' ').trim();
+                  const visible=el=>{
+                    if(!el) return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+                    return s.display!=='none' && s.visibility!=='hidden' && r.width>0 && r.height>0;
+                  };
+                  const selectors=[
+                    'input','button','[data-testid*="date" i]','[data-stid*="date" i]',
+                    '[data-testid*="price" i]','[data-stid*="price" i]','[class*="price" i]',
+                    '[data-testid*="room" i]','[data-stid*="room" i]','[class*="room" i]'
+                  ];
+                  let interactive=0;
+                  for(const sel of selectors){
+                    interactive += Array.from(document.querySelectorAll(sel)).filter(visible).slice(0,40).length;
+                  }
+                  return {bodyLength:body.length,interactive};
+                }""")
+            except Exception:
+                early={"bodyLength":0,"interactive":0}
+            if int(early.get("bodyLength") or 0)<700 and int(early.get("interactive") or 0)<3:
+                record["finalUrl"]=page.url
+                record["title"]=(await page.title())[:200]
+                record.update(
+                    status="rate_limited" if response.status==429 else "http_error",
+                    evidence=(
+                        f"HTTP {response.status} · frontend pubblico non disponibile in questa sessione "
+                        f"(contenuto insufficiente). Nessun login, retry aggressivo o intervento utente: "
+                        "Velora passa automaticamente alla OTA successiva."
+                    ),
+                )
+                return record
 
         airbnb_ui_evidence=""
         if channel=="airbnb":
@@ -10193,7 +10232,13 @@ async def run(args: argparse.Namespace) -> dict:
                     write_result(output,result)
 
                 for channel in channels:
+                    channel_started=time.monotonic()
                     source = sources.get(channel, {}).get("url", "")
+                    print(
+                        f"{effective_stay['month']} {channel}: START frontend pubblico · "
+                        f"{effective_stay['checkin']}→{effective_stay['checkout']} · {effective_stay.get('adults',2)} adulti",
+                        flush=True,
+                    )
                     if channel=="booking" and precomputed_booking is not None:
                         record=precomputed_booking
                     else:
@@ -10206,12 +10251,12 @@ async def run(args: argparse.Namespace) -> dict:
                                         context,channel,data,effective_stay,robots,
                                         assist_callback=assist_callback,ghost=ghost,
                                     ),
-                                    timeout=330 if assisted else 35,
+                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted else AUTO_SOURCE_DISCOVERY_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 frontend_source={
                                     "status":"timeout","url":"",
-                                    "evidence":f"{OTA_META[channel]['label']}: ricerca interna fermata dopo 35 secondi."
+                                    "evidence":f"{OTA_META[channel]['label']}: ricerca frontend fermata dal watchdog; Velora passa alla OTA successiva."
                                 }
                             except Exception as exc:
                                 frontend_source={
@@ -10250,7 +10295,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
                                     observe(page, channel, source, effective_stay, robots),
-                                    timeout=75,
+                                    timeout=AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 record = {
@@ -10258,12 +10303,12 @@ async def run(args: argparse.Namespace) -> dict:
                                     "status": "needs_human_review", "quotes": [],
                                     "evidence": (
                                         f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
-                                        "controllo interrotto dal watchdog dopo 75 secondi; "
+                                        "controllo frontend interrotto dal watchdog dopo 55 secondi; "
                                         "l'audit continua sulle altre fonti."
                                     ),
                                 }
                                 print(
-                                    f"{effective_stay['month']} {channel}: WATCHDOG 75s · continuo con la prossima fonte",
+                                    f"{effective_stay['month']} {channel}: WATCHDOG 55s · continuo con la prossima fonte",
                                     flush=True,
                                 )
                             except Exception as exc:
@@ -10319,64 +10364,11 @@ async def run(args: argparse.Namespace) -> dict:
                                     except Exception:
                                         pass
 
-                            # Se una source preesistente porta a 403/429, date non confermate o pagina inconcludente,
-                            # tenta una seconda strada passando dalla ricerca interna dell'OTA e ripete la lettura.
-                            weak_statuses={
-                                "rate_limited","http_error","dates_unconfirmed","navigation_error",
-                                "needs_human_review","login_required"
-                            }
-                            if (
-                                channel!="booking"
-                                and channel in OTA_DISCOVERY_ORDER
-                                and not record.get("quotes")
-                                and record.get("status") in weak_statuses
-                            ):
-                                try:
-                                    recovery_source=await asyncio.wait_for(
-                                        frontend_discover_ota_source(
-                                            context,channel,data,effective_stay,robots,
-                                            assist_callback=assist_callback,ghost=ghost,
-                                        ),
-                                        timeout=330 if assisted else 35,
-                                    )
-                                except Exception:
-                                    recovery_source={}
-                                recovery_url=str(recovery_source.get("url") or "")
-                                if recovery_source.get("status")=="found" and recovery_url:
-                                    sources[channel]={"label":OTA_META[channel]["label"],"url":recovery_url}
-                                    unverified_source_ids.discard(channel)
-                                    result.setdefault("discoveredSources",{})[channel]=recovery_source
-                                    retry_page=None
-                                    try:
-                                        retry_page=await context.new_page()
-                                        retry_record=await asyncio.wait_for(
-                                            observe(retry_page,channel,recovery_url,effective_stay,robots),
-                                            timeout=75,
-                                        )
-                                        if retry_record.get("quotes") or retry_record.get("status") not in weak_statuses:
-                                            record=retry_record
-                                        else:
-                                            record["evidence"]=(
-                                                str(record.get("evidence") or "")+
-                                                " | Ricerca interna OTA eseguita; secondo tentativo: "+
-                                                str(retry_record.get("evidence") or "")
-                                            )[:900]
-                                    except Exception as retry_exc:
-                                        record["evidence"]=(
-                                            str(record.get("evidence") or "")+
-                                            f" | Retry da ricerca interna fallito: {type(retry_exc).__name__}: {str(retry_exc)[:130]}"
-                                        )[:900]
-                                    finally:
-                                        if retry_page is not None:
-                                            try:
-                                                await retry_page.close()
-                                            except Exception:
-                                                pass
+                            # Una sola lettura automatica per OTA. Se il frontend pubblico
+                            # non produce una tariffa, l'esito viene registrato e Velora passa oltre:
+                            # niente loop di discovery/retry che moltiplicano i tempi e i 429.
 
-                    assisted_weak_statuses={
-                        "rate_limited","http_error","dates_unconfirmed","navigation_error",
-                        "needs_human_review","blocked","empty_page"
-                    }
+                    assisted_weak_statuses={"blocked"}
                     if (
                         assisted and callable(assist_callback)
                         and channel!="booking"
@@ -10396,16 +10388,15 @@ async def run(args: argparse.Namespace) -> dict:
                                 pass
                             action=await _human_assist(
                                 assist_page,assist_callback,{
-                                    "type":"portal_block_or_rate",
+                                    "type":"visible_public_challenge",
                                     "otaId":channel,
                                     "label":OTA_META[channel]["label"],
                                     "reason":str(record.get("evidence") or record.get("status") or "")[:700],
                                     "instructions":(
-                                        f"Controlla nel Chrome aperto la scheda {OTA_META[channel]['label']} di «{data.get('name','')}». "
-                                        f"Se il portale chiede consenso/cookie o una verifica, completala manualmente. "
-                                        f"Se la pagina pubblica è navigabile, assicurati di essere sulla struttura corretta e, se possibile, "
-                                        f"imposta {effective_stay['checkin']} → {effective_stay['checkout']} per {effective_stay.get('adults',2)} adulti. "
-                                        "Non è necessario effettuare login. Poi torna su Velora e premi «Ho completato · riprendi»."
+                                        f"Il portale {OTA_META[channel]['label']} mostra una verifica/consenso VISIBILE sul frontend pubblico. "
+                                        "Completa soltanto quella verifica pubblica o il consenso cookie. "
+                                        "NON effettuare login, registrazione o accesso account. "
+                                        "Poi torna su Velora e premi «Ho completato · riprendi»."
                                     ),
                                     "propertyName":data.get("name",""),
                                     "city":data.get("city",""),
@@ -10454,7 +10445,7 @@ async def run(args: argparse.Namespace) -> dict:
                                             retry_page=await context.new_page()
                                             retry_record=await asyncio.wait_for(
                                                 observe(retry_page,channel,assisted_source,effective_stay,robots),
-                                                timeout=90,
+                                                timeout=AUTO_OTA_OBSERVE_TIMEOUT,
                                             )
                                             if retry_record.get("quotes") or retry_record.get("status") not in assisted_weak_statuses:
                                                 record=retry_record
@@ -10522,9 +10513,11 @@ async def run(args: argparse.Namespace) -> dict:
                     result["observations"].append(record)
                     apply_booking_room_reference(result)
                     write_result(output, result)
+                    channel_elapsed=time.monotonic()-channel_started
+                    record["elapsedSeconds"]=round(channel_elapsed,1)
                     print(
                         f"{effective_stay['month']} {channel}: {record['status']} · "
-                        f"{str(record.get('evidence') or '')[:240]}",
+                        f"{channel_elapsed:.1f}s · {str(record.get('evidence') or '')[:240]}",
                         flush=True,
                     )
                     await asyncio.sleep(1)
