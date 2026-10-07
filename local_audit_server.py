@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v72"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v73"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -716,8 +716,8 @@ def run_pilot(property_id,property_path,months,channels):
             dry_run=False,
         )
 
-        # Se Chrome dovesse davvero chiudersi/crashare (non soltanto non avere
-        # schede operative visibili), prova una sola ripartenza automatica.
+        # Il pilot v73 recupera Chrome internamente tra discovery e pricing.
+        # Questo resta soltanto come fallback estremo se l'errore avviene prima del checkpoint.
         for attempt in range(2):
             try:
                 asyncio.run(run(args))
@@ -733,8 +733,8 @@ def run_pilot(property_id,property_path,months,channels):
                 )
                 if attempt==0 and browser_closed:
                     print(
-                        "WATCHDOG CHROME: finestra/browser chiusi in modo inatteso. "
-                        "Riavvio automatico dell'audit una volta...",
+                        "WATCHDOG CHROME ESTREMO: errore prima/dopo il recovery interno. "
+                        "Ultimo tentativo completo...",
                         flush=True,
                     )
                     continue
@@ -814,7 +814,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v72",
+                "agentVersion":"velora-local-agent-v73",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -986,7 +986,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v72 · asimmetrie distributive + Holidu + frontend OTA generalizzato",flush=True)
+    print("Versione agente: velora-local-agent-v73 · checkpoint discovery + sessione pricing separata + recovery Chrome",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:

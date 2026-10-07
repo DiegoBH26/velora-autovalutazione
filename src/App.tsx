@@ -5281,7 +5281,9 @@ export default function App() {
         setLocalPilotMessage(
           status.running
             ? `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
-            : `Completato in ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate.${status.error ? ` Errore: ${status.error}` : " Esiti pronti per il PDF."}`
+            : status.error
+              ? `Interrotto dopo ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate. Errore: ${status.error}`
+              : `Completato in ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate. Esiti pronti per il PDF.`
         );
         if (!status.running) {
           if (status.result?.schema === "velora-browser-audit-pilot-v1" && status.result.propertyId === activeAuditData.id) {
@@ -7599,7 +7601,7 @@ export default function App() {
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
                 {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotDetectedRateQuotes(browserPilotResult).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
               </p>
-              <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 13 fonti complessive = 9 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
+              <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 14 fonti complessive = 10 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
               {(browserPilotResult.roomReferences || []).length > 0 && <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-950">
                 <b>Camera reference Booking</b>
                 {(browserPilotResult.roomReferences || []).map((reference, index) => <span key={`room-ref-${index}`} className="block mt-1">

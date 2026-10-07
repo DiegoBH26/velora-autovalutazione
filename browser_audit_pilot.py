@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v72"
+PILOT_BUILD = "velora-browser-pilot-v73"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -8901,6 +8901,70 @@ def apply_booking_room_reference(result: dict) -> None:
     result["roomReferences"]=room_references
 
 
+
+def _browser_closed_exception(exc: Exception) -> bool:
+    lowered=f"{type(exc).__name__}: {str(exc)}".lower()
+    return (
+        "targetclosederror" in lowered
+        or "target page, context or browser has been closed" in lowered
+        or "context or browser has been closed" in lowered
+        or "browser has been closed" in lowered
+        or "browsercontext.new_page" in lowered and "closed" in lowered
+    )
+
+
+async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phase_label: str):
+    """Apre una sessione Chrome persistente dedicata a una singola fase dell'audit."""
+    profile_dir.mkdir(parents=True,exist_ok=True)
+    last_exc=None
+    for attempt in range(3):
+        try:
+            context=await playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                channel="chrome",
+                headless=False,
+                locale="it-IT",
+                timezone_id="Europe/Rome",
+                viewport={"width":1440,"height":1000},
+                chromium_sandbox=True,
+            )
+            anchor_page=context.pages[0] if context.pages else await context.new_page()
+            try:
+                property_label=str(data.get("name") or "Struttura")
+                await anchor_page.set_content(
+                    f"""<!doctype html>
+                    <html><head><meta charset="utf-8"><title>Velora · {phase_label}</title>
+                    <style>
+                      body{{font-family:Arial,sans-serif;background:#f7f7f4;color:#20211f;margin:0;padding:48px}}
+                      .card{{max-width:720px;margin:8vh auto;background:white;border:1px solid #deded8;border-radius:18px;padding:34px;box-shadow:0 10px 35px rgba(0,0,0,.06)}}
+                      h1{{font-size:28px;margin:0 0 12px}} p{{font-size:17px;line-height:1.5;margin:8px 0}}
+                      .dot{{display:inline-block;width:10px;height:10px;border-radius:50%;background:#35a853;margin-right:9px}}
+                    </style></head><body><div class="card">
+                    <h1><span class="dot"></span>Velora sta lavorando</h1>
+                    <p><strong>{property_label}</strong></p>
+                    <p>Fase: <strong>{phase_label}</strong></p>
+                    <p>Questa scheda resta aperta come controllo. Le schede operative possono aprirsi e chiudersi durante la scansione.</p>
+                    </div></body></html>""",
+                    wait_until="domcontentloaded",
+                    timeout=5000,
+                )
+            except Exception:
+                pass
+            print(
+                f"browser mode: Chrome persistente visibile · fase={phase_label} · profilo={profile_dir} · watchdog finestra attivo",
+                flush=True,
+            )
+            return context
+        except Exception as exc:
+            last_exc=exc
+            if attempt<2:
+                await asyncio.sleep(1.2+attempt)
+    raise RuntimeError(
+        f"Impossibile aprire Chrome per la fase {phase_label}: "
+        f"{type(last_exc).__name__ if last_exc else 'errore'}: {str(last_exc)[:180] if last_exc else ''}"
+    )
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -8915,57 +8979,24 @@ async def run(args: argparse.Namespace) -> dict:
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
-              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "discoveryProgress": {}, "observations": []}
+              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "discoveryProgress": {},
+              "browserPhases": [], "observations": []}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
         return result
     robots: dict[str, RobotFileParser | bool | None] = {}
     async with async_playwright() as playwright:
-        # Usa un profilo Chrome dedicato e persistente, in modalità visibile:
-        # è molto più vicino al comportamento di un agente browser reale rispetto
-        # a una nuova sessione headless vuota a ogni audit.
-        profile_dir=Path(__file__).resolve().parent/"velora-browser-profile"
-        profile_dir.mkdir(parents=True,exist_ok=True)
-        context = await playwright.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            channel="chrome",
-            headless=False,
-            locale="it-IT",
-            timezone_id="Europe/Rome",
-            viewport={"width":1440,"height":1000},
-            chromium_sandbox=True,
+        # Discovery e pricing usano profili distinti. Una sessione lunga di ricerca
+        # non può più trascinare con sé un BrowserContext instabile nella fase prezzi.
+        discovery_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-discovery"
+        pricing_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-pricing"
+        context=await _launch_velora_context(
+            playwright,discovery_profile_dir,data,"discovery OTA"
         )
-
-        # Mantiene una scheda di controllo sempre aperta. Prima, durante le fasi
-        # basate su richieste HTTP o quando tutte le schede operative venivano chiuse,
-        # Chrome poteva non avere più finestre visibili e sembrava che l'agente fosse morto.
-        anchor_page = context.pages[0] if context.pages else await context.new_page()
-        try:
-            property_label=str(data.get("name") or "Struttura")
-            await anchor_page.set_content(
-                f"""<!doctype html>
-                <html><head><meta charset="utf-8"><title>Velora · audit in corso</title>
-                <style>
-                  body{{font-family:Arial,sans-serif;background:#f7f7f4;color:#20211f;margin:0;padding:48px}}
-                  .card{{max-width:720px;margin:8vh auto;background:white;border:1px solid #deded8;border-radius:18px;padding:34px;box-shadow:0 10px 35px rgba(0,0,0,.06)}}
-                  h1{{font-size:28px;margin:0 0 12px}} p{{font-size:17px;line-height:1.5;margin:8px 0}}
-                  .dot{{display:inline-block;width:10px;height:10px;border-radius:50%;background:#35a853;margin-right:9px}}
-                </style></head><body><div class="card">
-                <h1><span class="dot"></span>Velora sta lavorando</h1>
-                <p><strong>{property_label}</strong></p>
-                <p>Questa scheda resta aperta come controllo del browser. Le altre schede possono aprirsi e chiudersi durante la scansione.</p>
-                </div></body></html>""",
-                wait_until="domcontentloaded",
-                timeout=5000,
-            )
-        except Exception:
-            pass
-
-        print(
-            f"browser mode: Chrome persistente visibile · profilo={profile_dir} · watchdog finestra attivo",
-            flush=True,
-        )
+        result["browserPhases"].append({
+            "phase":"discovery","status":"running","profile":str(discovery_profile_dir)
+        })
         try:
             identity = await resolve_identity_from_official_site(context, data, robots)
             result["identityResolution"] = identity
@@ -9095,19 +9126,99 @@ async def run(args: argparse.Namespace) -> dict:
                     flush=True,
                 )
 
+            # CHECKPOINT: la discovery è ormai patrimonio del risultato.
+            # Da qui in poi usa una sessione Chrome FRESCA dedicata alle tariffe.
+            # Se la sessione discovery è già morta, la chiusura viene ignorata:
+            # non si rifanno reputazione, foto e 14 ricerche OTA.
+            result["browserPhases"].append({
+                "phase":"discovery",
+                "status":"completed",
+                "candidates":len(result.get("discoveredSources") or {}),
+            })
+            write_result(output,result)
+            try:
+                await context.close()
+            except Exception:
+                pass
+            await asyncio.sleep(0.8)
+            context=await _launch_velora_context(
+                playwright,pricing_profile_dir,data,"verifica schede e tariffe"
+            )
+            result["browserPhases"].append({
+                "phase":"pricing","status":"running","profile":str(pricing_profile_dir)
+            })
+            write_result(output,result)
+            print(
+                "browser phase switch: discovery salvata · nuova sessione Chrome dedicata a schede/prezzi",
+                flush=True,
+            )
+
+            async def restart_pricing_context(reason: str):
+                nonlocal context
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                await asyncio.sleep(0.8)
+                context=await _launch_velora_context(
+                    playwright,pricing_profile_dir,data,"verifica schede e tariffe · recovery"
+                )
+                result["browserPhases"].append({
+                    "phase":"pricing",
+                    "status":"restarted",
+                    "reason":reason[:220],
+                })
+                write_result(output,result)
+                print(
+                    f"WATCHDOG PRICING: sessione Chrome riaperta senza perdere la discovery · {reason[:180]}",
+                    flush=True,
+                )
+                return context
+
+            async def ensure_pricing_context(reason: str):
+                nonlocal context
+                probe=None
+                try:
+                    probe=await context.new_page()
+                    await probe.close()
+                    return context
+                except Exception as exc:
+                    if probe is not None:
+                        try:
+                            await probe.close()
+                        except Exception:
+                            pass
+                    if _browser_closed_exception(exc):
+                        return await restart_pricing_context(reason)
+                    raise
+
             unverified_source_ids=set()
             for ota_id in OTA_DISCOVERY_ORDER:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                 if existing_url:
-                    verification=await verify_ota_candidate_page(
-                        context,
-                        ota_id,
-                        existing_url,
-                        data.get("name",""),
-                        data.get("city",""),
-                        data.get("address",""),
-                        robots,
-                    )
+                    try:
+                        verification=await verify_ota_candidate_page(
+                            context,
+                            ota_id,
+                            existing_url,
+                            data.get("name",""),
+                            data.get("city",""),
+                            data.get("address",""),
+                            robots,
+                        )
+                    except Exception as exc:
+                        if not _browser_closed_exception(exc):
+                            raise
+                        await restart_pricing_context(f"verifica scheda {ota_id}: {type(exc).__name__}")
+                        verification=await verify_ota_candidate_page(
+                            context,
+                            ota_id,
+                            existing_url,
+                            data.get("name",""),
+                            data.get("city",""),
+                            data.get("address",""),
+                            robots,
+                        )
                     if verification.get("ok"):
                         result["discoveredSources"][ota_id]={
                             "status":"existing_verified",
@@ -9148,6 +9259,7 @@ async def run(args: argparse.Namespace) -> dict:
                 discovery=master_discoveries.get(ota_id) or {}
                 # Booking mantiene il proprio fallback specializzato se la pipeline master non chiude il match.
                 if ota_id=="booking" and discovery.get("status")!="found":
+                    await ensure_pricing_context("prima della discovery Booking specializzata")
                     specialized=await discover_booking_source(
                         context,
                         data.get("name",""),
@@ -9203,6 +9315,7 @@ async def run(args: argparse.Namespace) -> dict:
             # un profilo pubblico strutturato: reputazione, prezzi generici e link commerciali.
             run_profile_audit = len(channels) != 1 or channels[0] in PROFILE_AUDIT_CHANNELS
             if run_profile_audit:
+                await ensure_pricing_context("prima dei profili OTA")
                 for ota_id in PROFILE_AUDIT_CHANNELS:
                     profile_source=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                     if profile_source:
@@ -9220,6 +9333,7 @@ async def run(args: argparse.Namespace) -> dict:
                     )
                     write_result(output,result)
 
+            await ensure_pricing_context("prima del metasearch assist")
             metasearch_assist=await apply_metasearch_assist(
                 context,data,result,sources,robots
             )
@@ -9249,6 +9363,7 @@ async def run(args: argparse.Namespace) -> dict:
 
 
             official_url = sources.get("sito", {}).get("url", "")
+            await ensure_pricing_context("prima della verifica booking engine diretto")
             if official_url:
                 permission = await asyncio.to_thread(allowed_by_robots, official_url, robots)
                 if permission is True:
@@ -9267,6 +9382,7 @@ async def run(args: argparse.Namespace) -> dict:
                 result["bookingEngine"]["evidence"] = "URL ufficiale non indicato."
             write_result(output, result)
             for stay_index,planned_stay in enumerate(list(plan)):
+                await ensure_pricing_context(f"inizio campione tariffario {planned_stay.get('month','')}")
                 effective_stay=dict(planned_stay)
                 precomputed_booking=None
 
@@ -9375,20 +9491,51 @@ async def run(args: argparse.Namespace) -> dict:
                                 flush=True,
                             )
                         except Exception as exc:
-                            record = {
-                                "otaId": channel, **effective_stay,
-                                "status": "needs_human_review", "quotes": [],
-                                "evidence": (
-                                    f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
-                                    f"errore isolato {type(exc).__name__}: {str(exc)[:180]}. "
-                                    "L'audit continua sulle altre fonti."
-                                ),
-                            }
-                            print(
-                                f"{effective_stay['month']} {channel}: ERRORE ISOLATO · "
-                                f"{type(exc).__name__}: {str(exc)[:180]}",
-                                flush=True,
-                            )
+                            if _browser_closed_exception(exc):
+                                if page is not None:
+                                    try:
+                                        await page.close()
+                                    except Exception:
+                                        pass
+                                    page=None
+                                await restart_pricing_context(
+                                    f"{effective_stay['month']} {channel}: {type(exc).__name__}"
+                                )
+                                try:
+                                    page=await context.new_page()
+                                    record=await asyncio.wait_for(
+                                        observe(page,channel,source,effective_stay,robots),
+                                        timeout=75,
+                                    )
+                                    print(
+                                        f"{effective_stay['month']} {channel}: retry dopo recovery Chrome completato",
+                                        flush=True,
+                                    )
+                                except Exception as retry_exc:
+                                    record={
+                                        "otaId":channel, **effective_stay,
+                                        "status":"needs_human_review","quotes":[],
+                                        "evidence":(
+                                            f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                            f"sessione Chrome riavviata ma il secondo tentativo non è riuscito "
+                                            f"({type(retry_exc).__name__}: {str(retry_exc)[:160]})."
+                                        ),
+                                    }
+                            else:
+                                record = {
+                                    "otaId": channel, **effective_stay,
+                                    "status": "needs_human_review", "quotes": [],
+                                    "evidence": (
+                                        f"{OTA_META.get(channel, {'label': channel}).get('label', channel)}: "
+                                        f"errore isolato {type(exc).__name__}: {str(exc)[:180]}. "
+                                        "L'audit continua sulle altre fonti."
+                                    ),
+                                }
+                                print(
+                                    f"{effective_stay['month']} {channel}: ERRORE ISOLATO · "
+                                    f"{type(exc).__name__}: {str(exc)[:180]}",
+                                    flush=True,
+                                )
                         finally:
                             if page is not None:
                                 try:
@@ -9425,9 +9572,16 @@ async def run(args: argparse.Namespace) -> dict:
                     )
                     await asyncio.sleep(1)
             apply_booking_room_reference(result)
+            result["browserPhases"].append({
+                "phase":"pricing","status":"completed",
+                "observations":len(result.get("observations") or []),
+            })
             write_result(output,result)
         finally:
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                pass
     return result
 
 
