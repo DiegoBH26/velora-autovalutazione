@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v74"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v75"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -705,7 +705,7 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months,channels):
+def run_pilot(property_id,property_path,months,channels,ghost=False):
     try:
         args=argparse.Namespace(
             property=str(property_path),
@@ -714,6 +714,7 @@ def run_pilot(property_id,property_path,months,channels):
             months=months,
             today=None,
             dry_run=False,
+            ghost=bool(ghost),
         )
 
         # Il pilot v73 recupera Chrome internamente tra discovery e pricing.
@@ -814,7 +815,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v74",
+                "agentVersion":"velora-local-agent-v75",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -976,8 +977,9 @@ class Handler(SimpleHTTPRequestHandler):
             STATE.property_id=property_id
             STATE.property_path=property_path
         months=1 if payload["months"]==1 else None
-        threading.Thread(target=run_pilot,args=(property_id,property_path,months,requested_channels),daemon=True).start()
-        self._json(202,{"running":True,"propertyId":property_id})
+        ghost=bool(payload.get("ghost",False))
+        threading.Thread(target=run_pilot,args=(property_id,property_path,months,requested_channels,ghost),daemon=True).start()
+        self._json(202,{"running":True,"propertyId":property_id,"ghost":ghost})
 
 
 if __name__=="__main__":
@@ -986,7 +988,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v74 · discovery non bloccante + pricing separato + recovery Chrome",flush=True)
+    print("Versione agente: velora-local-agent-v75 · sorgenti OTA verificate + prezzi frontend + Ghost mode",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
