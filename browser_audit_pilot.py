@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v79"
+PILOT_BUILD = "velora-browser-pilot-v80"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1424,7 +1424,14 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     if distinctive:
         broad_queries.append(f'"Hotel {distinctive}" {meta["label"]}')
 
-    queries=list(dict.fromkeys(query for query in [*site_queries,*broad_queries] if query))[:14]
+    # In v79 le prime 8 query erano quasi tutte site: e le query libere non venivano
+    # mai raggiunte per OTA con più domini/varianti (caso Airbnb). Intercala subito
+    # le query libere: servono quando l'indice conosce la pagina ma non la restituisce con site:.
+    if ota_id in FRONTEND_FIRST_CHANNELS:
+        ordered_queries=[*broad_queries[:5],*site_queries[:7],*broad_queries[5:],*site_queries[7:]]
+    else:
+        ordered_queries=[*site_queries[:4],*broad_queries[:5],*site_queries[4:],*broad_queries[5:]]
+    queries=list(dict.fromkeys(query for query in ordered_queries if query))[:16]
     if not queries:
         return {
             "status":"not_verified_present","url":"","title":"","score":0.0,
@@ -1457,7 +1464,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             ))
 
     # 1) HTTP metasearch: rapido e gratuito.
-    for query in queries[:8]:
+    for query in queries[:12]:
         try:
             http_items,_=await asyncio.wait_for(
                 asyncio.to_thread(_free_http_search_links,query,tuple(meta["domains"])),
@@ -1892,6 +1899,156 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
             continue
         seen.add(key); unique.append(item)
     return unique[:40]
+
+
+async def agoda_geometric_rate_candidates(page, stay: dict) -> list[dict]:
+    """Ultimo fallback Agoda: abbina prezzo e camera visibili per prossimità geometrica.
+    È volutamente NON validato: mostra il dato reale osservato ma non alimenta il delta OTA.
+    """
+    payload=await page.evaluate(r"""() => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el) return false;
+        const st=getComputedStyle(el);
+        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+        if((st.textDecorationLine||'').includes('line-through')) return false;
+        const r=el.getBoundingClientRect();
+        return r.width>0&&r.height>0;
+      };
+      const priceRx=/(?:€|EUR)\s*\d{1,5}(?:[.,]\d{1,2})?|\d{1,5}(?:[.,]\d{1,2})?\s*(?:€|EUR)/i;
+      const roomRx=/\b(room|camera|suite|apartment|appartamento|studio|villa|double|twin|family|king|queen|deluxe|superior|quadrupla|tripla|matrimoniale|familiare)\b/i;
+
+      const priceSelectors=[
+        '[data-selenium*="price" i]','[data-ppapi*="price" i]',
+        '[data-element-name*="price" i]','[class*="price" i]'
+      ];
+      const roomSelectors=[
+        '[data-selenium*="room-name" i]','[data-ppapi*="room-name" i]',
+        '[data-ppapi*="room-title" i]','[data-element-name*="room-name" i]',
+        '[data-element-name*="room-title" i]','[class*="room-name" i]',
+        '[class*="room-title" i]','h2','h3','h4'
+      ];
+
+      const prices=[]; const pSeen=new Set();
+      for(const sel of priceSelectors){
+        for(const el of Array.from(document.querySelectorAll(sel)).slice(0,220)){
+          if(!visible(el)) continue;
+          const text=clean(el.innerText||el.textContent);
+          const match=text.match(priceRx);
+          if(!match) continue;
+          const r=el.getBoundingClientRect();
+          const key=match[0]+'|'+Math.round(r.top)+'|'+Math.round(r.left);
+          if(pSeen.has(key)) continue; pSeen.add(key);
+          prices.push({el,text:match[0],top:r.top,left:r.left,width:r.width});
+        }
+      }
+
+      const rooms=[]; const rSeen=new Set();
+      for(const sel of roomSelectors){
+        for(const el of Array.from(document.querySelectorAll(sel)).slice(0,260)){
+          if(!visible(el)) continue;
+          const text=clean(el.innerText||el.textContent);
+          if(!text||text.length>260||!roomRx.test(text)) continue;
+          const r=el.getBoundingClientRect();
+          const key=text.toLowerCase()+'|'+Math.round(r.top);
+          if(rSeen.has(key)) continue; rSeen.add(key);
+          rooms.push({el,text,top:r.top,bottom:r.bottom,left:r.left});
+        }
+      }
+
+      const out=[];
+      for(const price of prices.slice(0,80)){
+        let best=null; let bestScore=1e9;
+        for(const room of rooms){
+          const vertical = room.bottom<=price.top+120
+            ? Math.max(0,price.top-room.bottom)
+            : Math.abs(room.top-price.top)+650;
+          const horizontal=Math.abs(room.left-price.left)*0.15;
+          const score=vertical+horizontal;
+          if(score<bestScore && vertical<1700){best=room;bestScore=score;}
+        }
+        if(!best) continue;
+
+        let container=price.el;
+        let context='';
+        for(let depth=0;depth<9&&container;depth++,container=container.parentElement){
+          const t=clean(container.innerText||container.textContent);
+          if(!t||t.length>9000) continue;
+          if(t.toLowerCase().includes(best.text.toLowerCase()) && priceRx.test(t)){
+            context=t.slice(0,6500);
+            break;
+          }
+        }
+        if(!context) context=(best.text+' '+price.text).slice(0,1200);
+        const low=context.toLowerCase();
+        let basis='';
+        if(/(prezzo totale|totale soggiorno|stay total|total price|total for|per stay|prezzo per .* notti|price for .* nights)/i.test(low)) basis='stay-total';
+        else if(/(per notte|a notte|per night|nightly|price per room per night|prezzo per camera per notte|media per notte)/i.test(low)) basis='nightly';
+
+        out.push({
+          room:best.text.slice(0,240),
+          price:price.text,
+          basis,
+          context,
+          proximity:Math.round(bestScore)
+        });
+      }
+      return out.slice(0,80);
+    }""")
+
+    page_basis=""
+    try:
+        page_text=(await page.locator("body").inner_text(timeout=3500)).lower()
+        nightly=bool(re.search(r"\b(per night|a notte|per notte|nightly|price per room per night|prezzo per camera per notte|media per notte)\b",page_text,re.I))
+        total=bool(re.search(r"\b(total price|prezzo totale|totale soggiorno|stay total|per stay|totale per il soggiorno)\b",page_text,re.I))
+        if nightly and not total:
+            page_basis="nightly"
+        elif total and not nightly:
+            page_basis="stay-total"
+    except Exception:
+        pass
+
+    out=[]
+    for row in payload:
+        room=str(row.get("room") or "").strip()
+        price=_money_value(str(row.get("price") or ""))
+        basis=str(row.get("basis") or "") or page_basis
+        if not room or price is None or basis not in {"nightly","stay-total"}:
+            continue
+        fields=_price_fields(price,basis,stay)
+        context=str(row.get("context") or "")
+        low=context.lower()
+        board="Colazione inclusa" if any(x in low for x in ("colazione inclusa","breakfast included")) else "Trattamento da verificare"
+        if any(x in low for x in ("cancellazione gratuita","free cancellation")):
+            refund="Cancellazione gratuita"
+        elif any(x in low for x in ("non rimborsabile","non-refundable","non refundable")):
+            refund="Non rimborsabile"
+        else:
+            refund="Cancellazione da verificare"
+        out.append({
+            "roomType":room,
+            "ratePlan":"Piano tariffario da verificare",
+            **fields,
+            "currency":"EUR",
+            "nights":stay["nights"],
+            "guests":stay["adults"],
+            "board":board,
+            "refund":refund,
+            "audience":"Pubblico senza login",
+            "taxes":"Da verificare nel dettaglio del preventivo",
+            "verified":False,
+            "comparisonWarning":"Prezzo Agoda reale osservato e associato alla camera per prossimità frontend; da validare prima del delta.",
+            "evidence":(
+                f"Fallback geometrico Agoda · distanza DOM {int(row.get('proximity') or 0)} · "
+                + fields["priceDerivation"]+" "+context[:700]
+            )[:1200],
+        })
+    unique=[]; seen=set()
+    for item in out:
+        key=(item["roomType"].lower(),item["total"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:30]
 
 
 async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
@@ -7685,9 +7842,21 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     ).count()
                 except Exception:
                     agoda_price_nodes=agoda_room_nodes=0
+                try:
+                    agoda_debug=await page.evaluate(r"""() => {
+                      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+                      const vis=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
+                      const prices=Array.from(document.querySelectorAll('[data-selenium*="price"],[data-ppapi*="price" i],[data-element-name*="price" i],[class*="price" i]')).filter(vis).slice(0,6).map(el=>clean(el.innerText||el.textContent).slice(0,180));
+                      const rooms=Array.from(document.querySelectorAll('[data-selenium*="room"],[data-ppapi*="room" i],[data-element-name*="room" i],[class*="room" i],h2,h3,h4')).filter(vis).slice(0,8).map(el=>clean(el.innerText||el.textContent).slice(0,180));
+                      return {prices,rooms};
+                    }""")
+                except Exception:
+                    agoda_debug={"prices":[],"rooms":[]}
                 print(
                     f"{stay['month']} agoda-rate-diagnostics: candidates={len(candidates)} · "
-                    f"priceNodes={agoda_price_nodes} · roomNodes={agoda_room_nodes} · url={page.url[:260]}",
+                    f"priceNodes={agoda_price_nodes} · roomNodes={agoda_room_nodes} · "
+                    f"priceSample={str(agoda_debug.get('prices') or [])[:360]} · "
+                    f"roomSample={str(agoda_debug.get('rooms') or [])[:360]} · url={page.url[:260]}",
                     flush=True,
                 )
                 verified=[item for item in candidates if item.get("verified")]
@@ -7719,20 +7888,32 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                         record.update(
                             status="quote_candidates",
                             evidence=(
-                                f"Date Agoda confermate. Il layout standard non ha chiuso il match, ma il fallback specifico Agoda "
-                                f"ha associato {len(fallback)} prezzi a camera + base prezzo esplicita (a notte/totale). "
-                                f"Esempio: {fallback[0]['roomType']} · €{fallback[0]['nightlyRate']:.2f}/notte · "
-                                f"€{fallback[0]['total']:.2f} totale per {stay['nights']} notti."
+                                f"Date Agoda confermate. Il fallback specifico Agoda ha associato {len(fallback)} prezzi "
+                                f"a camera + base prezzo esplicita. Esempio: {fallback[0]['roomType']} · "
+                                f"€{fallback[0]['nightlyRate']:.2f}/notte · €{fallback[0]['total']:.2f} totale."
                             )[:900],
                         )
                     else:
-                        record.update(
-                            status="needs_human_review",
-                            evidence=(
-                                "Date Agoda confermate, ma nessuna tariffa con camera + base prezzo esplicita è stata attribuita "
-                                "con sufficiente certezza. Gli importi EUR generici della pagina vengono ignorati."
+                        geometric=await agoda_geometric_rate_candidates(page,stay)
+                        record["quotes"]=geometric
+                        if geometric:
+                            record.update(
+                                status="quote_candidates_unverified",
+                                evidence=(
+                                    f"Date Agoda confermate. Il parser strutturato non ha chiuso il match, ma il frontend mostra "
+                                    f"{len(geometric)} prezzo/i associabili a una camera per prossimità visiva. "
+                                    f"I valori vengono mostrati come reali osservati ma restano esclusi dal delta finché non validati. "
+                                    f"Esempio: {geometric[0]['roomType']} · €{geometric[0]['nightlyRate']:.2f}/notte."
+                                )[:900],
                             )
-                        )
+                        else:
+                            record.update(
+                                status="needs_human_review",
+                                evidence=(
+                                    "Date Agoda confermate e nodi prezzo/camera presenti, ma nessuna associazione affidabile "
+                                    "è stata costruita nemmeno dal fallback geometrico."
+                                )
+                            )
             elif channel in {"airbnb","vrbo"}:
                 candidates=(
                     await airbnb_quote_candidates(page,stay)
