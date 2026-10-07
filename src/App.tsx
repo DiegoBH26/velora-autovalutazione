@@ -4742,6 +4742,11 @@ export default function App() {
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
   const [localPilotGhost, setLocalPilotGhost] = useState(() => window.localStorage.getItem("velora-pilot-ghost") === "1");
+  const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") !== "0");
+  const [localPilotIntervention, setLocalPilotIntervention] = useState<null | {
+    id?: string; type?: string; otaId?: string; label?: string; reason?: string; instructions?: string;
+    propertyName?: string; city?: string; url?: string; stay?: { checkin?: string; checkout?: string; adults?: number };
+  }>(null);
   const [localPilotProgress, setLocalPilotProgress] = useState(0);
   const [localPilotPhase, setLocalPilotPhase] = useState("");
   const [autoAuditDraft, setAutoAuditDraft] = useState(
@@ -5275,6 +5280,7 @@ export default function App() {
           months,
           channels: channelIds,
           ghost: localPilotGhost,
+          assisted: localPilotAssisted,
           propertyData: {
             id: activeAuditData.id,
             name: activeAuditData.name,
@@ -5292,7 +5298,14 @@ export default function App() {
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
         const response = await fetch(localAgentUrl("/api/pilot/status"), { cache: "no-store", mode: "cors" });
         if (!response.ok) throw new Error("Impossibile leggere lo stato del servizio locale.");
-        const status = await response.json() as { running: boolean; error?: string; result?: BrowserPilotResult };
+        const status = await response.json() as {
+          running: boolean; error?: string; result?: BrowserPilotResult;
+          intervention?: null | {
+            id?: string; type?: string; otaId?: string; label?: string; reason?: string; instructions?: string;
+            propertyName?: string; city?: string; url?: string; stay?: { checkin?: string; checkout?: string; adults?: number };
+          };
+        };
+        setLocalPilotIntervention(status.intervention || null);
         const count = status.result?.observations?.length || 0;
         const observedRows = status.result?.observations?.reduce((sum, item) => sum + (item.quotes?.length || 0), 0) || 0;
         const verifiedPilotRates = status.result ? pilotDetectedRateQuotes(status.result).length : 0;
@@ -5309,7 +5322,10 @@ export default function App() {
         const expectedChannels = Math.max(1, channelIds?.length || 10);
         const expectedMonths = Math.max(1, status.result?.plan?.length || (months === 1 ? 1 : 1));
         const expectedChecks = expectedChannels * expectedMonths;
-        if (discoveryActive) {
+        if (status.intervention) {
+          setLocalPilotProgress(Math.max(40, localPilotProgress));
+          setLocalPilotPhase(`Intervento richiesto · ${status.intervention.label || status.intervention.otaId || "OTA"}`);
+        } else if (discoveryActive) {
           const fraction = Math.min(1, Number(discovery.completed || 0) / Math.max(1, Number(discovery.total || 1)));
           setLocalPilotProgress(Math.max(2, Math.round(5 + fraction * 35)));
           setLocalPilotPhase(`Discovery OTA ${Number(discovery.completed || 0)}/${Number(discovery.total || 0)}`);
@@ -5335,6 +5351,7 @@ export default function App() {
             window.localStorage.setItem(`velora-browser-pilot:${activeAuditData.id}`, JSON.stringify(mergedResult));
             applyPilotEvidence(status.result);
           }
+          setLocalPilotIntervention(null);
           break;
         }
       }
@@ -5343,6 +5360,27 @@ export default function App() {
       setLocalPilotMessage(`Interrotto dopo ${elapsed} · ${error instanceof Error ? error.message : "Errore della rilevazione locale."}`);
     } finally {
       setLocalPilotRunning(false);
+      setLocalPilotIntervention(null);
+    }
+  }
+
+  async function respondLocalPilotIntervention(action: "continue" | "skip") {
+    if (!localPilotToken || !localPilotIntervention) return;
+    try {
+      const response = await fetch(localAgentUrl("/api/pilot/intervention"), {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json", "X-Velora-Local-Token": localPilotToken },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) {
+        const body = await response.json() as { error?: string };
+        throw new Error(body.error || "Impossibile inviare la risposta all\'agente.");
+      }
+      setLocalPilotMessage(action === "continue" ? "Intervento confermato. Velora riprende lo scraping..." : "OTA saltata su richiesta. Velora prosegue con il canale successivo...");
+      setLocalPilotIntervention(null);
+    } catch (error) {
+      setLocalPilotMessage(error instanceof Error ? error.message : "Errore durante la ripresa dello scraping.");
     }
   }
   const customQuickData = useMemo(
