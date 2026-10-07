@@ -5028,8 +5028,9 @@ export default function App() {
       setBrowserPilotResult(merged);
       window.localStorage.setItem(`velora-browser-pilot:${cleaned.propertyId}`, JSON.stringify(merged));
       applyPilotEvidence(cleaned);
-      const verifiedPilotRates = pilotDetectedRateQuotes(cleaned).length;
-      window.alert(`${cleaned.observations.length} verifiche importate · ${verifiedPilotRates} tariffe OTA validate aggiunte all’archivio economico.`);
+      const detectedPilotRates = pilotDetectedRateQuotes(cleaned);
+      const verifiedPilotRates = detectedPilotRates.filter((quote) => quote.pilotVerified !== false).length;
+      window.alert(`${cleaned.observations.length} verifiche importate · ${detectedPilotRates.length} prezzi/tariffe rilevati · ${verifiedPilotRates} validati.`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Impossibile leggere il file del pilota.");
     }
@@ -6401,11 +6402,21 @@ export default function App() {
     const seededComparisons = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const manualComparisons = buildRateComparisonRows(rateQuotes, todayLocalIso());
+    const otaDistributionAsymmetries = pilotDistributionAsymmetries(browserPilotResult);
+    const otaDistributionHtml = otaDistributionAsymmetries.length ?
+      "<h2>Asimmetrie distributive tra OTA</h2>" +
+      "<p>Confronto effettuato sulle stesse date e soltanto su tipologie/unità con tariffa frontend validata. Le differenze sono fatti osservati; le possibili cause tecniche vanno verificate prima di attribuirle a channel manager o PMS.</p>" +
+      "<table><thead><tr><th>Date</th><th>OTA</th><th>Tipologie visibili</th><th>Riferimento massimo</th><th>Riscontro / opportunità</th></tr></thead><tbody>" +
+      otaDistributionAsymmetries.map((item)=>
+        "<tr><td>"+safe(item.checkin)+" → "+safe(item.checkout)+"</td><td><b>"+safe(item.otaLabel)+"</b></td><td>"+String(item.unitCount)+
+        (item.units.length ? "<small>"+safe(item.units.join(" · "))+"</small>" : "")+"</td><td>"+String(item.maxUnitCount)+
+        "<small>"+safe(item.referenceChannels.join(", "))+"</small></td><td>"+safe(item.finding)+"</td></tr>"
+      ).join("") + "</tbody></table>" : "";
     const numericPricingRows = [
       ...seededComparisons.map((sample) => `<tr><td>${safe(sample.stay)}</td><td><b>${safe(reportChannels.find((channel) => channel.id === sample.otaId)?.platform || (sample.otaId === "sito" ? "Sito diretto" : sample.otaId))}</b></td><td>${safe(sample.roomType)}</td><td class="center"><b>€ ${sample.nightly.toFixed(2)}</b></td><td class="center">—</td><td class="center">${safe(sample.delta)}</td><td>${safe(sample.conditions)}</td></tr>`),
       ...manualComparisons.map(({ quote, nightly, bookingNightly, deltaPct }) => `<tr><td>${safe(quote.stayDate)}</td><td><b>${safe(reportChannels.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId)}</b></td><td>${safe(quote.roomType)}${quote.unitId ? `<small>Unità verificata: ${safe(quote.unitId)}</small>` : "<small>Unità non verificata</small>"}</td><td class="center"><b>€ ${nightly.toFixed(2)}</b></td><td class="center">${bookingNightly === null ? "—" : `€ ${bookingNightly.toFixed(2)}`}</td><td class="center">${deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td><td>${safe(`${quote.ratePlan ? quote.ratePlan + "; " : ""}${quote.refund}; ${quote.board}; ${quote.audience}; ${quote.taxes}`)}</td></tr>`),
     ];
-    const numericPricingHtml = `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
+    const numericPricingHtml = otaDistributionHtml + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
@@ -7551,6 +7562,17 @@ export default function App() {
 
           <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
+          {pilotDistributionAsymmetries(browserPilotResult).length > 0 && <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+            <h4 className="text-sm font-black text-[#23124A]">Asimmetrie distributive OTA rilevate</h4>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Confronto eseguito solo sulle stesse date e usando tipologie/unità con prezzo frontend validato. La differenza è un fatto osservato; la causa tecnica (channel manager, mapping, allotment, restrizioni o stop-sale) resta da verificare.</p>
+            <div className="mt-3 space-y-2">
+              {pilotDistributionAsymmetries(browserPilotResult).map((item,index)=><div key={"ota-asym-"+index} className="rounded-xl border border-amber-200 bg-white p-3">
+                <p className="text-xs font-black text-[#7C4A00]">{item.otaLabel} · {item.checkin} → {item.checkout} · {item.unitCount}/{item.maxUnitCount} tipologie</p>
+                <p className="mt-1 text-[11px] leading-5 text-[#50627F]">{item.finding}</p>
+                {item.units.length>0 && <p className="mt-1 text-[10px] font-semibold text-[#23124A]">Tipologie rilevate: {item.units.join(" · ")}</p>}
+              </div>)}
+            </div>
+          </div>}
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Il pilota controlla 14 canali: 10 canali tariffari (Booking, Agoda, Airbnb, Vrbo, Holidu, Expedia, Hotels.com, Travelocity, Trip.com e Priceline) e 4 fonti profilo/metasearch (Tripadvisor, Trivago, Google Hotels e HolidayCheck). Una OTA può non avere alcuna scheda della struttura: Velora non forza mai il match. Prima di usare una sorgente tariffaria deve verificare nome + località/indirizzo; in caso contrario la presenza resta non verificata e nessun prezzo di quella pagina viene usato. Nei test multi-OTA Booking viene interrogato per primo: se non restituisce una tariffa strutturata sulle date campione, Velora cerca in avanti una finestra tariffata mantenendo la stessa durata e usa poi quelle stesse date sulle altre OTA. La durata del soggiorno non viene forzata a una sola notte: Velora conserva la finestra valida trovata da Booking e normalizza ogni tariffa in €/notte + totale soggiorno, indicando quale valore era mostrato dal portale e quale è stato calcolato. Quando disponibili, Trivago/Google Hotels/Tripadvisor vengono usati anche come supporto di discovery: i link commerciali verso le OTA vengono verificati con nome + località/indirizzo prima di essere usati. Gli importi non attribuiti con certezza a camera/piano restano osservazioni non validate; solo le tariffe validate entrano nell’archivio economico e nel confronto.</p>
