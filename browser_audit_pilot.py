@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v67"
+PILOT_BUILD = "velora-browser-pilot-v68"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -86,6 +86,7 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
     """Solo parametri osservabili: una URL costruita non prova che il portale li applichi."""
     if channel not in DATE_URL_ADAPTERS:
         return None
+    base = normalize_ota_listing_url(channel, base)
     parsed = urlparse(base)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if channel == "booking":
@@ -99,7 +100,10 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
             selected_currency="EUR", lang="it-it",
         )
     elif channel == "airbnb":
-        query.update(check_in=stay["checkin"], check_out=stay["checkout"], adults="2")
+        query.update(
+            check_in=stay["checkin"], check_out=stay["checkout"], adults="2",
+            locale="it", currency="EUR",
+        )
     elif channel in {"expedia", "hotels", "travelocity"}:
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2")
     elif channel == "vrbo":
@@ -785,6 +789,22 @@ def _classify_ota_url(url: str) -> str:
     return ""
 
 
+def normalize_ota_listing_url(ota_id: str, url: str) -> str:
+    """Normalizza host/lingua/valuta senza inventare una pagina struttura diversa."""
+    try:
+        parsed=urlparse(str(url or ""))
+        if parsed.scheme not in {"http","https"} or not parsed.hostname:
+            return str(url or "")
+        query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+        if ota_id=="airbnb" and "/rooms/" in (parsed.path or "").lower():
+            query["locale"]="it"
+            query["currency"]="EUR"
+            return urlunparse(parsed._replace(netloc="www.airbnb.it",query=urlencode(query),fragment=""))
+        return urlunparse(parsed._replace(fragment=""))
+    except Exception:
+        return str(url or "")
+
+
 def _master_identity_queries(property_name: str, city: str, address: str, phone: str = "", email: str = "", website: str = "") -> list[str]:
     """Varianti progressive: esatta -> libera/fuzzy -> identità alternative."""
     name=" ".join(property_name.split())
@@ -1025,9 +1045,15 @@ async def verify_ota_candidate_page(
     robots: dict,
     page=None,
 ) -> dict:
+    url=normalize_ota_listing_url(ota_id,url)
     permission=await asyncio.to_thread(allowed_by_robots,url,robots)
-    if permission is not True:
-        return {"ok":False,"score":0.0,"title":"","evidence":"Pagina candidata non verificata: robots.txt non consente o non chiarisce l'accesso."}
+    if permission is False:
+        return {
+            "ok":False,"score":0.0,"title":"","url":url,
+            "presenceDetected":True,
+            "evidence":"Pagina OTA individuata, ma robots.txt nega l'accesso automatico: presenza registrata, contenuto non letto."
+        }
+    robots_note="robots.txt non disponibile/chiarificatore; verifica eseguita solo nel browser pubblico. " if permission is None else ""
 
     own_page=page is None
     if own_page:
@@ -1091,6 +1117,7 @@ async def verify_ota_candidate_page(
             "url":urlunparse(urlparse(page.url)._replace(fragment="")),
             "evidence":(
                 (f"HTTP {http_status} ma pagina completa renderizzata nel browser; " if http_status in {403,429} else "")
+                + robots_note
                 + identity.get("evidence","")
             )[:900],
             "httpStatus":http_status,
@@ -1256,11 +1283,12 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
             if ota_id not in discoveries and weak:
                 score,url,title,reasons,engines,queries_used,verify_evidence=weak[0]
                 discoveries[ota_id]={
-                    "status":"not_verified_present","url":"","candidateUrl":url,"title":title[:220],"score":round(score,3),
+                    "status":"not_verified_present","url":"","candidateUrl":normalize_ota_listing_url(ota_id,url),"title":title[:220],"score":round(score,3),
+                    "presenceDetected":True,
                     "evidence":(
                         f"Ricerca master gratuita: esiste un candidato {OTA_META[ota_id]['label']} ma NON è stato "
                         f"attribuito alla struttura. Match {score:.0%} ({reasons}); {verify_evidence}. "
-                        "Il candidato viene conservato solo come diagnostica e non può essere usato per prezzi."
+                        "La pagina viene registrata come presenza OTA; eventuali prezzi restano rilevati da verificare finché l'identità non è confermata."
                     )[:900],
                     "searchUrl":"",
                     "discoveryMode":"candidate rejected by identity lock",
@@ -1403,7 +1431,8 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     if weak:
         score,url,title,reasons,query,engine,verify_evidence=weak[0]
         return {
-            "status":"not_verified_present","url":"","candidateUrl":url,"title":title[:220],"score":round(score,3),
+            "status":"not_verified_present","url":"","candidateUrl":normalize_ota_listing_url(ota_id,url),"title":title[:220],"score":round(score,3),
+            "presenceDetected":True,
             "evidence":(
                 f"Ricerca mirata veloce {meta['label']} completata. Candidato da {engine}, "
                 f"query «{query}», match {score:.0%} ({reasons}), ma NON ha superato la verifica identità. "
@@ -6140,10 +6169,14 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                       evidence="La scheda è nota, ma il pilota non conosce ancora un percorso verificato per applicare le date su questo portale.")
         return record
     permission = await asyncio.to_thread(allowed_by_robots, requested, robots)
-    if permission is not True:
-        record.update(status="robots_denied" if permission is False else "robots_unavailable",
-                      evidence="Rilevazione non avviata: robots.txt nega o non chiarisce l'accesso automatico.")
+    if permission is False:
+        record.update(
+            status="robots_denied",
+            evidence="Scheda OTA presente, ma robots.txt nega l'accesso automatico: presenza registrata, prezzi non letti."
+        )
         return record
+    if permission is None:
+        record["robotsNotice"]="robots.txt non disponibile/chiarificatore; lettura effettuata nel browser pubblico senza bypass."
     try:
         response = await page.goto(requested, wait_until="domcontentloaded", timeout=25000)
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
@@ -7845,6 +7878,8 @@ def apply_booking_room_reference(result: dict) -> None:
                     continue
                 best=0.0
                 for quote in obs.get("quotes") or []:
+                    if not quote.get("verified"):
+                        continue
                     candidate_room=str(quote.get("roomType") or "")
                     if not _usable_room_name(candidate_room):
                         continue
@@ -7908,6 +7943,8 @@ def apply_booking_room_reference(result: dict) -> None:
 
             room_groups={}
             for quote in quotes:
+                if not quote.get("verified"):
+                    continue
                 room=str(quote.get("roomType") or "")
                 if not _usable_room_name(room):
                     continue
@@ -8146,6 +8183,7 @@ async def run(args: argparse.Namespace) -> dict:
                     flush=True,
                 )
 
+            unverified_source_ids=set()
             for ota_id in OTA_DISCOVERY_ORDER:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
                 if existing_url:
@@ -8173,9 +8211,25 @@ async def run(args: argparse.Namespace) -> dict:
                         }
                         sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":verification.get("url") or existing_url}
                         continue
-                    sources.pop(ota_id,None)
+                    existing_url=normalize_ota_listing_url(ota_id,existing_url)
+                    sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":existing_url}
+                    unverified_source_ids.add(ota_id)
+                    result["discoveredSources"][ota_id]={
+                        "status":"existing_unverified",
+                        "url":"",
+                        "candidateUrl":existing_url,
+                        "title":verification.get("title") or "",
+                        "score":verification.get("score",0.0),
+                        "presenceDetected":True,
+                        "identityVerified":False,
+                        "evidence":(
+                            f"{OTA_META[ota_id]['label']}: pagina già nota e raggiunta, ma identità non riconfermata. "
+                            f"Presenza conservata; eventuali prezzi restano da verificare. {verification.get('evidence','')}"
+                        )[:900],
+                        "discoveryMode":"existing candidate preserved",
+                    }
                     print(
-                        f"{ota_id} existing source rejected by identity lock · "
+                        f"{ota_id} existing source preserved as candidate · "
                         f"{str(verification.get('evidence') or '')[:260]}",
                         flush=True,
                     )
@@ -8205,13 +8259,33 @@ async def run(args: argparse.Namespace) -> dict:
                     and discovery.get("url")
                     and (ota_id=="booking" or discovery.get("identityVerified") is True)
                 ):
-                    sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":discovery["url"]}
-                elif discovery.get("status")=="found" and ota_id!="booking":
-                    print(
-                        f"{ota_id} discovery found rejected: manca identityVerified=true · "
-                        f"{str(discovery.get('url') or '')[:180]}",
-                        flush=True,
+                    sources[ota_id]={
+                        "label":OTA_META[ota_id]["label"],
+                        "url":normalize_ota_listing_url(ota_id,discovery["url"]),
+                    }
+                    unverified_source_ids.discard(ota_id)
+                else:
+                    candidate_url=normalize_ota_listing_url(
+                        ota_id,
+                        discovery.get("candidateUrl") or (
+                            discovery.get("url") if discovery.get("presenceDetected") else ""
+                        ),
                     )
+                    if candidate_url and _classify_ota_url(candidate_url)==ota_id:
+                        sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":candidate_url}
+                        unverified_source_ids.add(ota_id)
+                        discovery["presenceDetected"]=True
+                        discovery["candidateUrl"]=candidate_url
+                        print(
+                            f"{ota_id} candidate source retained for observation only · {candidate_url[:180]}",
+                            flush=True,
+                        )
+                    elif discovery.get("status")=="found" and ota_id!="booking":
+                        print(
+                            f"{ota_id} discovery found rejected: manca identityVerified=true · "
+                            f"{str(discovery.get('url') or '')[:180]}",
+                            flush=True,
+                        )
 
             # Per i portali non adatti al confronto tariffario mensile raccoglie comunque
             # un profilo pubblico strutturato: reputazione, prezzi generici e link commerciali.
@@ -8250,7 +8324,11 @@ async def run(args: argparse.Namespace) -> dict:
             try:
                 property_path=Path(args.property)
                 if property_path.parent.name=="runtime-properties":
-                    data["sources"]=sources
+                    persisted_sources={
+                        source_id:source for source_id,source in sources.items()
+                        if source_id=="sito" or source_id not in unverified_source_ids
+                    }
+                    data["sources"]=persisted_sources
                     tmp_property=property_path.with_suffix(".tmp")
                     tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
                     tmp_property.replace(property_path)
@@ -8408,6 +8486,23 @@ async def run(args: argparse.Namespace) -> dict:
 
                     if record.get("quotes"):
                         record["quotes"]=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
+                    if channel in unverified_source_ids:
+                        record["sourceIdentityVerified"]=False
+                        record["sourcePresence"]="candidate_found"
+                        for quote in record.get("quotes") or []:
+                            quote["verified"]=False
+                            quote["referenceRoomKey"]=""
+                            quote["roomMatchStatus"]="not-selected"
+                            quote["comparisonSelected"]=True
+                            quote["comparisonWarning"]=(
+                                "Prezzo osservato su una pagina OTA trovata, ma identità della scheda non ancora confermata. "
+                                "Il valore viene mostrato come da verificare e non entra nel delta con Booking."
+                            )
+                        if record.get("quotes") and record.get("status")=="quote_candidates":
+                            record["status"]="quote_candidates_unverified"
+                        record["evidence"]=(
+                            "PAGINA OTA TROVATA · identità da confermare. " + str(record.get("evidence") or "")
+                        )[:900]
                     result["observations"].append(record)
                     apply_booking_room_reference(result)
                     write_result(output, result)
