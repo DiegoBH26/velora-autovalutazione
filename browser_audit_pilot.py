@@ -9791,32 +9791,44 @@ async def run(args: argparse.Namespace) -> dict:
             single_ota_known=bool(single_ota_id and single_ota_id in known_ota_sources)
 
             selected_discovery_ids=[ota_id for ota_id in OTA_DISCOVERY_ORDER if ota_id in channels]
-            # Il test lavora esclusivamente sulle OTA selezionate: aggiungendo i canali
-            # uno alla volta si può isolare immediatamente quello che rallenta o fallisce.
-            full_one_month_discovery=bool(args.months == 1 and not single_ota_scan)
-            quick_retest=bool(single_ota_known and not full_one_month_discovery)
+            missing_discovery_ids=[
+                ota_id for ota_id in selected_discovery_ids
+                if ota_id not in known_ota_sources
+            ]
+            # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
+            # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
+            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids)
+            discovery_target_ids=missing_discovery_ids if pricing_only else selected_discovery_ids
 
             if quick_retest:
                 master_discoveries={}
                 master_diag={
-                    "status":"reused_source_channel_scan",
+                    "status":"reused_selected_sources",
                     "queries":[],
-                    "candidates":len(known_ota_sources),
+                    "candidates":len(selected_discovery_ids),
                     "knownSources":known_ota_sources,
-                    "selectedChannel":single_ota_id,
+                    "selectedChannels":selected_discovery_ids,
+                }
+                result["discoveryProgress"]={
+                    "stage":"reused",
+                    "completed":len(selected_discovery_ids),
+                    "total":len(selected_discovery_ids),
+                    "otaId":"",
+                    "label":"Schede OTA selezionate già note",
+                    "updatedAt":datetime.now(timezone.utc).isoformat(),
                 }
                 print(
-                    f"master search: riuso scheda {OTA_META[single_ota_id]['label']} già verificata per scansione dedicata · "
-                    f"fonti note={','.join(known_ota_sources)}",
+                    "master search: riuso schede selezionate già note · "
+                    f"canali={','.join(selected_discovery_ids)}",
                     flush=True,
                 )
             else:
                 result["discoveryProgress"]={
                     "stage":"master",
                     "completed":0,
-                    "total":len(selected_discovery_ids),
+                    "total":len(discovery_target_ids),
                     "otaId":"",
-                    "label":"Ricerca master OTA",
+                    "label":"Discovery OTA selezionate",
                     "updatedAt":datetime.now(timezone.utc).isoformat(),
                 }
                 write_result(output,result)
@@ -9830,21 +9842,20 @@ async def run(args: argparse.Namespace) -> dict:
                         result["discoveredSources"][partial_id]=partial_value
                     write_result(output,result)
                     print(
-                        f"discovery progress: {progress.get('completed',0)}/{progress.get('total',len(selected_discovery_ids))} · "
+                        f"discovery progress: {progress.get('completed',0)}/{progress.get('total',len(discovery_target_ids))} · "
                         f"{progress.get('label','')}",
                         flush=True,
                     )
 
                 master_discoveries,master_diag=await discover_all_ota_sources(
                     context,data,robots,on_progress=save_discovery_progress,
-                    selected_ota_ids=selected_discovery_ids,
+                    selected_ota_ids=discovery_target_ids,
                 )
-                if full_one_month_discovery:
-                    master_diag["mode"]="full_discovery_one_month"
+                master_diag["mode"]="selected_channels_only"
                 query_preview=" | ".join((master_diag.get("queries") or [])[:3])
                 print(
-                    f"master search: {master_diag.get('status')} · "
-                    f"modalità={'discovery completa test un mese' if full_one_month_discovery else 'discovery completa'} · "
+                    f"master search: {master_diag.get('status')} · modalità=solo OTA selezionate · "
+                    f"target={','.join(discovery_target_ids)} · "
                     f"varianti={len(master_diag.get('queries') or [])} · "
                     f"candidati OTA={master_diag.get('candidates',0)} · prime query: {query_preview[:240]}",
                     flush=True,
@@ -9869,8 +9880,8 @@ async def run(args: argparse.Namespace) -> dict:
                 )
             elif quick_retest:
                 print(
-                    f"{single_ota_id} scan: discovery saltata soltanto per questa OTA; "
-                    f"uso della scheda {OTA_META[single_ota_id]['label']} già verificata",
+                    "discovery saltata: tutte le OTA selezionate hanno già una scheda registrata; "
+                    "Velora passa direttamente alla verifica frontend.",
                     flush=True,
                 )
 
