@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v76"
+PILOT_BUILD = "velora-browser-pilot-v77"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -2412,6 +2412,226 @@ async def airbnb_quote_candidates(page, stay: dict) -> list[dict]:
     return unique[:8]
 
 
+
+OTA_FRONTEND_SEARCH_HOME={
+    "airbnb":"https://www.airbnb.it/",
+    "expedia":"https://www.expedia.it/",
+    "hotels":"https://it.hotels.com/",
+    "travelocity":"https://www.travelocity.com/",
+    "vrbo":"https://www.vrbo.com/",
+    "holidu":"https://www.holidu.it/",
+    "agoda":"https://www.agoda.com/it-it/",
+    "trip":"https://it.trip.com/",
+    "priceline":"https://www.priceline.com/",
+}
+
+
+async def frontend_discover_ota_source(context, channel: str, data: dict, stay: dict, robots: dict) -> dict:
+    """Trova una scheda direttamente nel portale, senza dipendere dalla discovery esterna."""
+    home=OTA_FRONTEND_SEARCH_HOME.get(channel,"")
+    label=OTA_META.get(channel,{}).get("label",channel)
+    if not home:
+        return {"status":"unsupported","url":"","evidence":f"{label}: ricerca frontend interna non configurata."}
+
+    permission=await asyncio.to_thread(allowed_by_robots,home,robots)
+    if permission is False:
+        return {"status":"robots_denied","url":"","evidence":f"{label}: robots.txt nega la ricerca frontend automatica."}
+
+    name=str(data.get("name") or "").strip()
+    city=str(data.get("city") or "").strip()
+    address=str(data.get("address") or "").strip()
+    name_tokens=[
+        token for token in re.findall(r"[\wÀ-ÿ&'-]+",name,flags=re.UNICODE)
+        if token.lower() not in GENERIC_NAME_WORDS
+        and token.lower() not in {"luxury","restaurant","ristorante","boutique","spa"}
+    ]
+    distinctive=" ".join(name_tokens[:4]).strip() or name
+    queries=[]
+    if distinctive and city:
+        queries.append(f"{distinctive} {city}")
+    if distinctive:
+        queries.append(distinctive)
+    if city:
+        queries.append(city)
+    queries=list(dict.fromkeys(q for q in queries if q))[:3]
+    if not queries:
+        return {"status":"not_found","url":"","evidence":f"{label}: nome/località non disponibili per la ricerca interna."}
+
+    page=await context.new_page()
+    try:
+        response=await page.goto(home,wait_until="domcontentloaded",timeout=22000)
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(900)
+        if response and response.status>=500:
+            return {"status":"http_error","url":"","evidence":f"{label}: homepage HTTP {response.status}."}
+
+        async def find_candidate() -> dict | None:
+            try:
+                current_title=(await page.title())[:260]
+                body=(await page.locator("body").inner_text(timeout=5500))[:18000]
+            except Exception:
+                current_title=""; body=""
+            if _plausible_ota_listing_url(channel,page.url):
+                score,_,_,_,reasons=_identity_match_score(name,city,address,current_title,body[:2500],page.url)
+                if score>=0.40:
+                    return {
+                        "status":"found","url":normalize_ota_listing_url(channel,page.url),
+                        "title":current_title,"score":round(score,3),"identityVerified":True,
+                        "evidence":f"{label}: scheda raggiunta dalla ricerca interna; identità {score:.0%} ({reasons}).",
+                        "discoveryMode":"OTA frontend internal search",
+                    }
+            try:
+                links=await page.evaluate(r"""() => Array.from(document.querySelectorAll('a[href]')).slice(0,1200).map(a=>{
+                  const box=a.closest('article,li,[data-stid],[data-testid],section,div') || a.parentElement;
+                  return {
+                    href:a.href || '',
+                    text:String(a.innerText||a.textContent||a.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,320),
+                    context:String(box?.innerText||'').replace(/\s+/g,' ').trim().slice(0,1500)
+                  };
+                })""")
+            except Exception:
+                links=[]
+            ranked=[]
+            seen=set()
+            for item in links:
+                target=str(item.get("href") or "")
+                if not target or target in seen:
+                    continue
+                seen.add(target)
+                if _classify_ota_url(target)!=channel or not _plausible_ota_listing_url(channel,target):
+                    continue
+                score,_,_,_,reasons=_identity_match_score(
+                    name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
+                )
+                ranked.append((score,target,str(item.get("text") or ""),reasons))
+            ranked.sort(key=lambda row:row[0],reverse=True)
+            if ranked and ranked[0][0]>=0.38:
+                score,target,title,reasons=ranked[0]
+                return {
+                    "status":"found","url":normalize_ota_listing_url(channel,target),
+                    "title":title[:240],"score":round(score,3),"identityVerified":True,
+                    "evidence":f"{label}: scheda trovata nei risultati interni; match {score:.0%} ({reasons}).",
+                    "discoveryMode":"OTA frontend results match",
+                }
+            return None
+
+        opener_selectors=(
+            'button:has-text("Dove vuoi andare")','button:has-text("Where to")',
+            'button:has-text("Destinazione")','button:has-text("Destination")',
+            '[data-stid*="destination"]','[data-testid*="destination"]',
+            '[data-element-name*="search-box"]',
+        )
+        input_selectors=(
+            'input[placeholder*="dove" i]','input[placeholder*="where" i]',
+            'input[placeholder*="destin" i]','input[placeholder*="localit" i]',
+            'input[placeholder*="location" i]','input[placeholder*="cerca" i]',
+            'input[placeholder*="search" i]','input[aria-label*="dove" i]',
+            'input[aria-label*="where" i]','input[aria-label*="destin" i]',
+            '[data-stid*="destination"] input','[data-testid*="destination"] input',
+            'input[name*="destination" i]','input[name*="query" i]','input[type="search"]',
+        )
+        action_selectors=(
+            'button:has-text("Cerca")','button:has-text("Search")',
+            'button:has-text("Trova")','button:has-text("Find")',
+            '[data-testid*="search"]','[data-stid*="search"]',
+        )
+
+        for query in queries:
+            existing=await find_candidate()
+            if existing:
+                return existing
+
+            opener,_=await _first_visible_locator(page,opener_selectors)
+            if opener is not None:
+                try:
+                    await opener.click(timeout=1800)
+                    await page.wait_for_timeout(300)
+                except Exception:
+                    pass
+
+            field,_=await _first_visible_locator(page,input_selectors)
+            if field is None:
+                continue
+            try:
+                await field.click(timeout=1200)
+                await field.fill(query,timeout=1800)
+                await page.wait_for_timeout(900)
+            except Exception:
+                continue
+
+            option=None
+            best_score=-1.0
+            try:
+                options=page.locator(
+                    '[role="option"], [data-stid*="destination-result"], [data-testid*="suggest"], '
+                    '[data-testid*="option"], li'
+                )
+                count=min(await options.count(),40)
+                for idx in range(count):
+                    candidate=options.nth(idx)
+                    try:
+                        if not await candidate.is_visible(timeout=160):
+                            continue
+                        text_value=re.sub(r"\s+"," ",(await candidate.inner_text(timeout=350)) or "").strip()
+                    except Exception:
+                        continue
+                    if not text_value or len(text_value)>500:
+                        continue
+                    score=max(_name_similarity(distinctive,text_value),_name_similarity(name,text_value))
+                    if city and _norm_name(city) in _norm_name(text_value):
+                        score=min(1.0,score+0.08)
+                    if score>best_score:
+                        best_score=score
+                        option=candidate
+            except Exception:
+                option=None
+
+            if option is not None and best_score>=0.25:
+                try:
+                    await option.click(timeout=1800)
+                    await page.wait_for_timeout(700)
+                except Exception:
+                    option=None
+            if option is None:
+                try:
+                    await field.press("Enter")
+                    await page.wait_for_timeout(700)
+                except Exception:
+                    pass
+
+            action,_=await _first_visible_locator(page,action_selectors)
+            if action is not None:
+                try:
+                    await action.click(timeout=2200)
+                except Exception:
+                    pass
+            try:
+                await page.wait_for_load_state("domcontentloaded",timeout=7000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(1300)
+
+            candidate=await find_candidate()
+            if candidate:
+                return candidate
+
+        return {
+            "status":"not_found","url":"","identityVerified":False,
+            "evidence":f"{label}: ricerca interna eseguita con nome distintivo/località, ma nessuna scheda attribuibile è emersa.",
+            "discoveryMode":"OTA frontend internal search exhausted",
+        }
+    except Exception as exc:
+        return {
+            "status":"error","url":"","identityVerified":False,
+            "evidence":f"{label}: ricerca interna non completata ({type(exc).__name__}: {str(exc)[:180]}).",
+        }
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
+
+
 def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
     """Airbnb/Vrbo partono dalla PDP pulita; gli altri usano il normale adapter date."""
     clean=normalize_ota_listing_url(channel,source)
@@ -2663,6 +2883,11 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
         confirmed=trip_url_dates_confirmed(page.url,stay)
         confirm_evidence="date URL Trip.com" if confirmed else ""
 
+    if not confirmed and start_ok and end_ok:
+        low=(body or "").lower()
+        if body.strip() and not any(word in low for word in BLOCK_WORDS):
+            confirmed=True
+            confirm_evidence="check-in/check-out selezionati direttamente nel calendario frontend"
     if confirmed:
         evidence.append(confirm_evidence or "date confermate")
     return confirmed,(" · ".join(evidence))[:900]
@@ -8841,7 +9066,11 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 timezone_id="Europe/Rome",
                 viewport={"width":1440,"height":1000},
                 chromium_sandbox=True,
-                args=["--start-minimized"] if ghost else [],
+                args=[
+                    "--start-minimized",
+                    "--window-position=-32000,-32000",
+                    "--window-size=1,1",
+                ] if ghost else [],
             )
             anchor_page=context.pages[0] if context.pages else await context.new_page()
             try:
