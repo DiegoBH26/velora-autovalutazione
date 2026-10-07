@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v68"
+PILOT_BUILD = "velora-browser-pilot-v69"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -2276,6 +2276,319 @@ async def listing_sidebar_quote_candidates(page, stay: dict, channel: str) -> li
         seen.add(key); unique.append(item)
     return unique[:12]
 
+
+
+async def airbnb_prepare_frontend(page, stay: dict) -> tuple[bool,str]:
+    """Replica il flusso utente Airbnb: date -> 2 adulti -> chiusura popup -> box tariffe."""
+    evidence=[]
+    checkin=stay["checkin"]
+    checkout=stay["checkout"]
+    adults=int(stay.get("adults") or 2)
+
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(250)
+    except Exception:
+        pass
+
+    async def visible_body() -> str:
+        try:
+            return re.sub(r"\s+"," ",(await page.locator("body").inner_text(timeout=6000)) or "")[:22000]
+        except Exception:
+            return ""
+
+    async def sidebar_ready() -> tuple[bool,str]:
+        try:
+            state=await page.evaluate(r"""({adults}) => {
+              const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+              const visible=el=>{
+                if(!el) return false;
+                const st=getComputedStyle(el);
+                if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+                const r=el.getBoundingClientRect();
+                return r.width>0&&r.height>0;
+              };
+              const buttons=Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+              const reserve=buttons.find(el=>/^(prenota|reserve|book)$/i.test(clean(el.innerText||el.textContent)))
+                || buttons.find(el=>/(prenota|reserve|book)/i.test(clean(el.innerText||el.textContent)));
+              let root=reserve?.closest('[data-testid="book-it-default"],[data-section-id="BOOK_IT_SIDEBAR"],aside,section') || null;
+              if(!root && reserve){
+                let n=reserve.parentElement;
+                while(n && n!==document.body){
+                  const t=clean(n.innerText||n.textContent);
+                  if(t.length>30 && t.length<3500 && /(€|eur)/i.test(t)){root=n;break}
+                  n=n.parentElement;
+                }
+              }
+              if(!root){
+                root=Array.from(document.querySelectorAll('[data-testid="book-it-default"],[data-section-id="BOOK_IT_SIDEBAR"],aside'))
+                  .find(el=>visible(el) && /(€|eur|aggiungi le date|add dates)/i.test(clean(el.innerText||el.textContent))) || null;
+              }
+              const text=clean(root?.innerText||root?.textContent);
+              const hasPrice=/(€|eur)\s*[0-9]|[0-9][0-9.,\s]*\s*(€|eur)/i.test(text);
+              const hasBook=/(prenota|reserve|book)/i.test(text);
+              const hasGuests=new RegExp(String(adults)+'\\s*(ospiti|guests?)','i').test(text);
+              return {ok:!!root && hasPrice && hasBook, text:text.slice(0,1800), hasGuests};
+            }""",{"adults":adults})
+            return bool(state.get("ok")),str(state.get("text") or "")
+        except Exception:
+            return False,""
+
+    ready,ready_text=await sidebar_ready()
+    if ready:
+        evidence.append("box Airbnb già popolato da date/ospiti URL")
+        return True,"; ".join(evidence)+" | "+ready_text[:500]
+
+    try:
+        body=(await visible_body()).lower()
+        needs_dates=any(token in body for token in (
+            "aggiungi le date per conoscere i prezzi","aggiungi una data",
+            "add dates for prices","add dates","add a date"
+        ))
+        if needs_dates:
+            trigger,_=await _first_visible_locator(page,(
+                'button:has-text("Aggiungi una data")',
+                'button:has-text("Add a date")',
+                'button:has-text("CHECK-IN")',
+                'button:has-text("Check-in")',
+                '[data-testid*="change-dates"]',
+                '[data-testid*="check-in"]',
+            ))
+            if trigger is not None:
+                try:
+                    await trigger.scroll_into_view_if_needed(timeout=1200)
+                except Exception:
+                    pass
+                await trigger.click(timeout=2200)
+                await page.wait_for_timeout(700)
+
+                async def click_day(iso_date: str) -> bool:
+                    target=date.fromisoformat(iso_date)
+                    labels=[
+                        iso_date,
+                        f"{target.day}/{target.month}/{target.year}",
+                        f"{target.day} {MONTH_NAMES[target.month][1]} {target.year}",
+                    ]
+                    for selector in (
+                        f'[data-testid*="{iso_date}"]',
+                        f'[data-date="{iso_date}"]',
+                        f'button[aria-label*="{iso_date}"]',
+                    ):
+                        try:
+                            loc=page.locator(selector).first
+                            if await loc.count() and await loc.is_visible(timeout=300):
+                                await loc.click(timeout=1800)
+                                return True
+                        except Exception:
+                            pass
+                    try:
+                        state=await page.evaluate(r"""(labels) => {
+                          const clean=v=>String(v||'').replace(/\s+/g,' ').trim().toLowerCase();
+                          const visible=el=>{
+                            if(!el) return false;
+                            const st=getComputedStyle(el);
+                            if(st.display==='none'||st.visibility==='hidden') return false;
+                            const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+                          };
+                          document.querySelectorAll('[data-velora-airbnb-day]').forEach(el=>el.removeAttribute('data-velora-airbnb-day'));
+                          const nodes=Array.from(document.querySelectorAll('button,[role="button"],[data-testid*="calendar"]')).filter(visible);
+                          for(const el of nodes){
+                            const hay=clean((el.getAttribute('aria-label')||'')+' '+(el.textContent||''));
+                            if(labels.some(v=>hay.includes(clean(v)))){
+                              el.setAttribute('data-velora-airbnb-day','1'); return true;
+                            }
+                          }
+                          return false;
+                        }""",labels)
+                        if state:
+                            loc=page.locator('[data-velora-airbnb-day="1"]').first
+                            await loc.click(timeout=1800)
+                            return True
+                    except Exception:
+                        pass
+                    return False
+
+                start_ok=await click_day(checkin)
+                await page.wait_for_timeout(350)
+                end_ok=await click_day(checkout)
+                await page.wait_for_timeout(900)
+                evidence.append(f"date picker Airbnb: check-in={'ok' if start_ok else 'no'} check-out={'ok' if end_ok else 'no'}")
+    except Exception as exc:
+        evidence.append(f"date picker Airbnb: {type(exc).__name__}")
+
+    try:
+        guest_trigger,_=await _first_visible_locator(page,(
+            'button:has-text("ospite")',
+            'button:has-text("ospiti")',
+            'button:has-text("guest")',
+            'button:has-text("guests")',
+            '[data-testid*="guest"]',
+        ))
+        if guest_trigger is not None:
+            try:
+                await guest_trigger.scroll_into_view_if_needed(timeout=1000)
+            except Exception:
+                pass
+            await guest_trigger.click(timeout=1800)
+            await page.wait_for_timeout(450)
+
+            guest_state=await page.evaluate(r"""(targetAdults) => {
+              const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+              const visible=el=>{
+                if(!el) return false;
+                const st=getComputedStyle(el);
+                if(st.display==='none'||st.visibility==='hidden') return false;
+                const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+              };
+              document.querySelectorAll('[data-velora-adult-minus],[data-velora-adult-plus]').forEach(el=>{
+                el.removeAttribute('data-velora-adult-minus'); el.removeAttribute('data-velora-adult-plus');
+              });
+              const labels=Array.from(document.querySelectorAll('div,span,p')).filter(el=>visible(el) && /^(adulti|adults)$/i.test(clean(el.textContent)));
+              for(const label of labels){
+                let row=label;
+                for(let i=0;i<5 && row;i++,row=row.parentElement){
+                  const buttons=Array.from(row.querySelectorAll('button')).filter(visible);
+                  const nums=Array.from(row.querySelectorAll('span,div')).map(el=>clean(el.textContent)).filter(v=>/^\d+$/.test(v));
+                  const current=nums.length ? Number(nums[nums.length-1]) : NaN;
+                  if(buttons.length>=2 && Number.isFinite(current)){
+                    buttons[0].setAttribute('data-velora-adult-minus','1');
+                    buttons[buttons.length-1].setAttribute('data-velora-adult-plus','1');
+                    return {current,target:targetAdults};
+                  }
+                }
+              }
+              return null;
+            }""",adults)
+
+            if guest_state and Number.isFinite(Number(guest_state.get("current"))):
+                current=int(guest_state["current"])
+                while current<adults:
+                    await page.locator('[data-velora-adult-plus="1"]').click(timeout=1200)
+                    current+=1
+                    await page.wait_for_timeout(180)
+                while current>adults:
+                    await page.locator('[data-velora-adult-minus="1"]').click(timeout=1200)
+                    current-=1
+                    await page.wait_for_timeout(180)
+                evidence.append(f"ospiti Airbnb: {adults} adulti")
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(450)
+            except Exception:
+                pass
+    except Exception as exc:
+        evidence.append(f"ospiti Airbnb: {type(exc).__name__}")
+
+    try:
+        reserve,_=await _first_visible_locator(page,(
+            'button:has-text("Prenota")',
+            'button:has-text("Reserve")',
+            'button:has-text("Book")',
+            '[data-testid="book-it-default"] button',
+        ))
+        if reserve is not None:
+            await reserve.scroll_into_view_if_needed(timeout=1200)
+        await page.wait_for_timeout(1000)
+    except Exception:
+        pass
+
+    ready,ready_text=await sidebar_ready()
+    evidence.append("box tariffario Airbnb " + ("pronto" if ready else "non ancora riconosciuto"))
+    return ready,("; ".join(evidence)+" | "+ready_text[:700])[:1100]
+
+
+async def airbnb_quote_candidates(page, stay: dict) -> list[dict]:
+    """Legge il box Airbnb come lo vede l'utente: TARIFFE + totale per ciascun piano."""
+    payload=await page.evaluate(r"""() => {
+      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+      const visible=el=>{
+        if(!el) return false;
+        const st=getComputedStyle(el);
+        if(st.display==='none'||st.visibility==='hidden'||Number(st.opacity||'1')===0) return false;
+        const r=el.getBoundingClientRect(); return r.width>0&&r.height>0;
+      };
+      const title=clean(document.querySelector('h1')?.textContent).slice(0,260);
+      const buttons=Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+      const reserve=buttons.find(el=>/^(prenota|reserve|book)$/i.test(clean(el.innerText||el.textContent)))
+        || buttons.find(el=>/(prenota|reserve|book)/i.test(clean(el.innerText||el.textContent)));
+      let root=reserve?.closest('[data-testid="book-it-default"],[data-section-id="BOOK_IT_SIDEBAR"],aside,section') || null;
+      if(!root && reserve){
+        let n=reserve.parentElement;
+        while(n&&n!==document.body){
+          const t=clean(n.innerText||n.textContent);
+          if(t.length>40&&t.length<4200&&/(€|eur)/i.test(t)){root=n;break}
+          n=n.parentElement;
+        }
+      }
+      if(!root){
+        root=Array.from(document.querySelectorAll('[data-testid="book-it-default"],[data-section-id="BOOK_IT_SIDEBAR"],aside'))
+          .find(el=>visible(el)&&/(€|eur)/i.test(clean(el.innerText||el.textContent))) || null;
+      }
+      if(!root) return {title,rootText:'',plans:[]};
+
+      const rootText=clean(root.innerText||root.textContent).slice(0,4200);
+      const nodes=Array.from(root.querySelectorAll('div,li,label,[role="radio"],button')).filter(visible);
+      const plans=[]; const seen=new Set();
+      for(const node of nodes){
+        const text=clean(node.innerText||node.textContent);
+        if(!text||text.length<8||text.length>900) continue;
+        if(!/(€|eur)\s*[0-9]|[0-9][0-9.,\s]*\s*(€|eur)/i.test(text)) continue;
+        if(!/(rimborsabile|non rimborsabile|refundable|non-refundable|non refundable)/i.test(text)) continue;
+        if(!/(totale|total)/i.test(text)) continue;
+        const key=text.toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key); plans.push(text);
+      }
+      return {title,rootText,plans:plans.slice(0,12)};
+    }""")
+
+    title=str(payload.get("title") or "").strip() or "Alloggio Airbnb"
+    root_text=str(payload.get("rootText") or "")
+    plan_rows=[str(item or "") for item in (payload.get("plans") or []) if str(item or "").strip()]
+    rows=plan_rows[:] if plan_rows else ([root_text] if root_text else [])
+
+    out=[]
+    for text in rows:
+        low=text.lower()
+        values=[_money_value(match.group(0)) for match in PRICE_RE.finditer(text)]
+        values=[value for value in values if value is not None]
+        if not values or not re.search(r'\b(totale|total)\b',low):
+            continue
+        total=values[-1]
+
+        if "non rimborsabile" in low or "non-refundable" in low or "non refundable" in low:
+            refund="Non rimborsabile"
+        elif "rimborsabile" in low or "refundable" in low:
+            refund="Rimborsabile"
+        else:
+            refund="Cancellazione da verificare"
+
+        board="Colazione inclusa" if ("colazione" in low or "breakfast" in low) else "Trattamento da verificare"
+        fields=_price_fields(total,"stay-total",stay)
+        out.append({
+            "roomType":title[:240],
+            "ratePlan":refund,
+            **fields,
+            "currency":"EUR",
+            "nights":stay["nights"],
+            "guests":stay["adults"],
+            "board":board,
+            "refund":refund,
+            "audience":"Pubblico senza login",
+            "taxes":"Da verificare nel dettaglio del preventivo",
+            "verified":True,
+            "evidence":(
+                f"Airbnb frontend: date {stay['checkin']}→{stay['checkout']}, {stay['adults']} adulti; "
+                f"piano «{refund}» con totale esplicito €{total:.2f}. Contesto: {text[:700]}"
+            )[:1100],
+        })
+
+    unique=[]; seen=set()
+    for item in out:
+        key=(item.get("ratePlan","").lower(),item["total"])
+        if key in seen: continue
+        seen.add(key); unique.append(item)
+    return unique[:8]
 
 
 def expedia_group_url_dates_confirmed(url: str, stay: dict) -> bool:
@@ -6188,6 +6501,13 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
         except PlaywrightTimeout:
             pass
 
+        airbnb_ui_evidence=""
+        if channel=="airbnb":
+            try:
+                _,airbnb_ui_evidence=await airbnb_prepare_frontend(page,stay)
+            except Exception as exc:
+                airbnb_ui_evidence=f"Airbnb frontend: {type(exc).__name__}: {str(exc)[:160]}"
+
         async def snapshot_and_confirm():
             current_title=(await page.title())[:200]
             current_body=(await page.locator("body").inner_text(timeout=7000))[:12000]
@@ -6228,6 +6548,7 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                     dom_excerpt=(
                         "URL finale Airbnb mantiene check-in/check-out richiesti; "
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
+                        + (f" | {airbnb_ui_evidence}" if airbnb_ui_evidence else "")
                     )
             if channel == "vrbo" and not confirmed and vrbo_url_dates_confirmed(page.url, stay):
                 property_context, context_evidence = await listing_property_rate_context(page,"vrbo")
@@ -6514,7 +6835,11 @@ async def observe(page, channel: str, source: str, stay: dict, robots: dict) -> 
                             )
                         )
             elif channel in {"airbnb","vrbo"}:
-                candidates=await listing_sidebar_quote_candidates(page,stay,channel)
+                candidates=(
+                    await airbnb_quote_candidates(page,stay)
+                    if channel=="airbnb"
+                    else await listing_sidebar_quote_candidates(page,stay,channel)
+                )
                 record["quotes"]=candidates
                 if candidates:
                     first=candidates[0]
