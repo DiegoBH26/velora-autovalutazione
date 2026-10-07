@@ -5339,7 +5339,9 @@ export default function App() {
         }
         setLocalPilotMessage(
           status.running
-            ? `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
+            ? status.intervention
+              ? `Scraping in pausa su ${status.intervention.label || status.intervention.otaId || "OTA"}: completa l\'azione richiesta nella finestra Chrome e poi premi «Ho completato · riprendi».`
+              : `${discoveryText}${count} controlli tariffari completati · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate.`
             : status.error
               ? `Interrotto dopo ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate. Errore: ${status.error}`
               : `Completato in ${elapsed} · ${count} controlli tariffari · ${observedRows} righe prezzo osservate · ${verifiedPilotRates} validate e importate. Esiti pronti per il PDF.`
@@ -7675,6 +7677,19 @@ export default function App() {
                 />
                 Modalità Ghost · browser minimizzato
               </label>
+              <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${localPilotAssisted ? "border-amber-300 bg-amber-50 text-amber-900" : "border-[#E5DDF1] bg-white text-[#50627F]"}`}>
+                <input
+                  type="checkbox"
+                  checked={localPilotAssisted}
+                  disabled={localPilotRunning}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setLocalPilotAssisted(enabled);
+                    window.localStorage.setItem("velora-pilot-assisted", enabled ? "1" : "0");
+                  }}
+                />
+                Assistenza umana sui blocchi OTA
+              </label>
               {localPilotRunning && <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-800">
                 <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
                 Scraping in corso
@@ -7687,6 +7702,20 @@ export default function App() {
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[#EEE8F4]">
                 <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(1, Math.min(99, localPilotProgress))}%` }} />
+              </div>
+            </div>}
+            {localPilotRunning && localPilotIntervention && <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-[#23124A] shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-black">Azione richiesta · {localPilotIntervention.label || localPilotIntervention.otaId || "OTA"}</p>
+                <span className="rounded-full bg-amber-200 px-2 py-1 text-[9px] font-black uppercase tracking-wide">Chrome portato in primo piano</span>
+              </div>
+              {localPilotIntervention.reason && <p className="mt-2 text-[11px] font-semibold text-amber-950">{localPilotIntervention.reason}</p>}
+              <p className="mt-2 text-xs font-semibold leading-5">{localPilotIntervention.instructions || "Completa nella finestra Chrome l\'azione richiesta dal portale, poi riprendi."}</p>
+              {localPilotIntervention.stay?.checkin && <p className="mt-2 text-[10px] font-black text-[#50627F]">Date da mantenere: {localPilotIntervention.stay.checkin} → {localPilotIntervention.stay.checkout} · {localPilotIntervention.stay.adults || 2} adulti</p>}
+              <p className="mt-2 text-[10px] font-semibold text-[#50627F]">Velora non risolve CAPTCHA né simula conferme umane: sei tu a completare l\'eventuale consenso o verifica mostrata dal portale. Non serve fare login se la tariffa è pubblica.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => void respondLocalPilotIntervention("continue")} className="rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Ho completato · riprendi</button>
+                <button type="button" onClick={() => void respondLocalPilotIntervention("skip")} className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-xs font-black text-amber-950">Salta questa OTA</button>
               </div>
             </div>}
             {!localPilotToken ? <div className="mt-3 flex flex-wrap items-center gap-2">
