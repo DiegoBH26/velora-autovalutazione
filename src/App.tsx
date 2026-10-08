@@ -7532,6 +7532,20 @@ export default function App() {
     const publishedComparisonSamples = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
+    // L'elenco resta compatto anche con centinaia di tariffe: espansione per OTA,
+    // nello stesso ordine stabile per ogni struttura e per ogni campione di date.
+    const pricingAccordionIds = [...new Set([
+      "booking","agoda","airbnb","expedia","hotels","vrbo","holidu",
+      "trip","priceline","travelocity","tripadvisor","trivago",
+      "googlehotels","holidaycheck",
+      ...activeAuditData.otaPresence.map((item) => item.id),
+      ...publishedComparisonSamples.map((item) => item.otaId),
+      ...rateDetailRows.map((item) => item.quote.otaId),
+    ])].filter((id) => id !== "sito");
+    const publishedPricingFor = (otaId: string) =>
+      publishedComparisonSamples.filter((item) => item.otaId === otaId);
+    const detailedPricingFor = (otaId: string) =>
+      rateDetailRows.filter((item) => item.quote.otaId === otaId);
     const publishedRange = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined
         ? sample.status || "Non campionato"
@@ -7956,12 +7970,45 @@ export default function App() {
             </>}
           </div>
           <h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
-          <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Ogni cifra è un preventivo datato diviso per le notti. Δ = (prezzo OTA / prezzo Booking − 1) × 100. Un numero nella colonna Δ compare solo con unità fisica e condizioni identiche, rilevate lo stesso giorno; altrimenti n.d. La tabella descrittiva delle politiche commerciali resta invariata.</p>
-          <div className="mt-2 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1050px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Camera/unità</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Booking base</th><th className="p-2 text-right">Δ</th><th className="p-2 text-left">Condizioni / limite</th></tr></thead><tbody>
-            {publishedComparisonSamples.map((sample, index) => <tr key={`published-${index}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{sample.stay}</td><td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === sample.otaId)?.platform || (sample.otaId === "sito" ? "Sito diretto" : sample.otaId)}</td><td className="p-2">{sample.roomType}</td><td className="p-2 text-right font-black">€{sample.nightly.toFixed(2)}</td><td className="p-2 text-right">—</td><td className="p-2 text-right">{sample.delta}</td><td className="p-2">{sample.conditions}</td></tr>)}
-            {rateDetailRows.map(({ quote, nightly, bookingNightly, deltaPct }) => <tr key={`rate-${quote.id}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{quote.stayDate}</td><td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId}</td><td className="p-2">{quote.roomType}<span className="block text-[10px] text-[#50627F]">{quote.referenceRoomKey ? `Reference Booking: ${quote.bookingReferenceRoom || quote.roomType}` : quote.unitId ? `Unità verificata: ${quote.unitId}` : "Camera non comparabile con Booking"}</span>{quote.roomMatchStatus === "different-room-fallback" && <span className="block mt-1 text-[10px] font-black text-amber-700">ATTENZIONE · CAMERA DIVERSA</span>}</td><td className="p-2 text-right font-black">€{nightly.toFixed(2)}</td><td className="p-2 text-right">{bookingNightly === null ? "—" : `€${bookingNightly.toFixed(2)}`}</td><td className="p-2 text-right font-black">{deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td><td className="p-2">{quote.refund} · {quote.board} · {quote.audience} · {quote.taxes}{quote.comparisonWarning && <span className="block mt-1 font-black text-amber-700">{quote.comparisonWarning}</span>}</td></tr>)}
-            {!publishedComparisonSamples.length && !rateDetailRows.length && <tr><td colSpan={7} className="p-3 text-[#50627F]">Nessun preventivo datato registrato. Aggiungine uno qui sotto per popolare la tabella.</td></tr>}
-          </tbody></table></div>
+          <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
+          <div className="mt-3 flex flex-col gap-2">
+            {pricingAccordionIds.map((otaId) => {
+              const published = publishedPricingFor(otaId);
+              const rows = detailedPricingFor(otaId);
+              const count = published.length + rows.length;
+              const otaName = activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform
+                || PILOT_OTA_LABELS[otaId] || otaId;
+              return <details key={`ota-pricing-${otaId}`} className="group rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs font-black text-[#23124A] hover:bg-[#F8F4FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8D74B4] [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-3">
+                    <span aria-hidden="true" className="inline-block text-[#73558D] transition-transform group-open:rotate-90">▸</span>
+                    <span>{otaName}</span>
+                  </span>
+                  <span className="rounded-full bg-[#F3EEF8] px-3 py-1 text-[10px] font-semibold text-[#5D4878]">
+                    {count ? `${count} tariff${count === 1 ? "a" : "e"}` : "Nessuna tariffa rilevata"}
+                  </span>
+                </summary>
+                <div className="border-t border-[#E5DDF1] p-2 sm:p-3">
+                  {count ? <div className="overflow-x-auto">
+                    <table className="min-w-[1000px] w-full border-collapse text-[11px]">
+                      <thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / unità</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Booking base</th><th className="p-2 text-right">Δ</th><th className="p-2 text-left">Condizioni / limite</th></tr></thead>
+                      <tbody>
+                        {published.map((sample, index) => <tr key={`published-${otaId}-${index}`} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><td className="p-2">{sample.stay}</td><td className="p-2">{sample.roomType}</td><td className="p-2 text-right font-black">€{sample.nightly.toFixed(2)}</td><td className="p-2 text-right">—</td><td className="p-2 text-right">{sample.delta}</td><td className="p-2">{sample.conditions}</td></tr>)}
+                        {rows.map(({ quote, nightly, bookingNightly, deltaPct }) => <tr key={quote.id} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]">
+                          <td className="p-2">{quote.stayDate}</td>
+                          <td className="p-2">{quote.roomType}<span className="block text-[10px] text-[#50627F]">{quote.referenceRoomKey ? `Reference Booking: ${quote.bookingReferenceRoom || quote.roomType}` : quote.unitId ? `Unità verificata: ${quote.unitId}` : "Camera non abbinata a Booking"}</span></td>
+                          <td className="p-2 text-right font-black">€{nightly.toFixed(2)}</td>
+                          <td className="p-2 text-right">{bookingNightly === null ? "—" : `€${bookingNightly.toFixed(2)}`}</td>
+                          <td className="p-2 text-right font-black">{deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td>
+                          <td className="p-2">{quote.refund} · {quote.board} · {quote.audience} · {quote.taxes}{quote.comparisonWarning && <span className="mt-1 block text-[10px] font-bold text-amber-700">{quote.comparisonWarning}</span>}</td>
+                        </tr>)}
+                      </tbody>
+                    </table>
+                  </div> : <p className="p-2 text-xs text-[#50627F]">Nessuna tariffa pubblica registrata per questa OTA nelle date testate. Consulta la diagnostica per capire se il portale non ha mostrato disponibilità oppure se la navigazione non è stata completata.</p>}
+                </div>
+              </details>;
+            })}
+          </div>
           {publishedMonthlySamples.length > 0 && <div className="mt-4 overflow-x-auto rounded-xl border border-[#E5DDF1]">
             <table className="min-w-[1000px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese / date campione</th><th className="p-2 text-left">Sito diretto · range tipologie</th><th className="p-2 text-left">Booking · range tipologie</th><th className="p-2 text-left">Altri portali · copertura parziale</th><th className="p-2 text-left">Delta omogeneo</th></tr></thead><tbody>{publishedMonthlySamples.map((sample) => <tr key={sample.month} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{sample.month}<span className="block font-medium text-[#50627F]">{sample.stay} · {sample.nights} notti</span></th><td className="p-2">{publishedRange(sample.direct)}</td><td className="p-2">{publishedRange(sample.booking)}</td><td className="p-2">{sample.other}</td><td className="p-2">{sample.delta}</td></tr>)}</tbody></table>
           </div>}
