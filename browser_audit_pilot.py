@@ -2030,7 +2030,31 @@ async def discover_all_ota_sources(
                     "discoveryMode":"targeted isolated error",
                     "identityVerified":False,
                 }
-            if targeted.get("status")=="found":
+            if ota_id=="airbnb":
+                # Conserva anche candidati emersi dal metasearch master, ma rendi
+                # SEMPRE visibile la diagnostica della ricerca specializzata.
+                if current and current.get("identityVerified") is True and current.get("url") and targeted.get("status")!="found":
+                    current["airbnbDiscoveryDiagnostics"]=str(targeted.get("evidence") or "")[:850]
+                    discoveries[ota_id]=current
+                else:
+                    prior_urls=[]
+                    if current:
+                        for value in [current.get("url"),current.get("candidateUrl"),*(current.get("candidateUrls") or [])]:
+                            if value and _plausible_ota_listing_url("airbnb",value) and value not in prior_urls:
+                                prior_urls.append(value)
+                    if targeted.get("status")!="found" and prior_urls:
+                        targeted["candidateUrls"]=list(dict.fromkeys(
+                            (targeted.get("candidateUrls") or [])+prior_urls
+                        ))[:12]
+                        if not targeted.get("candidateUrl"):
+                            targeted["candidateUrl"]=prior_urls[0]
+                        targeted["presenceDetected"]=True
+                        targeted["evidence"]=(
+                            str(targeted.get("evidence") or "")
+                            + f" | Metasearch master: {len(prior_urls)} ulteriori URL Airbnb candidati da verificare."
+                        )[:1050]
+                    discoveries[ota_id]=targeted
+            elif targeted.get("status")=="found":
                 discoveries[ota_id]=targeted
             elif ota_id not in discoveries:
                 discoveries[ota_id]=targeted
