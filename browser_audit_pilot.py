@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v94"
+PILOT_BUILD = "velora-browser-pilot-v95"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -950,9 +950,15 @@ def _master_identity_queries(property_name: str, city: str, address: str, phone:
 
 async def _search_result_links(page, query: str, engine: str = "Google") -> tuple[list[dict], str]:
     if engine=="Google":
-        url="https://www.google.com/search?" + urlencode({"q":query,"hl":"it","num":"20"})
-    else:
+        url="https://www.google.com/search?" + urlencode({"q":query,"hl":"it","num":"30","udm":"14"})
+    elif engine=="Bing":
         url="https://www.bing.com/search?" + urlencode({"q":query,"setlang":"it"})
+    elif engine=="Brave":
+        url="https://search.brave.com/search?" + urlencode({"q":query,"source":"web"})
+    elif engine=="DuckDuckGo":
+        url="https://duckduckgo.com/?" + urlencode({"q":query,"ia":"web"})
+    else:
+        return [],f"{engine}: motore non configurato"
     response=await page.goto(url,wait_until="domcontentloaded",timeout=30000)
     await page.wait_for_timeout(1200)
     await dismiss_cookie(page)
@@ -1573,10 +1579,16 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     try:
         # Il Google/Bing visibile nel browser è prioritario: la ricerca locale
         # non dipende più da Yahoo/Bing HTTP che consumavano il watchdog.
-        for idx,query in enumerate(query_variants[:4]):
+        browser_searches=[
+            ("Google",query_variants[0]),
+            ("Bing",query_variants[2]),
+            ("Brave",query_variants[2]),
+            ("DuckDuckGo",query_variants[0]),
+            ("Google",f'"{core_brand}" "airbnb" "rooms"'),
+        ]
+        for idx,(engine,query) in enumerate(browser_searches):
             if len(hits)>=5:
                 break
-            engine="Google" if idx in {0,1,2} else "Bing"
             try:
                 links,url=await asyncio.wait_for(
                     _search_result_links(search_page,query,engine),
