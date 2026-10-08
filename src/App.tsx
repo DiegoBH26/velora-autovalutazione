@@ -4778,6 +4778,8 @@ export default function App() {
   }>(null);
   const [localPilotProgress, setLocalPilotProgress] = useState(0);
   const [localPilotPhase, setLocalPilotPhase] = useState("");
+  const [localPilotStartedAtMs, setLocalPilotStartedAtMs] = useState<number | null>(null);
+  const [localPilotElapsedMs, setLocalPilotElapsedMs] = useState(0);
   const [autoAuditDraft, setAutoAuditDraft] = useState(
     initialUiState.autoAuditDraft ?? { name: "", website: "", city: "", province: "", rooms: "" }
   );
@@ -4861,6 +4863,15 @@ export default function App() {
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
+
+  useEffect(() => {
+    if (!localPilotRunning || localPilotStartedAtMs === null) return;
+    setLocalPilotElapsedMs(Date.now() - localPilotStartedAtMs);
+    const timer = window.setInterval(() => {
+      setLocalPilotElapsedMs(Date.now() - localPilotStartedAtMs);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [localPilotRunning, localPilotStartedAtMs]);
 
   useEffect(() => {
     const saveUiState = () => {
@@ -5302,6 +5313,8 @@ export default function App() {
     setLocalPilotProgress(1);
     setLocalPilotPhase("Avvio scraping");
     const pilotStartedAt = Date.now();
+    setLocalPilotStartedAtMs(pilotStartedAt);
+    setLocalPilotElapsedMs(0);
     setLocalPilotMessage("Rilevazione in corso · 00:00 trascorsi. Lascia aperto il servizio locale; il JSON viene salvato progressivamente.");
     try {
       const started = await fetch(localAgentUrl("/api/pilot/start"), {
@@ -5395,6 +5408,7 @@ export default function App() {
       const elapsed = formatPilotElapsed(Date.now() - pilotStartedAt);
       setLocalPilotMessage(`Interrotto dopo ${elapsed} · ${error instanceof Error ? error.message : "Errore della rilevazione locale."}`);
     } finally {
+      setLocalPilotElapsedMs(Date.now() - pilotStartedAt);
       setLocalPilotRunning(false);
       setLocalPilotIntervention(null);
     }
@@ -7724,15 +7738,21 @@ export default function App() {
                 />
                 Assistenza manuale su verifica visibile (opzionale)
               </label>
-              {localPilotRunning && <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-800">
-                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
-                Scraping in corso
+              {(localPilotRunning || localPilotElapsedMs > 0) && <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-800">
+                <span className={`h-2.5 w-2.5 rounded-full bg-emerald-500 ${localPilotRunning ? "animate-pulse" : ""}`} />
+                {localPilotRunning ? "Scraping in corso" : "Ultimo test completato"}
+                <span className="rounded-lg border border-emerald-200 bg-white px-2 py-1 font-mono text-[11px] text-[#23124A]">
+                  {formatPilotElapsed(localPilotElapsedMs)}
+                </span>
               </span>}
             </div>
             {localPilotRunning && <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3">
               <div className="mb-1 flex items-center justify-between gap-3 text-[10px] font-black text-[#23124A]">
                 <span>{localPilotPhase || "Velora sta lavorando"}</span>
-                <span>{Math.max(1, Math.min(99, localPilotProgress))}%</span>
+                <span className="inline-flex items-center gap-3">
+                  <span className="font-mono">{formatPilotElapsed(localPilotElapsedMs)}</span>
+                  <span>{Math.max(1, Math.min(99, localPilotProgress))}%</span>
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[#EEE8F4]">
                 <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(1, Math.min(99, localPilotProgress))}%` }} />
