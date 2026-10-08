@@ -3251,7 +3251,12 @@ async def agoda_prepare_frontend(
         'input[aria-label*="destination" i]',
     ))
     if destination is None:
-        return False,"Agoda: campo destinazione/struttura non individuato nella homepage"
+        direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+            page,source,stay,"campo destinazione/struttura non individuato nella homepage"
+        )
+        if direct_ok:
+            return True,direct_ev
+        return False,f"Agoda: campo destinazione/struttura non individuato nella homepage · {direct_ev}"
 
     try:
         await destination.click(timeout=1800)
@@ -3316,7 +3321,12 @@ async def agoda_prepare_frontend(
             await page.wait_for_timeout(650)
             evidence.append("primo suggerimento ricerca selezionato")
         except Exception:
-            return False,"Agoda: nessun suggerimento struttura selezionabile"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,"nessun suggerimento struttura selezionabile"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,f"Agoda: nessun suggerimento struttura selezionabile · {direct_ev}"
 
     date_state=await agoda_visible_date_state(page,stay)
     evidence.append(
@@ -3537,11 +3547,15 @@ async def agoda_prepare_frontend(
 
     date_state=await agoda_visible_date_state(page,stay)
     if not (date_state.get("startOk") and date_state.get("endOk")):
-        return False,(
-            "Agoda: selezione date non confermata nei campi visibili · "
+        ui_reason=(
+            "selezione date non confermata nei campi visibili · "
             f"check-in={date_state.get('startText') or 'n.d.'} · "
             f"check-out={date_state.get('endText') or 'n.d.'}"
         )
+        direct_ok,direct_ev=await agoda_direct_listing_with_dates(page,source,stay,ui_reason)
+        if direct_ok:
+            return True,(" · ".join(evidence+[direct_ev]))[:1200]
+        return False,f"Agoda: {ui_reason} · {direct_ev}"[:1200]
     evidence.append("date confermate nei campi Agoda prima di Cerca")
 
     # Agoda apre di norma con 2 adulti/1 camera. Se il riepilogo visibile lo conferma,
@@ -3602,7 +3616,12 @@ async def agoda_prepare_frontend(
         '[data-element-name*="search" i] button',
     ))
     if search is None:
-        return False,"Agoda: pulsante Cerca non individuato"
+        direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+            page,source,stay,"pulsante Cerca non individuato"
+        )
+        if direct_ok:
+            return True,(" · ".join(evidence+[direct_ev]))[:1200]
+        return False,f"Agoda: pulsante Cerca non individuato · {direct_ev}"
     try:
         await search.click(timeout=2400)
         evidence.append("Cerca cliccato")
@@ -3611,7 +3630,12 @@ async def agoda_prepare_frontend(
         await page.wait_for_timeout(1800)
         await dismiss_cookie(page)
     except Exception as exc:
-        return False,f"Agoda: ricerca non avviata ({type(exc).__name__})"
+        direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+            page,source,stay,f"ricerca homepage non avviata ({type(exc).__name__})"
+        )
+        if direct_ok:
+            return True,(" · ".join(evidence+[direct_ev]))[:1200]
+        return False,f"Agoda: ricerca non avviata ({type(exc).__name__}) · {direct_ev}"
 
     # Se siamo nella lista risultati, entra nella card della struttura principale,
     # non nelle singole unità numerate.
@@ -3643,14 +3667,27 @@ async def agoda_prepare_frontend(
         except Exception:
             card=None
         if not card or not card.get("url"):
-            return False,"Agoda: risultati caricati, ma la card della struttura principale non è stata individuata"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,"risultati caricati ma card struttura principale non individuata"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,(
+                "Agoda: risultati caricati, ma la card della struttura principale non è stata individuata · "
+                f"{direct_ev}"
+            )[:1200]
         try:
             await page.goto(str(card["url"]),wait_until="domcontentloaded",timeout=22000)
             await dismiss_cookie(page)
             await page.wait_for_timeout(1500)
             evidence.append("card struttura principale aperta")
         except Exception as exc:
-            return False,f"Agoda: apertura card struttura non completata ({type(exc).__name__})"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,f"apertura card struttura non completata ({type(exc).__name__})"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,f"Agoda: apertura card struttura non completata ({type(exc).__name__}) · {direct_ev}"
 
     # Sulla scheda hotel, porta il frontend fino alle offerte/camere.
     offer,_=await _first_visible_locator(page,(
