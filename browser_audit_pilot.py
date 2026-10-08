@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v92"
+PILOT_BUILD = "velora-browser-pilot-v93"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1450,6 +1450,26 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
     return discoveries,diagnostics
 
 
+def _airbnb_listing_brand_match(expected_name: str, listing_title: str) -> bool:
+    """Stesso brand in testata, anche quando il nome termina con una tipologia.
+
+    Non è sufficiente un nome generico; richiede almeno due token significativi
+    consecutivi. Una località frazionaria non deve cancellare un candidato prima
+    della verifica effettiva della pagina.
+    """
+    expected=_norm_name(expected_name)
+    actual=_norm_name(listing_title)
+    ignored={
+        "hotel","luxury","restaurant","ristorante","resort","boutique",
+        "suite","suites","room","rooms","barbarhouse","apartment","apartments"
+    }
+    tokens=[token for token in expected.split() if len(token)>=3 and token not in ignored]
+    if len(tokens)<2:
+        return False
+    brand=" ".join(tokens[:2])
+    return bool(re.search(r"(?<![a-z0-9])"+re.escape(brand)+r"(?![a-z0-9])",actual))
+
+
 async def discover_airbnb_property_listings(context, data: dict, robots: dict) -> dict:
     """Discovery Airbnb per complessi con PIÙ annunci camera: Google → Airbnb → verifica.
 
@@ -1461,21 +1481,33 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     city=str(data.get("city") or "").strip()
     address=str(data.get("address") or "").strip()
     brand=_norm_name(name) or name
-    tokens=[token for token in brand.split() if len(token)>2]
+    # Le singole camere Airbnb spesso sono indicizzate col solo brand breve
+    # seguito dalla tipologia: l'esatta ragione sociale hotel è troppo lunga.
+    tokens=[token for token in brand.split() if len(token)>2 and token not in {
+        "luxury","hotel","restaurant","ristorante","resort","boutique",
+        "suites","suite","rooms","room","apartment","apartments","barbarhouse"
+    }]
     distinctive=" ".join(tokens[:5])
-    if not distinctive:
+    core_brand=" ".join(tokens[:2]) if len(tokens)>=2 else distinctive
+    if not core_brand:
         return {"status":"not_found","url":"","identityVerified":False,
                 "evidence":"Airbnb: nome distintivo non disponibile."}
 
-    hotel_prefix="Hotel " if re.search(r"\b(hotel|resort|restaurant|ristorante)\b",name,re.I) else ""
+    # Zero identificativi di strutture fissati nel software: ricerca pubblica
+    # dello stesso brand adattabile a qualunque hotel, B&B o appartamento.
     query_variants=[
-        f'site:airbnb.it/rooms/ "{hotel_prefix}{distinctive}"',
-        f'site:airbnb.com/rooms/ "{hotel_prefix}{distinctive}"',
+        f'site:airbnb.it/rooms/ "{core_brand}"',
+        f'site:airbnb.com/rooms/ "{core_brand}"',
+        f'"Hotel {core_brand}" Airbnb',
+        f'"{core_brand}" Airbnb camere',
         f'site:airbnb.it/rooms/ "{distinctive}"',
-        f'"{hotel_prefix}{distinctive}" Airbnb',
+        f'site:airbnb.com/rooms/ "{distinctive}"',
     ]
     if city:
-        query_variants.append(f'site:airbnb.it/rooms/ "{distinctive}" "{city}"')
+        query_variants.extend((
+            f'"{core_brand}" "{city}" Airbnb',
+            f'site:airbnb.it/rooms/ "{core_brand}" "{city}"',
+        ))
     query_variants=list(dict.fromkeys(query_variants))
     hits={}
     diagnostics=[]
@@ -1483,14 +1515,14 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     try:
         # Il Google/Bing visibile nel browser è prioritario: la ricerca locale
         # non dipende più da Yahoo/Bing HTTP che consumavano il watchdog.
-        for idx,query in enumerate(query_variants[:4]):
+        for idx,query in enumerate(query_variants[:6]):
             if len(hits)>=12:
                 break
-            engine="Google" if idx<3 else "Bing"
+            engine="Google" if idx in {0,1,2,4} else "Bing"
             try:
                 links,url=await asyncio.wait_for(
                     _search_result_links(search_page,query,engine),
-                    timeout=14,
+                    timeout=12,
                 )
                 diagnostics.append(f"{engine} {idx+1}: {len(links)} link")
             except Exception as exc:
@@ -1509,7 +1541,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 name_score=_name_similarity(name,title)
                 # Non richiede la stessa città nella SERP: una struttura a Salve
                 # può pubblicare le singole camere con la marina "Torre Pali".
-                if name_score<0.49 and score<0.58:
+                if not (_airbnb_listing_brand_match(name,title) or name_score>=0.49 or score>=0.58):
                     continue
                 rid=match.group(1)
                 if rid not in hits or score>hits[rid][0]:
@@ -1526,7 +1558,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     # Se il motore di ricerca nel browser non ha restituito annunci, prova
     # UNA ricerca metasearch gratuita mirata con timeout separato.
     if not hits:
-        query=f'site:airbnb.it/rooms/ "{hotel_prefix}{distinctive}"'
+        query=f'site:airbnb.it/rooms/ "{core_brand}"'
         try:
             http_items,_=await asyncio.wait_for(
                 asyncio.to_thread(_free_http_search_links,query,("airbnb.it","airbnb.com")),
@@ -1543,7 +1575,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 title=str(item.get("title") or item.get("text") or "")
                 snippet=str(item.get("context") or item.get("description") or "")
                 score,_,_,_,reasons=_identity_match_score(name,city,address,title,snippet,target)
-                if _name_similarity(name,title)<0.49 and score<0.58:
+                if not (_airbnb_listing_brand_match(name,title) or _name_similarity(name,title)>=0.49 or score>=0.58):
                     continue
                 rid=match.group(1)
                 if rid not in hits or score>hits[rid][0]:
@@ -1555,7 +1587,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
     print(
         f"airbnb-indexed-discovery: candidati={len(ranked)} · "
-        f"query brand={distinctive} · {'; '.join(diagnostics)[:350]}",
+        f"query brand={core_brand} · {'; '.join(diagnostics)[:350]}",
         flush=True,
     )
     verified=[]
