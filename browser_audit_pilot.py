@@ -1704,6 +1704,43 @@ async def airbnb_frontend_search_property_listings(context, data: dict, robots: 
                 continue
     except Exception as exc:
         diagnostics.append(f"Airbnb home browser: {type(exc).__name__}: {str(exc)[:110]}")
+        # Ricerca pubblica Airbnb tramite URL della pagina risultati, utile
+        # quando il nuovo componente React non espone un input testuale leggibile.
+        # Non è una API privata e non inventa annunci: scansiona le card reali.
+        if not found:
+            for search_term in queries[:2]:
+                try:
+                    safe_term=re.sub(r"[^a-z0-9 -]","",str(search_term).lower()).strip()
+                    path_term=re.sub(r"\s+","-",safe_term) or "homes"
+                    search_url=(
+                        "https://www.airbnb.it/s/"+path_term+"/homes?"
+                        + urlencode({"query":search_term,"adults":"2"})
+                    )
+                    result=await page.goto(
+                        search_url,wait_until="domcontentloaded",timeout=13000,
+                    )
+                    await dismiss_cookie(page)
+                    await page.wait_for_timeout(1400)
+                    if result and result.status in {403,429}:
+                        diagnostics.append(f"Airbnb risultati «{search_term}»: HTTP {result.status}")
+                        continue
+                    await collect_cards(f"Airbnb risultati «{search_term}»")
+                    for fraction in (0.3,0.65,0.9):
+                        await page.evaluate(
+                            "(f)=>window.scrollTo(0,Math.floor(document.body.scrollHeight*f))",
+                            fraction,
+                        )
+                        await page.wait_for_timeout(300)
+                        await collect_cards(f"Airbnb risultati «{search_term}» scroll")
+                    diagnostics.append(
+                        f"Airbnb pagina risultati «{search_term}»: {page.url[:135]}"
+                    )
+                    if found:
+                        break
+                except Exception as exc:
+                    diagnostics.append(
+                        f"Airbnb risultati «{search_term}»: {type(exc).__name__}"
+                    )
     finally:
         if page is not None:
             try:
@@ -1772,7 +1809,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
             try:
                 links,url=await asyncio.wait_for(
                     _search_result_links(search_page,query,engine),
-                    timeout=11,
+                    timeout=9,
                 )
                 diagnostics.append(f"{engine} {idx+1}: {len(links)} link")
             except Exception as exc:
@@ -1827,7 +1864,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         ):
             try:
                 rss_items=await asyncio.wait_for(
-                    asyncio.to_thread(_bing_rss_items,q),timeout=9,
+                    asyncio.to_thread(_bing_rss_items,q),timeout=7,
                 )
                 diagnostics.append(f"Bing RSS: {len(rss_items)} risultati")
             except Exception as exc:
@@ -1867,7 +1904,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         try:
             http_items,_=await asyncio.wait_for(
                 asyncio.to_thread(_free_http_search_links,query,("airbnb.it","airbnb.com")),
-                timeout=15,
+                timeout=9,
             )
             diagnostics.append(f"metasearch pubblico: {len(http_items)} risultati")
             for item in http_items:
@@ -1895,9 +1932,9 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         try:
             internal,internal_diag=await asyncio.wait_for(
                 airbnb_frontend_search_property_listings(context,data,robots),
-                timeout=37,
+                timeout=42,
             )
-            diagnostics.extend(internal_diag[:12])
+            diagnostics.extend(internal_diag[:16])
             for item in internal:
                 url=str(item.get("url") or "")
                 match=re.search(r"/rooms/(\d+)",urlparse(url).path,re.I)
