@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v91"
+PILOT_BUILD = "velora-browser-pilot-v92"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1450,8 +1450,188 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
     return discoveries,diagnostics
 
 
+async def discover_airbnb_property_listings(context, data: dict, robots: dict) -> dict:
+    """Discovery Airbnb per complessi con PIÙ annunci camera: Google → Airbnb → verifica.
+
+    A differenza di un hotel OTA unico, Airbnb espone spesso /rooms/ per ogni tipologia.
+    I candidati sono trovati dinamicamente (senza ID o URL di strutture hardcoded).
+    Non usa login, account, tariffe member o API a pagamento.
+    """
+    name=str(data.get("name") or "").strip()
+    city=str(data.get("city") or "").strip()
+    address=str(data.get("address") or "").strip()
+    brand=_norm_name(name) or name
+    tokens=[token for token in brand.split() if len(token)>2]
+    distinctive=" ".join(tokens[:5])
+    if not distinctive:
+        return {"status":"not_found","url":"","identityVerified":False,
+                "evidence":"Airbnb: nome distintivo non disponibile."}
+
+    hotel_prefix="Hotel " if re.search(r"\b(hotel|resort|restaurant|ristorante)\b",name,re.I) else ""
+    query_variants=[
+        f'site:airbnb.it/rooms/ "{hotel_prefix}{distinctive}"',
+        f'site:airbnb.com/rooms/ "{hotel_prefix}{distinctive}"',
+        f'site:airbnb.it/rooms/ "{distinctive}"',
+        f'"{hotel_prefix}{distinctive}" Airbnb',
+    ]
+    if city:
+        query_variants.append(f'site:airbnb.it/rooms/ "{distinctive}" "{city}"')
+    query_variants=list(dict.fromkeys(query_variants))
+    hits={}
+    diagnostics=[]
+    search_page=await context.new_page()
+    try:
+        # Il Google/Bing visibile nel browser è prioritario: la ricerca locale
+        # non dipende più da Yahoo/Bing HTTP che consumavano il watchdog.
+        for idx,query in enumerate(query_variants[:4]):
+            if len(hits)>=12:
+                break
+            engine="Google" if idx<3 else "Bing"
+            try:
+                links,url=await asyncio.wait_for(
+                    _search_result_links(search_page,query,engine),
+                    timeout=14,
+                )
+                diagnostics.append(f"{engine} {idx+1}: {len(links)} link")
+            except Exception as exc:
+                diagnostics.append(f"{engine} {idx+1}: {type(exc).__name__}")
+                continue
+            for item in links:
+                target=_decode_search_target(str(item.get("href") or ""))
+                if not _plausible_ota_listing_url("airbnb",target):
+                    continue
+                match=re.search(r"/rooms/(\d+)",urlparse(target).path,re.I)
+                if not match:
+                    continue
+                title=str(item.get("text") or "")
+                snippet=str(item.get("context") or "")
+                score,_,_,_,reasons=_identity_match_score(name,city,address,title,snippet,target)
+                name_score=_name_similarity(name,title)
+                # Non richiede la stessa città nella SERP: una struttura a Salve
+                # può pubblicare le singole camere con la marina "Torre Pali".
+                if name_score<0.49 and score<0.58:
+                    continue
+                rid=match.group(1)
+                if rid not in hits or score>hits[rid][0]:
+                    hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
+                               title,reasons)
+            if len(hits)>=7:
+                break
+    finally:
+        try:
+            await search_page.close()
+        except Exception:
+            pass
+
+    # Se il motore di ricerca nel browser non ha restituito annunci, prova
+    # UNA ricerca metasearch gratuita mirata con timeout separato.
+    if not hits:
+        query=f'site:airbnb.it/rooms/ "{hotel_prefix}{distinctive}"'
+        try:
+            http_items,_=await asyncio.wait_for(
+                asyncio.to_thread(_free_http_search_links,query,("airbnb.it","airbnb.com")),
+                timeout=15,
+            )
+            diagnostics.append(f"metasearch pubblico: {len(http_items)} risultati")
+            for item in http_items:
+                target=_decode_search_target(str(item.get("url") or item.get("link") or ""))
+                if not _plausible_ota_listing_url("airbnb",target):
+                    continue
+                match=re.search(r"/rooms/(\d+)",urlparse(target).path,re.I)
+                if not match:
+                    continue
+                title=str(item.get("title") or item.get("text") or "")
+                snippet=str(item.get("context") or item.get("description") or "")
+                score,_,_,_,reasons=_identity_match_score(name,city,address,title,snippet,target)
+                if _name_similarity(name,title)<0.49 and score<0.58:
+                    continue
+                rid=match.group(1)
+                if rid not in hits or score>hits[rid][0]:
+                    hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
+                               title,reasons)
+        except Exception as exc:
+            diagnostics.append(f"metasearch: {type(exc).__name__}")
+
+    ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
+    print(
+        f"airbnb-indexed-discovery: candidati={len(ranked)} · "
+        f"query brand={distinctive} · {'; '.join(diagnostics)[:350]}",
+        flush=True,
+    )
+    verified=[]
+    failed=[]
+    # Verifica ogni candidato sul SUO annuncio prima di estrarre tariffe.
+    for score,url,title,reasons in ranked[:9]:
+        try:
+            check=await asyncio.wait_for(
+                verify_ota_candidate_page(context,"airbnb",url,name,city,address,robots),
+                timeout=18,
+            )
+        except Exception as exc:
+            failed.append(f"{urlparse(url).path[-35:]}: {type(exc).__name__}")
+            continue
+        if check.get("ok"):
+            actual_url=normalize_ota_listing_url("airbnb",str(check.get("url") or url))
+            verified.append({
+                "url":actual_url,"title":str(check.get("title") or title),
+                "score":check.get("score",score),
+                "identityVerified":True,
+                "evidence":str(check.get("evidence") or "")[:330],
+            })
+            print(
+                f"airbnb-listing-verified: {actual_url[:200]} · {str(check.get('title') or title)[:100]}",
+                flush=True,
+            )
+        else:
+            failed.append(f"{urlparse(url).path[-35:]}: {str(check.get('evidence') or '')[:85]}")
+
+    if verified:
+        primary=verified[0]
+        return {
+            "status":"found","url":primary["url"],
+            "title":primary["title"],"score":primary["score"],
+            "identityVerified":True,"verification":"page_identity_lock",
+            "listingUrls":[item["url"] for item in verified],
+            "listings":verified,
+            "candidateUrls":[item[1] for item in ranked[:12]],
+            "presenceDetected":True,
+            "discoveryMode":"Airbnb Google public indexed rooms + strict page verification",
+            "evidence":(
+                f"Airbnb: {len(verified)} annunci camera/unità verificati per la struttura; "
+                f"prima scheda: {primary['title']}. "
+                f"Ricerca senza ID hardcoded; {'; '.join(diagnostics)}. "
+                f"Altri candidati non confermati: {len(failed)}."
+            )[:900],
+        }
+    if ranked:
+        return {
+            "status":"not_verified_present","url":"",
+            "candidateUrl":ranked[0][1],
+            "candidateUrls":[item[1] for item in ranked[:12]],
+            "identityVerified":False,"presenceDetected":True,
+            "evidence":(
+                f"Airbnb: {len(ranked)} annunci candidati trovati, ma la verifica "
+                f"nome/località nel frontend non è conclusiva. {'; '.join(failed[:3])}"
+            )[:900],
+            "discoveryMode":"Airbnb indexed candidates awaiting identity verification",
+        }
+    return {
+        "status":"not_found","url":"","identityVerified":False,
+        "evidence":(
+            f"Airbnb: nessun annuncio /rooms/ emerso dalla ricerca pubblica con "
+            f"«{distinctive}». {'; '.join(diagnostics)}. "
+            "Questo esito non dimostra che la struttura non sia su Airbnb."
+        )[:900],
+        "discoveryMode":"Airbnb public Google/Bing index and metasearch exhausted",
+    }
+
+
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
     """Discovery mirata multi-strada: site search, indice RSS e browser search."""
+    if ota_id=="airbnb":
+        specialized=await discover_airbnb_property_listings(context,data,robots)
+        if specialized.get("status") in {"found","not_verified_present"}:
+            return specialized
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1679,13 +1859,13 @@ async def discover_all_ota_sources(
             try:
                 targeted=await asyncio.wait_for(
                     discover_single_ota_targeted(context,ota_id,data,robots),
-                    timeout=38,
+                    timeout=155 if ota_id=="airbnb" else 38,
                 )
             except asyncio.TimeoutError:
                 targeted={
                     "status":"not_verified_present","url":"","title":"","score":0.0,
                     "evidence":(
-                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog dopo 38 secondi; "
+                        f"Ricerca mirata {OTA_META[ota_id]['label']} fermata dal watchdog; "
                         "nessuna conclusione di assenza viene registrata. La scansione prosegue sulle altre OTA."
                     ),
                     "searchUrl":"",
