@@ -11781,9 +11781,106 @@ async def run(args: argparse.Namespace) -> dict:
                                     except Exception:
                                         pass
 
-                            # Una sola lettura automatica per OTA. Se il frontend pubblico
-                            # non produce una tariffa, l'esito viene registrato e Velora passa oltre:
-                            # niente loop di discovery/retry che moltiplicano i tempi e i 429.
+                            # Per hotel/complessi Airbnb, ogni /rooms/<id> è una distinta
+                            # camera/unità. Non fermarsi alla prima scheda come le altre OTA.
+                            if channel=="airbnb":
+                                airbnb_meta=result.get("discoveredSources",{}).get("airbnb") or {}
+                                found_urls=list(airbnb_meta.get("listingUrls") or [])
+                                if source and source not in found_urls:
+                                    found_urls.insert(0,source)
+                                distinct_urls=[]
+                                seen_listing_ids=set()
+                                for listing_url in found_urls:
+                                    match=re.search(r"/rooms/(\d+)",urlparse(listing_url).path,re.I)
+                                    if not match or match.group(1) in seen_listing_ids:
+                                        continue
+                                    seen_listing_ids.add(match.group(1))
+                                    distinct_urls.append(listing_url)
+                                # Il numero è limitato per evitare decine di pagine × 13 mesi
+                                # senza controllo dei tempi; l'eventuale resto viene segnalato.
+                                selected_urls=distinct_urls[:8]
+                                primary_id=re.search(r"/rooms/(\d+)",urlparse(source).path,re.I)
+                                primary_id=primary_id.group(1) if primary_id else ""
+                                listing_outcomes=[]
+                                if source:
+                                    listing_outcomes.append({
+                                        "url":source,"status":record.get("status"),
+                                        "quotes":len(record.get("quotes") or []),
+                                        "title":record.get("title",""),
+                                    })
+                                    for quote in record.get("quotes") or []:
+                                        quote["sourceUrl"]=record.get("finalUrl") or source
+
+                                for sibling_source in selected_urls:
+                                    match=re.search(r"/rooms/(\d+)",urlparse(sibling_source).path,re.I)
+                                    if not match or match.group(1)==primary_id:
+                                        continue
+                                    sibling_page=None
+                                    try:
+                                        sibling_page=await context.new_page()
+                                        sibling=await asyncio.wait_for(
+                                            observe(
+                                                sibling_page,"airbnb",sibling_source,
+                                                effective_stay,robots,data.get("name",""),data.get("city",""),
+                                            ),
+                                            timeout=AUTO_OTA_OBSERVE_TIMEOUT,
+                                        )
+                                        extra_quotes=list(sibling.get("quotes") or [])
+                                        for quote in extra_quotes:
+                                            quote["sourceUrl"]=sibling.get("finalUrl") or sibling_source
+                                        record.setdefault("quotes",[]).extend(extra_quotes)
+                                        listing_outcomes.append({
+                                            "url":sibling.get("finalUrl") or sibling_source,
+                                            "status":sibling.get("status"),
+                                            "quotes":len(extra_quotes),
+                                            "title":sibling.get("title",""),
+                                        })
+                                        print(
+                                            f"{effective_stay['month']} airbnb-listing-pricing: "
+                                            f"{match.group(1)} · {sibling.get('status')} · "
+                                            f"{len(extra_quotes)} tariffe · {str(sibling.get('evidence') or '')[:180]}",
+                                            flush=True,
+                                        )
+                                    except Exception as exc:
+                                        listing_outcomes.append({
+                                            "url":sibling_source,"status":"error",
+                                            "quotes":0,"error":f"{type(exc).__name__}: {str(exc)[:120]}",
+                                        })
+                                        print(
+                                            f"{effective_stay['month']} airbnb-listing-error: "
+                                            f"{match.group(1)} · {type(exc).__name__}: {str(exc)[:120]}",
+                                            flush=True,
+                                        )
+                                    finally:
+                                        if sibling_page is not None:
+                                            try:
+                                                await sibling_page.close()
+                                            except Exception:
+                                                pass
+                                if listing_outcomes:
+                                    record["listingResults"]=listing_outcomes
+                                    record["listingCount"]=len(listing_outcomes)
+                                    record["listingDiscoveredCount"]=len(distinct_urls)
+                                    quote_count=len(record.get("quotes") or [])
+                                    valid_count=sum(1 for q in record.get("quotes") or [] if q.get("verified"))
+                                    if quote_count:
+                                        record["status"]="quote_candidates" if valid_count else "quote_candidates_unverified"
+                                    else:
+                                        record["status"]="needs_human_review"
+                                    previous_ev=str(record.get("evidence") or "")
+                                    record["evidence"]=(
+                                        f"Airbnb multi-annuncio: {len(listing_outcomes)} schede testate; "
+                                        f"{quote_count} tariffe pubbliche rilevate ({valid_count} validate dal parser), "
+                                        f"{len(distinct_urls)} annunci identificati."
+                                        + (
+                                            " Alcuni annunci identificati non ancora testati nel campione."
+                                            if len(distinct_urls)>len(selected_urls) else ""
+                                        )
+                                        + f" Dettaglio primo annuncio: {previous_ev}"
+                                    )[:1200]
+
+                            # Tutte le tariffe osservate sono conservate; un mancato
+                            # match camera/piano con Booking NON elimina la rilevazione.
 
                     record["bookingReferenceCheckin"]=effective_stay["checkin"]
                     record["bookingReferenceCheckout"]=effective_stay["checkout"]
