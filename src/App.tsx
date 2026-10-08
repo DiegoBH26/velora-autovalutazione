@@ -3588,6 +3588,7 @@ type RateQuote = {
 };
 
 type BrowserPilotQuoteCandidate = {
+  sourceUrl?: string;
   roomType: string;
   ratePlan?: string;
   total: number;
@@ -4051,6 +4052,8 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
         normalizedRateToken(ratePlan || quote.refund),
         normalizedRateToken(quote.board),
         quote.guests,
+        String(quote.sourceUrl || sourceUrl),
+        Number(quote.total).toFixed(2),
       ].join("|");
       rows.push({
         id: "pilot-" + pilotKey.replace(/[^a-z0-9|_-]+/gi, "-"),
@@ -4074,7 +4077,7 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
         promotionKind: "Non verificata",
         originalTotal: 0,
         eventTag: "",
-        sourceUrl,
+        sourceUrl: quote.sourceUrl || sourceUrl,
         ratePlan,
         origin: "pilot",
         pilotKey,
@@ -6622,7 +6625,6 @@ export default function App() {
       : "";
     const pilotQuoteRows = pilotObservations.flatMap((observation) =>
       (observation.quotes || [])
-        .filter((quote) => quote.comparisonSelected !== false)
         .map((quote) => ({ observation, quote }))
     );
     const pilotQuoteTableHtml = pilotQuoteRows.length
@@ -7933,7 +7935,7 @@ export default function App() {
                 <table className="w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Totale soggiorno</th><th className="p-2 text-left">Condizioni</th></tr></thead>
                   <tbody>
-                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).filter((quote) => quote.comparisonSelected !== false).map((quote, quoteIndex) =>
+                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
                       <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className={`border-t border-[#EEE8F4] align-top ${quote.roomMatchStatus === "different-room-fallback" ? "bg-amber-50" : ""}`}>
                         <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                         <td className="p-2">{observation.checkin} → {observation.checkout}</td>
