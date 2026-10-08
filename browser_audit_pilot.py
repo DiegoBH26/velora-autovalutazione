@@ -11905,12 +11905,25 @@ async def run(args: argparse.Namespace) -> dict:
                                     if quote_count:
                                         record["status"]="quote_candidates" if valid_count else "quote_candidates_unverified"
                                     else:
-                                        record["status"]="needs_human_review"
+                                        statuses=[str(outcome.get("status") or "") for outcome in listing_outcomes]
+                                        if statuses and all(status=="no_public_rate" for status in statuses):
+                                            record["status"]="no_public_rate"
+                                        elif statuses and all(status in {
+                                            "blocked","robots_denied","rate_limited","http_error","login_required"
+                                        } for status in statuses):
+                                            record["status"]="blocked"
+                                        else:
+                                            record["status"]="needs_human_review"
+                                    status_counts={}
+                                    for outcome in listing_outcomes:
+                                        name=str(outcome.get("status") or "n.d.")
+                                        status_counts[name]=status_counts.get(name,0)+1
                                     previous_ev=str(record.get("evidence") or "")
                                     record["evidence"]=(
                                         f"Airbnb multi-annuncio: {len(listing_outcomes)} schede testate; "
                                         f"{quote_count} tariffe pubbliche rilevate ({valid_count} validate dal parser), "
-                                        f"{len(distinct_urls)} annunci identificati."
+                                        f"{len(distinct_urls)} annunci identificati. "
+                                        "Esiti: "+", ".join(f"{key}={value}" for key,value in status_counts.items())+"."
                                         + (
                                             " Alcuni annunci identificati non ancora testati nel campione."
                                             if len(distinct_urls)>len(selected_urls) else ""
