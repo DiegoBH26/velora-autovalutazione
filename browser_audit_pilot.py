@@ -1534,6 +1534,186 @@ def _airbnb_index_urls_from_html(html_source: str) -> list[str]:
     return hits[:35]
 
 
+async def airbnb_frontend_search_property_listings(context, data: dict, robots: dict) -> tuple[list[dict],list[str]]:
+    """Percorso Airbnb dal suo motore pubblico: home → destinazione → risultati → /rooms/.
+
+    Non è una SERP Google: consulta Airbnb direttamente, senza login o API interne.
+    Cerca per brand e poi località, raccoglie le schede, rimanda la prova identità
+    alla verifica della singola scheda prima del pricing.
+    """
+    name=str(data.get("name") or "").strip()
+    city=str(data.get("city") or "").strip()
+    address=str(data.get("address") or "").strip()
+    tokens=[
+        token for token in _norm_name(name).split()
+        if len(token)>=3 and token not in {
+            "hotel","restaurant","ristorante","luxury","boutique","resort",
+            "suite","suites","barbarhouse","rooms","room","apartment","apartments",
+        }
+    ]
+    brand=" ".join(tokens[:2]) or name
+    home="https://www.airbnb.it/"
+    diagnostics=[]
+    if await asyncio.to_thread(allowed_by_robots,home,robots) is False:
+        return [],["Airbnb homepage: robots.txt nega scraping"]
+    page=None
+    found={}
+    try:
+        page=await context.new_page()
+        response=await page.goto(home,wait_until="domcontentloaded",timeout=18000)
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(800)
+        if response and response.status in {403,429}:
+            return [],[f"Airbnb homepage: HTTP {response.status}"]
+        diagnostics.append("Airbnb homepage caricata")
+
+        async def collect_cards(label: str) -> int:
+            try:
+                links=await page.evaluate(r"""() => {
+                    const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+                    return Array.from(document.querySelectorAll('a[href*="/rooms/"]')).slice(0,700).map(a=>{
+                        const card=a.closest(
+                          '[data-testid="card-container"],[data-testid*="listing"],article,li,section'
+                        ) || a.parentElement?.parentElement || a;
+                        return {
+                          url:a.href,
+                          title:clean(a.innerText||a.textContent||a.getAttribute('aria-label')).slice(0,320),
+                          context:clean(card?.innerText||card?.textContent).slice(0,750),
+                        };
+                    });
+                }""")
+            except Exception as exc:
+                diagnostics.append(f"{label}: cards={type(exc).__name__}")
+                return 0
+            added=0
+            for item in links:
+                url=normalize_ota_listing_url("airbnb",str(item.get("url") or ""))
+                if not _plausible_ota_listing_url("airbnb",url):
+                    continue
+                title=str(item.get("title") or "")
+                snippet=str(item.get("context") or "")
+                # Un risultato può essere titolato solo "Suite Familiare":
+                # in quel caso non attribuirlo per vicinanza, serve il brand nel
+                # contesto della card; se manca, non attribuire false identità.
+                if not (
+                    _airbnb_listing_brand_match(name,title)
+                    or _airbnb_listing_brand_match(name,snippet)
+                    or _name_similarity(name,title)>=0.53
+                    or _name_similarity(name,snippet)>=0.58
+                ):
+                    continue
+                match=re.search(r"/rooms/(\d+)",urlparse(url).path,re.I)
+                if not match:
+                    continue
+                rid=match.group(1)
+                if rid not in found:
+                    found[rid]={"url":url,"title":title or snippet[:140],
+                                "context":snippet}
+                    added+=1
+            diagnostics.append(f"{label}: {len(links)} card Airbnb · {added} brand match")
+            return added
+
+        await collect_cards("Airbnb home")
+        opener_selectors=(
+            'button:has-text("Dove vuoi andare")',
+            'button:has-text("Where to")',
+            '[data-testid*="structured-search-input-field-query"]',
+            '[data-testid*="little-search-location"]',
+            'button[aria-label*="Dove" i]',
+            'button[aria-label*="Where" i]',
+            '[role="button"][aria-label*="Where" i]',
+        )
+        field_selectors=(
+            'input[data-testid*="structured-search-input-field-query"]',
+            'input[placeholder*="Cerca" i]',
+            'input[placeholder*="destinazione" i]',
+            'input[placeholder*="search destinations" i]',
+            'input[placeholder*="where" i]',
+            'input[aria-label*="Dove" i]',
+            'input[aria-label*="Where" i]',
+            'input[role="combobox"]',
+            'input[type="search"]',
+        )
+        queries=[brand]
+        if city and _norm_name(city)!=_norm_name(brand):
+            queries.append(city)
+        if address and _norm_name(address) not in {_norm_name(city),_norm_name(brand)}:
+            queries.append(address)
+        for term in queries[:2]:
+            if len(found)>=5:
+                break
+            try:
+                opener,_=await _first_visible_locator(page,opener_selectors)
+                if opener is not None:
+                    try:
+                        await opener.click(timeout=1500)
+                    except Exception:
+                        pass
+                field,selected_selector=await _first_visible_locator(page,field_selectors)
+                if field is None:
+                    diagnostics.append(f"Airbnb ricerca «{term}»: input destinazione assente")
+                    continue
+                await field.click(timeout=1500)
+                await field.fill(term,timeout=2000)
+                await page.wait_for_timeout(800)
+                # L'utente conferma un suggerimento esplicito anziché scrivere
+                # in un campo HTML non utilizzato dal motore.
+                suggestions=page.locator(
+                    '[role="option"],[data-testid*="option"],'
+                    '[data-testid*="destination-result"],[data-testid*="prediction"]'
+                )
+                clicked=False
+                try:
+                    for idx in range(min(await suggestions.count(),12)):
+                        loc=suggestions.nth(idx)
+                        if await loc.is_visible(timeout=150):
+                            await loc.click(timeout=1300)
+                            clicked=True
+                            break
+                except Exception:
+                    pass
+                if not clicked:
+                    await field.press("Enter",timeout=1300)
+                action,_=await _first_visible_locator(page,(
+                    'button:has-text("Cerca")','button:has-text("Search")',
+                    '[data-testid="structured-search-input-search-button"]',
+                    '[data-testid*="search-button"]',
+                ))
+                if action is not None:
+                    try:
+                        await action.click(timeout=2500)
+                    except Exception:
+                        pass
+                await page.wait_for_timeout(1800)
+                await collect_cards(f"Airbnb ricerca «{term}»")
+                for offset in (0.35,0.72):
+                    try:
+                        await page.evaluate(
+                            "(p) => window.scrollTo(0,Math.floor(document.body.scrollHeight*p))",
+                            offset
+                        )
+                        await page.wait_for_timeout(450)
+                        await collect_cards(f"Airbnb ricerca «{term}» scroll")
+                    except Exception:
+                        break
+                diagnostics.append(f"Airbnb ricerca «{term}»: url={page.url[:150]}")
+            except Exception as exc:
+                diagnostics.append(
+                    f"Airbnb ricerca «{term}»: {type(exc).__name__}: {str(exc)[:100]}"
+                )
+                continue
+    except Exception as exc:
+        diagnostics.append(f"Airbnb home browser: {type(exc).__name__}: {str(exc)[:110]}")
+    finally:
+        if page is not None:
+            try:
+                await page.close()
+            except Exception:
+                pass
+
+    return list(found.values())[:14],diagnostics
+
+
 async def discover_airbnb_property_listings(context, data: dict, robots: dict) -> dict:
     """Discovery Airbnb per complessi con PIÙ annunci camera: Google → Airbnb → verifica.
 
@@ -1708,6 +1888,31 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                                title,reasons)
         except Exception as exc:
             diagnostics.append(f"metasearch: {type(exc).__name__}")
+
+    # Ultima strada autonoma: eseguire la ricerca reale dentro Airbnb,
+    # non pretendere che Google/Bing espongano la URL della camera.
+    if len(hits)<2:
+        try:
+            internal,internal_diag=await asyncio.wait_for(
+                airbnb_frontend_search_property_listings(context,data,robots),
+                timeout=37,
+            )
+            diagnostics.extend(internal_diag[:12])
+            for item in internal:
+                url=str(item.get("url") or "")
+                match=re.search(r"/rooms/(\d+)",urlparse(url).path,re.I)
+                if not match:
+                    continue
+                title=str(item.get("title") or "")
+                snippet=str(item.get("context") or "")
+                score,_,_,_,reasons=_identity_match_score(
+                    name,city,address,title,snippet,url
+                )
+                rid=match.group(1)
+                if rid not in hits or score>hits[rid][0]:
+                    hits[rid]=(score,url,title,reasons)
+        except Exception as exc:
+            diagnostics.append(f"Airbnb frontend interno: {type(exc).__name__}")
 
     ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
     print(
