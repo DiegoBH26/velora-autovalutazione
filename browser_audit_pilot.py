@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v88"
+PILOT_BUILD = "velora-browser-pilot-v89"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -10499,7 +10499,7 @@ async def run(args: argparse.Namespace) -> dict:
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
-              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "discoveryProgress": {},
+              "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "bookingReferenceStays": [], "discoveryProgress": {},
               "browserPhases": [], "observations": []}
     output = Path(args.output)
     if args.dry_run:
@@ -10971,6 +10971,54 @@ async def run(args: argparse.Namespace) -> dict:
             else:
                 result["bookingEngine"]["evidence"] = "URL ufficiale non indicato."
             write_result(output, result)
+
+            # REGOLA DI CONFRONTO: Booking determina SEMPRE le date di riferimento,
+            # anche quando l'utente non ha selezionato Booking come canale da mostrare.
+            # Le altre OTA non scelgono mai date proprie: ricevono la finestra esatta
+            # risolta su Booking (stessa durata e stessi ospiti).
+            booking_reference_source=(sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
+            if not booking_reference_source:
+                try:
+                    ref_discovery=await asyncio.wait_for(
+                        discover_booking_source(
+                            context,
+                            data.get("name",""),
+                            data.get("city",""),
+                            robots,
+                            data.get("address",""),
+                            (sources.get("sito") or {}).get("url","") if isinstance(sources.get("sito"),dict) else "",
+                            data.get("phone",""),
+                            data.get("email",""),
+                        ),
+                        timeout=45,
+                    )
+                except Exception as exc:
+                    ref_discovery={
+                        "status":"error","url":"",
+                        "evidence":f"Booking reference discovery fallita: {type(exc).__name__}: {str(exc)[:180]}"
+                    }
+                if ref_discovery.get("status")=="found" and ref_discovery.get("url"):
+                    booking_reference_source=normalize_ota_listing_url("booking",str(ref_discovery["url"]))
+                    sources["booking"]={"label":"Booking.com","url":booking_reference_source}
+                    result.setdefault("discoveredSources",{})["bookingReference"]={
+                        **ref_discovery,
+                        "url":booking_reference_source,
+                        "evidence":(
+                            "Booking usato come riferimento date per tutte le OTA. "
+                            + str(ref_discovery.get("evidence") or "")
+                        )[:900],
+                    }
+                    print(
+                        f"booking-reference-source: trovato · {booking_reference_source[:260]}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "booking-reference-source: NON disponibile · "
+                        f"{str(ref_discovery.get('evidence') or ref_discovery.get('status') or '')[:260]}",
+                        flush=True,
+                    )
+
             for stay_index,planned_stay in enumerate(list(plan)):
                 await ensure_pricing_context(f"inizio campione tariffario {planned_stay.get('month','')}")
                 effective_stay=dict(planned_stay)
@@ -10980,8 +11028,10 @@ async def run(args: argparse.Namespace) -> dict:
                 # Viene interrogato prima di tutti gli altri canali. Se dichiara
                 # esplicitamente indisponibilità, cerca una finestra successiva
                 # con la stessa durata; le altre OTA useranno esattamente quelle date.
-                booking_source=(sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
-                if "booking" in channels and booking_source:
+                booking_source=booking_reference_source or (
+                    (sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
+                )
+                if booking_source:
                     search_page=await context.new_page()
                     try:
                         initial_booking=await booking_dated_search_observation(
@@ -11027,6 +11077,25 @@ async def run(args: argparse.Namespace) -> dict:
                         initial_booking,
                     )
                     result["bookingDateResolution"].append(resolution)
+                    reference_lock={
+                        "month":planned_stay.get("month"),
+                        "requestedCheckin":planned_stay.get("checkin"),
+                        "requestedCheckout":planned_stay.get("checkout"),
+                        "checkin":effective_stay.get("checkin"),
+                        "checkout":effective_stay.get("checkout"),
+                        "nights":effective_stay.get("nights"),
+                        "adults":effective_stay.get("adults",2),
+                        "status":resolution.get("status"),
+                        "source":"booking",
+                    }
+                    result["bookingReferenceStays"].append(reference_lock)
+                    print(
+                        f"{planned_stay['month']} BOOKING DATE LOCK · "
+                        f"{effective_stay['checkin']}→{effective_stay['checkout']} · "
+                        f"{effective_stay.get('nights')} notti · {effective_stay.get('adults',2)} adulti · "
+                        "QUESTE DATE SONO OBBLIGATORIE PER TUTTE LE OTA",
+                        flush=True,
+                    )
 
                     if effective_stay["checkin"] != planned_stay["checkin"]:
                         plan[stay_index]=effective_stay
@@ -11044,13 +11113,40 @@ async def run(args: argparse.Namespace) -> dict:
                             flush=True,
                         )
                     write_result(output,result)
+                else:
+                    resolution={
+                        "status":"booking_reference_unavailable",
+                        "requestedCheckin":planned_stay.get("checkin"),
+                        "requestedCheckout":planned_stay.get("checkout"),
+                        "resolvedCheckin":"",
+                        "resolvedCheckout":"",
+                        "attempts":0,
+                        "evidence":"Booking non disponibile come riferimento: Velora non confronterà date diverse tra OTA."
+                    }
+                    result["bookingDateResolution"].append(resolution)
+                    result["bookingReferenceStays"].append({
+                        "month":planned_stay.get("month"),
+                        "requestedCheckin":planned_stay.get("checkin"),
+                        "requestedCheckout":planned_stay.get("checkout"),
+                        "checkin":"","checkout":"",
+                        "nights":planned_stay.get("nights"),
+                        "adults":planned_stay.get("adults",2),
+                        "status":"booking_reference_unavailable",
+                        "source":"booking",
+                    })
+                    print(
+                        f"{planned_stay['month']} BOOKING DATE LOCK · IMPOSSIBILE: nessuna scheda Booking di riferimento",
+                        flush=True,
+                    )
+                    write_result(output,result)
 
                 for channel in channels:
                     channel_started=time.monotonic()
                     source = sources.get(channel, {}).get("url", "")
                     print(
                         f"{effective_stay['month']} {channel}: START frontend pubblico · "
-                        f"{effective_stay['checkin']}→{effective_stay['checkout']} · {effective_stay.get('adults',2)} adulti",
+                        f"BOOKING LOCK={effective_stay['checkin']}→{effective_stay['checkout']} · "
+                        f"{effective_stay.get('adults',2)} adulti",
                         flush=True,
                     )
                     if channel=="booking" and precomputed_booking is not None:
@@ -11181,6 +11277,27 @@ async def run(args: argparse.Namespace) -> dict:
                             # Una sola lettura automatica per OTA. Se il frontend pubblico
                             # non produce una tariffa, l'esito viene registrato e Velora passa oltre:
                             # niente loop di discovery/retry che moltiplicano i tempi e i 429.
+
+                    record["bookingReferenceCheckin"]=effective_stay["checkin"]
+                    record["bookingReferenceCheckout"]=effective_stay["checkout"]
+                    record["bookingReferenceNights"]=effective_stay.get("nights")
+                    record["bookingReferenceAdults"]=effective_stay.get("adults",2)
+                    record["dateReference"]="booking"
+
+                    # Nessuna OTA può cambiare autonomamente la finestra di confronto.
+                    # Se un adapter restituisce date diverse, i prezzi vengono annullati.
+                    if (
+                        str(record.get("checkin") or "") != str(effective_stay["checkin"])
+                        or str(record.get("checkout") or "") != str(effective_stay["checkout"])
+                    ):
+                        record["quotes"]=[]
+                        record["status"]="dates_mismatch_booking_reference"
+                        record["evidence"]=(
+                            f"Finestra OTA diversa dal riferimento Booking. Atteso "
+                            f"{effective_stay['checkin']} → {effective_stay['checkout']}; "
+                            f"osservato {record.get('checkin','n.d.')} → {record.get('checkout','n.d.')}. "
+                            "Nessun prezzo usato."
+                        )[:900]
 
                     assisted_weak_statuses={"blocked"}
                     if (
