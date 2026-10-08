@@ -10822,6 +10822,18 @@ def apply_booking_room_reference(result: dict) -> None:
                         "questa tariffa non entra nel delta comparativo."
                     )
 
+    # Una mancata corrispondenza con la camera reference non è motivo
+    # per nascondere tariffe pubbliche realmente osservate.
+    for observation in observations:
+        for quote in observation.get("quotes") or []:
+            if quote.get("comparisonSelected") is False:
+                quote["comparisonSelected"]=True
+                if observation.get("otaId")!="booking" and not quote.get("referenceRoomKey"):
+                    quote["comparisonWarning"]=(
+                        "Tariffa OTA conservata integralmente. Camera o condizioni "
+                        "non necessariamente comparabili con la reference Booking; "
+                        "eventuali delta devono essere marcati come indicativi."
+                    )
     result["roomReferences"]=room_references
 
 
@@ -11079,6 +11091,10 @@ async def run(args: argparse.Namespace) -> dict:
             missing_discovery_ids=[
                 ota_id for ota_id in selected_discovery_ids
                 if ota_id not in known_ota_sources
+                or (
+                    ota_id=="airbnb"
+                    and len(((sources.get("airbnb") or {}).get("listingUrls") or []))<2
+                )
             ]
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
@@ -11276,7 +11292,16 @@ async def run(args: argparse.Namespace) -> dict:
                             "discoveryMode":"existing source + strict identity verification",
                             "verification":"page_identity_lock",
                         }
-                        sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":verification.get("url") or existing_url}
+                        sources[ota_id]={
+                            "label":OTA_META[ota_id]["label"],
+                            "url":verification.get("url") or existing_url,
+                            **(
+                                {"listingUrls":list((sources.get("airbnb") or {}).get("listingUrls") or [])}
+                                if ota_id=="airbnb" else {}
+                            ),
+                        }
+                        if ota_id=="airbnb" and sources[ota_id].get("listingUrls"):
+                            result["discoveredSources"][ota_id]["listingUrls"]=sources[ota_id]["listingUrls"]
                         continue
                     existing_url=normalize_ota_listing_url(ota_id,existing_url)
                     sources[ota_id]={"label":OTA_META[ota_id]["label"],"url":existing_url}
@@ -11375,6 +11400,10 @@ async def run(args: argparse.Namespace) -> dict:
                     sources[ota_id]={
                         "label":OTA_META[ota_id]["label"],
                         "url":normalize_ota_listing_url(ota_id,discovery["url"]),
+                        **(
+                            {"listingUrls":list(discovery.get("listingUrls") or [])}
+                            if ota_id=="airbnb" else {}
+                        ),
                     }
                     unverified_source_ids.discard(ota_id)
                 else:
@@ -11683,7 +11712,13 @@ async def run(args: argparse.Namespace) -> dict:
 
                             if frontend_source.get("status")=="found" and frontend_source.get("url"):
                                 source=frontend_source["url"]
-                                sources[channel]={"label":OTA_META[channel]["label"],"url":source}
+                                sources[channel]={
+                                    "label":OTA_META[channel]["label"],"url":source,
+                                    **(
+                                        {"listingUrls":list(frontend_source.get("listingUrls") or [])}
+                                        if channel=="airbnb" else {}
+                                    ),
+                                }
                                 unverified_source_ids.discard(channel)
                                 result.setdefault("discoveredSources",{})[channel]=frontend_source
                                 print(
@@ -11785,7 +11820,11 @@ async def run(args: argparse.Namespace) -> dict:
                             # camera/unità. Non fermarsi alla prima scheda come le altre OTA.
                             if channel=="airbnb":
                                 airbnb_meta=result.get("discoveredSources",{}).get("airbnb") or {}
-                                found_urls=list(airbnb_meta.get("listingUrls") or [])
+                                found_urls=list(
+                                    airbnb_meta.get("listingUrls")
+                                    or (sources.get("airbnb") or {}).get("listingUrls")
+                                    or []
+                                )
                                 if source and source not in found_urls:
                                     found_urls.insert(0,source)
                                 distinct_urls=[]
