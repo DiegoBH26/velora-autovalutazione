@@ -1161,12 +1161,45 @@ def _strict_ota_identity_match(
     name_ok=name_score>=0.54
     strict_ok=bool(geo_ok and name_ok and score>=0.66)
 
+    # Airbnb vende le camere/suite con titoli specifici e può mostrare il nome
+    # della marina/frazione anziché il comune registrato in anagrafica.
+    # Non rifiutare automaticamente "Hotel <brand> - Suite ..." solo perché
+    # il titolo/indirizzo Airbnb non ripete il comune.
+    airbnb_brand_verified=False
+    if _classify_ota_url(url)=="airbnb" and re.search(r"/rooms/\d+",urlparse(url).path,re.I):
+        strong_brand=_airbnb_listing_brand_match(property_name,title)
+        title_hotel=bool(re.search(r"\b(hotel|camera in hotel|room in hotel)\b",title,re.I))
+        # Dev'essere una scheda che parla davvero della struttura indicata,
+        # non un risultato generico nella navigazione/suggerimenti.
+        canonical_words=[
+            token for token in _norm_name(property_name).split()
+            if len(token)>=3 and token not in {
+                "hotel","luxury","restaurant","ristorante","boutique",
+                "resort","barbarhouse","suite","suites"
+            }
+        ][:2]
+        body_norm=_norm_name(body[:5500])
+        body_brand=bool(canonical_words and all(token in body_norm.split() for token in canonical_words))
+        if strong_brand and title_hotel and body_brand and name_score>=0.48:
+            airbnb_brand_verified=True
+            strict_ok=True
+
     evidence_parts=[
         f"nome {name_score:.0%}",
         f"città {'confermata' if city_match else 'non confermata'}",
         f"indirizzo {address_ratio:.0%}" if address_norm else "indirizzo n.d.",
         f"score complessivo {score:.0%}",
     ]
+    if airbnb_brand_verified:
+        evidence_parts.append(
+            "Airbnb: brand completo identificato nella testata e nella descrizione "
+            "dell'annuncio camera/hotel; la località può essere una marina o frazione"
+        )
+        if not geo_ok:
+            evidence_parts.append(
+                "ATTENZIONE: comune non confermato testualmente; possibile località subordinata, "
+                "verificare geografia prima di interpretare il delta"
+            )
     if not strict_ok:
         evidence_parts.append("BLOCCATA: identità geografica/nome non sufficientemente confermati")
     return {
