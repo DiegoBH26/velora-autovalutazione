@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v86"
+PILOT_BUILD = "velora-browser-pilot-v87"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -6316,17 +6316,27 @@ PUBLIC_MEMBER_TOKENS=(
 
 
 def public_quote_without_login(quote: dict) -> bool:
-    """Accetta esclusivamente tariffe pubbliche fruibili senza login/account/app."""
+    """Accetta solo tariffe pubbliche, senza falsi negativi dovuti al testo circostante."""
     audience=str(quote.get("audience") or "").strip().lower()
     rate_plan=str(quote.get("ratePlan") or "").strip().lower()
     evidence=str(quote.get("evidence") or "").strip().lower()
     warning=str(quote.get("comparisonWarning") or "").strip().lower()
-    combined=" ".join((audience,rate_plan,evidence,warning))
-    if audience and audience not in {"pubblico senza login","public without login","pubblico"}:
+
+    explicit_public=audience in {"pubblico senza login","public without login","pubblico"}
+    if audience and not explicit_public:
         return False
-    if any(token in combined for token in PUBLIC_MEMBER_TOKENS):
-        return False
-    return True
+
+    # Se il parser ha già isolato la riga come pubblica, controlla soltanto il piano
+    # e gli avvisi della riga. Non usare l'intero evidence: Booking/Agoda possono
+    # includere nella stessa porzione DOM banner generici "Accedi/member" non riferiti
+    # alla tariffa estratta.
+    if explicit_public:
+        scoped=" ".join((rate_plan,warning))
+        return not any(token in scoped for token in PUBLIC_MEMBER_TOKENS)
+
+    # Se manca un'audience esplicita, resta conservativo.
+    combined=" ".join((rate_plan,evidence,warning))
+    return not any(token in combined for token in PUBLIC_MEMBER_TOKENS)
 
 
 def normalize_quote_price_fields(quote: dict) -> dict:
@@ -8270,18 +8280,23 @@ async def observe(
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
                     )
             if channel == "agoda" and not confirmed:
-                confirmed, dom_excerpt = await agoda_dom_dates_confirmed(page, stay)
-                if confirmed:
-                    mode="agoda-dom-fields"
-            if channel == "agoda" and not confirmed and agoda_url_dates_confirmed(page.url, stay):
-                property_context, context_evidence = await agoda_property_rate_context(page)
-                if property_context:
-                    confirmed=True
-                    mode="agoda-final-url+rate-context"
-                    dom_excerpt=(
-                        "URL finale Agoda mantiene check-in e durata richiesti; "
-                        f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
-                    )
+                agoda_path=(urlparse(page.url).path or "").lower().rstrip("/")
+                agoda_home=agoda_path in {"","/it-it","/en-us","/"}
+                if not agoda_home:
+                    confirmed, dom_excerpt = await agoda_dom_dates_confirmed(page, stay)
+                    if confirmed:
+                        mode="agoda-dom-fields"
+                    if not confirmed and agoda_url_dates_confirmed(page.url, stay):
+                        property_context, context_evidence = await agoda_property_rate_context(page)
+                        if property_context:
+                            confirmed=True
+                            mode="agoda-final-url+rate-context"
+                            dom_excerpt=(
+                                "URL finale Agoda mantiene check-in e durata richiesti; "
+                                f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
+                            )
+                else:
+                    dom_excerpt="Homepage Agoda: date eventualmente presenti nel widget non valgono come conferma della scheda struttura."
             if channel == "airbnb" and not confirmed and airbnb_url_dates_confirmed(page.url, stay):
                 property_context, context_evidence = await listing_property_rate_context(page,"airbnb")
                 if property_context:
@@ -8362,7 +8377,15 @@ async def observe(
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
                 if dates_confirmed and not date_confirmation_mode:
                     date_confirmation_mode="priceline-ui-date-picker"
-        elif channel == "agoda" and not dates_confirmed:
+        elif channel == "agoda" and (
+            not dates_confirmed
+            or (urlparse(page.url).path or "").lower().rstrip("/") in {"","/it-it","/en-us","/"}
+        ):
+            print(
+                f"{stay['month']} agoda-frontend-flow: START · url={page.url[:260]} · "
+                f"property={property_name[:120]} · city={city[:80]}",
+                flush=True,
+            )
             applied, ui_date_evidence = await agoda_prepare_frontend(
                 page,source,stay,property_name=property_name,city=city
             )
