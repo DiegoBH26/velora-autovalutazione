@@ -1801,7 +1801,6 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
             ("Bing",query_variants[2]),
             ("Brave",query_variants[2]),
             ("DuckDuckGo",query_variants[0]),
-            ("Google",f'"{core_brand}" "airbnb" "rooms"'),
         ]
         for idx,(engine,query) in enumerate(browser_searches):
             if len(hits)>=5:
@@ -1809,7 +1808,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
             try:
                 links,url=await asyncio.wait_for(
                     _search_result_links(search_page,query,engine),
-                    timeout=9,
+                    timeout=8,
                 )
                 diagnostics.append(f"{engine} {idx+1}: {len(links)} link")
             except Exception as exc:
@@ -1847,6 +1846,11 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 if rid not in hits or score>hits[rid][0]:
                     hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
                                title,reasons)
+            print(
+                f"airbnb-browser-search {engine}: SERP={len(links)} links · "
+                f"annunci Airbnb candidati={len(hits)}",
+                flush=True,
+            )
             if len(hits)>=5:
                 break
     finally:
@@ -1954,7 +1958,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
     print(
         f"airbnb-indexed-discovery: candidati={len(ranked)} · "
-        f"query brand={core_brand} · {'; '.join(diagnostics)[:350]}",
+        f"query brand={core_brand} · {'; '.join(diagnostics[-14:])[:1050]}",
         flush=True,
     )
     verified=[]
