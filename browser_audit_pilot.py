@@ -1549,7 +1549,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         # Il Google/Bing visibile nel browser è prioritario: la ricerca locale
         # non dipende più da Yahoo/Bing HTTP che consumavano il watchdog.
         for idx,query in enumerate(query_variants[:6]):
-            if len(hits)>=12:
+            if len(hits)>=5:
                 break
             engine="Google" if idx in {0,1,2,4} else "Bing"
             try:
@@ -1580,7 +1580,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 if rid not in hits or score>hits[rid][0]:
                     hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
                                title,reasons)
-            if len(hits)>=7:
+            if len(hits)>=5:
                 break
     finally:
         try:
@@ -1626,11 +1626,11 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     verified=[]
     failed=[]
     # Verifica ogni candidato sul SUO annuncio prima di estrarre tariffe.
-    for score,url,title,reasons in ranked[:9]:
+    for score,url,title,reasons in ranked[:6]:
         try:
             check=await asyncio.wait_for(
                 verify_ota_candidate_page(context,"airbnb",url,name,city,address,robots),
-                timeout=18,
+                timeout=12,
             )
         except Exception as exc:
             failed.append(f"{urlparse(url).path[-35:]}: {type(exc).__name__}")
@@ -1684,7 +1684,7 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         "status":"not_found","url":"","identityVerified":False,
         "evidence":(
             f"Airbnb: nessun annuncio /rooms/ emerso dalla ricerca pubblica con "
-            f"«{distinctive}». {'; '.join(diagnostics)}. "
+            f"«{core_brand}». {'; '.join(diagnostics)}. "
             "Questo esito non dimostra che la struttura non sia su Airbnb."
         )[:900],
         "discoveryMode":"Airbnb public Google/Bing index and metasearch exhausted",
@@ -1693,10 +1693,12 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
     """Discovery mirata multi-strada: site search, indice RSS e browser search."""
+    airbnb_specialized_evidence=""
     if ota_id=="airbnb":
         specialized=await discover_airbnb_property_listings(context,data,robots)
         if specialized.get("status") in {"found","not_verified_present"}:
             return specialized
+        airbnb_specialized_evidence=str(specialized.get("evidence") or "")
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1872,7 +1874,8 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         "evidence":(
             f"Ricerca mirata {meta['label']} completata con brand «{distinctive}» su più indici pubblici: "
             "nessun candidato è emerso in questo passaggio automatico. "
-            "Questo esito non dimostra che la struttura sia assente dal portale."
+            "Questo esito non dimostra che la struttura sia assente dal portale. "
+            + (f"Dettaglio ricerca annunci Airbnb: {airbnb_specialized_evidence}" if airbnb_specialized_evidence else "")
         )[:900],
         "searchUrl":"","discoveryMode":"targeted multi-path no candidate","identityVerified":False,
     }
