@@ -1313,6 +1313,10 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
                     ota_id=_classify_ota_url(target)
                     if not ota_id:
                         continue
+                    if ota_id=="agoda" and _agoda_unit_listing_conflict(
+                        name,target,str(item.get("text") or "")
+                    ):
+                        continue
                     score,path_slug,text_score,url_score,reasons=_identity_match_score(
                         name,city,address,str(item.get("text") or ""),str(item.get("context") or ""),target
                     )
@@ -1651,6 +1655,11 @@ async def discover_all_ota_sources(
 
     for index,ota_id in enumerate(target_order, start=1):
         current=discoveries.get(ota_id)
+        if ota_id=="agoda" and current:
+            cached_candidate=current.get("url") or current.get("candidateUrl") or ""
+            if _agoda_unit_listing_conflict(data.get("name",""),cached_candidate,current.get("title","")):
+                discoveries.pop(ota_id,None)
+                current=None
 
         # La ricerca master ha già interrogato più motori e più varianti.
         # Non rifare da zero la stessa ricerca per ogni OTA se esiste già un candidato:
