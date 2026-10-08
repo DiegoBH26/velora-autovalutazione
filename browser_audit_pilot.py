@@ -1795,6 +1795,61 @@ async def agoda_dom_dates_confirmed(page, stay: dict) -> tuple[bool,str]:
     return bool(start_ok and end_ok),evidence[:800]
 
 
+async def agoda_actual_rate_dom_diagnostics(page) -> dict:
+    """Conta prezzi EUR numerici e vere intestazioni camera (non banner/searchbox)."""
+    try:
+        return await page.evaluate(r"""() => {
+          const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+          const visible=el=>{
+            if(!el) return false;
+            const s=getComputedStyle(el),r=el.getBoundingClientRect();
+            return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0;
+          };
+          const money=/(?:€|EUR)\s*\d{1,6}(?:[.,]\d{1,2})?|\d{1,6}(?:[.,]\d{1,2})?\s*(?:€|EUR)/i;
+          const priceSelectors='[data-selenium*="price" i],[data-ppapi*="price" i],[data-element-name*="price" i],[class*="price" i]';
+          const roomSelectors='[data-selenium="room-name"],[data-ppapi*="room-name" i],[data-element-name*="room-name" i],h2,h3,h4';
+          const allPrices=Array.from(document.querySelectorAll(priceSelectors)).filter(visible).slice(0,350);
+          const numeric=allPrices.map(el=>clean(el.innerText||el.textContent).slice(0,400))
+            .filter(text=>money.test(text));
+          const roomTexts=Array.from(document.querySelectorAll(roomSelectors)).filter(visible)
+            .map(el=>clean(el.innerText||el.textContent).slice(0,260))
+            .filter(text=>text&&text.length<220&&
+              /\b(camera|room|suite|matrimoniale|familiare|double|twin|king|queen|premium|deluxe|superior|tripla|quadrupla|apartment|appartamento)\b/i.test(text)&&
+              !/inizia a digitare|premi invio|freccia|selezionare/i.test(text));
+          return {
+            totalPriceContainers:allPrices.length,
+            numericEuroPrices:numeric.length,
+            numericPriceSamples:Array.from(new Set(numeric)).slice(0,5),
+            actualRoomNames:roomTexts.length,
+            roomSamples:Array.from(new Set(roomTexts)).slice(0,5),
+            bannerSamples:allPrices.map(el=>clean(el.innerText||el.textContent).slice(0,100))
+              .filter(text=>text&&!money.test(text)).slice(0,4),
+          };
+        }""")
+    except Exception as exc:
+        return {"numericEuroPrices":0,"actualRoomNames":0,"error":type(exc).__name__}
+
+
+def agoda_sold_out_message(body: str) -> str:
+    """Solo indisponibilità esplicita, non la mancata lettura del prezzo."""
+    text=re.sub(r"\s+"," ",str(body or "")).lower()
+    patterns=(
+        r"we.?re sold out on your dates",
+        r"sold out for (?:your|these|selected) dates",
+        r"no rooms available for (?:your|these|the selected) dates",
+        r"no availability for (?:your|these|the selected) dates",
+        r"nessuna camera disponibile per (?:le|queste) date",
+        r"non ci sono camere disponibili per (?:le|queste) date",
+        r"al completo (?:per|nelle) (?:le|queste) date",
+        r"struttura al completo per le date",
+    )
+    for pattern in patterns:
+        hit=re.search(pattern,text,re.I)
+        if hit:
+            return hit.group(0)[:180]
+    return ""
+
+
 async def agoda_property_rate_context(page) -> tuple[bool,str]:
     """Conferma che Agoda sia su una scheda struttura con contenuto camere/prezzi renderizzato."""
     selectors=(
@@ -8969,30 +9024,15 @@ async def observe(
                 if not candidates:
                     candidates=await agoda_quote_candidates(page,stay)
                 record["quotes"]=candidates
-                try:
-                    agoda_price_nodes=await page.locator(
-                        '[data-selenium*="price"], [data-ppapi*="price" i], [data-element-name*="price" i], [class*="price" i]'
-                    ).count()
-                    agoda_room_nodes=await page.locator(
-                        '[data-selenium*="room"], [data-ppapi*="room" i], [data-element-name*="room" i], [class*="room" i]'
-                    ).count()
-                except Exception:
-                    agoda_price_nodes=agoda_room_nodes=0
-                try:
-                    agoda_debug=await page.evaluate(r"""() => {
-                      const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
-                      const vis=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
-                      const prices=Array.from(document.querySelectorAll('[data-selenium*="price"],[data-ppapi*="price" i],[data-element-name*="price" i],[class*="price" i]')).filter(vis).slice(0,6).map(el=>clean(el.innerText||el.textContent).slice(0,180));
-                      const rooms=Array.from(document.querySelectorAll('[data-selenium*="room"],[data-ppapi*="room" i],[data-element-name*="room" i],[class*="room" i],h2,h3,h4')).filter(vis).slice(0,8).map(el=>clean(el.innerText||el.textContent).slice(0,180));
-                      return {prices,rooms};
-                    }""")
-                except Exception:
-                    agoda_debug={"prices":[],"rooms":[]}
+                agoda_debug=await agoda_actual_rate_dom_diagnostics(page)
+                record["rateDiagnostics"]=agoda_debug
                 print(
                     f"{stay['month']} agoda-rate-diagnostics: candidates={len(candidates)} · "
-                    f"priceNodes={agoda_price_nodes} · roomNodes={agoda_room_nodes} · "
-                    f"priceSample={str(agoda_debug.get('prices') or [])[:360]} · "
-                    f"roomSample={str(agoda_debug.get('rooms') or [])[:360]} · url={page.url[:260]}",
+                    f"numericEuroPrices={agoda_debug.get('numericEuroPrices',0)} · "
+                    f"actualRoomNames={agoda_debug.get('actualRoomNames',0)} · "
+                    f"numericSamples={str(agoda_debug.get('numericPriceSamples') or [])[:310]} · "
+                    f"bannerOnly={str(agoda_debug.get('bannerSamples') or [])[:220]} · "
+                    f"url={page.url[:260]}",
                     flush=True,
                 )
                 verified=[item for item in candidates if item.get("verified")]
@@ -9043,13 +9083,40 @@ async def observe(
                                 )[:900],
                             )
                         else:
-                            record.update(
-                                status="needs_human_review",
-                                evidence=(
-                                    "Date Agoda confermate e nodi prezzo/camera presenti, ma nessuna associazione affidabile "
-                                    "è stata costruita nemmeno dal fallback geometrico."
+                            explicit_sold_out=agoda_sold_out_message(body)
+                            eur_count=int(agoda_debug.get("numericEuroPrices") or 0)
+                            room_count=int(agoda_debug.get("actualRoomNames") or 0)
+                            if explicit_sold_out:
+                                record.update(
+                                    status="no_public_rate",
+                                    evidence=(
+                                        f"Agoda: nessuna disponibilità pubblica per "
+                                        f"{stay['checkin']}→{stay['checkout']} (2 adulti). "
+                                        f"Messaggio esplicito sulla scheda: «{explicit_sold_out}». "
+                                        "Nessun prezzo inventato."
+                                    )[:900],
                                 )
-                            )
+                            elif eur_count==0:
+                                record.update(
+                                    status="needs_human_review",
+                                    evidence=(
+                                        "Scheda Agoda letta con le date richieste, ma nel frontend non "
+                                        "compare alcun importo numerico in euro attribuibile a un'offerta. "
+                                        f"Camere identificate: {room_count}. "
+                                        "I banner (es. «Pareggiamo il prezzo più basso!») non sono tariffe. "
+                                        "La disponibilità non è dimostrata."
+                                    )[:900],
+                                )
+                            else:
+                                record.update(
+                                    status="needs_human_review",
+                                    evidence=(
+                                        f"Agoda mostra {eur_count} elemento/i con importo EUR e "
+                                        f"{room_count} intestazione/i camera, ma non è verificata "
+                                        "l'associazione prezzo/camera/base tariffaria. "
+                                        "Importi esclusi dal confronto finché non validati."
+                                    )[:900],
+                                )
             elif channel in {"airbnb","vrbo"}:
                 candidates=(
                     await airbnb_quote_candidates(page,stay)
