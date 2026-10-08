@@ -4092,8 +4092,13 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
 
 function mergePilotRateQuotes(existing: RateQuote[], incoming: RateQuote[]): RateQuote[] {
   if (!incoming.length) return existing;
-  const incomingKeys = new Set(incoming.map((item) => item.pilotKey).filter(Boolean));
-  const kept = existing.filter((item) => !(item.origin === "pilot" && item.pilotKey && incomingKeys.has(item.pilotKey)));
+  // Ogni nuova scansione sostituisce SOLO le precedenti quotazioni automatiche
+  // della stessa OTA e dello stesso check-in. I prezzi inseriti a mano restano.
+  // Evita i duplicati delle vecchie versioni con pilotKey diverso.
+  const retested = new Set(incoming.map((item) => [item.otaId, item.stayDate].join("|")));
+  const kept = existing.filter((item) =>
+    item.origin !== "pilot" || !retested.has([item.otaId, item.stayDate].join("|"))
+  );
   return [...kept, ...incoming];
 }
 
