@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v93"
+PILOT_BUILD = "velora-browser-pilot-v94"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1503,6 +1503,31 @@ def _airbnb_listing_brand_match(expected_name: str, listing_title: str) -> bool:
     return bool(re.search(r"(?<![a-z0-9])"+re.escape(brand)+r"(?![a-z0-9])",actual))
 
 
+def _airbnb_index_urls_from_html(html_source: str) -> list[str]:
+    """Recupera link /rooms/ dalle risposte pubbliche SERP anche se non sono <a>.
+
+    Alcuni motori impacchettano il risultato in JSON/script invece del normale
+    attributo href. Nessuna richiesta nascosta ad Airbnb, solo URL pubblici
+    leggibili nell'HTML della ricerca già effettuata.
+    """
+    import html as html_module
+    raw=html_module.unescape(str(html_source or ""))
+    for _ in range(2):
+        raw=unquote(raw)
+    raw=raw.replace(r"\/","/").replace(r"\u002F","/").replace(r"\u002f","/")
+    raw=raw.replace(r"\u003A",":").replace(r"\u003a",":")
+    hits=[]
+    for match in re.finditer(
+        r'https?://(?:www\.)?airbnb\.(?:it|com)/rooms/(\d{5,24})',
+        raw,re.I,
+    ):
+        host="airbnb.it" if ".it/" in match.group(0).lower() else "airbnb.com"
+        url=f"https://www.{host}/rooms/{match.group(1)}"
+        if url not in hits:
+            hits.append(url)
+    return hits[:35]
+
+
 async def discover_airbnb_property_listings(context, data: dict, robots: dict) -> dict:
     """Discovery Airbnb per complessi con PIÙ annunci camera: Google → Airbnb → verifica.
 
@@ -1548,19 +1573,32 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     try:
         # Il Google/Bing visibile nel browser è prioritario: la ricerca locale
         # non dipende più da Yahoo/Bing HTTP che consumavano il watchdog.
-        for idx,query in enumerate(query_variants[:6]):
+        for idx,query in enumerate(query_variants[:4]):
             if len(hits)>=5:
                 break
-            engine="Google" if idx in {0,1,2,4} else "Bing"
+            engine="Google" if idx in {0,1,2} else "Bing"
             try:
                 links,url=await asyncio.wait_for(
                     _search_result_links(search_page,query,engine),
-                    timeout=12,
+                    timeout=11,
                 )
                 diagnostics.append(f"{engine} {idx+1}: {len(links)} link")
             except Exception as exc:
                 diagnostics.append(f"{engine} {idx+1}: {type(exc).__name__}")
                 continue
+            # Alcune SERP pubbliche espongono gli URL rooms solo nel sorgente
+            # HTML/JSON della risposta, non tra i link cliccabili.
+            try:
+                raw_index_page=await search_page.content()
+                extracted=_airbnb_index_urls_from_html(raw_index_page)
+                diagnostics.append(f"{engine} {idx+1}: {len(extracted)} URL rooms nel sorgente")
+                for index_url in extracted:
+                    links.append({
+                        "href":index_url,"text":f"{core_brand} Airbnb",
+                        "context":"Risultato Airbnb rooms indicizzato; identità da verificare nella scheda",
+                    })
+            except Exception as extract_exc:
+                diagnostics.append(f"{engine} {idx+1}: sorgente {type(extract_exc).__name__}")
             for item in links:
                 target=_decode_search_target(str(item.get("href") or ""))
                 if not _plausible_ota_listing_url("airbnb",target):
@@ -1587,6 +1625,48 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
             await search_page.close()
         except Exception:
             pass
+
+    # Fallback realmente indipendente dalle pagine HTML di Google:
+    # Bing RSS pubblica URL e titoli anche quando la SERP browser non espone link.
+    if len(hits)<5:
+        for q in (
+            f'site:airbnb.com/rooms/ "{core_brand}"',
+            f'"Hotel {core_brand}" site:airbnb.it/rooms/',
+        ):
+            try:
+                rss_items=await asyncio.wait_for(
+                    asyncio.to_thread(_bing_rss_items,q),timeout=9,
+                )
+                diagnostics.append(f"Bing RSS: {len(rss_items)} risultati")
+            except Exception as exc:
+                diagnostics.append(f"Bing RSS: {type(exc).__name__}")
+                continue
+            for item in rss_items:
+                title=str(item.get("title") or "")
+                desc=str(item.get("description") or "")
+                raw_links=[str(item.get("link") or "")]
+                raw_links+=_airbnb_index_urls_from_html(desc)
+                for target in raw_links:
+                    target=_decode_search_target(target)
+                    if not _plausible_ota_listing_url("airbnb",target):
+                        continue
+                    match=re.search(r"/rooms/(\d+)",urlparse(target).path,re.I)
+                    if not match:
+                        continue
+                    score,_,_,_,reasons=_identity_match_score(
+                        name,city,address,title,desc,target,
+                    )
+                    if not (
+                        _airbnb_listing_brand_match(name,title)
+                        or _name_similarity(name,title)>=0.49 or score>=0.58
+                    ):
+                        continue
+                    rid=match.group(1)
+                    if rid not in hits or score>hits[rid][0]:
+                        hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
+                                   title,reasons)
+            if len(hits)>=5:
+                break
 
     # Se il motore di ricerca nel browser non ha restituito annunci, prova
     # UNA ricerca metasearch gratuita mirata con timeout separato.
@@ -1626,11 +1706,11 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     verified=[]
     failed=[]
     # Verifica ogni candidato sul SUO annuncio prima di estrarre tariffe.
-    for score,url,title,reasons in ranked[:6]:
+    for score,url,title,reasons in ranked[:5]:
         try:
             check=await asyncio.wait_for(
                 verify_ota_candidate_page(context,"airbnb",url,name,city,address,robots),
-                timeout=12,
+                timeout=11,
             )
         except Exception as exc:
             failed.append(f"{urlparse(url).path[-35:]}: {type(exc).__name__}")
@@ -1693,12 +1773,10 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
 
 async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots: dict) -> dict:
     """Discovery mirata multi-strada: site search, indice RSS e browser search."""
-    airbnb_specialized_evidence=""
     if ota_id=="airbnb":
-        specialized=await discover_airbnb_property_listings(context,data,robots)
-        if specialized.get("status") in {"found","not_verified_present"}:
-            return specialized
-        airbnb_specialized_evidence=str(specialized.get("evidence") or "")
+        # Non iniziare altre 12 ricerche generiche dopo il percorso dedicato:
+        # consumavano il watchdog e nascondevano l'esito reale.
+        return await discover_airbnb_property_listings(context,data,robots)
     meta=OTA_META[ota_id]
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1874,8 +1952,7 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
         "evidence":(
             f"Ricerca mirata {meta['label']} completata con brand «{distinctive}» su più indici pubblici: "
             "nessun candidato è emerso in questo passaggio automatico. "
-            "Questo esito non dimostra che la struttura sia assente dal portale. "
-            + (f"Dettaglio ricerca annunci Airbnb: {airbnb_specialized_evidence}" if airbnb_specialized_evidence else "")
+            "Questo esito non dimostra che la struttura sia assente dal portale."
         )[:900],
         "searchUrl":"","discoveryMode":"targeted multi-path no candidate","identityVerified":False,
     }
