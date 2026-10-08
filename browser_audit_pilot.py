@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v87"
+PILOT_BUILD = "velora-browser-pilot-v88"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3073,6 +3073,63 @@ def _agoda_search_term(property_name: str, source: str) -> str:
     return " ".join(tokens[:5]).strip() or raw[:80]
 
 
+async def agoda_visible_date_state(page, stay: dict) -> dict:
+    """Legge separatamente check-in e check-out mostrati nel searchbox Agoda."""
+    try:
+        state=await page.evaluate(r"""() => {
+          const visible=(el) => {
+            if(!el || el.getAttribute('aria-hidden')==='true') return false;
+            const s=getComputedStyle(el); const r=el.getBoundingClientRect();
+            return s.display!=='none' && s.visibility!=='hidden' && Number(s.opacity||'1')!==0 &&
+                   r.width>0 && r.height>0;
+          };
+          const textOf=(el) => [
+            el?.textContent||'', el?.getAttribute?.('value')||'',
+            el?.getAttribute?.('aria-label')||'', el?.getAttribute?.('placeholder')||''
+          ].join(' ').replace(/\s+/g,' ').trim();
+          const first=(sels) => {
+            for(const sel of sels){
+              for(const el of Array.from(document.querySelectorAll(sel)).slice(0,40)){
+                if(visible(el)) return {selector:sel,text:textOf(el)};
+              }
+            }
+            return null;
+          };
+          return {
+            start:first([
+              '[data-selenium="checkInText"]',
+              '[data-element-name*="check-in" i]',
+              '[data-element-name*="checkin" i]',
+              '[data-selenium*="checkin" i]',
+              'input[name*="checkin" i]',
+              'button[aria-label*="check-in" i]'
+            ]),
+            end:first([
+              '[data-selenium="checkOutText"]',
+              '[data-element-name*="check-out" i]',
+              '[data-element-name*="checkout" i]',
+              '[data-selenium*="checkout" i]',
+              'input[name*="checkout" i]',
+              'button[aria-label*="check-out" i]'
+            ])
+          };
+        }""")
+    except Exception:
+        state={}
+    start=date.fromisoformat(stay["checkin"])
+    end=date.fromisoformat(stay["checkout"])
+    start_text=str((state.get("start") or {}).get("text") or "").lower()
+    end_text=str((state.get("end") or {}).get("text") or "").lower()
+    return {
+        "startText":start_text,
+        "endText":end_text,
+        "startOk":any(value in start_text for value in _date_forms(start)),
+        "endOk":any(value in end_text for value in _date_forms(end)),
+        "startSelector":str((state.get("start") or {}).get("selector") or ""),
+        "endSelector":str((state.get("end") or {}).get("selector") or ""),
+    }
+
+
 async def agoda_prepare_frontend(
     page, source: str, stay: dict, property_name: str="", city: str=""
 ) -> tuple[bool,str]:
@@ -3170,87 +3227,141 @@ async def agoda_prepare_frontend(
         except Exception:
             return False,"Agoda: nessun suggerimento struttura selezionabile"
 
-    opener,_=await _first_visible_locator(page,(
-        '[data-selenium="checkInText"]',
-        '[data-element-name*="check-in" i]',
-        '[data-element-name*="checkin" i]',
-        'button[aria-label*="check-in" i]',
-        'input[name*="checkin" i]',
-        'div:has-text("check-in")',
-    ))
-    if opener is None:
-        return False,"Agoda: controllo check-in non individuato dopo la selezione struttura"
-    try:
-        await opener.click(timeout=2200)
-        await page.wait_for_timeout(650)
-        evidence.append("calendario aperto")
-    except Exception as exc:
-        return False,f"Agoda: calendario non apribile ({type(exc).__name__})"
+    date_state=await agoda_visible_date_state(page,stay)
+    evidence.append(
+        "date iniziali: "
+        f"check-in={date_state.get('startText') or 'n.d.'} · "
+        f"check-out={date_state.get('endText') or 'n.d.'}"
+    )
 
-    async def mark_and_click_day(target_iso: str) -> bool:
+    async def open_date_control(kind: str) -> bool:
+        selectors=(
+            (
+                '[data-selenium="checkInText"]',
+                '[data-element-name*="check-in" i]',
+                '[data-element-name*="checkin" i]',
+                '[data-selenium*="checkin" i]',
+                'button[aria-label*="check-in" i]',
+                'input[name*="checkin" i]',
+            )
+            if kind=="start" else
+            (
+                '[data-selenium="checkOutText"]',
+                '[data-element-name*="check-out" i]',
+                '[data-element-name*="checkout" i]',
+                '[data-selenium*="checkout" i]',
+                'button[aria-label*="check-out" i]',
+                'input[name*="checkout" i]',
+            )
+        )
+        node,selector=await _first_visible_locator(page,selectors)
+        if node is None:
+            # Il widget desktop spesso usa un unico blocco date cliccabile.
+            node,selector=await _first_visible_locator(page,(
+                '[data-selenium*="date" i]',
+                '[data-element-name*="date" i]',
+                '[class*="SearchBox"] [class*="date" i]',
+            ))
+        if node is None:
+            return False
+        try:
+            await node.click(timeout=2200)
+        except Exception:
+            try:
+                await node.click(timeout=1800,force=True)
+            except Exception:
+                return False
+        await page.wait_for_timeout(900)
+        evidence.append(f"calendario aperto per {kind} con {selector}")
+        return True
+
+    async def mark_and_click_day(target_iso: str) -> tuple[bool,str]:
         target=date.fromisoformat(target_iso)
         month_words=list(MONTH_NAMES[target.month])
+        forms=list(_date_forms(target))
         try:
-            result=await page.evaluate(r"""({iso,day,year,months}) => {
+            result=await page.evaluate(r"""({iso,day,year,months,forms}) => {
               const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
               const norm=v=>clean(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
               const visible=el=>{
                 if(!el) return false; const s=getComputedStyle(el); const r=el.getBoundingClientRect();
-                return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||'1')!==0&&r.width>10&&r.height>10;
+                return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||'1')!==0&&
+                       r.width>8&&r.height>8&&r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth;
               };
+              const attrs=el=>[
+                el?.textContent||'', el?.getAttribute?.('aria-label')||'',
+                el?.getAttribute?.('data-date')||'', el?.getAttribute?.('data-value')||'',
+                el?.getAttribute?.('data-selenium-date')||'', el?.getAttribute?.('title')||'',
+                el?.getAttribute?.('datetime')||''
+              ].join(' ');
               document.querySelectorAll('[data-velora-agoda-day]').forEach(el=>el.removeAttribute('data-velora-agoda-day'));
-              const exactSelectors=[
-                '[data-date="'+iso+'"]','[data-value="'+iso+'"]',
-                '[data-selenium-date="'+iso+'"]','[data-testid*="'+iso+'"]',
-                '[aria-label*="'+iso+'"]'
-              ];
-              for(const sel of exactSelectors){
-                for(const el of Array.from(document.querySelectorAll(sel)).filter(visible)){
-                  const clickable=el.closest('button,[role="button"],td')||el;
-                  if(clickable.getAttribute('aria-disabled')==='true'||clickable.hasAttribute('disabled')) continue;
-                  clickable.setAttribute('data-velora-agoda-day','1');
-                  return {mode:'exact',text:clean(clickable.textContent).slice(0,120)};
-                }
-              }
-              const candidates=Array.from(document.querySelectorAll('button,[role="button"],td,div,span')).filter(visible);
+
+              const all=Array.from(document.querySelectorAll(
+                'button,[role="button"],td,[data-date],[data-value],[aria-label],[class*="day" i],span,div'
+              )).filter(visible).slice(0,2500);
+
               let best=null;
-              for(const raw of candidates){
+              for(const raw of all){
                 const own=clean(raw.textContent);
-                if(own!==String(day)) continue;
-                const el=raw.closest('button,[role="button"],td')||raw;
-                if(el.getAttribute('aria-disabled')==='true'||el.hasAttribute('disabled')) continue;
-                let score=0, p=el, context='';
-                for(let depth=0;depth<7&&p;depth++,p=p.parentElement){
-                  const t=norm(p.innerText||p.textContent).slice(0,2200);
-                  context+=' '+t;
-                  const cls=String(p.className||'').toLowerCase();
-                  if(/calendar|datepicker|daypicker|date-picker|month/.test(cls)) score+=12;
-                  if(p.getAttribute&&String(p.getAttribute('data-selenium')||'').toLowerCase().includes('calendar')) score+=18;
+                const attrText=norm(attrs(raw));
+                const exactForm=forms.some(f=>attrText.includes(norm(f)));
+                const ownDay=own===String(day)||own===String(day).padStart(2,'0');
+                if(!exactForm && !ownDay) continue;
+
+                const clickable=raw.closest('button,[role="button"],td,[data-date],[data-value]')||raw;
+                if(!visible(clickable)) continue;
+                if(clickable.getAttribute('aria-disabled')==='true'||clickable.hasAttribute('disabled')) {
+                  // Se è già il giorno selezionato non serve cliccarlo; viene gestito dal controllo campo.
+                  continue;
                 }
-                const monthHit=months.some(m=>context.includes(norm(m)));
-                if(monthHit) score+=35;
-                if(context.includes(String(year))) score+=25;
-                const aria=norm(el.getAttribute?.('aria-label')||'');
-                if(months.some(m=>aria.includes(norm(m)))) score+=35;
-                if(aria.includes(String(year))) score+=25;
-                const r=el.getBoundingClientRect();
-                if(r.width>=20&&r.width<=90&&r.height>=20&&r.height<=90) score+=12;
-                if(!best||score>best.score) best={el,score,text:own};
+
+                let score=exactForm?160:0, context='',p=clickable;
+                for(let depth=0;depth<10&&p;depth++,p=p.parentElement){
+                  const t=norm((p.innerText||p.textContent||'').slice(0,3500));
+                  context+=' '+t;
+                  const meta=norm(
+                    String(p.className||'')+' '+
+                    String(p.getAttribute?.('data-selenium')||'')+' '+
+                    String(p.getAttribute?.('data-element-name')||'')+' '+
+                    String(p.getAttribute?.('role')||'')
+                  );
+                  if(/calendar|datepicker|date picker|daypicker|month|datepanel/.test(meta)) score+=25;
+                }
+                if(months.some(m=>context.includes(norm(m)))) score+=70;
+                if(context.includes(String(year))) score+=55;
+                const aria=norm(clickable.getAttribute?.('aria-label')||'');
+                if(months.some(m=>aria.includes(norm(m)))) score+=80;
+                if(aria.includes(String(year))) score+=65;
+                const r=clickable.getBoundingClientRect();
+                if(r.width>=18&&r.width<=110&&r.height>=18&&r.height<=110) score+=20;
+                // Preferisci il calendario centrale, non numeri omonimi nel resto pagina.
+                if(r.top>120 && r.top<innerHeight-20) score+=10;
+                if(!best||score>best.score) best={el:clickable,score,text:clean(attrs(clickable)).slice(0,180)};
               }
-              if(!best||best.score<20) return null;
+              if(!best||best.score<45) return null;
               best.el.setAttribute('data-velora-agoda-day','1');
-              return {mode:'scored',score:best.score,text:best.text};
-            }""",{"iso":target_iso,"day":target.day,"year":target.year,"months":month_words})
+              return {score:best.score,text:best.text};
+            }""",{
+                "iso":target_iso,"day":target.day,"year":target.year,
+                "months":month_words,"forms":forms
+            })
         except Exception:
             result=None
         if not result:
-            return False
+            return False,"nessun giorno candidato"
+        node=page.locator('[data-velora-agoda-day="1"]').first
         try:
-            await page.locator('[data-velora-agoda-day="1"]').first.click(timeout=2000)
-            await page.wait_for_timeout(300)
-            return True
+            await node.click(timeout=2200)
         except Exception:
-            return False
+            try:
+                await node.click(timeout=1800,force=True)
+            except Exception:
+                try:
+                    await page.evaluate(r"""() => document.querySelector('[data-velora-agoda-day="1"]')?.click()""")
+                except Exception:
+                    return False,f"giorno trovato ma non cliccabile ({result})"
+        await page.wait_for_timeout(550)
+        return True,f"{target_iso} selezionata ({result.get('text','')[:120]})"
 
     async def next_month() -> bool:
         node,_=await _first_visible_locator(page,(
@@ -3263,53 +3374,56 @@ async def agoda_prepare_frontend(
             '[class*="calendar" i] button:has-text(">")',
         ))
         if node is None:
-            try:
-                marked=await page.evaluate(r"""() => {
-                  const visible=el=>{if(!el)return false;const s=getComputedStyle(el);const r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
-                  const nodes=Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
-                  let best=null;
-                  for(const el of nodes){
-                    const t=String(el.innerText||el.textContent||el.getAttribute('aria-label')||'').trim().toLowerCase();
-                    if(!/(next|successiv|›|»|→|>)/.test(t)) continue;
-                    let p=el, inCalendar=false;
-                    for(let d=0;d<5&&p;d++,p=p.parentElement){
-                      if(/calendar|date|month/i.test(String(p.className||''))){inCalendar=true;break}
-                    }
-                    if(!inCalendar) continue;
-                    const r=el.getBoundingClientRect();
-                    const score=r.left;
-                    if(!best||score>best.score) best={el,score};
-                  }
-                  if(!best) return false;
-                  best.el.setAttribute('data-velora-agoda-next','1'); return true;
-                }""")
-                if marked:
-                    node=page.locator('[data-velora-agoda-next="1"]').first
-            except Exception:
-                node=None
-        if node is None:
             return False
         try:
             await node.click(timeout=1800)
-            await page.wait_for_timeout(280)
-            return True
         except Exception:
-            return False
+            try: await node.click(timeout=1500,force=True)
+            except Exception: return False
+        await page.wait_for_timeout(380)
+        return True
 
-    async def pick(target_iso: str) -> bool:
-        for _ in range(15):
-            if await mark_and_click_day(target_iso):
-                return True
+    async def pick(target_iso: str) -> tuple[bool,str]:
+        for step in range(15):
+            ok,ev=await mark_and_click_day(target_iso)
+            if ok:
+                return True,ev
             if not await next_month():
-                return False
-        return False
+                return False,ev
+        return False,f"{target_iso} non raggiunta entro 15 mesi"
 
-    if not await pick(stay["checkin"]):
-        return False,f"Agoda: check-in {stay['checkin']} non selezionabile nel calendario pubblico"
-    evidence.append(f"check-in {stay['checkin']}")
-    if not await pick(stay["checkout"]):
-        return False,f"Agoda: check-out {stay['checkout']} non selezionabile nel calendario pubblico"
-    evidence.append(f"check-out {stay['checkout']}")
+    # Non tentare di ricliccare una data che Agoda mostra già correttamente:
+    # spesso il giorno selezionato è disabilitato nel calendario e v87 lo interpretava come errore.
+    if date_state.get("startOk"):
+        evidence.append(f"check-in {stay['checkin']} già corretto")
+    else:
+        if not await open_date_control("start"):
+            return False,"Agoda: controllo check-in non apribile"
+        ok,ev=await pick(stay["checkin"])
+        evidence.append(ev)
+        if not ok:
+            return False,f"Agoda: check-in {stay['checkin']} non selezionabile nel calendario pubblico · {ev}"
+
+    # Rileggi i campi dopo il check-in: Agoda può chiudere/riaprire il calendario automaticamente.
+    date_state=await agoda_visible_date_state(page,stay)
+    if date_state.get("endOk"):
+        evidence.append(f"check-out {stay['checkout']} già corretto")
+    else:
+        if not await open_date_control("end"):
+            return False,"Agoda: controllo check-out non apribile"
+        ok,ev=await pick(stay["checkout"])
+        evidence.append(ev)
+        if not ok:
+            return False,f"Agoda: check-out {stay['checkout']} non selezionabile nel calendario pubblico · {ev}"
+
+    date_state=await agoda_visible_date_state(page,stay)
+    if not (date_state.get("startOk") and date_state.get("endOk")):
+        return False,(
+            "Agoda: selezione date non confermata nei campi visibili · "
+            f"check-in={date_state.get('startText') or 'n.d.'} · "
+            f"check-out={date_state.get('endText') or 'n.d.'}"
+        )
+    evidence.append("date confermate nei campi Agoda prima di Cerca")
 
     # Agoda apre di norma con 2 adulti/1 camera. Se il riepilogo visibile lo conferma,
     # non tocca il controllo ospiti.
