@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v89"
+PILOT_BUILD = "velora-browser-pilot-v90"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -126,7 +126,13 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
     elif channel == "holidu":
         query.update(checkin=stay["checkin"], checkout=stay["checkout"], adults="2", currency="EUR")
     elif channel == "agoda":
-        query.update(checkIn=stay["checkin"], los=str(stay["nights"]), rooms="1", adults="2", children="0", currency="EUR")
+        # Mantiene esplicitamente sia arrivo sia partenza. "los" resta come controllo
+        # ridondante della durata, utile nei layout Agoda che espongono solo check-in + notti.
+        query.update(
+            checkIn=stay["checkin"], checkOut=stay["checkout"], los=str(stay["nights"]),
+            rooms="1", adults=str(stay.get("adults") or 2), children="0",
+            currency="EUR", locale="it-it",
+        )
     elif channel == "trip":
         query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1", curr="EUR", locale="it-IT")
     elif channel == "priceline":
@@ -3130,6 +3136,91 @@ async def agoda_visible_date_state(page, stay: dict) -> dict:
     }
 
 
+async def agoda_direct_listing_with_dates(
+    page, source: str, stay: dict, reason: str=""
+) -> tuple[bool,str]:
+    """Fallback deterministico Agoda sulla scheda ESATTA già scoperta.
+
+    Non legge mai prezzi dalla homepage. Se il date picker della home non espone
+    elementi cliccabili, apre la stessa scheda Agoda verificata aggiungendo le
+    identiche date Booking, 2 adulti e 1 camera; poi controlla che il browser sia
+    realmente rimasto su una pagina hotel e porta in vista camere/tariffe.
+    """
+    listing=normalize_ota_listing_url("agoda",source)
+    parsed=urlparse(listing or "")
+    path=(parsed.path or "").lower()
+    if not listing or ("/hotel/" not in path and "/accommodation/" not in path):
+        return False,"fallback scheda datata non disponibile: sorgente Agoda non è una scheda hotel verificata"
+
+    target=dated_url("agoda",listing,stay) or listing
+    try:
+        response=await page.goto(target,wait_until="domcontentloaded",timeout=25000)
+        if response and response.status in {403,429}:
+            return False,f"fallback scheda datata bloccato da HTTP {response.status}"
+        await dismiss_cookie(page)
+        await page.wait_for_timeout(1800)
+    except Exception as exc:
+        return False,f"fallback scheda datata non caricata ({type(exc).__name__}: {str(exc)[:140]})"
+
+    final_path=(urlparse(page.url).path or "").lower()
+    if "/hotel/" not in final_path and "/accommodation/" not in final_path:
+        return False,f"fallback scheda datata ha lasciato la pagina hotel · URL finale: {page.url[:280]}"
+
+    # Tenta di portare il frontend alla griglia camere/offerte, senza login.
+    offer,_=await _first_visible_locator(page,(
+        'button:has-text("Vedi offerta")','a:has-text("Vedi offerta")',
+        'button:has-text("See offer")','a:has-text("See offer")',
+        'button:has-text("Camere")','a:has-text("Camere")',
+        '[data-selenium*="room" i]',
+    ))
+    if offer is not None:
+        try:
+            await offer.scroll_into_view_if_needed(timeout=1400)
+            await offer.click(timeout=2000)
+            await page.wait_for_timeout(1000)
+        except Exception:
+            pass
+    try:
+        for fraction in (0.34,0.50,0.66,0.78):
+            await page.evaluate(f"window.scrollTo(0, Math.floor(document.body.scrollHeight*{fraction}))")
+            await page.wait_for_timeout(450)
+            ok,_=await agoda_property_rate_context(page)
+            if ok:
+                break
+    except Exception:
+        pass
+
+    dom_ok,dom_ev=await agoda_dom_dates_confirmed(page,stay)
+    url_ok=agoda_url_dates_confirmed(page.url,stay)
+    property_ok,property_ev=await agoda_property_rate_context(page)
+
+    # Il browser deve avere applicato almeno una prova data verificabile e deve
+    # trovarsi sulla scheda hotel. La presenza dell'area tariffaria viene riportata
+    # separatamente: se non ci sono offerte pubbliche, il parser restituirà zero quote.
+    confirmed=bool(dom_ok or url_ok)
+    if not confirmed:
+        return False,(
+            f"fallback scheda datata aperto ma date non confermate · "
+            f"DOM={dom_ev or 'n.d.'} · URL finale: {page.url[:300]}"
+        )[:900]
+
+    evidence=(
+        f"fallback Agoda scheda esatta con BOOKING LOCK "
+        f"{stay['checkin']}→{stay['checkout']} · {stay.get('nights')} notti · "
+        f"{stay.get('adults',2)} adulti"
+    )
+    if reason:
+        evidence+=f" · attivato perché: {reason}"
+    evidence+=(
+        f" · conferma date={'DOM' if dom_ok else 'URL finale'}"
+        f" · pagina hotel confermata"
+        f" · area camere/prezzi={'sì' if property_ok else 'non ancora visibile'}"
+        f" · {property_ev or dom_ev or ''}"
+        f" · URL finale: {page.url[:320]}"
+    )
+    return True,evidence[:1200]
+
+
 async def agoda_prepare_frontend(
     page, source: str, stay: dict, property_name: str="", city: str=""
 ) -> tuple[bool,str]:
@@ -3398,11 +3489,25 @@ async def agoda_prepare_frontend(
         evidence.append(f"check-in {stay['checkin']} già corretto")
     else:
         if not await open_date_control("start"):
-            return False,"Agoda: controllo check-in non apribile"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,"controllo check-in homepage non apribile"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,f"Agoda: controllo check-in non apribile · {direct_ev}"
         ok,ev=await pick(stay["checkin"])
         evidence.append(ev)
         if not ok:
-            return False,f"Agoda: check-in {stay['checkin']} non selezionabile nel calendario pubblico · {ev}"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,
+                f"check-in {stay['checkin']} non selezionabile nel calendario pubblico · {ev}"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,(
+                f"Agoda: check-in {stay['checkin']} non selezionabile nel calendario pubblico · {ev} · "
+                f"{direct_ev}"
+            )[:1200]
 
     # Rileggi i campi dopo il check-in: Agoda può chiudere/riaprire il calendario automaticamente.
     date_state=await agoda_visible_date_state(page,stay)
@@ -3410,11 +3515,25 @@ async def agoda_prepare_frontend(
         evidence.append(f"check-out {stay['checkout']} già corretto")
     else:
         if not await open_date_control("end"):
-            return False,"Agoda: controllo check-out non apribile"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,"controllo check-out homepage non apribile"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,f"Agoda: controllo check-out non apribile · {direct_ev}"
         ok,ev=await pick(stay["checkout"])
         evidence.append(ev)
         if not ok:
-            return False,f"Agoda: check-out {stay['checkout']} non selezionabile nel calendario pubblico · {ev}"
+            direct_ok,direct_ev=await agoda_direct_listing_with_dates(
+                page,source,stay,
+                f"check-out {stay['checkout']} non selezionabile nel calendario pubblico · {ev}"
+            )
+            if direct_ok:
+                return True,(" · ".join(evidence+[direct_ev]))[:1200]
+            return False,(
+                f"Agoda: check-out {stay['checkout']} non selezionabile nel calendario pubblico · {ev} · "
+                f"{direct_ev}"
+            )[:1200]
 
     date_state=await agoda_visible_date_state(page,stay)
     if not (date_state.get("startOk") and date_state.get("endOk")):
