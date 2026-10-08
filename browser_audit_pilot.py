@@ -1096,24 +1096,24 @@ def _agoda_unit_listing_conflict(property_name: str, url: str, title: str="") ->
         if not (host=="agoda.com" or host.endswith(".agoda.com")):
             return False
         segments=[part for part in path.strip("/").split("/") if part]
-        slug=next((part for part in segments if re.match(r"^\\d{3,6}[-_]",part)), "")
+        slug=next((part for part in segments if re.match(r"^\d{3,6}[-_]",part)), "")
         if not slug:
             return False
         expected=_norm_name(property_name)
-        if not expected or re.match(r"^\\d{3,6}\\b",expected):
+        if not expected or re.match(r"^\d{3,6}\b",expected):
             return False
         # Non generalizzare agli alloggi che si chiamano davvero con un codice:
         # la quarantena è applicata ai brand ricettivi principali con nome esplicito.
         hotel_brand=bool(re.search(
-            r"\\b(hotel|restaurant|ristorante|resort|boutique|agriresort|masseria|relais)\\b",
+            r"\b(hotel|restaurant|ristorante|resort|boutique|agriresort|masseria|relais)\b",
             expected,
         ))
         observed=_norm_name(title+" "+slug)
         explicit_unit=bool(re.search(
-            r"\\b(camera|room|suite|familiare|matrimoniale|apartment|appartamento|standard|deluxe)\\b",
+            r"\b(camera|room|suite|familiare|matrimoniale|apartment|appartamento|standard|deluxe)\b",
             observed,
         ))
-        lacks_main_type=not re.search(r"\\b(hotel|restaurant|ristorante|resort)\\b",observed)
+        lacks_main_type=not re.search(r"\b(hotel|restaurant|ristorante|resort)\b",observed)
         return bool(hotel_brand and (lacks_main_type or explicit_unit))
     except Exception:
         return False
