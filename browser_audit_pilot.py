@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v90"
+PILOT_BUILD = "velora-browser-pilot-v91"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1082,6 +1082,43 @@ def _strong_search_evidence(score: float, reasons: str, engines: set[str]) -> bo
 
 
 
+def _agoda_unit_listing_conflict(property_name: str, url: str, title: str="") -> bool:
+    """Rifiuta le singole unità numerate quando si cerca il complesso/hotel principale.
+
+    Esempio: un hotel da confrontare su Booking NON è automaticamente la scheda
+    Agoda '3074 ... Camera Familiare by Barbarhouse', anche quando brand e località
+    si somigliano. È una scheda commercialmente distinta.
+    """
+    try:
+        parsed=urlparse(str(url or ""))
+        host=str(parsed.hostname or "").lower()
+        path=str(parsed.path or "").lower()
+        if not (host=="agoda.com" or host.endswith(".agoda.com")):
+            return False
+        segments=[part for part in path.strip("/").split("/") if part]
+        slug=next((part for part in segments if re.match(r"^\\d{3,6}[-_]",part)), "")
+        if not slug:
+            return False
+        expected=_norm_name(property_name)
+        if not expected or re.match(r"^\\d{3,6}\\b",expected):
+            return False
+        # Non generalizzare agli alloggi che si chiamano davvero con un codice:
+        # la quarantena è applicata ai brand ricettivi principali con nome esplicito.
+        hotel_brand=bool(re.search(
+            r"\\b(hotel|restaurant|ristorante|resort|boutique|agriresort|masseria|relais)\\b",
+            expected,
+        ))
+        observed=_norm_name(title+" "+slug)
+        explicit_unit=bool(re.search(
+            r"\\b(camera|room|suite|familiare|matrimoniale|apartment|appartamento|standard|deluxe)\\b",
+            observed,
+        ))
+        lacks_main_type=not re.search(r"\\b(hotel|restaurant|ristorante|resort)\\b",observed)
+        return bool(hotel_brand and (lacks_main_type or explicit_unit))
+    except Exception:
+        return False
+
+
 def _strict_ota_identity_match(
     property_name: str,
     city: str,
@@ -1091,6 +1128,16 @@ def _strict_ota_identity_match(
     url: str,
 ) -> dict:
     """Blocco identità conservativo per impedire prezzi di strutture omonime/simili."""
+    if _agoda_unit_listing_conflict(property_name,url,title):
+        return {
+            "ok":False,"score":0.0,"nameScore":0.0,"cityMatch":False,
+            "addressRatio":0.0,
+            "evidence":(
+                "AGODA UNITÀ DIVERSA: URL numerato di singola unità/camera "
+                "non equiparabile automaticamente alla scheda hotel principale. "
+                "Cercare la scheda ufficiale dell'intera struttura."
+            )
+        }
     score,path_slug,title_score,slug_score,reasons=_identity_match_score(
         property_name,city,address,title,body[:3500],url
     )
@@ -1464,6 +1511,8 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
             if _classify_ota_url(target)!=ota_id or not _plausible_ota_listing_url(ota_id,target):
                 continue
             text_value=str(item.get("text") or item.get("title") or "")
+            if ota_id=="agoda" and _agoda_unit_listing_conflict(name,target,text_value):
+                continue
             context_value=str(item.get("context") or item.get("description") or "")
             score,path_slug,text_score,url_score,reasons=_identity_match_score(
                 name,city,address,text_value,context_value,target
@@ -8766,6 +8815,19 @@ async def observe(
             except Exception:
                 pass
         text = (record["title"] + " " + body).lower()
+        if channel=="agoda" and _agoda_unit_listing_conflict(property_name,page.url,record["title"]):
+            record.update(
+                status="wrong_property_listing",
+                finalUrl=page.url,
+                quotes=[],
+                evidence=(
+                    "Agoda: pagina numerata relativa a singola unità/camera, "
+                    "non confermata come hotel principale richiesto. "
+                    "Questa scheda non può contribuire al confronto Booking/OTA. "
+                    f"URL: {page.url[:500]}"
+                )[:900],
+            )
+            return record
         if channel=="agoda":
             agoda_path=(urlparse(page.url).path or "").lower().rstrip("/")
             if agoda_path in {"","/it-it","/en-us","/"}:
@@ -10645,7 +10707,20 @@ async def run(args: argparse.Namespace) -> dict:
     unknown = set(channels) - set(CHANNELS)
     if unknown:
         raise ValueError(f"Canali sconosciuti: {', '.join(sorted(unknown))}")
-    sources = data.get("sources", {})
+    sources = dict(data.get("sources") or {})
+    # v91: una source vecchia e non equivalente NON deve attivare il quick retest.
+    # Prima rimuovi il falso match numerato, così parte la nuova discovery mirata.
+    if "agoda" in [part.strip() for part in args.channels.split(",")]:
+        old_agoda=(sources.get("agoda") or {}).get("url","") if isinstance(sources.get("agoda"),dict) else ""
+        if old_agoda and _agoda_unit_listing_conflict(data.get("name",""),old_agoda):
+            sources.pop("agoda",None)
+            data["sources"]=sources
+            print(
+                "agoda identity reset: scheda numerata di singola unità rifiutata; "
+                "la discovery riparte dalla scheda hotel principale · "
+                + old_agoda[:230],
+                flush=True,
+            )
     ghost=bool(getattr(args,"ghost",False))
     assisted=bool(getattr(args,"assisted",False))
     pricing_only=bool(getattr(args,"pricing_only",False))
