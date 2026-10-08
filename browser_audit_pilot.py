@@ -1848,11 +1848,13 @@ async def discover_all_ota_sources(
         needs_targeted = (
             ota_id != "booking"
             and (
+                ota_id=="airbnb" or (
+
                 not current
                 or (
                     current.get("status")!="found"
                     and not current.get("candidateUrl")
-                )
+                ))
             )
         )
         if needs_targeted:
@@ -2806,8 +2808,8 @@ async def airbnb_prepare_frontend(page, stay: dict) -> tuple[bool,str]:
             return False,""
 
     ready,ready_text=await sidebar_ready()
-    if ready:
-        evidence.append("box Airbnb già popolato da date/ospiti URL")
+    if ready and airbnb_url_dates_confirmed(page.url,stay):
+        evidence.append("box Airbnb già popolato · URL con identiche date Booking")
         return True,"; ".join(evidence)+" | "+ready_text[:500]
 
     try:
@@ -3083,6 +3085,17 @@ async def frontend_discover_ota_source(
     """Trova una scheda direttamente nel portale, senza dipendere dalla discovery esterna."""
     home=OTA_FRONTEND_SEARCH_HOME.get(channel,"")
     label=OTA_META.get(channel,{}).get("label",channel)
+    if channel=="airbnb":
+        # Airbnb per hotel/complessi: ricerca per singole /rooms/ nei risultati Google.
+        # La sola ricerca "destinazione" interna trova città, non nomi di hotel.
+        indexed=await discover_airbnb_property_listings(context,data,robots)
+        if indexed.get("status")=="found":
+            return indexed
+        print(
+            f"airbnb frontend discovery: indice pubblico non conclusivo · "
+            f"{str(indexed.get('evidence') or '')[:380]} · provo anche home Airbnb",
+            flush=True,
+        )
     if not home:
         return {"status":"unsupported","url":"","evidence":f"{label}: ricerca frontend interna non configurata."}
 
@@ -3343,6 +3356,11 @@ async def frontend_discover_ota_source(
 def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
     """Pricing pubblico: usa il frontend reale, senza deep-link artificiali."""
     clean=normalize_ota_listing_url(channel,source)
+    if channel=="airbnb":
+        # Annuncio singolo Airbnb: usa la scheda verificata, con le date Booking
+        # e gli adulti già richiesti nel frontend pubblico. Il parser verifica
+        # le date effettivamente applicate prima di accettare prezzi.
+        return dated_url("airbnb",clean,stay)
     if channel=="agoda":
         # Agoda viene interrogata come farebbe un utente: homepage -> ricerca struttura
         # -> date/ospiti -> Cerca -> card struttura -> pagina camere/tariffe.
@@ -11648,7 +11666,9 @@ async def run(args: argparse.Namespace) -> dict:
                                         context,channel,data,effective_stay,robots,
                                         assist_callback=assist_callback,ghost=ghost,
                                     ),
-                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted else AUTO_SOURCE_DISCOVERY_TIMEOUT,
+                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted else (
+                                        155 if channel=="airbnb" else AUTO_SOURCE_DISCOVERY_TIMEOUT
+                                    ),
                                 )
                             except asyncio.TimeoutError:
                                 frontend_source={
