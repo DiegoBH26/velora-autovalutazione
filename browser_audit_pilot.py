@@ -9677,6 +9677,9 @@ async def observe(
                 evidence=(
                     f"HTTP {response.status} · il browser non ha renderizzato contenuto tariffario sufficiente "
                     f"con le date richieste. Nessun aggiramento tentato. URL finale: {page.url}"
+                    + (" | Vrbo: scheda candidata, identità e disponibilità NON confermate; "
+                       "un HTTP 429 non equivale ad assenza di tariffe. Sospensione verifiche "
+                       "per questa sessione, senza retry aggressivi." if channel=="vrbo" else "")
                 )[:900],
             )
         elif response and response.status >= 400 and response.status not in {403,429}:
