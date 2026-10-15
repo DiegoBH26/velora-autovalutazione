@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v104"
+PILOT_BUILD = "velora-browser-pilot-v105"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -881,8 +881,12 @@ def normalize_ota_listing_url(ota_id: str, url: str) -> str:
                 query=urlencode({"locale":"it","currency":"EUR"}),
                 fragment="",
             ))
-        if ota_id=="vrbo" and "/pdp/" in path.lower():
-            return urlunparse(parsed._replace(query="",fragment=""))
+        if ota_id=="vrbo":
+            # Search engines often attach transient msockid/session parameters.
+            # The Vrbo public listing identity is in the path, not these tokens.
+            return urlunparse(parsed._replace(
+                netloc="www.vrbo.com",query="",fragment=""
+            ))
         if ota_id=="holidu" and "/d/" in path.lower():
             return urlunparse(parsed._replace(query="",fragment=""))
         tracking_prefixes=("utm_","referrer","source_","semcid","siteid","gclid","fbclid","rfrr","pwa_","_x_")
@@ -12398,7 +12402,11 @@ async def run(args: argparse.Namespace) -> dict:
                                 candidate_pool=list(dict.fromkeys(fresh_urls + list(master.get("listingUrls") or []) + known_urls))
                                 if source and source not in candidate_pool:
                                     candidate_pool.append(source)
-                                candidate_pool=[url for url in candidate_pool if _plausible_ota_listing_url("vrbo",url)]
+                                candidate_pool=list(dict.fromkeys(
+                                    normalize_ota_listing_url("vrbo",url)
+                                    for url in candidate_pool
+                                    if _plausible_ota_listing_url("vrbo",url)
+                                ))
                                 # Property pages displaying multiple rooms take precedence over
                                 # indexed single-unit /<id> links when identity is not verified.
                                 candidate_pool.sort(key=lambda url:(
@@ -12413,7 +12421,8 @@ async def run(args: argparse.Namespace) -> dict:
                                 unverified_source_ids.add(channel)
                                 print(
                                     f"{effective_stay['month']} vrbo-candidates: {len(candidate_pool)} · "
-                                    f"selected={source or 'none'} · all={candidate_pool[:8]}",
+                                    f"selected={source or 'none'} · all={candidate_pool[:8]} · "
+                                    "candidates_not_verified=True",
                                     flush=True,
                                 )
                                 write_result(output,result)
