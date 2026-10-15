@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v95"
+PILOT_BUILD = "velora-browser-pilot-v96"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -844,15 +844,15 @@ def _plausible_ota_listing_url(ota_id: str, url: str) -> bool:
     except Exception:
         return False
     if ota_id=="airbnb":
-        return bool(re.search(r"/rooms/\\d+",path))
+        return bool(re.search(r"/rooms/\d+",path))
     if ota_id in {"expedia","travelocity"}:
-        return bool(re.search(r"\\.h\\d+\\.",path) or "hotel-information" in path or "informazioni-hotel" in path) and not any(token in path for token in ("travel-guide","hotel-search","top-10","/search"))
+        return bool(re.search(r"\.h\d+\.",path) or "hotel-information" in path or "informazioni-hotel" in path) and not any(token in path for token in ("travel-guide","hotel-search","top-10","/search"))
     if ota_id=="hotels":
-        return bool(re.search(r"/ho\\d+",path) or "hotel-information" in path or "informazioni-hotel" in path)
+        return bool(re.search(r"/ho\d+",path) or "hotel-information" in path or "informazioni-hotel" in path)
     if ota_id=="vrbo":
-        return bool("/pdp/" in path or re.search(r"/\\d+(?:ha|vb|vr)?/?$",path) or "/vacation-rental/" in path or "/holiday-rental/" in path)
+        return bool("/pdp/" in path or re.search(r"/\d+(?:ha|vb|vr)?/?$",path) or "/vacation-rental/" in path or "/holiday-rental/" in path)
     if ota_id=="holidu":
-        return bool(re.search(r"/d/\\d+",path))
+        return bool(re.search(r"/d/\d+",path))
     if ota_id=="agoda":
         return "/hotel/" in path and not any(token in path for token in ("/partners/","partnersearch","/search"))
     if ota_id=="trip":
