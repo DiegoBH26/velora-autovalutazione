@@ -3731,6 +3731,11 @@ type BrowserPilotResult = {
 
 function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefined, next: BrowserPilotResult): BrowserPilotResult {
   if (!previous || previous.propertyId !== next.propertyId) return next;
+  // v98: conserva il progresso della STESSA scansione; non mescolare le OTA di
+  // esecuzioni differenti (il loro storico resta distinto sul backend).
+  if (previous.createdAt && next.createdAt && previous.createdAt !== next.createdAt) {
+    return next;
+  }
   const observations = new Map<string, BrowserPilotObservation>();
   for (const item of previous.observations || []) {
     observations.set([item.otaId,item.month,item.checkin,item.checkout].join("|"), item);
