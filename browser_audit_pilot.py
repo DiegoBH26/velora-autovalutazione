@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v96"
+PILOT_BUILD = "velora-browser-pilot-v97"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -7317,6 +7317,12 @@ def write_result(path: Path, result: dict) -> bool:
     indicizzazione o altri lock brevi del filesystem.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # v97: storico separato dalle osservazioni della scansione corrente.
+    try:
+        from velora_quote_history import consolidate
+        consolidate(path, result)
+    except Exception as exc:
+        print(f"warning: quote history non disponibile: {type(exc).__name__}: {exc}", flush=True)
     payload=json.dumps(result, ensure_ascii=False, indent=2)
     temporary=path.with_name(f".{path.name}.{os.getpid()}.tmp")
     last_error=None
