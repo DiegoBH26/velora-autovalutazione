@@ -11656,7 +11656,7 @@ async def run(args: argparse.Namespace) -> dict:
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
             quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids and "airbnb" not in selected_discovery_ids)
-            discovery_target_ids=missing_discovery_ids if pricing_only else selected_discovery_ids
+            discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids or ota=="airbnb"] if pricing_only else selected_discovery_ids)
 
             if quick_retest:
                 master_discoveries={}
