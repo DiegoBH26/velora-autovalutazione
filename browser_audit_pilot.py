@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v100"
+PILOT_BUILD = "velora-browser-pilot-v101"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9944,6 +9944,16 @@ async def observe(
                     if channel=="airbnb"
                     else await vrbo_quote_candidates(page,stay)
                 )
+                if channel=="vrbo" and not candidates:
+                    # Single-listing Vrbo: try the visible booking sidebar when
+                    # the multi-room card parser finds nothing.
+                    sidebar=await listing_sidebar_quote_candidates(page,stay,"vrbo")
+                    candidates=sidebar
+                    record["vrboParserDiagnostic"]={
+                        "sidebarQuotes":len(sidebar),
+                        "dateConfirmed":bool(dates_confirmed),
+                        "note":"Scheda e condizioni da verificare prima del confronto."
+                    }
                 record["quotes"]=candidates
                 if candidates:
                     first=candidates[0]
@@ -9958,6 +9968,18 @@ async def observe(
                         )[:900],
                     )
                 else:
+                    if channel=="vrbo":
+                        try:
+                            diagnostic=await page.evaluate(r"""() => {
+                              const body=(document.body?.innerText||'');
+                              return {euroMentions:(body.match(/€|EUR/gi)||[]).length,
+                                priceElements:document.querySelectorAll('[data-stid*="price"],[data-testid*="price"]').length,
+                                title:(document.querySelector('h1')?.innerText||'').slice(0,150),
+                                bodyLength:body.length};
+                            }""")
+                        except Exception:
+                            diagnostic={"error":"DOM diagnostic unavailable"}
+                        record["vrboParserDiagnostic"]={**(record.get("vrboParserDiagnostic") or {}),**diagnostic}
                     fallback=await generic_ota_quote_candidates(page,stay)
                     record["quotes"]=fallback
                     if fallback:
