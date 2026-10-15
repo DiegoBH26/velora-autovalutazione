@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v103"
+PILOT_BUILD = "velora-browser-pilot-v104"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -12390,13 +12390,33 @@ async def run(args: argparse.Namespace) -> dict:
                                 }
 
                             if channel=="vrbo":
+                                # Do not silently fall back to a stale, unverified single-room URL.
+                                # Preserve fresh candidates and clearly report what was searched.
+                                fresh_urls=list(frontend_source.get("listingUrls") or [])
+                                master=result.get("discoveredSources",{}).get("vrbo") or {}
+                                known_urls=list((sources.get("vrbo") or {}).get("listingUrls") or [])
+                                candidate_pool=list(dict.fromkeys(fresh_urls + list(master.get("listingUrls") or []) + known_urls))
+                                if source and source not in candidate_pool:
+                                    candidate_pool.append(source)
+                                candidate_pool=[url for url in candidate_pool if _plausible_ota_listing_url("vrbo",url)]
+                                # Property pages displaying multiple rooms take precedence over
+                                # indexed single-unit /<id> links when identity is not verified.
+                                candidate_pool.sort(key=lambda url:(
+                                    0 if "/pdp/lo/" in urlparse(url).path.lower() else
+                                    1 if "/affitto-vacanze/" in urlparse(url).path.lower() else 2,
+                                    fresh_urls.index(url) if url in fresh_urls else 999,
+                                ))
+                                frontend_source["listingUrls"]=candidate_pool
+                                frontend_source["candidateCount"]=len(candidate_pool)
                                 result.setdefault("discoveredSources",{})[channel]=frontend_source
-                                # SERP candidates are not trusted listings: they cannot replace a
-                                # proven source until an actual public Vrbo page is readable.
-                                record_candidates=list(frontend_source.get("listingUrls") or [])
-                                if record_candidates:
-                                    source=record_candidates[0]
-                                    unverified_source_ids.add(channel)
+                                source=candidate_pool[0] if candidate_pool else ""
+                                unverified_source_ids.add(channel)
+                                print(
+                                    f"{effective_stay['month']} vrbo-candidates: {len(candidate_pool)} · "
+                                    f"selected={source or 'none'} · all={candidate_pool[:8]}",
+                                    flush=True,
+                                )
+                                write_result(output,result)
                             if frontend_source.get("status")=="found" and frontend_source.get("url"):
                                 source=frontend_source["url"]
                                 previous_urls=list((sources.get("airbnb") or {}).get("listingUrls") or []) if channel=="airbnb" else []
