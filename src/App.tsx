@@ -4038,6 +4038,52 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   }
   return out.slice(0,40);
 }
+const OTA_DISTRIBUTION_BAR_COLORS: Record<string,string> = {
+  booking:"#10B981", agoda:"#0EA5E9", airbnb:"#F43F5E", vrbo:"#3B82F6",
+  expedia:"#EAB308", holidu:"#14B8A6", hotels:"#F97316",
+  travelocity:"#06B6D4", trip:"#8B5CF6", priceline:"#6366F1",
+};
+
+function OtaDistributionMiniChart({ items }: { items: OtaDistributionAsymmetry[] }) {
+  const byStay=new Map<string,OtaDistributionAsymmetry[]>();
+  for(const item of items) {
+    const key=item.checkin+"|"+item.checkout;
+    if(!byStay.has(key)) byStay.set(key,[]);
+    byStay.get(key)!.push(item);
+  }
+  return <div className="mt-3 space-y-3" aria-label="Grafico compatto copertura tipologie OTA">
+    {[...byStay.entries()].map(([key,stayItems])=>{
+      const [checkin,checkout]=key.split("|");
+      const max=Math.max(1,...stayItems.map(item=>item.maxUnitCount));
+      const refs=[...new Set(stayItems.flatMap(item=>item.referenceChannels))];
+      const rows=[
+        ...refs.map(label=>({
+          id:Object.keys(PILOT_OTA_LABELS).find(id=>PILOT_OTA_LABELS[id]===label)||"booking",
+          label,count:max,reference:true,
+        })),
+        ...stayItems.map(item=>({id:item.otaId,label:item.otaLabel,count:item.unitCount,reference:false})),
+      ];
+      const seen=new Set<string>();
+      return <div key={key} className="rounded-xl border border-[#DED6EA] bg-white px-3 py-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] font-black text-[#23124A]">Copertura tipologie rilevate</span>
+          <span className="text-[10px] font-semibold text-[#50627F]">{checkin} → {checkout}</span>
+        </div>
+        <div className="space-y-2.5">
+          {rows.filter(row=>{if(seen.has(row.id))return false;seen.add(row.id);return true;}).map(row=><div key={row.id} className="grid grid-cols-[98px_minmax(0,1fr)_58px] items-center gap-2 sm:grid-cols-[120px_minmax(0,1fr)_70px]">
+            <span className="truncate text-[11px] font-bold text-[#23124A]" title={row.label}>{row.label}{row.reference?" ★":""}</span>
+            <div className="h-2.5 overflow-hidden rounded-full bg-[#F0EFF3]" role="progressbar" aria-label={row.label+" tipologie rilevate"} aria-valuemin={0} aria-valuemax={max} aria-valuenow={row.count}>
+              <div className="h-full rounded-full" style={{width:`${Math.min(100,100*row.count/max)}%`,backgroundColor:OTA_DISTRIBUTION_BAR_COLORS[row.id]||"#8B5CF6"}} />
+            </div>
+            <span className="text-right text-[10px] font-black tabular-nums text-[#23124A]">{row.count} su {max}</span>
+          </div>)}
+        </div>
+        <p className="mt-3 text-[10px] leading-4 text-[#68758B]">★ Riferimento per questo soggiorno · Barre proporzionali alle tipologie con prezzo verificato. Non misurano la percentuale di inventario realmente distribuito.</p>
+      </div>;
+    })}
+  </div>;
+}
+
 function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
   const rows: RateQuote[] = [];
   for (const observation of result.observations || []) {
@@ -7726,6 +7772,7 @@ export default function App() {
           {pilotDistributionAsymmetries(browserPilotResult).length > 0 && <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <h4 className="text-sm font-black text-[#23124A]">Asimmetrie distributive OTA rilevate</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Confronto eseguito solo sulle stesse date e usando tipologie/unità con prezzo frontend validato. La differenza è un fatto osservato; la causa tecnica (channel manager, mapping, allotment, restrizioni o stop-sale) resta da verificare.</p>
+            <OtaDistributionMiniChart items={pilotDistributionAsymmetries(browserPilotResult)} />
             <div className="mt-3 space-y-2">
               {pilotDistributionAsymmetries(browserPilotResult).map((item,index)=><div key={"ota-asym-"+index} className="rounded-xl border border-amber-200 bg-white p-3">
                 <p className="text-xs font-black text-[#7C4A00]">{item.otaLabel} · {item.checkin} → {item.checkout} · {item.unitCount}/{item.maxUnitCount} tipologie</p>
