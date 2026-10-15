@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v97"
+PILOT_BUILD = "velora-browser-pilot-v98"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -11570,7 +11570,8 @@ async def run(args: argparse.Namespace) -> dict:
                                                   "evidence": "Non ancora esaminato."},
               "identityResolution": {}, "masterSearch": {}, "aiWebSearch": {}, "discoveredSources": {}, "otaProfiles": {},
               "reputation": {}, "photoAudit": {}, "bookingDateResolution": [], "bookingReferenceStays": [], "discoveryProgress": {},
-              "browserPhases": [], "observations": []}
+              "browserPhases": [], "observations": [], "selectedChannels": channels,
+              "scanMode": "fresh-selected-channels", "historyDisplayPolicy": "separate-not-current"}
     output = Path(args.output)
     if args.dry_run:
         write_result(output, result)
@@ -12650,6 +12651,8 @@ async def run(args: argparse.Namespace) -> dict:
                         record["evidence"]=(
                             "PAGINA OTA TROVATA · identità da confermare. " + str(record.get("evidence") or "")
                         )[:900]
+                    record["scanFresh"]=True
+                    record["scanVersion"]=PILOT_BUILD
                     result["observations"].append(record)
                     apply_booking_room_reference(result)
                     write_result(output, result)
