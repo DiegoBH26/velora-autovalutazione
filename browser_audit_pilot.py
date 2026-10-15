@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v101"
+PILOT_BUILD = "velora-browser-pilot-v102"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9994,7 +9994,18 @@ async def observe(
                     else:
                         record.update(
                             status="needs_human_review",
-                            evidence=f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
+                            evidence=(
+                                f"Date {OTA_META[channel]['label']} confermate, ma nessun riepilogo prezzo attribuibile automaticamente con sufficiente certezza."
+                                + (
+                                    f" Diagnostica Vrbo: euro={record.get('vrboParserDiagnostic',{}).get('euroMentions','?')}, "
+                                    f"nodi prezzo={record.get('vrboParserDiagnostic',{}).get('priceElements','?')}, "
+                                    f"lunghezza pagina={record.get('vrboParserDiagnostic',{}).get('bodyLength','?')}, "
+                                    f"preventivi sidebar={record.get('vrboParserDiagnostic',{}).get('sidebarQuotes',0)}. "
+                                    f"Titolo pagina: {record.get('vrboParserDiagnostic',{}).get('title','non disponibile')}. "
+                                    "Identità annuncio da riconfermare."
+                                    if channel=="vrbo" else ""
+                                )
+                            )[:1100]
                         )
             elif channel == "holidu":
                 candidates=await holidu_quote_candidates(page,stay)
