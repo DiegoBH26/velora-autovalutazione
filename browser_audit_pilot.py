@@ -1666,13 +1666,31 @@ async def airbnb_frontend_search_property_listings(context, data: dict, robots: 
                 try:
                     for idx in range(min(await suggestions.count(),12)):
                         loc=suggestions.nth(idx)
-                        if await loc.is_visible(timeout=150):
-                            await loc.click(timeout=1300)
-                            clicked=True
-                            break
+                        if not await loc.is_visible(timeout=150):
+                            continue
+                        text_value=re.sub(r"\\s+"," ",(await loc.inner_text(timeout=320)) or "")
+                        text_norm=_norm_name(text_value)
+                        city_norm=_norm_name(city)
+                        # Non scegliere automaticamente il primo suggerimento
+                        # se il portale ha riconosciuto un luogo omonimo ma fuori
+                        # dalla località della struttura oggetto di audit.
+                        if city_norm and city_norm not in text_norm:
+                            continue
+                        if term==brand and not _airbnb_listing_brand_match(name,text_value):
+                            continue
+                        await loc.click(timeout=1300)
+                        diagnostics.append(f"Airbnb suggerimento selezionato: {text_value[:125]}")
+                        clicked=True
+                        break
                 except Exception:
                     pass
                 if not clicked:
+                    if term==brand:
+                        diagnostics.append(
+                            "Airbnb: nessun suggerimento struttura+località affidabile; "
+                            "salto la prima proposta potenzialmente fuori zona"
+                        )
+                        continue
                     await field.press("Enter",timeout=1300)
                 action,_=await _first_visible_locator(page,(
                     'button:has-text("Cerca")','button:has-text("Search")',
@@ -1702,8 +1720,6 @@ async def airbnb_frontend_search_property_listings(context, data: dict, robots: 
                     f"Airbnb ricerca «{term}»: {type(exc).__name__}: {str(exc)[:100]}"
                 )
                 continue
-    except Exception as exc:
-        diagnostics.append(f"Airbnb home browser: {type(exc).__name__}: {str(exc)[:110]}")
         # Ricerca pubblica Airbnb tramite URL della pagina risultati, utile
         # quando il nuovo componente React non espone un input testuale leggibile.
         # Non è una API privata e non inventa annunci: scansiona le card reali.
@@ -1741,6 +1757,8 @@ async def airbnb_frontend_search_property_listings(context, data: dict, robots: 
                     diagnostics.append(
                         f"Airbnb risultati «{search_term}»: {type(exc).__name__}"
                     )
+    except Exception as exc:
+        diagnostics.append(f"Airbnb home browser: {type(exc).__name__}: {str(exc)[:110]}")
     finally:
         if page is not None:
             try:
