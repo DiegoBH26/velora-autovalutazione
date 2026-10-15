@@ -1822,8 +1822,8 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 diagnostics.append(f"{engine} {idx+1}: {len(extracted)} URL rooms nel sorgente")
                 for index_url in extracted:
                     links.append({
-                        "href":index_url,"text":f"{core_brand} Airbnb",
-                        "context":"Risultato Airbnb rooms indicizzato; identità da verificare nella scheda",
+                        "href":index_url,"text":"","context":"",
+                        "rawIndexOnly":True,
                     })
             except Exception as extract_exc:
                 diagnostics.append(f"{engine} {idx+1}: sorgente {type(extract_exc).__name__}")
@@ -1838,10 +1838,23 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
                 snippet=str(item.get("context") or "")
                 score,_,_,_,reasons=_identity_match_score(name,city,address,title,snippet,target)
                 name_score=_name_similarity(name,title)
-                # Non richiede la stessa città nella SERP: una struttura a Salve
-                # può pubblicare le singole camere con la marina "Torre Pali".
-                if not (_airbnb_listing_brand_match(name,title) or name_score>=0.49 or score>=0.58):
+                raw_index_only=bool(item.get("rawIndexOnly"))
+                # Il nome sulle card SERP è spesso abbreviato, e le pagine
+                # /rooms/ trovate nel sorgente possono non avere alcun titolo.
+                # NON scartarle: conserva il link con priorità inferiore,
+                # poi apri la scheda Airbnb e controlla nome, hotel e località.
+                brand_evidence=(
+                    _airbnb_listing_brand_match(name,title)
+                    or _airbnb_listing_brand_match(name,snippet)
+                    or name_score>=0.49
+                    or _name_similarity(name,snippet)>=0.54
+                    or score>=0.58
+                )
+                if not brand_evidence and not raw_index_only:
                     continue
+                if raw_index_only:
+                    score=min(score,0.16)
+                    reasons="URL /rooms/ trovato nel sorgente SERP; identità da confermare SOLO sulla pagina Airbnb"
                 rid=match.group(1)
                 if rid not in hits or score>hits[rid][0]:
                     hits[rid]=(score,normalize_ota_listing_url("airbnb",target),
@@ -1958,13 +1971,14 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
     ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
     print(
         f"airbnb-indexed-discovery: candidati={len(ranked)} · "
-        f"query brand={core_brand} · {'; '.join(diagnostics[-14:])[:1050]}",
+        f"query brand={core_brand} · URL rooms={[urlparse(item[1]).path for item in ranked[:8]]} · "
+        f"{'; '.join(diagnostics[-14:])[:850]}",
         flush=True,
     )
     verified=[]
     failed=[]
     # Verifica ogni candidato sul SUO annuncio prima di estrarre tariffe.
-    for score,url,title,reasons in ranked[:5]:
+    for score,url,title,reasons in ranked[:8]:
         try:
             check=await asyncio.wait_for(
                 verify_ota_candidate_page(context,"airbnb",url,name,city,address,robots),
@@ -1987,6 +2001,11 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
             )
         else:
             failed.append(f"{urlparse(url).path[-35:]}: {str(check.get('evidence') or '')[:85]}")
+            print(
+                f"airbnb-listing-rejected: {urlparse(url).path} · "
+                f"{str(check.get('evidence') or '')[:175]}",
+                flush=True,
+            )
 
     if verified:
         primary=verified[0]
