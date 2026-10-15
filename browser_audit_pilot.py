@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v98"
+PILOT_BUILD = "velora-browser-pilot-v99"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -11655,7 +11655,7 @@ async def run(args: argparse.Namespace) -> dict:
             ]
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
-            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids)
+            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids and "airbnb" not in selected_discovery_ids)
             discovery_target_ids=missing_discovery_ids if pricing_only else selected_discovery_ids
 
             if quick_retest:
@@ -12245,7 +12245,7 @@ async def run(args: argparse.Namespace) -> dict:
                     else:
                         # Percorso alternativo indipendente dalla discovery esterna:
                         # se manca una source o è soltanto candidata, cerca direttamente nel portale.
-                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids):
+                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids or channel=="airbnb"):
                             try:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
@@ -12269,12 +12269,12 @@ async def run(args: argparse.Namespace) -> dict:
 
                             if frontend_source.get("status")=="found" and frontend_source.get("url"):
                                 source=frontend_source["url"]
+                                previous_urls=list((sources.get("airbnb") or {}).get("listingUrls") or []) if channel=="airbnb" else []
+                                new_urls=list(frontend_source.get("listingUrls") or []) if channel=="airbnb" else []
+                                combined_urls=list(dict.fromkeys(previous_urls+new_urls))
                                 sources[channel]={
                                     "label":OTA_META[channel]["label"],"url":source,
-                                    **(
-                                        {"listingUrls":list(frontend_source.get("listingUrls") or [])}
-                                        if channel=="airbnb" else {}
-                                    ),
+                                    **({"listingUrls":combined_urls} if channel=="airbnb" else {}),
                                 }
                                 unverified_source_ids.discard(channel)
                                 result.setdefault("discoveredSources",{})[channel]=frontend_source
@@ -12377,11 +12377,10 @@ async def run(args: argparse.Namespace) -> dict:
                             # camera/unità. Non fermarsi alla prima scheda come le altre OTA.
                             if channel=="airbnb":
                                 airbnb_meta=result.get("discoveredSources",{}).get("airbnb") or {}
-                                found_urls=list(
-                                    airbnb_meta.get("listingUrls")
-                                    or (sources.get("airbnb") or {}).get("listingUrls")
-                                    or []
-                                )
+                                found_urls=list(dict.fromkeys(
+                                    list((sources.get("airbnb") or {}).get("listingUrls") or [])
+                                    + list(airbnb_meta.get("listingUrls") or [])
+                                ))
                                 if source and source not in found_urls:
                                     found_urls.insert(0,source)
                                 distinct_urls=[]
@@ -12394,7 +12393,7 @@ async def run(args: argparse.Namespace) -> dict:
                                     distinct_urls.append(listing_url)
                                 # Il numero è limitato per evitare decine di pagine × 13 mesi
                                 # senza controllo dei tempi; l'eventuale resto viene segnalato.
-                                selected_urls=distinct_urls[:8]
+                                selected_urls=distinct_urls[:16]
                                 primary_id=re.search(r"/rooms/(\d+)",urlparse(source).path,re.I)
                                 primary_id=primary_id.group(1) if primary_id else ""
                                 listing_outcomes=[]
@@ -12457,6 +12456,7 @@ async def run(args: argparse.Namespace) -> dict:
                                     record["listingResults"]=listing_outcomes
                                     record["listingCount"]=len(listing_outcomes)
                                     record["listingDiscoveredCount"]=len(distinct_urls)
+                                    record["listingUnvisitedCount"]=max(0,len(distinct_urls)-len(selected_urls))
                                     quote_count=len(record.get("quotes") or [])
                                     valid_count=sum(1 for q in record.get("quotes") or [] if q.get("verified"))
                                     if quote_count:
