@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v102"
+PILOT_BUILD = "velora-browser-pilot-v103"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -5004,9 +5004,39 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
     return confirmed,(" · ".join(evidence))[:900]
 
 
+async def vrbo_submit_search(page, stay: dict) -> str:
+    """Submit the public Vrbo search after its date/guest form is populated.
+
+    A dated URL alone is not proof that the search was submitted.
+    Never clicks booking/payment actions or retries blocked responses.
+    """
+    try:
+        body=(await page.locator("body").inner_text(timeout=4000)).lower()
+        if any(t in body for t in ("access denied","too many requests","verifica di sicurezza")):
+            return "Vrbo: pagina bloccata; nessuna ricerca inviata"
+    except Exception:
+        pass
+    for selector in (
+        'button:has-text("Cerca")',
+        'button:has-text("Search")',
+        'button[aria-label="Cerca"]',
+        'button[aria-label="Search"]',
+    ):
+        try:
+            button=page.locator(selector).first
+            if await button.count() and await button.is_visible(timeout=450) and await button.is_enabled():
+                await button.click(timeout=2600)
+                await page.wait_for_timeout(1450)
+                return "Vrbo: Cerca premuto dopo impostazione date/ospiti"
+        except Exception:
+            continue
+    return "Vrbo: pulsante Cerca non individuato nella scheda"
+
+
 async def vrbo_reveal_rates(page, source: str, stay: dict) -> str:
     """Vrbo: se Cerca apre i risultati, rientra nella stessa PDP e porta a vista le unità."""
     evidence=[]
+    evidence.append(await vrbo_submit_search(page,stay))
     clean_source=normalize_ota_listing_url("vrbo",source)
     source_path=(urlparse(clean_source).path or "").rstrip("/")
     listing_id=""
@@ -5054,7 +5084,8 @@ async def vrbo_reveal_rates(page, source: str, stay: dict) -> str:
             await page.wait_for_timeout(600)
             body=(await page.locator("body").inner_text(timeout=4500))[:22000]
             if (
-                ("condizioni di cancellazione" in body.lower() or "cancellation" in body.lower())
+                ("condizioni di cancellazione" in body.lower() or "cancellation" in body.lower()
+                 or "seleziona la tua unità" in body.lower())
                 and re.search(r'\d[\d.,]*\s*€',body)
             ):
                 evidence.append("card unità con prezzi renderizzate")
