@@ -1668,7 +1668,7 @@ async def airbnb_frontend_search_property_listings(context, data: dict, robots: 
                         loc=suggestions.nth(idx)
                         if not await loc.is_visible(timeout=150):
                             continue
-                        text_value=re.sub(r"\\s+"," ",(await loc.inner_text(timeout=320)) or "")
+                        text_value=re.sub(r"\s+"," ",(await loc.inner_text(timeout=320)) or "")
                         text_norm=_norm_name(text_value)
                         city_norm=_norm_name(city)
                         # Non scegliere automaticamente il primo suggerimento
