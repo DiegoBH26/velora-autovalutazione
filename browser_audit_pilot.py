@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v99"
+PILOT_BUILD = "velora-browser-pilot-v100"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3542,6 +3542,62 @@ OTA_FRONTEND_SEARCH_HOME={
 }
 
 
+async def discover_vrbo_property_listings(context, data: dict, robots: dict) -> dict:
+    """v100: indicizzazione pubblica di singole unita Vrbo, distinta dall'accesso al prezzo.
+
+    Ricerca nomi/luoghi senza ID hardcoded, non forza pagine bloccate e non
+    equipara un risultato di un motore di ricerca a identita verificata.
+    """
+    name=str(data.get("name") or "").strip()
+    city=str(data.get("city") or "").strip()
+    if not name:
+        return {"status":"not_found","url":"","listingUrls":[],"evidence":"Vrbo: nome mancante."}
+    variants=_property_name_query_variants(name)
+    core=variants[0] if variants else name
+    queries=[
+        f'site:vrbo.com/it-it/affitto-vacanze/ "{core}"',
+        f'site:vrbo.com "Hotel {core}" "{city}"',
+        f'site:vrbo.com "{core}" "{city}"',
+    ]
+    found={}
+    diagnostics=[]
+    page=await context.new_page()
+    try:
+        for engine,query in zip(("Google","Bing","Brave"),queries):
+            try:
+                links,_=await asyncio.wait_for(_search_result_links(page,query,engine),timeout=9)
+                diagnostics.append(f"{engine}: {len(links)} risultati")
+            except Exception as exc:
+                diagnostics.append(f"{engine}: {type(exc).__name__}")
+                continue
+            for item in links:
+                url=_decode_search_target(str(item.get("href") or ""))
+                if _classify_ota_url(url)!="vrbo" or not _plausible_ota_listing_url("vrbo",url):
+                    continue
+                label=str(item.get("text") or "")
+                snippet=str(item.get("context") or "")
+                score,_,_,_,_=_identity_match_score(name,city,str(data.get("address") or ""),label,snippet,url)
+                if not (_name_similarity(name,label)>=0.48 or
+                        _name_similarity(name,snippet)>=0.56 or score>=0.62):
+                    continue
+                clean=normalize_ota_listing_url("vrbo",url)
+                if clean not in found or score>found[clean][0]:
+                    found[clean]=(score,label)
+    finally:
+        await page.close()
+    ranked=sorted(found.items(),key=lambda entry:entry[1][0],reverse=True)
+    urls=[url for url,_ in ranked[:12]]
+    return {
+        "status":"found_candidates" if urls else "not_found",
+        "url":urls[0] if urls else "",
+        "listingUrls":urls,
+        "identityVerified":False,
+        "evidence":f"Vrbo: {len(urls)} schede candidate indicizzate, identita da confermare sul portale. "+
+                   "; ".join(diagnostics),
+        "discoveryMode":"public search index, no 429 bypass",
+    }
+
+
 async def frontend_discover_ota_source(
     context, channel: str, data: dict, stay: dict, robots: dict,
     assist_callback=None, ghost: bool = False,
@@ -3549,6 +3605,8 @@ async def frontend_discover_ota_source(
     """Trova una scheda direttamente nel portale, senza dipendere dalla discovery esterna."""
     home=OTA_FRONTEND_SEARCH_HOME.get(channel,"")
     label=OTA_META.get(channel,{}).get("label",channel)
+    if channel=="vrbo":
+        return await discover_vrbo_property_listings(context,data,robots)
     if channel=="airbnb":
         # Airbnb per hotel/complessi: ricerca per singole /rooms/ nei risultati Google.
         # La sola ricerca "destinazione" interna trova città, non nomi di hotel.
@@ -11655,8 +11713,8 @@ async def run(args: argparse.Namespace) -> dict:
             ]
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
-            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids and "airbnb" not in selected_discovery_ids)
-            discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids or ota=="airbnb"] if pricing_only else selected_discovery_ids)
+            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids and not ({"airbnb","vrbo"} & set(selected_discovery_ids)))
+            discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids or ota in {"airbnb","vrbo"}] if pricing_only else selected_discovery_ids)
 
             if quick_retest:
                 master_discoveries={}
@@ -12245,7 +12303,7 @@ async def run(args: argparse.Namespace) -> dict:
                     else:
                         # Percorso alternativo indipendente dalla discovery esterna:
                         # se manca una source o è soltanto candidata, cerca direttamente nel portale.
-                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids or channel=="airbnb"):
+                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids or channel in {"airbnb","vrbo"}):
                             try:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
@@ -12267,6 +12325,14 @@ async def run(args: argparse.Namespace) -> dict:
                                     "evidence":f"{OTA_META[channel]['label']}: ricerca interna fallita ({type(exc).__name__}: {str(exc)[:150]})."
                                 }
 
+                            if channel=="vrbo":
+                                result.setdefault("discoveredSources",{})[channel]=frontend_source
+                                # SERP candidates are not trusted listings: they cannot replace a
+                                # proven source until an actual public Vrbo page is readable.
+                                record_candidates=list(frontend_source.get("listingUrls") or [])
+                                if record_candidates:
+                                    source=record_candidates[0]
+                                    unverified_source_ids.add(channel)
                             if frontend_source.get("status")=="found" and frontend_source.get("url"):
                                 source=frontend_source["url"]
                                 previous_urls=list((sources.get("airbnb") or {}).get("listingUrls") or []) if channel=="airbnb" else []
