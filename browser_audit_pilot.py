@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v105"
+PILOT_BUILD = "velora-browser-pilot-v106"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9404,6 +9404,65 @@ async def booking_settle_render(page) -> dict:
     return diagnostics
 
 
+async def google_click_ota_listing(page, channel: str, property_name: str, city: str, robots: dict) -> dict:
+    """Google visible search → click a matching OTA result, in the same tab.
+
+    Do not navigate directly to a saved candidate or fake successful visits.
+    """
+    query=" ".join(part for part in (property_name,city,OTA_META[channel]["label"]) if part).strip()
+    url="https://www.google.com/search?"+urlencode({"q":query,"hl":"it"})
+    evidence={"status":"not_found","query":query,"searchUrl":url,"selectedUrl":""}
+    if not property_name:
+        return evidence
+    try:
+        permission=await asyncio.to_thread(allowed_by_robots,url,robots)
+        if permission is False:
+            evidence["status"]="robots_denied"
+            return evidence
+        response=await page.goto(url,wait_until="domcontentloaded",timeout=20000)
+        await dismiss_cookie(page)
+        if response and response.status>=400:
+            evidence["status"]=f"google_http_{response.status}"
+            return evidence
+        anchors=await page.locator("a[href]").all()
+        ranked=[]
+        for anchor in anchors[:160]:
+            try:
+                raw=await anchor.get_attribute("href") or ""
+                target=_decode_search_target(raw)
+                if _classify_ota_url(target)!=channel or not _plausible_ota_listing_url(channel,target):
+                    continue
+                label=(await anchor.inner_text(timeout=600))[:250]
+                score,_,_,_,_=_identity_match_score(property_name,city,"",label,label,target)
+                if _name_similarity(property_name,label)<0.34 and score<0.48:
+                    continue
+                ranked.append((score,anchor,target,label))
+            except Exception:
+                continue
+        ranked.sort(key=lambda entry:entry[0],reverse=True)
+        evidence["candidates"]=len(ranked)
+        for score,anchor,target,label in ranked[:1]:
+            access=await asyncio.to_thread(allowed_by_robots,target,robots)
+            if access is False:
+                evidence["status"]="robots_denied"
+                return evidence
+            try:
+                await anchor.scroll_into_view_if_needed(timeout=1600)
+                async with page.expect_navigation(wait_until="domcontentloaded",timeout=13000):
+                    await anchor.click(timeout=3500)
+                evidence.update(status="clicked",selectedUrl=target,finalUrl=page.url,label=label[:180],score=score)
+                return evidence
+            except Exception as exc:
+                evidence["status"]="click_failed"
+                evidence["detail"]=type(exc).__name__
+                return evidence
+        return evidence
+    except Exception as exc:
+        evidence["status"]="error"
+        evidence["detail"]=type(exc).__name__
+        return evidence
+
+
 async def observe(
     page, channel: str, source: str, stay: dict, robots: dict,
     property_name: str="", city: str=""
@@ -9426,7 +9485,22 @@ async def observe(
     if permission is None:
         record["robotsNotice"]="robots.txt non disponibile/chiarificatore; lettura effettuata nel browser pubblico senza bypass."
     try:
-        response = await page.goto(requested, wait_until="domcontentloaded", timeout=22000)
+        frontend_click={}
+        if channel=="vrbo" and property_name:
+            frontend_click=await google_click_ota_listing(page,channel,property_name,city,robots)
+            record["googleFrontendNavigation"]=frontend_click
+            print(f"vrbo-google-ui: {frontend_click.get('status')} · query={frontend_click.get('query')} · url={frontend_click.get('finalUrl','')}",flush=True)
+        if frontend_click.get("status")=="clicked" and _classify_ota_url(page.url)==channel:
+            response=None
+            record["requestedUrl"]=page.url
+        else:
+            # Do not disguise a failed Google click as the requested frontend
+            # workflow by silently opening a stale deep link.
+            if channel=="vrbo":
+                record.update(status="frontend_navigation_failed",
+                    evidence=f"Vrbo: ricerca Google/frontend non completata ({frontend_click.get('status','n.d.')}). Nessun prezzo verificato.")
+                return record
+            response=await page.goto(requested, wait_until="domcontentloaded", timeout=22000)
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
