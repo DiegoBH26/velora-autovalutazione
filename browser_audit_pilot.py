@@ -9450,18 +9450,21 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
             return evidence
         try:
             await anchor.scroll_into_view_if_needed(timeout=1600)
-            async with page.context.expect_page(timeout=3000) as opened:
-                await anchor.click(timeout=3000)
-            next_page=await opened.value
-            await next_page.wait_for_load_state("domcontentloaded",timeout=12000)
-            evidence.update(status="clicked_new_tab",finalUrl=next_page.url,stage="destination")
-            return evidence
-        except Exception:
-            # If the result did not open a new tab, check same-tab navigation.
+            # A Google result may have target=_blank; use the same visible
+            # anchor but keep the destination in the observed tab.
+            await anchor.evaluate("(el) => { el.target = '_self'; }")
+            await anchor.click(timeout=3500)
+            try:
+                await page.wait_for_load_state("domcontentloaded",timeout=11000)
+            except Exception:
+                pass
             if _classify_ota_url(page.url)==channel:
                 evidence.update(status="clicked",finalUrl=page.url,stage="destination")
                 return evidence
             evidence.update(status="click_failed",stage="result_click",detail="no OTA destination observed")
+            return evidence
+        except Exception as exc:
+            evidence.update(status="click_failed",stage="result_click",detail=type(exc).__name__)
             return evidence
     except Exception as exc:
         evidence.update(status="error",stage="search",detail=type(exc).__name__)
