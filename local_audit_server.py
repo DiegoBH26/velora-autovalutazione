@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v107"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v108"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -191,7 +191,7 @@ def wait_for_pilot_intervention(payload: dict) -> str:
         f"{intervention['reason'][:220]}",
         flush=True,
     )
-    signaled=STATE.intervention_event.wait(timeout=120)
+    signaled=STATE.intervention_event.wait(timeout=900)
     with STATE.lock:
         action=STATE.intervention_action if signaled else "timeout"
         STATE.intervention={}
@@ -862,7 +862,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v107",
+                "agentVersion":"velora-local-agent-v108",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -1060,7 +1060,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v107 · fix URL /rooms/ Airbnb e OTA · diagnostica candidati · Booking/Agoda invariati · mai login",flush=True)
+    print("Versione agente: velora-local-agent-v108 · fix URL /rooms/ Airbnb e OTA · diagnostica candidati · Booking/Agoda invariati · mai login",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
