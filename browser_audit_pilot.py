@@ -12570,7 +12570,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
                                     observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted else None,ghost),
-                                    timeout=180 if assisted else AUTO_OTA_OBSERVE_TIMEOUT,
+                                    timeout=1000 if assisted else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 record = {
