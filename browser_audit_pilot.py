@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v107"
+PILOT_BUILD = "velora-browser-pilot-v108"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9472,7 +9472,7 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
 
 async def observe(
     page, channel: str, source: str, stay: dict, robots: dict,
-    property_name: str="", city: str=""
+    property_name: str="", city: str="", assist_callback=None, ghost: bool=False
 ) -> dict:
     requested = frontend_entry_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
@@ -9508,8 +9508,34 @@ async def observe(
                     evidence=f"Vrbo: ricerca Google/frontend non completata ({frontend_click.get('status','n.d.')}). Nessun prezzo verificato.")
                 return record
             response=await page.goto(requested, wait_until="domcontentloaded", timeout=22000)
+        if channel in {"vrbo","expedia","holidu"}:
+            flow=record.setdefault("navigationSteps",[])
+            flow.append({"step":"google","status":"completed" if frontend_click.get("status")=="clicked" else "blocked" if frontend_click.get("status")=="robots_denied" else "failed","detail":frontend_click.get("status","not_attempted")})
+            flow.append({"step":"listing","status":"completed" if _classify_ota_url(page.url)==channel else "not_reached","detail":page.url if _classify_ota_url(page.url)==channel else ""})
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
+        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+            try:
+                challenge_text=(await page.locator("body").inner_text(timeout=2500)).lower()[:9000]
+            except Exception:
+                challenge_text=""
+            challenge_markers=("verify you are human","verifica di essere umano","verifica che sei umano","are you a robot","non sono un robot","captcha","unusual traffic")
+            if any(marker in challenge_text for marker in challenge_markers):
+                action=await _human_assist(page,assist_callback,{
+                    "type":"visible_public_challenge","otaId":channel,
+                    "label":OTA_META[channel]["label"],
+                    "reason":"Verifica umana visibile sulla pagina aperta.",
+                    "instructions":"Completa manualmente la verifica visibile nella finestra Chrome. Quando la pagina viene sbloccata, torna su Velora e premi «Ho completato · riprendi». Non eseguire login.",
+                    "propertyName":property_name,"city":city,"stay":stay,
+                    "url":page.url,
+                },ghost)
+                record["manualChallenge"]={"prompted":True,"action":action}
+                if action not in {"continue","done"}:
+                    record.update(status="human_verification_pending",finalUrl=page.url,
+                        evidence=f"Verifica visibile: assistenza {action}; nessuna tariffa verificata.")
+                    return record
+                record["navigationSteps"].append({"step":"human_verification","status":"completed","detail":"Ripresa confermata dall'utente"})
+
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
         try:
             await page.locator("body").wait_for(state="visible", timeout=4200)
@@ -12543,8 +12569,8 @@ async def run(args: argparse.Namespace) -> dict:
                             try:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
-                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city","")),
-                                    timeout=AUTO_OTA_OBSERVE_TIMEOUT,
+                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted else None,ghost),
+                                    timeout=180 if assisted else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 record = {
