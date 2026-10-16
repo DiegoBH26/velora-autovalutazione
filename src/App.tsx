@@ -7831,7 +7831,7 @@ export default function App() {
                 <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(1, Math.min(99, localPilotProgress))}%` }} />
               </div>
             </div>}
-            {localPilotRunning && localPilotIntervention && <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-[#23124A] shadow-sm">
+            {localPilotIntervention && <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-[#23124A] shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-black">Azione richiesta · {localPilotIntervention.label || localPilotIntervention.otaId || "OTA"}</p>
                 <span className="rounded-full bg-amber-200 px-2 py-1 text-[9px] font-black uppercase tracking-wide">Chrome portato in primo piano</span>
