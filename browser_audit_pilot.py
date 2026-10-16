@@ -9656,10 +9656,10 @@ async def observe(
                 )
                 return record
 
-        # Vrbo candidates coming from an index or a failed Google click are
-        # NOT a verified match. Check the real public page before applying dates
-        # or accepting any quoted rate.
-        if channel=="vrbo":
+        # Vrbo/Holidu candidates coming from an index or Google are NOT a
+        # verified property. Check the public listing before applying dates
+        # or accepting any rate quotation.
+        if channel in {"vrbo","holidu"}:
             try:
                 candidate_title=(await page.title())[:260]
                 candidate_body=(await page.locator("body").inner_text(timeout=5500))[:18000]
@@ -9680,7 +9680,7 @@ async def observe(
                             "http_error" if blocked_http==403 else "wrong_property_listing"),
                     finalUrl=page.url,quotes=[],
                     evidence=(
-                        f"Vrbo: impossibile verificare nome/località della struttura sulla scheda pubblica. "
+                        f"{OTA_META[channel]['label']}: impossibile verificare nome/località della struttura sulla scheda pubblica. "
                         f"{identity.get('evidence','')}."
                         + (f" HTTP {blocked_http}; nessuna tariffa acquisita." if blocked_http else
                            " URL candidato non utilizzato per il confronto tariffario.")
@@ -12659,6 +12659,31 @@ async def run(args: argparse.Namespace) -> dict:
                                     f"{effective_stay['month']} vrbo-candidates: {len(candidate_pool)} · "
                                     f"selected={source or 'none'} · all={candidate_pool[:8]} · "
                                     "candidates_not_verified=True",
+                                    flush=True,
+                                )
+                                write_result(output,result)
+                            if channel=="holidu" and frontend_source.get("status")!="found":
+                                # Keep evidence and candidate links found on this fresh
+                                # attempt, even when no listing passed the identity lock.
+                                prior=result.get("discoveredSources",{}).get("holidu") or {}
+                                urls=[]
+                                for u in [
+                                    frontend_source.get("candidateUrl"),
+                                    *(frontend_source.get("candidateUrls") or []),
+                                    prior.get("candidateUrl"),
+                                    *(prior.get("candidateUrls") or []),
+                                ]:
+                                    if u and _plausible_ota_listing_url("holidu",str(u)) and u not in urls:
+                                        urls.append(u)
+                                result.setdefault("discoveredSources",{})["holidu"]={
+                                    **prior,**frontend_source,
+                                    "candidateUrl":urls[0] if urls else "",
+                                    "candidateUrls":urls[:8],
+                                    "identityVerified":False,
+                                }
+                                print(
+                                    f"{effective_stay['month']} holidu-indexed-candidates: "
+                                    f"{len(urls)} · status={frontend_source.get('status','n.d.')}",
                                     flush=True,
                                 )
                                 write_result(output,result)
