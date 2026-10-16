@@ -11722,7 +11722,10 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                     "--start-minimized",
                     "--window-position=-32000,-32000",
                     "--window-size=1,1",
-                ] if ghost else [],
+                ] if ghost else [
+                    "--window-position=60,60",
+                    "--window-size=1280,850",
+                ],
             )
             anchor_page=context.pages[0] if context.pages else await context.new_page()
             try:
@@ -11746,6 +11749,23 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
                 )
             except Exception:
                 pass
+            if not ghost:
+                # Persistent Chrome profiles may retain the off-screen geometry used
+                # by Ghost mode. Restore a visible window for manual supervision.
+                try:
+                    cdp=await context.new_cdp_session(anchor_page)
+                    info=await cdp.send("Browser.getWindowForTarget")
+                    await cdp.send("Browser.setWindowBounds",{
+                        "windowId":info["windowId"],
+                        "bounds":{"windowState":"normal"},
+                    })
+                    await cdp.send("Browser.setWindowBounds",{
+                        "windowId":info["windowId"],
+                        "bounds":{"left":60,"top":60,"width":1280,"height":850},
+                    })
+                    await cdp.detach()
+                except Exception as exc:
+                    print(f"Velora: ripristino posizione Chrome non riuscito: {type(exc).__name__}",flush=True)
             if ghost:
                 try:
                     cdp=await context.new_cdp_session(anchor_page)
