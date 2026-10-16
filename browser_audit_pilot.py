@@ -56,7 +56,7 @@ PUBLIC_FRONTEND_PRICING_CHANNELS = {"airbnb","expedia","vrbo","holidu","hotels",
 FRONTEND_FIRST_CHANNELS = set(PUBLIC_FRONTEND_PRICING_CHANNELS)
 AUTO_SOURCE_DISCOVERY_TIMEOUT=28
 AUTO_OTA_OBSERVE_TIMEOUT=55
-HUMAN_ASSIST_TIMEOUT=120
+HUMAN_ASSIST_TIMEOUT=1000
 BLOCK_WORDS = (
     "captcha", "verify you are human", "are you a robot", "unusual traffic",
     "javascript is disabled", "access denied", "security check", "verifica di sicurezza",
