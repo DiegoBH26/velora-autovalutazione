@@ -3819,7 +3819,7 @@ async def frontend_discover_ota_source(
             if candidate:
                 return candidate
 
-        if callable(assist_callback):
+        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
             action=await _human_assist(
                 page,assist_callback,{
                     "type":"source_selection",
@@ -12500,7 +12500,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
                                         context,channel,data,effective_stay,robots,
-                                        assist_callback=assist_callback,ghost=ghost,
+                                        assist_callback=assist_callback if channel in {"vrbo","expedia","holidu"} else None,ghost=ghost,
                                     ),
                                     timeout=HUMAN_ASSIST_TIMEOUT if assisted else (
                                         155 if channel=="airbnb" else AUTO_SOURCE_DISCOVERY_TIMEOUT
@@ -12586,7 +12586,7 @@ async def run(args: argparse.Namespace) -> dict:
                             try:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
-                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted else None,ghost),
+                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost),
                                     timeout=1000 if assisted else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
@@ -12798,7 +12798,7 @@ async def run(args: argparse.Namespace) -> dict:
                     assisted_weak_statuses={"blocked"}
                     if (
                         assisted and callable(assist_callback)
-                        and channel!="booking"
+                        and channel in {"vrbo","expedia","holidu"}
                         and source
                         and not record.get("quotes")
                         and record.get("status") in assisted_weak_statuses
