@@ -3819,48 +3819,32 @@ async def frontend_discover_ota_source(
             if candidate:
                 return candidate
 
-        if False:  # Source not found is NOT a human verification challenge.
-            action=await _human_assist(
-                page,assist_callback,{
-                    "type":"source_selection",
-                    "otaId":channel,
-                    "label":label,
-                    "reason":"La ricerca automatica non ha individuato una scheda verificabile.",
-                    "instructions":(
-                        f"Nel Chrome aperto cerca «{name}» a «{city}» su {label} e apri la scheda ESATTA della struttura. "
-                        "Se compare un consenso/cookie o una verifica del portale, completala manualmente. "
-                        "Non è necessario effettuare login. Quando sei sulla scheda corretta torna su Velora e premi «Ho completato · riprendi»."
-                    ),
-                    "propertyName":name,
-                    "city":city,
-                    "stay":stay,
-                },ghost,
-            )
-            if action in {"continue","done"}:
-                identity=await _current_page_identity(page,channel,data)
-                if identity.get("ok"):
-                    if ghost:
-                        await _set_interaction_window(page,False)
-                    return {
-                        "status":"found","url":identity.get("url") or page.url,
-                        "title":identity.get("title") or "",
-                        "score":identity.get("score",1.0),
-                        "identityVerified":True,
-                        "evidence":f"{label}: scheda selezionata manualmente e poi verificata da Velora; {identity.get('evidence','')}.",
-                        "discoveryMode":"human-assisted source selection + strict identity lock",
-                    }
+        # Manual assistance is reserved for an actual visible human challenge,
+        # not for unsuccessful property search or unavailable room inventory.
+        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+            try:
+                visible=(await page.locator("body").inner_text(timeout=2500)).lower()[:12000]
+            except Exception:
+                visible=""
+            if any(token in visible for token in (
+                "verify you are human","non sono un robot","captcha",
+                "are you a robot","unusual traffic","dimostra di essere umano"
+            )):
+                action=await _human_assist(page,assist_callback,{
+                    "type":"visible_public_challenge","otaId":channel,"label":label,
+                    "reason":"Verifica umana visibile durante la ricerca della struttura.",
+                    "instructions":"Completa la verifica visibile in Chrome, poi premi «Ho completato · riprendi» su Velora.",
+                    "propertyName":name,"city":city,"stay":stay,"url":page.url,
+                },ghost)
+                if action in {"continue","done"}:
+                    identity=await _current_page_identity(page,channel,data)
+                    if identity.get("ok"):
+                        return {
+                            "status":"found","url":identity.get("url") or page.url,
+                            "identityVerified":True,"evidence":"Identità verificata dopo l'intervento manuale.",
+                        }
                 if ghost:
                     await _set_interaction_window(page,False)
-                return {
-                    "status":"not_found","url":"","identityVerified":False,
-                    "evidence":(
-                        f"{label}: intervento manuale concluso, ma la pagina aperta non supera il controllo identità "
-                        f"nome + località/indirizzo. {identity.get('evidence','')}"
-                    )[:900],
-                    "discoveryMode":"human-assisted source selection rejected by identity lock",
-                }
-            if ghost:
-                await _set_interaction_window(page,False)
 
         return {
             "status":"not_found","url":"","identityVerified":False,
