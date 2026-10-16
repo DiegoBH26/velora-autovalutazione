@@ -3846,6 +3846,57 @@ async def frontend_discover_ota_source(
                 if ghost:
                     await _set_interaction_window(page,False)
 
+        if channel=="holidu":
+            # The homepage search is frequently destination-oriented. When it
+            # fails to expose a property page, look for public /d/<id> cards
+            # through independent indexes and verify the actual Holidu page.
+            # A candidate from a search snippet is never a confirmed listing.
+            try:
+                indexed=await asyncio.wait_for(
+                    discover_single_ota_targeted(context,channel,data,robots),
+                    timeout=42,
+                )
+            except asyncio.TimeoutError:
+                indexed={"status":"timeout","evidence":"Ricerca negli indici pubblici scaduta."}
+            except Exception as exc:
+                indexed={"status":"error","evidence":f"Ricerca negli indici: {type(exc).__name__}."}
+            candidates=[]
+            for target in [
+                indexed.get("candidateUrl"),*(indexed.get("candidateUrls") or []),
+            ]:
+                target=normalize_ota_listing_url("holidu",str(target or ""))
+                if _plausible_ota_listing_url("holidu",target) and target not in candidates:
+                    candidates.append(target)
+            for target in candidates[:2]:
+                try:
+                    check=await asyncio.wait_for(
+                        verify_ota_candidate_page(
+                            context,"holidu",target,name,city,address,robots,
+                        ),timeout=20,
+                    )
+                except Exception:
+                    check={}
+                if check.get("ok"):
+                    return {
+                        "status":"found","url":check.get("url") or target,
+                        "title":check.get("title",""),"identityVerified":True,
+                        "evidence":"Holidu: candidato da indice pubblico, verificato sulla pagina reale. "
+                                   +str(check.get("evidence") or ""),
+                        "discoveryMode":"Holidu indexed listing + strict page identity",
+                    }
+            return {
+                "status":"not_found","url":"","identityVerified":False,
+                "candidateUrl":candidates[0] if candidates else "",
+                "candidateUrls":candidates[:8],"presenceDetected":bool(candidates),
+                "evidence":(
+                    f"Holidu: ricerca interna senza scheda verificata; "
+                    f"indici pubblici: {indexed.get('status','n.d.')}, "
+                    f"{len(candidates)} candidati; "
+                    f"{str(indexed.get('evidence') or '')[:500]}. "
+                    "Una scheda non verificata non equivale ad assenza della struttura."
+                )[:900],
+                "discoveryMode":"Holidu internal search + indexed candidate verification",
+            }
         return {
             "status":"not_found","url":"","identityVerified":False,
             "evidence":f"{label}: ricerca interna eseguita con nome distintivo/località, ma nessuna scheda attribuibile è emersa.",
@@ -9502,12 +9553,37 @@ async def observe(
             response=None
             record["requestedUrl"]=page.url
         else:
-            # Do not disguise a failed Google click as the requested frontend
-            # workflow by silently opening a stale deep link.
             if channel=="vrbo":
-                record.update(status="frontend_navigation_failed",
-                    evidence=f"Vrbo: ricerca Google/frontend non completata ({frontend_click.get('status','n.d.')}). Nessun prezzo verificato.")
-                return record
+                # A missed Google click is not proof that the Vrbo listing is
+                # inaccessible. Try one public listing candidate already found
+                # for this run; never treat its URL as verified property identity.
+                if frontend_click.get("status")=="human_verification_pending":
+                    record.update(status="human_verification_pending",
+                        evidence="Vrbo: verifica pubblica su Google ancora in attesa; nessuna tariffa rilevata.")
+                    return record
+                google_candidate=str(frontend_click.get("selectedUrl") or "")
+                fallback=(
+                    google_candidate
+                    if _plausible_ota_listing_url("vrbo",google_candidate)
+                    else requested
+                )
+                if not _plausible_ota_listing_url("vrbo",fallback):
+                    record.update(status="frontend_navigation_failed",
+                        evidence="Vrbo: nessuna scheda pubblica candidata valida dopo la ricerca Google.")
+                    return record
+                fallback_access=await asyncio.to_thread(allowed_by_robots,fallback,robots)
+                if fallback_access is False:
+                    record.update(status="robots_denied",
+                        evidence="Vrbo: robots.txt non consente l'apertura automatica della scheda candidata.")
+                    return record
+                requested=fallback
+                record["requestedUrl"]=requested
+                record["frontendFallback"]="public_listing_navigation_identity_pending"
+                print(
+                    f"vrbo-google-fallback: {frontend_click.get('status','n.d.')} "
+                    f"=> scheda candidata pubblica {requested[:250]} (identità da verificare)",
+                    flush=True,
+                )
             response=await page.goto(requested, wait_until="domcontentloaded", timeout=22000)
         if channel in {"vrbo","expedia","holidu"}:
             flow=record.setdefault("navigationSteps",[])
@@ -9577,6 +9653,38 @@ async def observe(
                         f"(contenuto insufficiente). Nessun login, retry aggressivo o intervento utente: "
                         "Velora passa automaticamente alla OTA successiva."
                     ),
+                )
+                return record
+
+        # Vrbo candidates coming from an index or a failed Google click are
+        # NOT a verified match. Check the real public page before applying dates
+        # or accepting any quoted rate.
+        if channel=="vrbo":
+            try:
+                candidate_title=(await page.title())[:260]
+                candidate_body=(await page.locator("body").inner_text(timeout=5500))[:18000]
+            except Exception:
+                candidate_title=""; candidate_body=""
+            identity=_strict_ota_identity_match(
+                property_name,city,"",candidate_title,candidate_body,page.url
+            )
+            record["identityCheck"]={
+                "verified":bool(identity.get("ok")),
+                "score":identity.get("score",0.0),
+                "evidence":str(identity.get("evidence") or "")[:500],
+            }
+            if not identity.get("ok"):
+                blocked_http=response.status if response and response.status in {403,429} else 0
+                record.update(
+                    status=("rate_limited" if blocked_http==429 else
+                            "http_error" if blocked_http==403 else "wrong_property_listing"),
+                    finalUrl=page.url,quotes=[],
+                    evidence=(
+                        f"Vrbo: impossibile verificare nome/località della struttura sulla scheda pubblica. "
+                        f"{identity.get('evidence','')}."
+                        + (f" HTTP {blocked_http}; nessuna tariffa acquisita." if blocked_http else
+                           " URL candidato non utilizzato per il confronto tariffario.")
+                    )[:900],
                 )
                 return record
 
@@ -12581,9 +12689,17 @@ async def run(args: argparse.Namespace) -> dict:
                                     "evidence": "Scansione dedicata: discovery non ripetuta e ricerca interna OTA senza match verificabile."
                                 }
                             else:
+                                candidate_meta=(discovery if isinstance(discovery,dict) else {})
+                                candidate_urls=[
+                                    u for u in [candidate_meta.get("candidateUrl"),*(candidate_meta.get("candidateUrls") or [])]
+                                    if u and _plausible_ota_listing_url(channel,str(u))
+                                ] if channel=="holidu" else []
                                 record = {
-                                    "otaId": channel, **effective_stay, "status": "source_missing", "quotes": [],
-                                    "evidence": evidence or "Nessuna scheda univoca trovata né da discovery né dalla ricerca interna OTA."
+                                    "otaId": channel, **effective_stay,
+                                    "status": "source_unverified" if candidate_urls else "source_missing",
+                                    "quotes": [],
+                                    "candidateUrls":candidate_urls[:8] if channel=="holidu" else [],
+                                    "evidence":evidence or "Nessuna scheda univoca trovata né da discovery né dalla ricerca interna OTA."
                                 }
                         else:
                             page = None
