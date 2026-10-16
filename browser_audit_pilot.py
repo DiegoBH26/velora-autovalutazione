@@ -3819,7 +3819,7 @@ async def frontend_discover_ota_source(
             if candidate:
                 return candidate
 
-        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+        if False:  # Source not found is NOT a human verification challenge.
             action=await _human_assist(
                 page,assist_callback,{
                     "type":"source_selection",
@@ -12500,9 +12500,9 @@ async def run(args: argparse.Namespace) -> dict:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
                                         context,channel,data,effective_stay,robots,
-                                        assist_callback=assist_callback if channel in {"vrbo","expedia","holidu"} else None,ghost=ghost,
+                                        assist_callback=assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost=ghost,
                                     ),
-                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted else (
+                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted and channel in {"vrbo","expedia","holidu"} else (
                                         155 if channel=="airbnb" else AUTO_SOURCE_DISCOVERY_TIMEOUT
                                     ),
                                 )
@@ -12587,7 +12587,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
                                     observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost),
-                                    timeout=1000 if assisted else AUTO_OTA_OBSERVE_TIMEOUT,
+                                    timeout=1000 if assisted and channel in {"vrbo","expedia","holidu"} else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 record = {
