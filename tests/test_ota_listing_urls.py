@@ -38,7 +38,11 @@ def load_real_url_predicates():
 class OTAListingURLTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.classify, cls.plausible = load_real_url_predicates()
+        # Python functions stored on the class become bound methods. Preserve
+        # their original one-/two-argument signatures for these pure helpers.
+        classify, plausible = load_real_url_predicates()
+        cls.classify = staticmethod(classify)
+        cls.plausible = staticmethod(plausible)
 
     def test_existing_airbnb_rooms_must_pass(self):
         for url in (
