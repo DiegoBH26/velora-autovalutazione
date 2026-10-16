@@ -1,0 +1,47 @@
+name: Verify OTA pilot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - browser_audit_pilot.py
+      - local_audit_server.py
+      - tests/**
+      - .github/workflows/verify-ota-pilot.yml
+  pull_request:
+    paths:
+      - browser_audit_pilot.py
+      - local_audit_server.py
+      - tests/**
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile scraper and local agent
+        run: python -m py_compile browser_audit_pilot.py local_audit_server.py
+      - name: OTA listing regression tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Require synchronized agent and pilot versions
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          pilot=ast.parse(Path('browser_audit_pilot.py').read_text(encoding='utf-8'))
+          server=ast.parse(Path('local_audit_server.py').read_text(encoding='utf-8'))
+          def const(module,name):
+              for node in module.body:
+                  if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id==name for t in node.targets):
+                      return ast.literal_eval(node.value)
+              raise AssertionError(f'Missing version constant {name}')
+          actual=const(pilot,'PILOT_BUILD')
+          expected=const(server,'EXPECTED_PILOT_BUILD')
+          assert actual==expected,(actual,expected)
+          PY
