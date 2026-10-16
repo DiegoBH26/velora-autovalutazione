@@ -9496,7 +9496,7 @@ async def observe(
         if channel in {"vrbo","expedia","holidu"} and property_name:
             frontend_click=await google_click_ota_listing(page,channel,property_name,city,robots)
             record["googleFrontendNavigation"]=frontend_click
-            print(f"vrbo-google-ui: {frontend_click.get('status')} · query={frontend_click.get('query')} · url={frontend_click.get('finalUrl','')}",flush=True)
+            print(f"{channel}-google-ui: {frontend_click.get('status')} · stage={frontend_click.get('stage','?')} · blocked={frontend_click.get('blockedSite','')} · candidates={frontend_click.get('candidates',0)} · query={frontend_click.get('query')} · url={frontend_click.get('finalUrl','')}",flush=True)
         if frontend_click.get("status")=="clicked" and _classify_ota_url(page.url)==channel:
             response=None
             record["requestedUrl"]=page.url
