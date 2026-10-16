@@ -7985,6 +7985,28 @@ export default function App() {
                   </tr>)}</tbody>
                 </table>
               </div>}
+              {browserPilotResult.observations.filter((observation) => ["vrbo","expedia","holidu"].includes(observation.otaId)).slice(-3).map((observation, index) => {
+                const nav = (observation as typeof observation & { navigationSteps?: {step:string;status:string;detail?:string}[];googleFrontendNavigation?: {status?:string;blockedSite?:string;stage?:string} }).navigationSteps || [];
+                const google = nav.find((step) => step.step === "google");
+                const listing = nav.find((step) => step.step === "listing");
+                const denied = observation.status === "robots_denied" || observation.evidence?.includes("robots_denied");
+                const blocking = denied || ["rate_limited","http_error","frontend_navigation_failed","blocked"].includes(observation.status);
+                const quotes = (observation.quotes || []).length;
+                const rows = [
+                  {title:"Ricerca Google",state:google?.status || (denied ? "blocked" : "unknown")},
+                  {title:"Apertura scheda OTA",state:listing?.status || (blocking ? "blocked" : "unknown")},
+                  {title:"Date, ospiti e Cerca",state:quotes ? "completed" : "not_reached"},
+                  {title:"Lettura tariffe",state:quotes ? "completed" : "not_reached"},
+                ];
+                return <div key={`ota-nav-steps-${observation.otaId}-${index}`} className="mt-3 rounded-xl border border-[#E5DDF1] bg-white p-4">
+                  <p className="mb-3 text-xs font-black text-[#23124A]">Percorso navigazione · {observation.otaId.toUpperCase()} · {observation.checkin} → {observation.checkout}</p>
+                  <div className="space-y-2">{rows.map((row,index) => <div key={index} className="flex items-center gap-2 text-xs">
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full border font-black ${row.state==="completed" ? "border-emerald-500 text-emerald-700" : row.state==="blocked" || row.state==="failed" ? "border-red-400 text-red-600" : "border-slate-300 text-slate-400"}`}>{row.state==="completed" ? "✓" : row.state==="blocked" || row.state==="failed" ? "!" : "–"}</span>
+                    <span className={row.state==="not_reached" || row.state==="unknown" ? "text-slate-500" : "text-[#23124A]"}>{row.title}</span>
+                  </div>)}</div>
+                  <p className="mt-3 text-[10px] text-[#50627F]">Esito: {observation.status}. {denied ? "Accesso automatico negato: non equivale a indisponibilità." : blocking ? "Navigazione interrotta: prezzi non verificati." : quotes ? `${quotes} tariffe rilevate.` : "Verifica non conclusa."}</p>
+                </div>;
+              })}
               {browserPilotResult.observations.length > 0 && <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="min-w-[980px] w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#23124A] text-white"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date testate</th><th className="p-2 text-left">Esito tecnico</th><th className="p-2 text-left">Motivo / cosa manca</th></tr></thead>
