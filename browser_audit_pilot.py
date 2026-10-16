@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v108"
+PILOT_BUILD = "velora-browser-pilot-v109"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9404,7 +9404,7 @@ async def booking_settle_render(page) -> dict:
     return diagnostics
 
 
-async def google_click_ota_listing(page, channel: str, property_name: str, city: str, robots: dict) -> dict:
+async def google_click_ota_listing(page, channel: str, property_name: str, city: str, robots: dict, assist_callback=None, ghost: bool=False, stay=None) -> dict:
     """Visible Google search and ordinary result click; preserve site access restrictions."""
     query=" ".join(part for part in (property_name,city,OTA_META[channel]["label"]) if part).strip()
     url="https://www.google.com/search?"+urlencode({"q":query,"hl":"it"})
@@ -9421,6 +9421,23 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
         if response and response.status>=400:
             evidence.update(status=f"google_http_{response.status}",stage="search")
             return evidence
+        if callable(assist_callback):
+            try:
+                visible_text=(await page.locator("body").inner_text(timeout=4500)).lower()[:14000]
+            except Exception:
+                visible_text=""
+            if any(mark in visible_text for mark in ("verify you are human","verifica di essere umano","non sono un robot","are you a robot","captcha","unusual traffic")):
+                action=await _human_assist(page,assist_callback,{
+                    "type":"visible_public_challenge","otaId":channel,
+                    "label":OTA_META[channel]["label"],
+                    "reason":"Verifica umana visibile nella ricerca Google.",
+                    "instructions":"Completa manualmente l'eventuale verifica pubblica visibile nella finestra Chrome, poi torna su Velora e premi Ho completato · riprendi.",
+                    "propertyName":property_name,"city":city,"stay":stay or {},"url":page.url,
+                },ghost)
+                evidence["manualChallenge"]=action
+                if action not in {"continue","done"}:
+                    evidence.update(status="human_verification_pending",stage="search")
+                    return evidence
         # A result may be below the first 160 anchors or launch a new tab.
         anchors=await page.locator("a[href]").all()
         ranked=[]
@@ -9494,7 +9511,7 @@ async def observe(
     try:
         frontend_click={}
         if channel in {"vrbo","expedia","holidu"} and property_name:
-            frontend_click=await google_click_ota_listing(page,channel,property_name,city,robots)
+            frontend_click=await google_click_ota_listing(page,channel,property_name,city,robots,assist_callback,ghost,stay)
             record["googleFrontendNavigation"]=frontend_click
             print(f"{channel}-google-ui: {frontend_click.get('status')} · stage={frontend_click.get('stage','?')} · blocked={frontend_click.get('blockedSite','')} · candidates={frontend_click.get('candidates',0)} · query={frontend_click.get('query')} · url={frontend_click.get('finalUrl','')}",flush=True)
         if frontend_click.get("status")=="clicked" and _classify_ota_url(page.url)==channel:
