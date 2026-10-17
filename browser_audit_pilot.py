@@ -9694,6 +9694,21 @@ async def observe(
                     )
                     return record
                 await page.wait_for_timeout(650)
+                # The user may open a listing in a separate Chrome tab while
+                # Velora is waiting. Follow that visible tab rather than
+                # immediately reading the original (possibly 429) page.
+                for possible in reversed(list(page.context.pages)):
+                    if possible is page or possible.is_closed():
+                        continue
+                    if (
+                        _classify_ota_url(str(possible.url or ""))==channel
+                        and _plausible_ota_listing_url(channel,str(possible.url or ""))
+                    ):
+                        print(f"{channel}: intervento umano · scheda aperta in nuova tab {possible.url[:240]}",flush=True)
+                        page=possible
+                        response=None  # Old HTTP status belongs to a different tab.
+                        record["manualSelectedTab"]=str(page.url or "")
+                        break
                 still=await _visible_human_challenge(page)
                 if still.get("visible"):
                     record.update(status="human_verification_pending",finalUrl=page.url,
