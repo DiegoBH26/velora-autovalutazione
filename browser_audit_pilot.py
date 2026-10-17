@@ -3917,14 +3917,23 @@ async def frontend_discover_ota_source(
                     "propertyName":name,"city":city,"stay":stay,"url":page.url,
                 },ghost)
                 if action in {"continue","done"}:
-                    identity=await _current_page_identity(page,"holidu",data)
-                    if identity.get("ok"):
-                        return {
-                            "status":"found","url":identity.get("url") or page.url,
-                            "title":identity.get("title",""),"identityVerified":True,
-                            "evidence":"Holidu: scheda aperta manualmente e identità verificata.",
-                            "discoveryMode":"Holidu human-assisted source selection + identity lock",
-                        }
+                    # A search card may open the listing in a NEW Chrome tab.
+                    # Inspect both the assisted tab and any tabs opened by
+                    # the user before rejecting their manual work.
+                    candidate_pages=[page]+[
+                        p for p in reversed(list(context.pages)) if p is not page
+                    ]
+                    for candidate_page in candidate_pages:
+                        if _classify_ota_url(str(candidate_page.url or ""))!="holidu":
+                            continue
+                        identity=await _current_page_identity(candidate_page,"holidu",data)
+                        if identity.get("ok"):
+                            return {
+                                "status":"found","url":identity.get("url") or candidate_page.url,
+                                "title":identity.get("title",""),"identityVerified":True,
+                                "evidence":"Holidu: scheda aperta manualmente e identità verificata.",
+                                "discoveryMode":"Holidu human-assisted source selection + identity lock",
+                            }
                 if ghost:
                     await _set_interaction_window(page,False)
             return {
