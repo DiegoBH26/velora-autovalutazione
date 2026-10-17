@@ -952,7 +952,7 @@ def _master_identity_queries(property_name: str, city: str, address: str, phone:
     return out[:8]
 
 
-async def _search_result_links(page, query: str, engine: str = "Google") -> tuple[list[dict], str]:
+async def _search_result_links(page, query: str, engine: str = "Google", assist_callback=None, ghost: bool=False, ota_id: str="") -> tuple[list[dict], str]:
     if engine=="Google":
         url="https://www.google.com/search?" + urlencode({"q":query,"hl":"it","num":"30","udm":"14"})
     elif engine=="Bing":
@@ -964,6 +964,21 @@ async def _search_result_links(page, query: str, engine: str = "Google") -> tupl
     else:
         return [],f"{engine}: motore non configurato"
     response=await page.goto(url,wait_until="domcontentloaded",timeout=30000)
+    if callable(assist_callback):
+        gate=await _visible_human_challenge(page)
+        if gate.get("visible"):
+            print(f"discovery Google: VERIFICA VISIBILE · PAUSA REALE su {page.url[:180]}",flush=True)
+            action=await _human_assist(page,assist_callback,{
+                "type":"visible_public_challenge","otaId":ota_id or "google",
+                "label":OTA_META.get(ota_id,{}).get("label","Ricerca Google"),
+                "reason":"Verifica pubblica durante la ricerca iniziale di schede OTA.",
+                "instructions":"Velora non cambierà pagina fino alla tua risposta. Completa solo la verifica pubblica visibile, poi torna al software e premi «Ho completato · riprendi».",
+                "url":page.url,
+            },ghost)
+            if action not in {"continue","done"}:
+                return [],f"{engine}: verifica {action}; nessuna ulteriore navigazione"
+        elif gate.get("blocked"):
+            return [],f"{engine}: accesso negato senza verifica completabile"
     await page.wait_for_timeout(1200)
     await dismiss_cookie(page)
     body=(await page.locator("body").inner_text(timeout=7000))[:20000]
@@ -1231,6 +1246,8 @@ async def verify_ota_candidate_page(
     address: str,
     robots: dict,
     page=None,
+    assist_callback=None,
+    ghost: bool=False,
 ) -> dict:
     url=normalize_ota_listing_url(ota_id,url)
     permission=await asyncio.to_thread(allowed_by_robots,url,robots)
@@ -1252,6 +1269,29 @@ async def verify_ota_candidate_page(
         http_status=response.status if response else 0
         await dismiss_cookie(page)
         await page.wait_for_timeout(1100)
+        if ota_id in {"vrbo","expedia","holidu"}:
+            gate=await _visible_human_challenge(page)
+            if gate.get("blocked"):
+                return {
+                    "ok":False,"blocked":True,"httpStatus":http_status,
+                    "url":page.url,
+                    "evidence":"Accesso negato dal portale; nessuna verifica pubblica interattiva presente. Non aprire ulteriori candidate della stessa OTA.",
+                }
+            if gate.get("visible") and callable(assist_callback):
+                print(f"{ota_id}: VERIFICA VISIBILE DURANTE DISCOVERY · PAUSA SU SCHEDA",flush=True)
+                action=await _human_assist(page,assist_callback,{
+                    "type":"visible_public_challenge","otaId":ota_id,"label":OTA_META[ota_id]["label"],
+                    "reason":"Sfida di verifica pubblica durante il riconoscimento della scheda.",
+                    "instructions":"Velora mantiene questa scheda aperta fino alla tua risposta. Completa la verifica visibile, torna su Velora con Alt+Tab e conferma.",
+                    "url":page.url,"propertyName":property_name,"city":city,
+                },ghost)
+                if action not in {"continue","done"}:
+                    return {"ok":False,"blocked":True,"httpStatus":http_status,"url":page.url,
+                            "evidence":f"Verifica pubblica interrotta ({action}); scansione della OTA sospesa."}
+                after=await _visible_human_challenge(page)
+                if after.get("blocked") or after.get("visible"):
+                    return {"ok":False,"blocked":True,"httpStatus":http_status,"url":page.url,
+                            "evidence":"La verifica non è stata completata oppure la pagina è ancora bloccata."}
         try:
             body=(await page.locator("body").inner_text(timeout=6500))[:18000]
         except Exception:
@@ -1326,7 +1366,7 @@ async def verify_ota_candidate_page(
                 pass
 
 
-async def discover_otas_from_master_search(context, data: dict, robots: dict) -> tuple[dict, dict]:
+async def discover_otas_from_master_search(context, data: dict, robots: dict, assist_callback=None, ghost: bool=False) -> tuple[dict, dict]:
     """FIRST/SECOND STEP: ricerca master progressiva, poi analisi dei risultati OTA."""
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1349,7 +1389,7 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
     try:
         for query in queries:
             try:
-                links,search_url=await _search_result_links(search_page,query,"Google")
+                links,search_url=await _search_result_links(search_page,query,"Google",assist_callback,ghost)
                 before=diagnostics["candidates"]
                 for item in links:
                     target=_decode_search_target(str(item.get("href") or ""))
@@ -1446,7 +1486,16 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict) ->
             for entry in ordered[:10]:
                 score=entry["score"]; url=entry["url"]; title=entry["title"]; reasons=entry["reasons"]
                 engines=entry["engines"]; queries_used=entry["queries"]
-                verify=await verify_ota_candidate_page(context,ota_id,url,name,city,address,robots,page=verify_page)
+                verify=await verify_ota_candidate_page(
+                    context,ota_id,url,name,city,address,robots,page=verify_page,
+                    assist_callback=assist_callback if ota_id in {"vrbo","expedia","holidu"} else None,
+                    ghost=ghost,
+                )
+                if verify.get("blocked"):
+                    weak.append((score,url,title,reasons,engines,queries_used,
+                                 str(verify.get("evidence") or "Accesso limitato.")))
+                    print(f"{ota_id}: discovery sospesa per blocco accesso, nessuna altra scheda di questo portale.",flush=True)
+                    break
                 if verify.get("ok"):
                     discoveries[ota_id]={
                         "status":"found",
@@ -2257,14 +2306,15 @@ async def discover_single_ota_targeted(context, ota_id: str, data: dict, robots:
     }
 
 async def discover_all_ota_sources(
-    context, data: dict, robots: dict, on_progress=None, selected_ota_ids=None
+    context, data: dict, robots: dict, on_progress=None, selected_ota_ids=None,
+    assist_callback=None, ghost: bool=False,
 ) -> tuple[dict,dict]:
     """Discovery limitata ai soli canali selezionati dall'utente."""
     target_order=[
         ota_id for ota_id in OTA_DISCOVERY_ORDER
         if not selected_ota_ids or ota_id in set(selected_ota_ids)
     ]
-    discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots)
+    discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots,assist_callback,ghost)
     discoveries={ota_id:value for ota_id,value in discoveries.items() if ota_id in target_order}
     diagnostics["selectedOtas"]=target_order
     total=len(target_order)
@@ -12260,6 +12310,8 @@ async def run(args: argparse.Namespace) -> dict:
                 master_discoveries,master_diag=await discover_all_ota_sources(
                     context,data,robots,on_progress=save_discovery_progress,
                     selected_ota_ids=discovery_target_ids,
+                    assist_callback=assist_callback if assisted and any(c in channels for c in ("vrbo","expedia","holidu")) else None,
+                    ghost=ghost,
                 )
                 master_diag["mode"]="selected_channels_only"
                 query_preview=" | ".join((master_diag.get("queries") or [])[:3])
