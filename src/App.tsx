@@ -7783,7 +7783,7 @@ export default function App() {
           </div>}
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Booking determina sempre per primo la finestra di date realmente disponibile</b>; quella stessa coppia check-in/check-out viene poi bloccata e replicata identica su ogni OTA selezionata, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>scheda struttura → stesse date Booking → 2 adulti → Cerca/Verifica disponibilità → tariffe visibili</b>. Nessun login, registrazione, account, tariffa member o app. Un HTTP 429/403 senza frontend utilizzabile viene registrato e il test passa automaticamente al canale successivo.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Booking determina sempre per primo la finestra di date realmente disponibile</b>; quella stessa coppia check-in/check-out viene poi bloccata e replicata identica su ogni OTA selezionata, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>scheda struttura → stesse date Booking → 2 adulti → Cerca/Verifica disponibilità → tariffe visibili</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${localPilotGhost ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-[#E5DDF1] bg-white text-[#50627F]"}`}>
                 <input
@@ -7809,7 +7809,7 @@ export default function App() {
                     window.localStorage.setItem("velora-pilot-assisted", enabled ? "1" : "0");
                   }}
                 />
-                Assistenza manuale su verifica visibile (opzionale)
+                Assistenza manuale · pausa su verifica, HTTP 429 e scheda Holidu
               </label>
               {(localPilotRunning || localPilotElapsedMs > 0) && <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-800">
                 <span className={`h-2.5 w-2.5 rounded-full bg-emerald-500 ${localPilotRunning ? "animate-pulse" : ""}`} />
@@ -7834,10 +7834,12 @@ export default function App() {
             {localPilotIntervention && <div role="alertdialog" aria-live="assertive" aria-label="Intervento manuale richiesto" className="fixed inset-x-3 top-4 z-[100] mx-auto max-w-2xl rounded-2xl border-2 border-amber-500 bg-amber-50 p-5 text-[#23124A] shadow-2xl md:top-6">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-black">Azione richiesta · {localPilotIntervention.label || localPilotIntervention.otaId || "OTA"}</p>
-                <span className="rounded-full bg-amber-200 px-2 py-1 text-[9px] font-black uppercase tracking-wide">Chrome portato in primo piano</span>
+                <span className="rounded-full bg-amber-200 px-2 py-1 text-[9px] font-black uppercase tracking-wide">Scraping fermo · fino a 15 minuti</span>
               </div>
               {localPilotIntervention.reason && <p className="mt-2 text-[11px] font-semibold text-amber-950">{localPilotIntervention.reason}</p>}
               <p className="mt-2 text-xs font-semibold leading-5">{localPilotIntervention.instructions || "Completa nella finestra Chrome l\'azione richiesta dal portale, poi riprendi."}</p>
+              <p className="mt-2 text-[11px] font-black text-[#23124A]">Per tornare da Chrome a Velora usa Alt+Tab. L'agente NON prosegue finché non premi uno dei pulsanti (o scadono 15 minuti).</p>
+              {localPilotIntervention.type === "limited_frontend_review" && <p className="mt-2 text-[11px] font-semibold text-amber-900">HTTP 429/403 non è necessariamente un CAPTCHA: se non vedi una verifica che puoi completare, premi «Salta questa OTA».</p>}
               {localPilotIntervention.stay?.checkin && <p className="mt-2 text-[10px] font-black text-[#50627F]">Date da mantenere: {localPilotIntervention.stay.checkin} → {localPilotIntervention.stay.checkout} · {localPilotIntervention.stay.adults || 2} adulti</p>}
               <p className="mt-2 text-[10px] font-semibold text-[#50627F]"><b>Regola fissa:</b> Velora non effettua mai login, registrazione o accesso account e non usa tariffe member/app. L\'intervento serve solo per una scheda pubblica, cookie/consenso o una verifica visibile; poi riprende sul frontend pubblico.</p>
               <div className="mt-3 flex flex-wrap gap-2">
