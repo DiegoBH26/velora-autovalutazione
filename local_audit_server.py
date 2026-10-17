@@ -180,12 +180,12 @@ def _notify_windows_intervention(intervention: dict) -> None:
         name=str(intervention.get("label") or "OTA")[:80]
         reason=str(intervention.get("reason") or "")[:280]
         message=(
-            "VELORA E' IN PAUSA - VAI ED AGISCI!\\n\\n"
-            + "Portale: "+name+"\\n"+reason+"\\n\\n"
-            + "1. Premi OK e controlla la finestra Chrome gia' aperta.\\n"
-            + "2. Completa solo eventuali verifiche pubbliche che vedi.\\n"
-            + "3. Torna su Velora con ALT+TAB.\\n"
-            + "4. Premi 'Ho completato - riprendi' o 'Salta questa OTA'.\\n\\n"
+            "VELORA E' IN PAUSA - VAI ED AGISCI!\n\n"
+            + "Portale: "+name+"\n"+reason+"\n\n"
+            + "1. Premi OK e controlla la finestra Chrome gia' aperta.\n"
+            + "2. Completa solo eventuali verifiche pubbliche che vedi.\n"
+            + "3. Torna su Velora con ALT+TAB.\n"
+            + "4. Premi 'Ho completato - riprendi' o 'Salta questa OTA'.\n\n"
             + "La scansione resta ferma fino al tuo comando (max 15 minuti)."
         )
         flags=0x00000000 | 0x00000030 | 0x00040000 | 0x00010000
