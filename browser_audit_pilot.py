@@ -3656,6 +3656,8 @@ async def frontend_discover_ota_source(
             return {"status":"http_error","url":"","evidence":f"{label}: homepage HTTP {response.status}."}
         if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
             challenge=await _visible_human_challenge(page)
+            if challenge.get("blocked"):
+                return {"status":"access_blocked","url":"","evidence":f"{label}: accesso negato senza verifica interattiva."}
             if challenge.get("visible"):
                 action=await _human_assist(page,assist_callback,{
                     "type":"visible_public_challenge","otaId":channel,"label":label,
@@ -3831,6 +3833,20 @@ async def frontend_discover_ota_source(
                 pass
             await page.wait_for_timeout(1300)
 
+            if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+                gate=await _visible_human_challenge(page)
+                if gate.get("visible"):
+                    print(f"{channel} frontend-discovery: VERIFICA VISIBILE · PAUSA PRIMA DELLA PROSSIMA QUERY",flush=True)
+                    answer=await _human_assist(page,assist_callback,{
+                        "type":"visible_public_challenge","otaId":channel,"label":label,
+                        "reason":"Verifica pubblica comparsa durante la ricerca della scheda.",
+                        "instructions":"Velora è fermo in questa scheda. Completa solo la verifica visibile, torna su Velora con Alt+Tab e premi «Ho completato · riprendi»; altrimenti salta.",
+                        "propertyName":name,"city":city,"stay":stay,"url":page.url,
+                    },ghost)
+                    if answer not in {"continue","done"}:
+                        return {"status":"human_verification_pending","url":"","evidence":f"{label}: verifica {answer}, ricerca sospesa."}
+                elif gate.get("blocked"):
+                    return {"status":"access_blocked","url":"","evidence":f"{label}: il portale nega l'accesso senza proporre una verifica interattiva; stop ricerca frontend."}
             candidate=await find_candidate()
             if candidate:
                 return candidate
@@ -9651,11 +9667,15 @@ async def observe(
             if forced_portal_checkpoint or challenge.get("visible") or limited_status:
                 is_challenge=bool(challenge.get("visible"))
                 kind=(
+                    "access_blocked_no_challenge" if challenge.get("blocked") else
                     "visible_public_challenge" if is_challenge else
                     "limited_frontend_review" if limited_status else
                     "public_listing_review"
                 )
                 reason=(
+                    "Il sito ha già BLOCCATO questa sessione: non mostra slider né immagini. "
+                    "L'intervento manuale non può rimuovere il blocco: premi «Salta questa OTA»."
+                    if challenge.get("blocked") else
                     f"Verifica pubblica visibile: {challenge.get('reason','')}."
                     if is_challenge else
                     f"HTTP {limited_status}: accesso limitato. Puoi esaminare la pagina; "
@@ -9710,6 +9730,10 @@ async def observe(
                         record["manualSelectedTab"]=str(page.url or "")
                         break
                 still=await _visible_human_challenge(page)
+                if still.get("blocked"):
+                    record.update(status="rate_limited",finalUrl=page.url,quotes=[],
+                        evidence="Sessione ancora bloccata dal portale dopo l'intervento. Nessun elemento CAPTCHA disponibile e nessuna tariffa acquisita.")
+                    return record
                 if still.get("visible"):
                     record.update(status="human_verification_pending",finalUrl=page.url,
                         evidence="Verifica ancora presente dopo la ripresa; nessuna tariffa acquisita.")
@@ -11896,6 +11920,11 @@ async def _visible_human_challenge(page) -> dict:
             return r.width>12 && r.height>12 && s.display!=='none' &&
                    s.visibility!=='hidden' && s.opacity!=='0';
           };
+          const pageText=String(document.body?.innerText||'').toLowerCase().slice(0,12000);
+          // An explicit denial ("You have been blocked") is NOT a puzzle.
+          // Do not ask the user to drag or select anything that is absent.
+          const hardBlock=/(you have been blocked|your access has been blocked|we have blocked your access|you are blocked)/i.test(pageText);
+          if(hardBlock) return {visible:false,blocked:true,reason:'accesso negato dal portale: nessuna verifica interattiva'};
           const frame=Array.from(document.querySelectorAll('iframe'))
             .filter(visible).find(el=>/recaptcha|hcaptcha|turnstile|captcha|challenges.cloudflare/i.test(
               [el.src,el.title,el.id,el.name].join(' ')));
