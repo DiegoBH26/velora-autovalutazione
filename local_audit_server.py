@@ -167,6 +167,33 @@ STATE=PilotState()
 AUTO_STATE=AutoAuditState()
 
 
+def _notify_windows_intervention(intervention: dict) -> None:
+    """Show a user-dismissable Windows dialog without unblocking the pilot.
+
+    The actual scraping pause is controlled solely by intervention_event;
+    closing this dialog never resumes scraping.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        name=str(intervention.get("label") or "OTA")[:80]
+        reason=str(intervention.get("reason") or "")[:280]
+        message=(
+            "VELORA E' IN PAUSA - VAI ED AGISCI!\\n\\n"
+            + "Portale: "+name+"\\n"+reason+"\\n\\n"
+            + "1. Premi OK e controlla la finestra Chrome gia' aperta.\\n"
+            + "2. Completa solo eventuali verifiche pubbliche che vedi.\\n"
+            + "3. Torna su Velora con ALT+TAB.\\n"
+            + "4. Premi 'Ho completato - riprendi' o 'Salta questa OTA'.\\n\\n"
+            + "La scansione resta ferma fino al tuo comando (max 15 minuti)."
+        )
+        flags=0x00000000 | 0x00000030 | 0x00040000 | 0x00010000
+        ctypes.windll.user32.MessageBoxW(None,message,"VELORA - INTERVENTO UMANO RICHIESTO",flags)
+    except Exception as exc:
+        print(f"Windows alert non disponibile: {type(exc).__name__}",flush=True)
+
+
 def wait_for_pilot_intervention(payload: dict) -> str:
     """Espone una richiesta di assistenza all'interfaccia e attende la risposta dell'utente."""
     intervention={
@@ -188,9 +215,18 @@ def wait_for_pilot_intervention(payload: dict) -> str:
         STATE.intervention_event.clear()
     print(
         f"INTERVENTO UTENTE · {intervention['label']} · {intervention['type']} · "
-        f"{intervention['reason'][:220]}",
+        f"{intervention['reason'][:220]} · ATTESA REALE 900s",
         flush=True,
     )
+    # A browser tab may cover the Velora web UI. Make the request visible on
+    # Windows itself while leaving the actual wait controlled by the web UI.
+    if os.name == "nt":
+        threading.Thread(
+            target=_notify_windows_intervention,
+            args=(dict(intervention),),
+            name="velora-manual-assistance-alert",
+            daemon=True,
+        ).start()
     signaled=STATE.intervention_event.wait(timeout=900)
     with STATE.lock:
         action=STATE.intervention_action if signaled else "timeout"
