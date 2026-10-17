@@ -3654,6 +3654,22 @@ async def frontend_discover_ota_source(
         await page.wait_for_timeout(900)
         if response and response.status>=500:
             return {"status":"http_error","url":"","evidence":f"{label}: homepage HTTP {response.status}."}
+        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+            challenge=await _visible_human_challenge(page)
+            if challenge.get("visible"):
+                action=await _human_assist(page,assist_callback,{
+                    "type":"visible_public_challenge","otaId":channel,"label":label,
+                    "reason":"Verifica pubblica visibile nella ricerca interna: "+str(challenge.get("reason") or ""),
+                    "instructions":(
+                        "Chrome resta aperto fino a 15 minuti: completa l'eventuale "
+                        "verifica pubblica, torna su Velora con Alt+Tab e premi "
+                        "«Ho completato · riprendi». Non effettuare login."
+                    ),
+                    "propertyName":name,"city":city,"stay":stay,"url":page.url,
+                },ghost)
+                if action not in {"continue","done"}:
+                    return {"status":"human_verification_pending","url":"",
+                            "evidence":f"{label}: intervento {action}; nessuna fonte attribuita."}
 
         async def find_candidate() -> dict | None:
             try:
@@ -3884,6 +3900,33 @@ async def frontend_discover_ota_source(
                                    +str(check.get("evidence") or ""),
                         "discoveryMode":"Holidu indexed listing + strict page identity",
                     }
+            if callable(assist_callback):
+                # Holidu often has no verified listing in public indexes.
+                # Explicit optional human source selection keeps the SAME tab
+                # available for the full user response, never an instant flash.
+                action=await _human_assist(page,assist_callback,{
+                    "type":"source_selection","otaId":"holidu","label":"Holidu",
+                    "reason":"La ricerca automatica Holidu non ha trovato la scheda verificabile.",
+                    "instructions":(
+                        "Velora è in pausa fino a 15 minuti. In Chrome cerca "
+                        f"«{name}» a «{city}» su Holidu e apri la scheda della struttura. "
+                        "Non effettuare login. Se trovi la scheda, usa Alt+Tab per tornare "
+                        "su Velora e premi «Ho completato · riprendi». "
+                        "Se non esiste una scheda attendibile, premi «Salta questa OTA»."
+                    ),
+                    "propertyName":name,"city":city,"stay":stay,"url":page.url,
+                },ghost)
+                if action in {"continue","done"}:
+                    identity=await _current_page_identity(page,"holidu",data)
+                    if identity.get("ok"):
+                        return {
+                            "status":"found","url":identity.get("url") or page.url,
+                            "title":identity.get("title",""),"identityVerified":True,
+                            "evidence":"Holidu: scheda aperta manualmente e identità verificata.",
+                            "discoveryMode":"Holidu human-assisted source selection + identity lock",
+                        }
+                if ghost:
+                    await _set_interaction_window(page,False)
             return {
                 "status":"not_found","url":"","identityVerified":False,
                 "candidateUrl":candidates[0] if candidates else "",
@@ -9453,15 +9496,9 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
             return evidence
         response=await page.goto(url,wait_until="domcontentloaded",timeout=20000)
         await dismiss_cookie(page)
-        if response and response.status>=400:
-            evidence.update(status=f"google_http_{response.status}",stage="search")
-            return evidence
         if callable(assist_callback):
-            try:
-                visible_text=(await page.locator("body").inner_text(timeout=4500)).lower()[:14000]
-            except Exception:
-                visible_text=""
-            if any(mark in visible_text for mark in ("verify you are human","verifica di essere umano","non sono un robot","are you a robot","captcha","unusual traffic")):
+            challenge=await _visible_human_challenge(page)
+            if challenge.get("visible"):
                 action=await _human_assist(page,assist_callback,{
                     "type":"visible_public_challenge","otaId":channel,
                     "label":OTA_META[channel]["label"],
@@ -9473,6 +9510,9 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
                 if action not in {"continue","done"}:
                     evidence.update(status="human_verification_pending",stage="search")
                     return evidence
+        if response and response.status>=400:
+            evidence.update(status=f"google_http_{response.status}",stage="search")
+            return evidence
         # A result may be below the first 160 anchors or launch a new tab.
         anchors=await page.locator("a[href]").all()
         ranked=[]
@@ -9592,26 +9632,53 @@ async def observe(
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
         if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
-            try:
-                challenge_text=(await page.locator("body").inner_text(timeout=2500)).lower()[:9000]
-            except Exception:
-                challenge_text=""
-            challenge_markers=("verify you are human","verifica di essere umano","verifica che sei umano","are you a robot","non sono un robot","captcha","unusual traffic")
-            if any(marker in challenge_text for marker in challenge_markers):
+            challenge=await _visible_human_challenge(page)
+            limited_status=response.status if response and response.status in {403,429} else 0
+            # Assisted mode means an ACTUAL pause on the CURRENT Chrome tab,
+            # including a public 403/429 so the user can inspect the page.
+            # An HTTP limit is not a CAPTCHA and cannot be removed by this pause.
+            if challenge.get("visible") or limited_status:
+                is_challenge=bool(challenge.get("visible"))
+                kind="visible_public_challenge" if is_challenge else "limited_frontend_review"
+                reason=(
+                    f"Verifica pubblica visibile: {challenge.get('reason','')}."
+                    if is_challenge else
+                    f"HTTP {limited_status}: accesso limitato. Puoi esaminare la pagina; "
+                    "se non compare una verifica pubblica, premi «Salta questa OTA»."
+                )
                 action=await _human_assist(page,assist_callback,{
-                    "type":"visible_public_challenge","otaId":channel,
-                    "label":OTA_META[channel]["label"],
-                    "reason":"Verifica umana visibile sulla pagina aperta.",
-                    "instructions":"Completa manualmente la verifica visibile nella finestra Chrome. Quando la pagina viene sbloccata, torna su Velora e premi «Ho completato · riprendi». Non eseguire login.",
+                    "type":kind,"otaId":channel,"label":OTA_META[channel]["label"],
+                    "reason":reason,
+                    "instructions":(
+                        "Velora è FERMO su questa pagina e attende fino a 15 minuti. "
+                        "Usa Alt+Tab per tornare su Velora. "
+                        "Se è visibile una verifica pubblica, completala personalmente in Chrome, "
+                        "poi premi «Ho completato · riprendi». "
+                        "Se la pagina mostra solo accesso negato/HTTP 429 senza una verifica, "
+                        "premi «Salta questa OTA». Non effettuare login né aggirare limiti."
+                    ),
                     "propertyName":property_name,"city":city,"stay":stay,
                     "url":page.url,
                 },ghost)
-                record["manualChallenge"]={"prompted":True,"action":action}
+                record["manualChallenge"]={"prompted":True,"type":kind,"action":action}
                 if action not in {"continue","done"}:
-                    record.update(status="human_verification_pending",finalUrl=page.url,
-                        evidence=f"Verifica visibile: assistenza {action}; nessuna tariffa verificata.")
+                    record.update(
+                        status=("rate_limited" if limited_status==429 else
+                                "http_error" if limited_status==403 else "human_verification_pending"),
+                        finalUrl=page.url,
+                        evidence=f"Assistenza manuale: {action}. {reason} Nessuna tariffa verificata.",
+                    )
                     return record
-                record["navigationSteps"].append({"step":"human_verification","status":"completed","detail":"Ripresa confermata dall'utente"})
+                await page.wait_for_timeout(650)
+                still=await _visible_human_challenge(page)
+                if still.get("visible"):
+                    record.update(status="human_verification_pending",finalUrl=page.url,
+                        evidence="Verifica ancora presente dopo la ripresa; nessuna tariffa acquisita.")
+                    return record
+                record["navigationSteps"].append({
+                    "step":"human_verification","status":"completed",
+                    "detail":"Utente ha confermato la ripresa; contenuto da verificare",
+                })
 
         # Il contenuto OTA spesso compare dopo il primo DOM; il limite resta breve.
         try:
@@ -11772,6 +11839,45 @@ async def _set_interaction_window(page, visible: bool) -> None:
         pass
 
 
+async def _visible_human_challenge(page) -> dict:
+    """Detect an actionable public challenge, including visible CAPTCHA iframes.
+
+    This inspects the displayed page only: it never clicks or solves a challenge.
+    """
+    try:
+        finding=await page.evaluate(r"""() => {
+          const visible=el=>{
+            if(!el) return false;
+            const r=el.getBoundingClientRect(), s=getComputedStyle(el);
+            return r.width>12 && r.height>12 && s.display!=='none' &&
+                   s.visibility!=='hidden' && s.opacity!=='0';
+          };
+          const frame=Array.from(document.querySelectorAll('iframe'))
+            .filter(visible).find(el=>/recaptcha|hcaptcha|turnstile|captcha|challenges.cloudflare/i.test(
+              [el.src,el.title,el.id,el.name].join(' ')));
+          if(frame) return {visible:true,reason:'iframe di verifica visibile'};
+          const explicit=Array.from(document.querySelectorAll(
+            '[id*="challenge" i], [class*="challenge" i], [data-sitekey], [id*="captcha" i]'
+          )).filter(visible).find(el=>/captcha|cloudflare|human|robot|verify|turnstile|security/i.test(
+            [el.id,el.className,el.innerText||''].join(' ').slice(0,450)));
+          if(explicit) return {visible:true,reason:'componente di verifica visibile'};
+          const main=String(document.body?.innerText||'').toLowerCase().slice(0,9500);
+          const markers=[
+            'verify you are human','verify that you are human','are you a robot',
+            'i am human','confirm you are human','checking your browser',
+            'verifica che sei umano','verifica di essere umano','verifica di essere un essere umano',
+            'verifica che non sei un robot','dimostra di essere umano',
+            'conferma di non essere un robot','non sono un robot',
+            'completa la verifica di sicurezza','complete the security check',
+          ];
+          const mark=markers.find(m=>main.includes(m));
+          return {visible:Boolean(mark),reason:mark||''};
+        }""")
+        return finding if isinstance(finding,dict) else {"visible":False,"reason":""}
+    except Exception:
+        return {"visible":False,"reason":""}
+
+
 async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> str:
     """Handoff esplicito all'utente. Nessun CAPTCHA o login viene automatizzato."""
     if not callable(callback):
@@ -11929,6 +12035,7 @@ async def run(args: argparse.Namespace) -> dict:
     assisted=bool(getattr(args,"assisted",False))
     pricing_only=bool(getattr(args,"pricing_only",False))
     assist_callback=getattr(args,"assist_callback",None) if assisted else None
+    print(f"assistenza manuale: {'ATTIVA (pausa reale fino a 15 minuti)' if assisted else 'DISATTIVA'} · Ghost={'sì' if ghost else 'no'}",flush=True)
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, solo frontend pubblico senza login: scheda → date → ospiti → cerca → tariffe; nessun account, registrazione, tariffa member/app o bypass.",
               "plan": plan, "bookingEngine": {"status": "unverified", "provider": "", "url": "", "mode": "",
