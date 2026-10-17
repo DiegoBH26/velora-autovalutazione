@@ -9643,17 +9643,32 @@ async def observe(
         if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
             challenge=await _visible_human_challenge(page)
             limited_status=response.status if response and response.status in {403,429} else 0
-            # Assisted mode means an ACTUAL pause on the CURRENT Chrome tab,
-            # including a public 403/429 so the user can inspect the page.
-            # An HTTP limit is not a CAPTCHA and cannot be removed by this pause.
-            if challenge.get("visible") or limited_status:
+            # Assisted mode is an intentional checkpoint, NOT a race against
+            # challenge recognition. For Vrbo and Expedia the user must get
+            # time to inspect the landing page even if it has no CAPTCHA
+            # marker or immediately returns HTTP 429.
+            forced_portal_checkpoint=channel in {"vrbo","expedia"}
+            if forced_portal_checkpoint or challenge.get("visible") or limited_status:
                 is_challenge=bool(challenge.get("visible"))
-                kind="visible_public_challenge" if is_challenge else "limited_frontend_review"
+                kind=(
+                    "visible_public_challenge" if is_challenge else
+                    "limited_frontend_review" if limited_status else
+                    "public_listing_review"
+                )
                 reason=(
                     f"Verifica pubblica visibile: {challenge.get('reason','')}."
                     if is_challenge else
                     f"HTTP {limited_status}: accesso limitato. Puoi esaminare la pagina; "
                     "se non compare una verifica pubblica, premi «Salta questa OTA»."
+                    if limited_status else
+                    f"Scheda {OTA_META[channel]['label']} aperta. Velora è FERMO: "
+                    "hai tempo di esaminare la pagina, eventuali consensi o verifiche."
+                )
+                print(
+                    f"{channel}: CHECKPOINT UMANO OBBLIGATORIO · "
+                    f"HTTP={limited_status or (response.status if response else 'browser UI')} · "
+                    f"challenge={challenge.get('visible',False)} · url={page.url[:260]}",
+                    flush=True,
                 )
                 action=await _human_assist(page,assist_callback,{
                     "type":kind,"otaId":channel,"label":OTA_META[channel]["label"],
@@ -9726,8 +9741,13 @@ async def observe(
                     status="rate_limited" if response.status==429 else "http_error",
                     evidence=(
                         f"HTTP {response.status} · frontend pubblico non disponibile in questa sessione "
-                        f"(contenuto insufficiente). Nessun login, retry aggressivo o intervento utente: "
-                        "Velora passa automaticamente alla OTA successiva."
+                        f"(contenuto insufficiente). "
+                        + (
+                            f"Assistenza manuale {record.get('manualChallenge',{}).get('action','esaminata')}: "
+                            "nessun contenuto tariffario pubblico verificabile dopo la pausa."
+                            if record.get("manualChallenge")
+                            else "Nessun login o retry aggressivo; Velora passa alla OTA successiva."
+                        )
                     ),
                 )
                 return record
@@ -12725,7 +12745,8 @@ async def run(args: argparse.Namespace) -> dict:
                     print(
                         f"{effective_stay['month']} {channel}: START frontend pubblico · "
                         f"BOOKING LOCK={effective_stay['checkin']}→{effective_stay['checkout']} · "
-                        f"{effective_stay.get('adults',2)} adulti",
+                        f"{effective_stay.get('adults',2)} adulti · "
+                        f"assistenza_richiesta={assisted} · callback_attivo={callable(assist_callback)}",
                         flush=True,
                     )
                     if channel=="booking" and precomputed_booking is not None:
