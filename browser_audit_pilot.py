@@ -11886,6 +11886,13 @@ async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> s
     payload.setdefault("url",str(page.url or ""))
     payload.setdefault("requestedAt",datetime.now(timezone.utc).isoformat())
     await _set_interaction_window(page,True)
+    if os.name=="nt":
+        # Notice that assistance is waiting even when the browser covers Velora.
+        try:
+            import winsound
+            await asyncio.to_thread(winsound.MessageBeep,winsound.MB_ICONEXCLAMATION)
+        except Exception:
+            pass
     print(
         f"ASSISTENZA UMANA RICHIESTA · {payload.get('label') or payload.get('otaId') or 'OTA'} · "
         f"{str(payload.get('reason') or '')[:220]}",
@@ -11896,6 +11903,9 @@ async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> s
     except Exception as exc:
         print(f"assistenza umana non disponibile: {type(exc).__name__}: {str(exc)[:160]}",flush=True)
         action="error"
+    finally:
+        if ghost:
+            await _set_interaction_window(page,False)
     return str(action or "timeout").lower()
 
 
