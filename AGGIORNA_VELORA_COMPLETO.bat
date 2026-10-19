@@ -17,33 +17,41 @@ pause
 
 set "BASE=https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main"
 
-for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py) do (
+for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py ota_public_source_hints.json) do (
   if exist "%%F" copy /Y "%%F" "%%F.bak" >nul 2>nul
 )
 
-echo [1/5] Scarico local_audit_server.py...
+echo [1/6] Scarico local_audit_server.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/local_audit_server.py?nocache=%RANDOM%' -OutFile 'local_audit_server.py.new'"
 if errorlevel 1 goto :errore
 
-echo [2/5] Scarico browser_audit_pilot.py...
+echo [2/6] Scarico browser_audit_pilot.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/browser_audit_pilot.py?nocache=%RANDOM%' -OutFile 'browser_audit_pilot.py.new'"
 if errorlevel 1 goto :errore
 
-echo [3/5] Scarico site_audit_builder.py...
+echo [3/6] Scarico site_audit_builder.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/site_audit_builder.py?nocache=%RANDOM%' -OutFile 'site_audit_builder.py.new'"
 if errorlevel 1 goto :errore
 
-echo [4/5] Scarico booking_engine.py...
+echo [4/6] Scarico booking_engine.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/booking_engine.py?nocache=%RANDOM%' -OutFile 'booking_engine.py.new'"
 if errorlevel 1 goto :errore
 
-echo [5/5] Scarico velora_quote_history.py...
+echo [5/6] Scarico velora_quote_history.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_quote_history.py?nocache=%RANDOM%' -OutFile 'velora_quote_history.py.new'"
+if errorlevel 1 goto :errore
+
+echo [6/6] Scarico riferimenti pubblici OTA forniti dall'utente...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/ota_public_source_hints.json?nocache=%RANDOM%' -OutFile 'ota_public_source_hints.json.new'"
+if errorlevel 1 goto :errore
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "try{$h=Get-Content 'ota_public_source_hints.json.new' -Raw | ConvertFrom-Json; if($h.schema -ne 'velora-public-ota-source-hints-v1'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
 
 for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new) do (
@@ -59,6 +67,7 @@ move /Y "browser_audit_pilot.py.new" "browser_audit_pilot.py" >nul
 move /Y "site_audit_builder.py.new" "site_audit_builder.py" >nul
 move /Y "booking_engine.py.new" "booking_engine.py" >nul
 move /Y "velora_quote_history.py.new" "velora_quote_history.py" >nul
+move /Y "ota_public_source_hints.json.new" "ota_public_source_hints.json" >nul
 
 if exist "__pycache__" (
   del /Q "__pycache__\browser_audit_pilot*.pyc" 2>nul
@@ -87,6 +96,7 @@ echo ==========================================================
 echo.
 echo I vecchi file sono stati salvati come .bak.
 del /Q "*.py.new" 2>nul
+del /Q "ota_public_source_hints.json.new" 2>nul
 echo.
 echo Mandami una foto di questa schermata.
 echo.
