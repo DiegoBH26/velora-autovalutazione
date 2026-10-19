@@ -9938,6 +9938,14 @@ async def observe(
             if int(early.get("bodyLength") or 0)<700 and int(early.get("interactive") or 0)<3:
                 record["finalUrl"]=page.url
                 record["title"]=(await page.title())[:200]
+                if channel in {"vrbo","expedia","holidu"}:
+                    record["accessLimit"]={
+                        "httpStatus":response.status,
+                        "stage":"before_dates_and_room_rates",
+                        "automaticRateCollectionPossible":False,
+                        "publicListingCandidate":page.url,
+                        "manualAction":"Consultare una tariffa soltanto se visibile nel proprio browser, senza riutilizzare prezzi di altre date.",
+                    }
                 record.update(
                     status="rate_limited" if response.status==429 else "http_error",
                     evidence=(
@@ -10288,6 +10296,14 @@ async def observe(
             and not ota_auth_wall(page.url,record["title"],body)
         )
         if response and response.status in {403,429} and not rendered_usable:
+            if channel in {"vrbo","expedia","holidu"}:
+                record["accessLimit"]={
+                    "httpStatus":response.status,
+                    "stage":"after_page_render_without_verified_rate",
+                    "automaticRateCollectionPossible":False,
+                    "publicListingCandidate":page.url,
+                    "manualAction":"Consultare una tariffa soltanto se visibile nel proprio browser, con le date Booking.",
+                }
             record.update(
                 status="rate_limited" if response.status==429 else "http_error",
                 evidence=(
