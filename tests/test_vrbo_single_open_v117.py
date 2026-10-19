@@ -32,7 +32,7 @@ class VrboSingleOpenV117Tests(unittest.TestCase):
     def test_observe_default_preserves_other_channels(self):
         function=next(n for n in TREE.body if isinstance(n,ast.AsyncFunctionDef) and n.name=="observe")
         self.assertIn("direct_public_source",[a.arg for a in function.args.args])
-        self.assertEqual(len(function.args.defaults),3)  # assist_callback, ghost, direct_public_source
+        self.assertEqual(len(function.args.defaults),5)  # property_name, city, assist_callback, ghost, direct_public_source
         self.assertIsInstance(function.args.defaults[-1],ast.Constant)
         self.assertIs(function.args.defaults[-1].value,False)
 
