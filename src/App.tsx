@@ -3663,6 +3663,8 @@ type BrowserPilotObservation = {
   month: string;
   checkin: string;
   checkout: string;
+  nights?: number;
+  adults?: number;
   status: string;
   evidence?: string;
   requestedUrl?: string;
@@ -3915,6 +3917,10 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
     source_not_retested: "Scheda non ritestata nel test rapido",
     source_missing: "Scheda non individuata automaticamente in questo passaggio",
     rate_limited: "Portale limita temporaneamente la verifica",
+    rate_limited_session: "Accesso limitato per questa scansione: richieste successive sospese",
+    access_blocked: "Accesso negato senza verifica completabile",
+    source_unverified: "Pagina candidata trovata, identità da confermare",
+    wrong_property_listing: "Identità della pagina non confermata",
     blocked: "Verifica impedita dal portale",
     http_error: "Errore HTTP durante la verifica",
     navigation_error: "Errore di navigazione durante la verifica",
@@ -4809,6 +4815,10 @@ export default function App() {
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [rateQuotes, setRateQuotes] = useState<RateQuote[]>([]);
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
+  const [manualRateSource, setManualRateSource] = useState<null | {
+    otaId: string; checkin: string; checkout: string; nights: number; guests: number;
+    url: string;
+  }>(null);
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
   const [browserPilotResult, setBrowserPilotResult] = useState<BrowserPilotResult | null>(null);
@@ -5794,7 +5804,37 @@ export default function App() {
     }));
   }
 
+  function prepareBlockedOtaManualQuote(observation: BrowserPilotObservation) {
+    const start = Date.parse(observation.checkin + "T00:00:00Z");
+    const finish = Date.parse(observation.checkout + "T00:00:00Z");
+    const nights = Number.isFinite(start) && Number.isFinite(finish)
+      ? Math.max(1, Math.round((finish - start) / 86400000))
+      : Math.max(1, Number(observation.nights || 1));
+    const guests = Math.max(1, Number(observation.adults || 2));
+    const url = (observation.finalUrl || observation.requestedUrl || "").trim();
+    setManualRateSource({
+      otaId: observation.otaId, checkin: observation.checkin,
+      checkout: observation.checkout, nights, guests, url,
+    });
+    setRateDraft({
+      ...EMPTY_RATE_DRAFT,
+      otaId: observation.otaId, stayDate: observation.checkin, nights, guests,
+      roomType: "", board: "Altro / non chiaro", refund: "Non chiaro",
+      taxes: "Non chiaro", audience: "Pubblico senza login", sourceUrl: url,
+    });
+    document.getElementById("velora-manual-rate-form")?.scrollIntoView({behavior: "smooth",block: "start"});
+  }
+
   function addRateQuote() {
+    if (manualRateSource && (
+      rateDraft.otaId !== manualRateSource.otaId ||
+      rateDraft.stayDate !== manualRateSource.checkin ||
+      rateDraft.nights !== manualRateSource.nights ||
+      rateDraft.guests !== manualRateSource.guests
+    )) {
+      window.alert("Il prezzo va registrato per la stessa OTA, le date e gli ospiti fissati da Booking. Per registrare un soggiorno diverso, esci prima dall'acquisizione assistita.");
+      return;
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || rateDraft.stayDate < todayLocalIso() || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim()) || (Number(rateDraft.originalTotal) > 0 && Number(rateDraft.originalTotal) <= rateDraft.total)) {
       window.alert("Inserisci una data futura, prezzo positivo, camera, ospiti e URL. Se indichi un prezzo barrato, deve superare quello finale.");
       return;
@@ -5802,6 +5842,7 @@ export default function App() {
     const quote: RateQuote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim(), origin: "manual" };
     setRateQuotes((previous) => [...previous, quote]);
     setSelectedRateCohort(rateCohortKey(quote));
+    setManualRateSource(null);
     setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, originalTotal: 0, promotion: "", eventTag: "", sourceUrl: "" }));
   }
 
@@ -7995,7 +8036,8 @@ export default function App() {
                   const google = nav.find((step) => step.step === "google");
                   const listing = nav.find((step) => step.step === "listing");
                   const denied = observation.status === "robots_denied" || observation.evidence?.includes("robots_denied");
-                  const blocking = denied || ["rate_limited","http_error","frontend_navigation_failed","blocked"].includes(observation.status);
+                  const blocking = denied || ["rate_limited","rate_limited_session","access_blocked","http_error","frontend_navigation_failed","blocked"].includes(observation.status);
+                  const canReviewManually = ["rate_limited","rate_limited_session","access_blocked","http_error","source_missing","source_unverified","wrong_property_listing","frontend_navigation_failed","blocked","human_verification_pending"].includes(observation.status);
                   const quotes = (observation.quotes || []).length;
                   const steps = [
                     {title:"Google",state:google?.status || (denied ? "blocked" : "unknown")},
@@ -8026,6 +8068,14 @@ export default function App() {
                       <p className="font-bold text-[#23124A]">Dettaglio tecnico</p>
                       <p className="mt-1 break-words">{observation.evidence || "Nessun dettaglio disponibile."}</p>
                       {observation.finalUrl && <p className="mt-2 break-all">URL finale: {observation.finalUrl}</p>}
+                      {canReviewManually && <div className="mt-3 rounded-xl border border-[#E2D8ED] bg-[#FAF7FC] p-2.5">
+                        <p className="text-[10px] font-semibold text-[#23124A]">L'accesso negato non equivale a una camera indisponibile. Nessun prezzo automatico è stato acquisito da questa pagina.</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={() => prepareBlockedOtaManualQuote(observation)} className="rounded-lg bg-[#23124A] px-3 py-2 text-[10px] font-black text-white">Registra tariffa vista manualmente</button>
+                          {(observation.finalUrl || observation.requestedUrl) && <a href={observation.finalUrl || observation.requestedUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-[#C9BADE] bg-white px-3 py-2 text-[10px] font-bold text-[#23124A]">Apri pagina nel tuo browser ↗</a>}
+                        </div>
+                        <p className="mt-2 text-[10px] text-[#50627F]">Utilizza solo una tariffa che riesci realmente a visualizzare nel tuo browser, sulle date Booking. Nessun login automatico o tentativo di superare il blocco.</p>
+                      </div>}
                       {nav.length > 0 && <div className="mt-2 space-y-1">{nav.map((step, index) => <p key={index}>{step.step}: {step.status}{step.detail ? ` · ${step.detail}` : ""}</p>)}</div>}
                     </div>
                   </details>;
@@ -8111,6 +8161,15 @@ export default function App() {
             <table className="min-w-[1000px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese / date campione</th><th className="p-2 text-left">Sito diretto · range tipologie</th><th className="p-2 text-left">Booking · range tipologie</th><th className="p-2 text-left">Altri portali · copertura parziale</th><th className="p-2 text-left">Delta omogeneo</th></tr></thead><tbody>{publishedMonthlySamples.map((sample) => <tr key={sample.month} className="border-t border-[#E5DDF1] align-top odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{sample.month}<span className="block font-medium text-[#50627F]">{sample.stay} · {sample.nights} notti</span></th><td className="p-2">{publishedRange(sample.direct)}</td><td className="p-2">{publishedRange(sample.booking)}</td><td className="p-2">{sample.other}</td><td className="p-2">{sample.delta}</td></tr>)}</tbody></table>
           </div>}
           {publishedMonthlySamples.length > 0 && <p className="mt-2 text-[10px] leading-4 text-[#50627F]">{activeAuditData.pricingAudit.method} I mesi senza prezzo verificato non provano chiusura stagionale; i delta richiedono preventivi omogenei.</p>}
+          <div id="velora-manual-rate-form" className="scroll-mt-24 mt-4">
+            {manualRateSource && <div role="status" className="mb-3 rounded-xl border border-[#C8B9DA] bg-[#FBF8FE] p-3 text-xs text-[#23124A]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <b>Acquisizione assistita · {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}</b>
+                <button type="button" onClick={() => setManualRateSource(null)} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
+              </div>
+              <p className="mt-1">Date Booking bloccate: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti.</p>
+              <p className="mt-1 text-[#50627F]">Inserisci solo il prezzo totale e la camera realmente visibili nel portale. L'inserimento sarà contrassegnato come manuale, non come scraping automatico. Se la pagina è ancora bloccata, non inserire prezzi.</p>
+            </div>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
             <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
@@ -8139,6 +8198,7 @@ export default function App() {
             <p className="text-[10px] leading-4 text-amber-900 md:col-span-2">Il portale deve attribuire lo sconto a questa struttura e a queste date. Non confondere campagne generiche del portale con una promozione dell'hotel; se il prezzo barrato non compare, lascia vuoto.</p>
           </div>
           <button type="button" onClick={addRateQuote} className="mt-3 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Aggiungi manualmente prezzo e promozione osservati</button>
+          </div>
           <label className="mt-4 block text-[11px] font-black text-[#23124A]">Confronta condizioni omogenee
             <select value={activeCohort} onChange={(event) => setSelectedRateCohort(event.target.value)} className="mt-1 block w-full rounded-xl border border-[#E0D7EC] bg-white p-2.5 text-xs font-medium"><option value="">Seleziona camera e piano tariffario</option>{cohortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           </label>
