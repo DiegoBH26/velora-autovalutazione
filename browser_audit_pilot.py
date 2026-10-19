@@ -5200,8 +5200,18 @@ async def vrbo_submit_search(page, stay: dict) -> str:
 
 
 async def vrbo_reveal_rates(page, source: str, stay: dict) -> str:
-    """Vrbo: se Cerca apre i risultati, rientra nella stessa PDP e porta a vista le unità."""
+    """Vrbo: use the public multi-unit listing, submitting Search only if needed."""
     evidence=[]
+    # Screenshot-guided flow: some Vrbo /pdp/lo pages already render all
+    # accommodation cards after the dates are selected. Avoid a second
+    # "Search" click (and unnecessary navigation) when rates are visible.
+    # This helper is only called after the Booking-locked dates were checked.
+    try:
+        already=await vrbo_quote_candidates(page,stay)
+    except Exception:
+        already=[]
+    if already:
+        return f"Vrbo: {len(already)} righe camera/prezzo già visibili nella scheda collettiva; nessuna seconda ricerca inviata."
     evidence.append(await vrbo_submit_search(page,stay))
     clean_source=normalize_ota_listing_url("vrbo",source)
     source_path=(urlparse(clean_source).path or "").rstrip("/")
