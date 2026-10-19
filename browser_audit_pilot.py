@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v116"
+PILOT_BUILD = "velora-browser-pilot-v117"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -9751,7 +9751,8 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
 
 async def observe(
     page, channel: str, source: str, stay: dict, robots: dict,
-    property_name: str="", city: str="", assist_callback=None, ghost: bool=False
+    property_name: str="", city: str="", assist_callback=None, ghost: bool=False,
+    direct_public_source: bool=False,
 ) -> dict:
     requested = frontend_entry_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
@@ -9772,8 +9773,15 @@ async def observe(
         record["robotsNotice"]="robots.txt non disponibile/chiarificatore; lettura effettuata nel browser pubblico senza bypass."
     try:
         frontend_click={}
-        if channel in {"vrbo","expedia","holidu"} and property_name:
+        if channel in {"vrbo","expedia","holidu"} and property_name and not direct_public_source:
             frontend_click=await google_click_ota_listing(page,channel,property_name,city,robots,assist_callback,ghost,stay)
+        elif channel=="vrbo" and direct_public_source:
+            frontend_click={
+                "status":"skipped_known_public_listing",
+                "stage":"source_provided_by_user",
+                "selectedUrl":requested,
+                "evidence":"Salta Google: URL pubblico di riferimento; identità ancora da verificare dal contenuto reale.",
+            }
             record["googleFrontendNavigation"]=frontend_click
             print(f"{channel}-google-ui: {frontend_click.get('status')} · stage={frontend_click.get('stage','?')} · blocked={frontend_click.get('blockedSite','')} · candidates={frontend_click.get('candidates',0)} · query={frontend_click.get('query')} · url={frontend_click.get('finalUrl','')}",flush=True)
         if frontend_click.get("status")=="clicked" and _classify_ota_url(page.url)==channel:
@@ -9897,8 +9905,16 @@ async def observe(
                         evidence="Sessione ancora bloccata dal portale dopo l'intervento. Nessun elemento CAPTCHA disponibile e nessuna tariffa acquisita.")
                     return record
                 if still.get("visible"):
-                    record.update(status="human_verification_pending",finalUrl=page.url,
-                        evidence="Verifica ancora presente dopo la ripresa; nessuna tariffa acquisita.")
+                    record.update(
+                        status="rate_limited" if limited_status==429 else "human_verification_pending",
+                        finalUrl=page.url,
+                        evidence=(
+                            "HTTP 429: verifica ancora presente dopo la ripresa. "
+                            "La conferma dell'utente non ha sbloccato l'accesso; nessuna tariffa acquisita."
+                            if limited_status==429 else
+                            "Verifica ancora presente dopo la ripresa; nessuna tariffa acquisita."
+                        ),
+                    )
                     return record
                 record["navigationSteps"].append({
                     "step":"human_verification","status":"completed",
@@ -12111,7 +12127,7 @@ async def _visible_human_challenge(page) -> dict:
           const pageText=String(document.body?.innerText||'').toLowerCase().slice(0,12000);
           // An explicit denial ("You have been blocked") is NOT a puzzle.
           // Do not ask the user to drag or select anything that is absent.
-          const hardBlock=/(you have been blocked|your access has been blocked|we have blocked your access|you are blocked)/i.test(pageText);
+          const hardBlock=/(you have been blocked|your access has been blocked|we have blocked your access|you are blocked|you have been denied access|we can't tell if you're a human or a bot.*(?:blocked|temporarily limited)|non siamo sicuri se sei un essere umano o un robot.*(?:accesso|limitato)|l'accesso è temporaneamente limitato|access is temporarily limited)/i.test(pageText);
           if(hardBlock) return {visible:false,blocked:true,reason:'accesso negato dal portale: nessuna verifica interattiva'};
           const frame=Array.from(document.querySelectorAll('iframe'))
             .filter(visible).find(el=>/recaptcha|hcaptcha|turnstile|captcha|challenges.cloudflare/i.test(
@@ -12376,6 +12392,22 @@ async def run(args: argparse.Namespace) -> dict:
                 write_result(output,result)
     
             official_identity_url=(sources.get("sito") or {}).get("url","")
+            # Only for a single Vrbo test with a user-supplied public listing:
+            # the URL is a navigation hint, never a previously observed price.
+            # Bypass duplicate OTA discovery and preliminary listing checks;
+            # pricing must still open the listing fresh and validate identity,
+            # Booking dates, guests and visible rates.
+            vrbo_public_hints=public_ota_source_hints(data,"vrbo") if "vrbo" in channels else []
+            vrbo_single_direct_pricing=bool(
+                len(channels)==1 and channels[0]=="vrbo" and vrbo_public_hints
+            )
+            if vrbo_single_direct_pricing:
+                sources["vrbo"]={"label":OTA_META["vrbo"]["label"],"url":vrbo_public_hints[0]}
+                print(
+                    "vrbo-one-open-plan: scheda pubblica nota · discovery e verifica preliminare "
+                    "saltate; UNA nuova apertura solo durante il pricing dopo le date Booking",
+                    flush=True,
+                )
             known_ota_sources=[
                 ota_id for ota_id in OTA_DISCOVERY_ORDER
                 if ((sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else "")
@@ -12395,7 +12427,11 @@ async def run(args: argparse.Namespace) -> dict:
             ]
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
-            quick_retest=bool(pricing_only and selected_discovery_ids and not missing_discovery_ids and not ({"airbnb","vrbo"} & set(selected_discovery_ids)))
+            quick_retest=bool(
+                vrbo_single_direct_pricing
+                or (pricing_only and selected_discovery_ids and not missing_discovery_ids
+                    and not ({"airbnb","vrbo"} & set(selected_discovery_ids)))
+            )
             discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids or ota in {"airbnb","vrbo"}] if pricing_only else selected_discovery_ids)
 
             if quick_retest:
@@ -12554,6 +12590,21 @@ async def run(args: argparse.Namespace) -> dict:
             unverified_source_ids=set()
             for ota_id in selected_discovery_ids:
                 existing_url=(sources.get(ota_id) or {}).get("url") if isinstance(sources.get(ota_id),dict) else ""
+                if existing_url and ota_id=="vrbo" and vrbo_single_direct_pricing:
+                    # No additional Vrbo HTTP request here: observe() is
+                    # responsible for checking the actual public page once.
+                    unverified_source_ids.add("vrbo")
+                    result["discoveredSources"]["vrbo"]={
+                        "status":"public_listing_candidate",
+                        "url":"",
+                        "candidateUrl":existing_url,
+                        "identityVerified":False,
+                        "presenceDetected":True,
+                        "discoveryMode":"user-provided public URL, deferred live verification",
+                        "evidence":"URL pubblico indicato dall'utente. Nessuna tariffa prelevata o riutilizzata; la scheda sarà verificata nel pricing.",
+                    }
+                    print("vrbo-one-open-plan: verifica anticipata della pagina saltata",flush=True)
+                    continue
                 if existing_url:
                     try:
                         verification=await verify_ota_candidate_page(
@@ -13003,7 +13054,11 @@ async def run(args: argparse.Namespace) -> dict:
                     else:
                         # Percorso alternativo indipendente dalla discovery esterna:
                         # se manca una source o è soltanto candidata, cerca direttamente nel portale.
-                        if channel!="booking" and channel in OTA_DISCOVERY_ORDER and (not source or channel in unverified_source_ids or channel in {"airbnb","vrbo"}):
+                        if (
+                            channel!="booking" and channel in OTA_DISCOVERY_ORDER
+                            and not (channel=="vrbo" and vrbo_single_direct_pricing)
+                            and (not source or channel in unverified_source_ids or channel in {"airbnb","vrbo"})
+                        ):
                             try:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
@@ -13141,7 +13196,8 @@ async def run(args: argparse.Namespace) -> dict:
                             try:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
-                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost),
+                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost,
+                                            direct_public_source=bool(channel=="vrbo" and vrbo_single_direct_pricing)),
                                     timeout=1000 if assisted and channel in {"vrbo","expedia","holidu"} else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
