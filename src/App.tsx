@@ -5839,7 +5839,17 @@ export default function App() {
       window.alert("Inserisci una data futura, prezzo positivo, camera, ospiti e URL. Se indichi un prezzo barrato, deve superare quello finale.");
       return;
     }
-    const quote: RateQuote = { ...rateDraft, id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`, observedAt: new Date().toISOString(), roomType: rateDraft.roomType.trim(), sourceUrl: rateDraft.sourceUrl.trim(), origin: "manual" };
+    const quote: RateQuote = {
+      ...rateDraft,
+      id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`,
+      observedAt: new Date().toISOString(),
+      roomType: rateDraft.roomType.trim(),
+      sourceUrl: rateDraft.sourceUrl.trim(),
+      origin: "manual",
+      comparisonWarning: manualRateSource
+        ? "Tariffa trascritta manualmente da una pagina pubblica dall'operatore, non estratta dall'agente. Le condizioni e l'identità dell'unità restano da verificare per il delta."
+        : rateDraft.comparisonWarning,
+    };
     setRateQuotes((previous) => [...previous, quote]);
     setSelectedRateCohort(rateCohortKey(quote));
     setManualRateSource(null);
