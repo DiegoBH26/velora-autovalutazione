@@ -3596,6 +3596,36 @@ OTA_FRONTEND_SEARCH_HOME={
 }
 
 
+def public_ota_source_hints(data: dict, ota_id: str) -> list[str]:
+    """Optional user-supplied PUBLIC listing URLs, not verified identities or rates.
+
+    Match both the official website and the property brand. Every price/date
+    observation still starts fresh; a hint only saves repeated URL discovery.
+    """
+    try:
+        file=Path(__file__).resolve().parent/"ota_public_source_hints.json"
+        entries=json.loads(file.read_text(encoding="utf-8")).get("hints") or []
+        official=str(((data.get("sources") or {}).get("sito") or {}).get("url") or "")
+        host=(urlparse(official).hostname or "").lower().removeprefix("www.")
+        brand=_norm_name(str(data.get("name") or ""))
+        urls=[]
+        for entry in entries:
+            if not isinstance(entry,dict) or entry.get("otaId")!=ota_id:
+                continue
+            expected=str(entry.get("officialHost") or "").lower().removeprefix("www.")
+            needed=_norm_name(str(entry.get("propertyBrand") or ""))
+            if not host or host!=expected or not needed:
+                continue
+            if not set(needed.split()).issubset(set(brand.split())):
+                continue
+            url=normalize_ota_listing_url(ota_id,str(entry.get("url") or ""))
+            if _plausible_ota_listing_url(ota_id,url) and url not in urls:
+                urls.append(url)
+        return urls[:8]
+    except (OSError,ValueError,TypeError,AttributeError):
+        return []
+
+
 async def discover_vrbo_property_listings(context, data: dict, robots: dict) -> dict:
     """v100: indicizzazione pubblica di singole unita Vrbo, distinta dall'accesso al prezzo.
 
@@ -12914,12 +12944,20 @@ async def run(args: argparse.Namespace) -> dict:
                                 fresh_urls=list(frontend_source.get("listingUrls") or [])
                                 master=result.get("discoveredSources",{}).get("vrbo") or {}
                                 known_urls=list((sources.get("vrbo") or {}).get("listingUrls") or [])
+                                user_hints=public_ota_source_hints(data,"vrbo")
                                 candidate_pool=list(dict.fromkeys(
-                                    fresh_urls
+                                    user_hints
+                                    + fresh_urls
                                     + list(master.get("listingUrls") or [])
                                     + [master.get("candidateUrl"),master.get("url")]
                                     + known_urls
                                 ))
+                                if user_hints:
+                                    print(
+                                        f"vrbo-public-source-hints: {len(user_hints)} URL di riferimento "
+                                        "forniti dall'utente; identità NON ancora verificata, tariffe NON riutilizzate",
+                                        flush=True,
+                                    )
                                 candidate_pool=[url for url in candidate_pool if url]
                                 if source and source not in candidate_pool:
                                     candidate_pool.append(source)
