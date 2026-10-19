@@ -12794,6 +12794,10 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
 
+            # HTTP 429 is an access limitation, not missing inventory.
+            # Avoid repeated requests to a portal which already denied access
+            # during this same scan; still report every monthly test separately.
+            temporarily_limited_otas={}
             for stay_index,planned_stay in enumerate(list(plan)):
                 await ensure_pricing_context(f"inizio campione tariffario {planned_stay.get('month','')}")
                 effective_stay=dict(planned_stay)
@@ -12925,7 +12929,18 @@ async def run(args: argparse.Namespace) -> dict:
                         f"assistenza_richiesta={assisted} · callback_attivo={callable(assist_callback)}",
                         flush=True,
                     )
-                    if channel=="booking" and precomputed_booking is not None:
+                    if channel in temporarily_limited_otas:
+                        prior=temporarily_limited_otas[channel]
+                        record={
+                            "otaId":channel,**effective_stay,
+                            "status":"rate_limited_session","quotes":[],
+                            "evidence":(
+                                f"{OTA_META[channel]['label']}: accesso temporaneamente limitato "
+                                f"nel campione precedente ({prior}); nessuna ulteriore richiesta "
+                                "in questa scansione. Non significa che l'alloggio non sia disponibile."
+                            )[:900],
+                        }
+                    elif channel=="booking" and precomputed_booking is not None:
                         record=precomputed_booking
                     else:
                         # Percorso alternativo indipendente dalla discovery esterna:
@@ -13419,6 +13434,16 @@ async def run(args: argparse.Namespace) -> dict:
                         record["evidence"]=(
                             "PAGINA OTA TROVATA · identità da confermare. " + str(record.get("evidence") or "")
                         )[:900]
+                    if (
+                        channel in {"vrbo","expedia","holidu"}
+                        and record.get("status") in {"rate_limited","access_blocked"}
+                    ):
+                        temporarily_limited_otas[channel]=str(record.get("status") or "HTTP 429")
+                        print(
+                            f"{channel}: limita ulteriori richieste nella stessa scansione "
+                            f"(esito {record.get('status')})",
+                            flush=True,
+                        )
                     record["scanFresh"]=True
                     record["scanVersion"]=PILOT_BUILD
                     result["observations"].append(record)
