@@ -1186,6 +1186,32 @@ def _strict_ota_identity_match(
     name_ok=name_score>=0.54
     strict_ok=bool(geo_ok and name_ok and score>=0.66)
 
+    # Vrbo multi-unit pages frequently use a commercial name variant:
+    # "Perla Saracena Luxury Hotel & Restaurant" versus
+    # "Perla Saracena Luxury Suites". Search engines may append SEO copy
+    # to <title> and reduce the name similarity below the numeric threshold.
+    # For public /pdp/lo/ group listings, corroborate the distinctive
+    # brand phrase in the actual PAGE heading and the same locality before
+    # accepting a moderate score. Never trust the URL on its own.
+    vrbo_group_alias=False
+    if (
+        not strict_ok and _classify_ota_url(url)=="vrbo"
+        and "/pdp/lo/" in (urlparse(url).path or "").lower()
+        and city_match and score>=0.60 and name_score>=0.50
+    ):
+        brand_tokens=[
+            token for token in _norm_name(property_name).split()
+            if len(token)>=3
+        ]
+        heading_tokens=_norm_name(title).split()
+        core=brand_tokens[:2]
+        if len(core)==2 and any(
+            heading_tokens[i:i+len(core)]==core
+            for i in range(max(0,len(heading_tokens)-len(core)+1))
+        ):
+            vrbo_group_alias=True
+            strict_ok=True
+
     # Airbnb vende le camere/suite con titoli specifici e può mostrare il nome
     # della marina/frazione anziché il comune registrato in anagrafica.
     # Non rifiutare automaticamente "Hotel <brand> - Suite ..." solo perché
@@ -1215,6 +1241,12 @@ def _strict_ota_identity_match(
         f"indirizzo {address_ratio:.0%}" if address_norm else "indirizzo n.d.",
         f"score complessivo {score:.0%}",
     ]
+    if vrbo_group_alias:
+        evidence_parts.append(
+            "Vrbo: denominazione commerciale alternativa confermata nella testata; "
+            "brand distintivo e località corrispondono. Identità verificata con "
+            "criteri specifici per schede collettive, non solo soglia SEO 66%"
+        )
     if airbnb_brand_verified:
         evidence_parts.append(
             "Airbnb: brand completo identificato nella testata e nella descrizione "
@@ -9930,9 +9962,19 @@ async def observe(
                 candidate_body=(await page.locator("body").inner_text(timeout=5500))[:18000]
             except Exception:
                 candidate_title=""; candidate_body=""
+            # Prefer the visible property heading over SEO/browser titles.
+            # The latter often include booking slogans that dilute similarity.
+            heading=""
+            try:
+                heading=(await page.locator("h1").first.inner_text(timeout=1600)).strip()[:260]
+            except Exception:
+                pass
+            title_for_identity=heading or candidate_title
             identity=_strict_ota_identity_match(
-                property_name,city,"",candidate_title,candidate_body,page.url
+                property_name,city,"",title_for_identity,candidate_body,page.url
             )
+            record["identityHeading"]=heading[:160]
+            record["identityBrowserTitle"]=candidate_title[:180]
             record["identityCheck"]={
                 "verified":bool(identity.get("ok")),
                 "score":identity.get("score",0.0),
@@ -13417,6 +13459,14 @@ async def run(args: argparse.Namespace) -> dict:
                             )[:1200]
                         if normalized_quotes and not public_quotes and record.get("status") in {"quote_candidates","quote_candidates_unverified"}:
                             record["status"]="no_public_rate"
+                    # A source discovered as an unverified Google candidate
+                    # becomes verified only after observe() reads the LIVE page
+                    # and the strict identity check succeeds. Do not keep the
+                    # quotes artificially excluded from the Booking comparison.
+                    if channel in {"vrbo","holidu"} and (record.get("identityCheck") or {}).get("verified"):
+                        record["sourceIdentityVerified"]=True
+                        unverified_source_ids.discard(channel)
+                        print(f"{channel}: identità scheda verificata sul frontend reale",flush=True)
                     if channel in unverified_source_ids:
                         record["sourceIdentityVerified"]=False
                         record["sourcePresence"]="candidate_found"
