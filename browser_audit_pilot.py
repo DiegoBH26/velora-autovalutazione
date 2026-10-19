@@ -3608,10 +3608,13 @@ async def discover_vrbo_property_listings(context, data: dict, robots: dict) -> 
         return {"status":"not_found","url":"","listingUrls":[],"evidence":"Vrbo: nome mancante."}
     variants=_property_name_query_variants(name)
     core=variants[0] if variants else name
+    # Use the simple brand first, just as in a manual search. Vrbo groups
+    # multiple rooms on /pdp/lo/<id>; those pages contain the comparable
+    # room/rate cards, unlike the indexed single-unit /<id>ha pages.
     queries=[
-        f'site:vrbo.com/it-it/affitto-vacanze/ "{core}"',
-        f'site:vrbo.com "Hotel {core}" "{city}"',
-        f'site:vrbo.com "{core}" "{city}"',
+        f'site:vrbo.com/it-it/pdp/lo/ "{core}"',
+        f'site:vrbo.com/pdp/lo/ "{core}" "{city}"',
+        f'"{core}" "{city}" Vrbo',
     ]
     found={}
     diagnostics=[]
@@ -3639,7 +3642,13 @@ async def discover_vrbo_property_listings(context, data: dict, robots: dict) -> 
                     found[clean]=(score,label)
     finally:
         await page.close()
-    ranked=sorted(found.items(),key=lambda entry:entry[1][0],reverse=True)
+    ranked=sorted(
+        found.items(),
+        key=lambda entry:(
+            0 if "/pdp/lo/" in urlparse(entry[0]).path.lower() else 1,
+            -entry[1][0],
+        ),
+    )
     urls=[url for url,_ in ranked[:12]]
     return {
         "status":"found_candidates" if urls else "not_found",
@@ -5203,15 +5212,32 @@ async def vrbo_reveal_rates(page, source: str, stay: dict) -> str:
 
     current_path=(urlparse(page.url).path or "").rstrip("/")
     if source_path and current_path!=source_path and listing_id:
+        reopened=False
         try:
             link=page.locator(f'a[href*="{listing_id}"]').first
             if await link.count() and await link.is_visible(timeout=700):
                 await link.click(timeout=2200)
-                await page.wait_for_timeout(1600)
-                await dismiss_cookie(page)
-                evidence.append("stessa struttura riaperta dalla lista risultati")
+                await page.wait_for_timeout(1400)
+                reopened=(urlparse(page.url).path or "").rstrip("/")==source_path
+                if reopened:
+                    evidence.append("stessa struttura riaperta dai risultati")
         except Exception as exc:
-            evidence.append(f"rientro PDP: {type(exc).__name__}")
+            evidence.append(f"link di rientro PDP: {type(exc).__name__}")
+        # The public search may show a property card but no matching href.
+        # Reuse actual browser history instead of requesting another deep link.
+        if not reopened:
+            try:
+                previous=await page.go_back(wait_until="domcontentloaded",timeout=8000)
+                await page.wait_for_timeout(900)
+                if (urlparse(page.url).path or "").rstrip("/")==source_path:
+                    evidence.append("rientro nella scheda tramite Indietro del browser")
+                    reopened=True
+                else:
+                    evidence.append("Indietro non ha riaperto la scheda iniziale")
+            except Exception as exc:
+                evidence.append(f"Indietro non disponibile: {type(exc).__name__}")
+        if reopened:
+            await dismiss_cookie(page)
 
     for selector in (
         'button:has-text("Seleziona la tua unità")',
@@ -12878,7 +12904,13 @@ async def run(args: argparse.Namespace) -> dict:
                                 fresh_urls=list(frontend_source.get("listingUrls") or [])
                                 master=result.get("discoveredSources",{}).get("vrbo") or {}
                                 known_urls=list((sources.get("vrbo") or {}).get("listingUrls") or [])
-                                candidate_pool=list(dict.fromkeys(fresh_urls + list(master.get("listingUrls") or []) + known_urls))
+                                candidate_pool=list(dict.fromkeys(
+                                    fresh_urls
+                                    + list(master.get("listingUrls") or [])
+                                    + [master.get("candidateUrl"),master.get("url")]
+                                    + known_urls
+                                ))
+                                candidate_pool=[url for url in candidate_pool if url]
                                 if source and source not in candidate_pool:
                                     candidate_pool.append(source)
                                 candidate_pool=list(dict.fromkeys(
