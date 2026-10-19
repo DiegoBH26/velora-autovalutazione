@@ -9883,39 +9883,62 @@ async def observe(
                         evidence=f"Assistenza manuale: {action}. {reason} Nessuna tariffa verificata.",
                     )
                     return record
-                await page.wait_for_timeout(650)
-                # The user may open a listing in a separate Chrome tab while
-                # Velora is waiting. Follow that visible tab rather than
-                # immediately reading the original (possibly 429) page.
-                for possible in reversed(list(page.context.pages)):
-                    if possible is page or possible.is_closed():
-                        continue
-                    if (
-                        _classify_ota_url(str(possible.url or ""))==channel
-                        and _plausible_ota_listing_url(channel,str(possible.url or ""))
-                    ):
-                        print(f"{channel}: intervento umano · scheda aperta in nuova tab {possible.url[:240]}",flush=True)
-                        page=possible
-                        response=None  # Old HTTP status belongs to a different tab.
-                        record["manualSelectedTab"]=str(page.url or "")
+                # Human assistance can finish while Vrbo/Expedia/Holidu is
+                # still updating its original tab. Inspect the SAME browser
+                # session for a bounded interval; do not reload or retry HTTP.
+                post_assist={}
+                for inspection in range(5):
+                    if inspection:
+                        await page.wait_for_timeout(900)
+                    # If the guest opened the listing in a new tab, follow it.
+                    for possible in reversed(list(page.context.pages)):
+                        if possible is page or possible.is_closed():
+                            continue
+                        if (_classify_ota_url(str(possible.url or ""))==channel
+                            and _plausible_ota_listing_url(channel,str(possible.url or ""))):
+                            print(f"{channel}: intervento umano · scheda aperta in nuova tab {possible.url[:240]}",flush=True)
+                            page=possible
+                            response=None  # Response from the old tab is stale.
+                            record["manualSelectedTab"]=str(page.url or "")
+                            break
+                    still=await _visible_human_challenge(page)
+                    post_assist={"inspection":inspection+1,"visible":bool(still.get("visible")),
+                                 "blocked":bool(still.get("blocked"))}
+                    if not still.get("visible") and not still.get("blocked"):
                         break
-                still=await _visible_human_challenge(page)
+                    if still.get("blocked"):
+                        break
+                record["postAssistInspection"]=post_assist
                 if still.get("blocked"):
-                    record.update(status="rate_limited",finalUrl=page.url,quotes=[],
-                        evidence="Sessione ancora bloccata dal portale dopo l'intervento. Nessun elemento CAPTCHA disponibile e nessuna tariffa acquisita.")
+                    record.update(status="rate_limited" if limited_status==429 else "http_error",
+                        finalUrl=page.url,quotes=[],
+                        evidence="Accesso ancora negato dal portale dopo l'intervento umano; nessuna tariffa acquisita.")
                     return record
                 if still.get("visible"):
                     record.update(
                         status="rate_limited" if limited_status==429 else "human_verification_pending",
-                        finalUrl=page.url,
+                        finalUrl=page.url,quotes=[],
                         evidence=(
-                            "HTTP 429: verifica ancora presente dopo la ripresa. "
-                            "La conferma dell'utente non ha sbloccato l'accesso; nessuna tariffa acquisita."
-                            if limited_status==429 else
-                            "Verifica ancora presente dopo la ripresa; nessuna tariffa acquisita."
+                            f"HTTP {limited_status}: verifica ancora visibile dopo la conferma "
+                            "e il controllo della stessa sessione. Nessuna tariffa acquisita."
+                            if limited_status else
+                            "Verifica ancora visibile dopo la conferma; nessuna tariffa acquisita."
                         ),
                     )
                     return record
+                # The initial HTTP error belongs to the landing response, not
+                # necessarily to the now-rendered page. Keep the old status
+                # available for diagnostics, but allow identity/date/rate checks
+                # only when there is substantial visible public listing content.
+                if limited_status:
+                    try:
+                        visible_after=await page.locator("body").inner_text(timeout=3500)
+                    except Exception:
+                        visible_after=""
+                    if len(visible_after.strip()) >= 700:
+                        response=None
+                        record["postAssistInitialHttpStatus"]=limited_status
+                        print(f"{channel}: post-assist challenge cleared, inspect public listing without reload",flush=True)
                 record["navigationSteps"].append({
                     "step":"human_verification","status":"completed",
                     "detail":"Utente ha confermato la ripresa; contenuto da verificare",
