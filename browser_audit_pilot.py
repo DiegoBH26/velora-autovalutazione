@@ -3604,7 +3604,21 @@ def public_ota_source_hints(data: dict, ota_id: str) -> list[str]:
     """
     try:
         file=Path(__file__).resolve().parent/"ota_public_source_hints.json"
-        entries=json.loads(file.read_text(encoding="utf-8")).get("hints") or []
+        # An existing Windows updater may download only the Python files.
+        # Keep the one user-provided, UNVERIFIED property reference available
+        # even before the updater itself is refreshed. This is never a tariff.
+        user_provided_fallback=[
+            {
+                "officialHost":"perlasaracena.it",
+                "propertyBrand":"perla saracena",
+                "otaId":"vrbo",
+                "url":"https://www.vrbo.com/it-it/pdp/lo/42693330",
+            },
+        ]
+        try:
+            entries=json.loads(file.read_text(encoding="utf-8")).get("hints") or []
+        except (OSError,ValueError,TypeError,AttributeError):
+            entries=user_provided_fallback
         official=str(((data.get("sources") or {}).get("sito") or {}).get("url") or "")
         host=(urlparse(official).hostname or "").lower().removeprefix("www.")
         brand=_norm_name(str(data.get("name") or ""))
