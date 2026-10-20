@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v122"
+PILOT_BUILD = "velora-browser-pilot-v123"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -1424,7 +1424,7 @@ async def verify_ota_candidate_page(
                 pass
 
 
-async def discover_otas_from_master_search(context, data: dict, robots: dict, assist_callback=None, ghost: bool=False) -> tuple[dict, dict]:
+async def discover_otas_from_master_search(context, data: dict, robots: dict, assist_callback=None, ghost: bool=False, selected_ota_ids=None) -> tuple[dict, dict]:
     """FIRST/SECOND STEP: ricerca master progressiva, poi analisi dei risultati OTA."""
     name=str(data.get("name") or "")
     city=str(data.get("city") or "")
@@ -1527,6 +1527,8 @@ async def discover_otas_from_master_search(context, data: dict, robots: dict, as
     verify_page=await context.new_page()
     try:
         for ota_id in OTA_DISCOVERY_ORDER:
+            if selected_ota_ids is not None and ota_id not in selected_ota_ids:
+                continue  # Never open or validate a non-selected OTA listing.
             candidates=raw_candidates.get(ota_id) or []
             grouped={}
             for score,url,title,reasons,query,engine in candidates:
@@ -2372,7 +2374,7 @@ async def discover_all_ota_sources(
         ota_id for ota_id in OTA_DISCOVERY_ORDER
         if not selected_ota_ids or ota_id in set(selected_ota_ids)
     ]
-    discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots,assist_callback,ghost)
+    discoveries,diagnostics=await discover_otas_from_master_search(context,data,robots,assist_callback,ghost,selected_ota_ids=target_order)
     discoveries={ota_id:value for ota_id,value in discoveries.items() if ota_id in target_order}
     diagnostics["selectedOtas"]=target_order
     total=len(target_order)
