@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v121"
+PILOT_BUILD = "velora-browser-pilot-v122"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -95,6 +95,32 @@ def monthly_plan(today: date, end_year: int | None = None, limit: int | None = N
                 break
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     return months
+
+
+def custom_date_plan(today: date, settings: dict) -> list[dict]:
+    """Date del periodo personalizzato; ogni soggiorno resta nel range richiesto."""
+    start=date.fromisoformat(settings["start"])
+    end=date.fromisoformat(settings["end"])
+    nights=int(settings["nights"])
+    adults=int(settings["adults"])
+    frequency=str(settings["frequency"])
+    steps={"daily":1,"weekly":7,"biweekly":14}
+    if start < today or end < start or (end-start).days > 366:
+        raise ValueError("Intervallo personalizzato non valido: massimo 367 giorni, non nel passato.")
+    if nights not in (1,2,3,4,5,7,14) or not 1 <= adults <= 12 or frequency not in steps:
+        raise ValueError("Durata, ospiti o frequenza personalizzati non validi.")
+    plan=[]
+    current=start
+    while current+timedelta(days=nights) <= end:
+        departure=current+timedelta(days=nights)
+        plan.append({"month":current.strftime("%Y-%m"),"checkin":current.isoformat(),
+                     "checkout":departure.isoformat(),"nights":nights,"adults":adults})
+        current+=timedelta(days=steps[frequency])
+        if len(plan)>367:
+            raise ValueError("Troppi soggiorni nel periodo personalizzato.")
+    if not plan:
+        raise ValueError("Nessun soggiorno completo nelle date richieste.")
+    return plan
 
 
 def dated_url(channel: str, base: str, stay: dict) -> str | None:
@@ -12433,8 +12459,9 @@ async def run(args: argparse.Namespace) -> dict:
     today = date.fromisoformat(args.today) if args.today else date.today()
     # "12 mesi" = da questo mese fino allo stesso mese dell'anno prossimo:
     # 13 campioni inclusivi (es. ottobre 2026 → ottobre 2027).
+    custom_settings=getattr(args,"custom_period",None)
     plan_limit = 13 if args.months == 12 else args.months
-    plan = monthly_plan(today, limit=plan_limit)
+    plan = custom_date_plan(today,custom_settings) if custom_settings else monthly_plan(today, limit=plan_limit)
     channels = [part.strip() for part in args.channels.split(",") if part.strip()]
     unknown = set(channels) - set(CHANNELS)
     if unknown:
