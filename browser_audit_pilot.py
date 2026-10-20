@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v123"
+PILOT_BUILD = "velora-browser-pilot-v124"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -12325,6 +12325,10 @@ async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> s
     payload=dict(payload or {})
     payload.setdefault("url",str(page.url or ""))
     payload.setdefault("requestedAt",datetime.now(timezone.utc).isoformat())
+    before_url=str(page.url or "")
+    before_context_id=id(page.context)
+    started_at=datetime.now(timezone.utc)
+    print(f"HUMAN_HANDOFF_START · ota={payload.get('otaId','')} · page={before_url[:220]} · profile=active",flush=True)
     await _set_interaction_window(page,True)
     if os.name=="nt":
         # Notice that assistance is waiting even when the browser covers Velora.
@@ -12346,7 +12350,12 @@ async def _human_assist(page, callback, payload: dict, ghost: bool = False) -> s
     finally:
         if ghost:
             await _set_interaction_window(page,False)
-    return str(action or "timeout").lower()
+    final_action=str(action or "timeout").lower()
+    after_url=str(page.url or "")
+    same_context=id(page.context)==before_context_id
+    elapsed=round((datetime.now(timezone.utc)-started_at).total_seconds())
+    print(f"HUMAN_HANDOFF_END · ota={payload.get('otaId','')} · action={final_action} · elapsed={elapsed}s · same_context={same_context} · same_url={before_url==after_url} · page={after_url[:220]}",flush=True)
+    return final_action
 
 
 async def _current_page_identity(page, ota_id: str, data: dict) -> dict:
@@ -12699,6 +12708,11 @@ async def run(args: argparse.Namespace) -> dict:
                 await context.close()
             except Exception:
                 pass
+            # Separate persistent profiles isolate discovery from pricing. They do NOT share cookie state.
+            # Record the boundary explicitly so manual verification is not mistaken for a shared session.
+            result["browserPhases"].append({"phase":"session_boundary","status":"new_persistent_profile","from":"discovery","to":"pricing","cookiesShared":False,"reason":"Isolamento stabilità browser; eventuale verifica umana va ripetuta nel profilo prezzi se richiesta."})
+            write_result(output,result)
+            print("SESSION_BOUNDARY · discovery -> pricing · persistent_profiles_separate · cookies_not_shared",flush=True)
             await asyncio.sleep(0.8)
             context=await _launch_velora_context(
                 playwright,pricing_profile_dir,data,"verifica schede e tariffe",ghost
