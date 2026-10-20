@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v119"
+PILOT_BUILD = "velora-browser-pilot-v120"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -4165,6 +4165,68 @@ async def frontend_discover_ota_source(
             await page.close()
         except Exception:
             pass
+
+
+def describe_frontend_observation(channel: str, record: dict) -> dict:
+    """Diagnostic evidence for restricted/aggregator frontends, never a rate.
+
+    The result describes ONLY what was observed in the current scan:
+    a URL candidate is not verified identity, a referral is not an OTA tariff,
+    and an access limit is not evidence of sold-out inventory.
+    Existing Booking/Agoda/Airbnb price routines are not involved.
+    """
+    if channel not in {"vrbo","expedia","holidu"}:
+        return record
+    status=str(record.get("status") or "")
+    final_url=str(record.get("finalUrl") or record.get("candidateUrl") or "")
+    candidate=bool(final_url or record.get("candidateUrls") or record.get("sourceUrl"))
+    identity=bool((record.get("identityCheck") or {}).get("verified")
+                  or record.get("sourceIdentityVerified"))
+    record["frontendFinding"]={
+        "candidateLocated":candidate,
+        "identityVerified":identity,
+        "rateVerified":bool(record.get("quotes")),
+        "availabilityVerified":False if not record.get("quotes") else None,
+        "observedUrl":final_url,
+        "redirectDestination":str(record.get("referralTo") or ""),
+        "redirectVerified":status=="referral_observed",
+    }
+    if status=="referral_observed":
+        target=str(record.get("referralTo") or "altra OTA")
+        record["frontendFinding"]["kind"]="verified_referral"
+        record["frontendLabel"]=f"Risultato aggregatore: rinvio osservato a {target}"
+        record["evidence"]=(
+            f"Rinvio osservato da {channel.capitalize()} a {target}. "
+            "La destinazione è un canale di prenotazione, NON una tariffa autonoma dell'aggregatore. "
+            +str(record.get("referralEvidence") or "")
+        )[:1000]
+    elif status in {"rate_limited","access_blocked","http_error"}:
+        record["frontendFinding"]["kind"]="access_restricted"
+        record["frontendLabel"]="URL candidato individuato · accesso pubblico limitato" if candidate else "Accesso pubblico limitato"
+        record["evidence"]=(
+            record["frontendLabel"]+". Identità della scheda "
+            +("verificata" if identity else "non verificabile in questa sessione")
+            +". Nessuna conclusione sulla disponibilità o sui prezzi. "
+            +str(record.get("evidence") or "")
+        )[:1150]
+    elif status in {"source_missing","source_unverified","not_found","source_not_retested"}:
+        record["frontendFinding"]["kind"]="unverified_presence"
+        record["frontendLabel"]=(
+            "Scheda autonoma non verificata · rinvio non osservato"
+            if channel=="holidu" else "Scheda non verificata nella scansione"
+        )
+        record["evidence"]=(
+            record["frontendLabel"]+
+            ". Non significa struttura assente o indisponibile. "
+            +str(record.get("evidence") or "")
+        )[:1100]
+    elif record.get("quotes"):
+        record["frontendFinding"]["kind"]="rates_observed"
+        record["frontendLabel"]="Tariffe pubbliche osservate"
+    else:
+        record["frontendFinding"]["kind"]="other_unverified"
+        record["frontendLabel"]="Verifica frontend inconclusiva"
+    return record
 
 
 def frontend_entry_url(channel: str, source: str, stay: dict) -> str | None:
@@ -13593,6 +13655,7 @@ async def run(args: argparse.Namespace) -> dict:
                                 except Exception:
                                     pass
 
+                    record=describe_frontend_observation(channel,record)
                     if record.get("quotes"):
                         normalized_quotes=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
                         public_quotes=[item for item in normalized_quotes if public_quote_without_login(item)]
