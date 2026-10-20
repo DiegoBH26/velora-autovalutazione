@@ -4802,7 +4802,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
   { id: "priceline", label: "Priceline", active: "border-indigo-500 bg-indigo-100 text-indigo-950 shadow-sm", idle: "border-indigo-300 bg-white text-indigo-900 hover:bg-indigo-50" },
 ] as const;
 
-type LocalPilotPeriod = 1 | 6 | 12;
+type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 
 export default function App() {
   const initialUiState = useMemo(() => loadUiState(), []);
@@ -4829,8 +4829,13 @@ export default function App() {
   const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") === "1");
   const [localPilotPeriod, setLocalPilotPeriod] = useState<LocalPilotPeriod>(() => {
     const stored = Number(window.localStorage.getItem("velora-pilot-period") || "1");
-    return stored === 6 || stored === 12 ? stored : 1;
+    return window.localStorage.getItem("velora-pilot-period") === "custom" ? "custom" : stored === 6 || stored === 12 ? stored : 1;
   });
+  const [customPilotStart,setCustomPilotStart]=useState("2027-08-01");
+  const [customPilotEnd,setCustomPilotEnd]=useState("2027-08-31");
+  const [customPilotNights,setCustomPilotNights]=useState(3);
+  const [customPilotAdults,setCustomPilotAdults]=useState(2);
+  const [customPilotFrequency,setCustomPilotFrequency]=useState<"daily"|"weekly"|"biweekly">("weekly");
   const [localPilotSelectedChannels, setLocalPilotSelectedChannels] = useState<string[]>(() => {
     try {
       const parsed = JSON.parse(window.localStorage.getItem("velora-pilot-selected-channels") || "[]");
@@ -5392,7 +5397,8 @@ export default function App() {
         headers: { "Content-Type": "application/json", "X-Velora-Local-Token": token },
         body: JSON.stringify({
           propertyId: activeAuditData.id,
-          months,
+          months: months === "custom" ? 1 : months,
+          customPeriod: months === "custom" ? { start:customPilotStart,end:customPilotEnd,nights:customPilotNights,adults:customPilotAdults,frequency:customPilotFrequency } : undefined,
           channels: channelIds,
           ghost: localPilotGhost,
           assisted: localPilotAssisted,
@@ -7908,7 +7914,7 @@ export default function App() {
                   <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Scegli periodo e canali. Bianco = escluso; colorato = selezionato. Velora analizzerà soltanto le OTA che scegli.</p>
                 </div>
                 <div className="rounded-xl bg-[#F6F2FA] px-3 py-2 text-[10px] font-black text-[#23124A]">
-                  {localPilotSelectedChannels.length}/10 OTA · {localPilotPeriod === 12 ? "12 mesi avanti" : `${localPilotPeriod} ${localPilotPeriod === 1 ? "mese" : "mesi"}`}
+                  {localPilotSelectedChannels.length}/10 OTA · {localPilotPeriod === "custom" ? "Date personalizzate" : localPilotPeriod === 12 ? "12 mesi avanti" : `${localPilotPeriod} ${localPilotPeriod === 1 ? "mese" : "mesi"}`}
                 </div>
               </div>
 
@@ -7919,6 +7925,7 @@ export default function App() {
                     { value: 1 as LocalPilotPeriod, label: "1 mese", detail: "mese corrente" },
                     { value: 6 as LocalPilotPeriod, label: "6 mesi", detail: "mese corrente + 5" },
                     { value: 12 as LocalPilotPeriod, label: "12 mesi", detail: "fino allo stesso mese dell’anno prossimo" },
+                    { value: "custom" as LocalPilotPeriod, label: "Calendario", detail: "intervallo a scelta" },
                   ]).map((option) => {
                     const selected = localPilotPeriod === option.value;
                     return <button
@@ -7939,6 +7946,17 @@ export default function App() {
                 </div>
               </div>
 
+              {localPilotPeriod === "custom" && <div className="mt-4 rounded-xl border border-[#D8CEE7] bg-white p-4">
+                <p className="mb-3 text-xs font-black text-[#23124A]">Intervallo personalizzato · soggiorni nel range selezionato</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-xs font-semibold">Dal<input aria-label="Data inizio" type="date" disabled={localPilotRunning} value={customPilotStart} onChange={e=>setCustomPilotStart(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
+                  <label className="text-xs font-semibold">Al<input aria-label="Data fine" type="date" disabled={localPilotRunning} min={customPilotStart} value={customPilotEnd} onChange={e=>setCustomPilotEnd(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
+                  <label className="text-xs font-semibold">Notti<select value={customPilotNights} disabled={localPilotRunning} onChange={e=>setCustomPilotNights(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{[1,2,3,4,5,7,14].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+                  <label className="text-xs font-semibold">Ospiti<select value={customPilotAdults} disabled={localPilotRunning} onChange={e=>setCustomPilotAdults(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+                  <label className="col-span-2 text-xs font-semibold">Campionamento<select value={customPilotFrequency} disabled={localPilotRunning} onChange={e=>setCustomPilotFrequency(e.target.value as "daily"|"weekly"|"biweekly")} className="mt-1 block w-full rounded-lg border p-2"><option value="weekly">Settimanale</option><option value="biweekly">Ogni 14 giorni</option><option value="daily">Giornaliero</option></select></label>
+                </div>
+                <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
+              </div>}
               <div className="mt-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[10px] font-black uppercase tracking-wide text-[#50627F]">OTA da analizzare</p>
