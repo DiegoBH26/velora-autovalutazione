@@ -23,7 +23,7 @@ class SelectedOtasOnly(unittest.TestCase):
         self.assertIn('selected_discovery_ids=[ota_id for ota_id in OTA_DISCOVERY_ORDER if ota_id in channels]',PILOT)
 
     def test_versions(self):
-        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v123"',PILOT)
+        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v124"',PILOT)
         self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v123"',AGENT)
 
 if __name__=="__main__":
