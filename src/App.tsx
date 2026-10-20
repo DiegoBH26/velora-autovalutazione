@@ -7848,14 +7848,14 @@ export default function App() {
               ? <div className="mt-3 space-y-2"><p className="text-xs font-semibold text-[#23124A]">Nessuna asimmetria di camere dimostrata per le date analizzate. Stato delle verifiche per OTA:</p>
                 {activeAuditData.otaPresence.filter(channel=>channel.id!=="sito").map(channel=>{
                   const observations=(browserPilotResult?.observations || []).filter(observation=>observation.otaId===channel.id);
-                  const verified=observations.reduce((sum,observation)=>sum+(observation.quotes||[]).filter(quote=>quote.verified).length,0);
+                  const verified=observations.filter(observation=>(observation.quotes||[]).some(quote=>quote.verified)).length;
                   const total=Math.max(1,observations.length);
                   const pct=Math.min(100,Math.round(verified/total*100));
                   const reason=observations.length ? pilotCoverageSummary(browserPilotResult,observations[0].month,channel.id) : "Non verificato nel campione";
                   return <div key={channel.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-2 rounded-lg bg-white p-2">
                     <span className="truncate text-[11px] font-bold text-[#23124A]">{channel.platform}</span>
                     <div><div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]"><div className="h-full rounded-full bg-[#8F79AE]" style={{width:pct+"%"}} /></div>
-                      <span className="mt-1 block text-[10px] text-[#50627F]">{verified} tariffe validate su {observations.length} controlli · {reason}</span></div>
+                      <span className="mt-1 block text-[10px] text-[#50627F]">{verified} controlli con tariffe validate su {observations.length} · {reason}</span></div>
                   </div>;
                 })}</div>
               : <OtaDistributionMiniChart items={pilotDistributionAsymmetries(browserPilotResult)} />}
