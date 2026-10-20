@@ -33,7 +33,7 @@ import browser_audit_pilot as browser_pilot
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v121"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v122"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -782,13 +782,14 @@ def run_auto_audit(payload):
             AUTO_STATE.running=False
 
 
-def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=False,pricing_only=True):
+def run_pilot(property_id,property_path,months,channels,ghost=False,assisted=False,pricing_only=True,custom_period=None):
     try:
         args=argparse.Namespace(
             property=str(property_path),
             output=str(result_path(property_id)),
             channels=",".join(channels),
             months=months,
+            custom_period=custom_period,
             today=None,
             dry_run=False,
             ghost=bool(ghost),
@@ -898,7 +899,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v121",
+                "agentVersion":"velora-local-agent-v122",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -1032,7 +1033,27 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(202,{"running":True,"message":"Analisi automatica avviata"})
                 return
 
-            if payload.get("months") not in (1,6,12):
+            custom_period=payload.get("customPeriod")
+            if custom_period is not None:
+                if not isinstance(custom_period,dict):
+                    raise ValueError("Periodo personalizzato non valido")
+                from datetime import date as _date, timedelta as _timedelta
+                try:
+                    _start=_date.fromisoformat(str(custom_period["start"]))
+                    _end=_date.fromisoformat(str(custom_period["end"]))
+                    _nights=int(custom_period["nights"])
+                    _adults=int(custom_period["adults"])
+                    _frequency=str(custom_period["frequency"])
+                except (KeyError, ValueError, TypeError) as exc:
+                    raise ValueError("Campi calendario personalizzato non validi") from exc
+                if (_start<_date.today() or _end<_start or (_end-_start).days>366
+                    or _nights not in (1,2,3,4,5,7,14) or not 1<=_adults<=12
+                    or _frequency not in ("daily","weekly","biweekly")
+                    or _start+_timedelta(days=_nights)>_end):
+                    raise ValueError("Calendario non valido: soggiorno completo obbligatorio nel periodo")
+                custom_period={"start":_start.isoformat(),"end":_end.isoformat(),
+                               "nights":_nights,"adults":_adults,"frequency":_frequency}
+            elif payload.get("months") not in (1,6,12):
                 raise ValueError("Periodo non supportato: scegli 1, 6 o 12 mesi")
             requested_channels=payload.get("channels")
             if requested_channels is None:
@@ -1081,12 +1102,12 @@ class Handler(SimpleHTTPRequestHandler):
         pricing_only=bool(payload.get("pricingOnly",True))
         threading.Thread(
             target=run_pilot,
-            args=(property_id,property_path,months,requested_channels,ghost,assisted,pricing_only),
+            args=(property_id,property_path,months,requested_channels,ghost,assisted,pricing_only,custom_period),
             daemon=True,
         ).start()
         self._json(202,{
             "running":True,"propertyId":property_id,"ghost":ghost,"assisted":assisted,
-            "months":months,"channels":requested_channels,"pricingOnly":pricing_only,
+            "months":months,"customPeriod":custom_period,"channels":requested_channels,"pricingOnly":pricing_only,
         })
 
 
@@ -1096,7 +1117,7 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v121 · fix URL /rooms/ Airbnb e OTA · diagnostica candidati · Booking/Agoda invariati · mai login",flush=True)
+    print("Versione agente: velora-local-agent-v122 · fix URL /rooms/ Airbnb e OTA · diagnostica candidati · Booking/Agoda invariati · mai login",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
