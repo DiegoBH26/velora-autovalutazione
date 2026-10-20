@@ -7767,7 +7767,7 @@ export default function App() {
 
         <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_14px_40px_rgba(35,18,74,0.05)] md:p-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Approfondimento non incluso nell'indice dei 50 controlli</p>
-          <h3 className="mt-1 text-xl font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi</h3>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-1 text-xl font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi</h3>
           <p className="mt-2 text-xs leading-5 text-[#50627F]">Segna una scheda come presente solo con un URL univoco. “Non trovato” significa soltanto che non è emersa nella ricerca pubblica; non prova l'assenza di un contratto. Google Hotels è un metasearch, HolidayCheck può mostrare offerte senza distribuzione diretta.</p>
           <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
             {activeAuditData.otaPresence.map((channel) => {
@@ -7784,7 +7784,7 @@ export default function App() {
               </div>;
             })}
           </div>
-          <section className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+          </div></details><section className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h3 className="text-lg font-black text-[#23124A]">Booking engine e fornitore del canale diretto</h3>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Registra anche il caso in cui la struttura usa soltanto un minisito ospitato dal fornitore. Un URL può identificare Kross Booking o ErmesHotels; con un dominio personalizzato il fornitore può restare non riconoscibile. Il collegamento non dimostra che il checkout funzioni.</p>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -7827,7 +7827,7 @@ export default function App() {
               }} className="ml-2 font-black underline">Usa questo riscontro</button>
             </div>}
           </section>
-          <h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Registra soltanto ciò che compare sulla specifica scheda, con data e URL. Una dicitura “potresti avere uno sconto” non dimostra una promozione attiva; tariffe per iscritti o app vanno distinte da quelle pubbliche.</p>
           <label className="mt-3 block text-[11px] font-black text-[#23124A]">Sito diretto e listino
             <textarea value={answers["audit-policy-direct"]?.note ?? ""} onChange={(event) => updateAnswer("audit-policy-direct", { note: event.target.value })} placeholder="Periodi, prezzi, condizioni, fonte e data" className="mt-1.5 min-h-[65px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A]" />
@@ -7839,7 +7839,7 @@ export default function App() {
             </label>)}
           </div>
 
-          <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
+          </div></details><h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           {pilotDistributionAsymmetries(browserPilotResult).length > 0 && <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <h4 className="text-sm font-black text-[#23124A]">Asimmetrie distributive OTA rilevate</h4>
@@ -8160,7 +8160,7 @@ export default function App() {
               </div>}
             </>}
           </div>
-          <h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
           <div className="mt-3 flex flex-col gap-2">
             {pricingAccordionIds.map((otaId) => {
@@ -8253,7 +8253,7 @@ export default function App() {
             <b>Promozioni verificate su una tariffa futura:</b> {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).length || "nessuna"}.
             {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).slice(-6).map((quote) => <p key={`promo-${quote.id}`} className="mt-1">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId} · {quote.stayDate} · {promotionSummary(quote)}</p>)}
           </div>
-          <h3 className="mt-7 text-lg font-black text-[#23124A]">Visibilità del calendario futuro per OTA</h3>
+          </div></details><h3 className="mt-7 text-lg font-black text-[#23124A]">Visibilità del calendario futuro per OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Controlla date future su ogni canale. Registra separatamente prezzo non mostrato, data non selezionabile e verifica impedita. Una data senza prezzo può dipendere da camere esaurite, soggiorno minimo, chiusura delle vendite, finestra di prenotazione o errore tecnico: da sola non prova che la stagione sia chiusa.</p>
           <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={availabilityDraft.otaId} onChange={(event) => setAvailabilityDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 block w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={`probe-${channel.id}`} value={channel.id}>{channel.platform}</option>)}</select></label>
@@ -8276,7 +8276,7 @@ export default function App() {
           </div>
           <p className="mt-2 text-[10px] leading-4 text-[#50627F]"><b>Come leggere la tabella:</b> “Tariffe rilevate” significa che Velora ha letto importi reali sulla scheda OTA per le date testate. “Camera e prezzo validati” significa che il parser ha associato l’importo alla relativa camera; il confronto tra OTA richiede ancora condizioni omogenee, tasse e stessa unità. “Prezzi rilevati · attribuzione da verificare” significa che gli importi sono presenti, ma non sono ancora collegati con sufficiente certezza a camera e piano tariffario. “Non verificato” compare solo quando quel mese/canale non è stato ancora controllato.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
-          <h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni Google e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
 
           {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <>
@@ -8354,7 +8354,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <p className="mt-3 text-[10px] text-[#50627F]">Il PDF salvato nella scheda Sant'Antonio fotografa l'analisi pubblicata; modifiche locali a queste note non lo rigenerano automaticamente.</p>
+          </div></details><p className="mt-3 text-[10px] text-[#50627F]">Il PDF salvato nella scheda Sant'Antonio fotografa l'analisi pubblicata; modifiche locali a queste note non lo rigenerano automaticamente.</p>
         </section>
 
         {visibleData.map((macro) => (
@@ -8362,7 +8362,7 @@ export default function App() {
             key={`audit-${macro.id}`}
             className="overflow-hidden rounded-[2rem] border border-[#E5DDF1] bg-white shadow-[0_14px_40px_rgba(35,18,74,0.05)]"
           >
-            <div className="border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4">
+            <details><summary className="cursor-pointer border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4 font-black text-[#23124A]">Macro-area osservabile · {macro.title}</summary><div className="border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4">
               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">
                 Macro-area osservabile
               </p>
@@ -8463,7 +8463,8 @@ export default function App() {
                 </div>
               ))}
             </div>
-          </section>
+          </details>
+</section>
         ))}
 
         {!visibleData.length && (
