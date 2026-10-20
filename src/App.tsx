@@ -6783,7 +6783,7 @@ export default function App() {
     const futureGaps = availabilityProbes.filter((probe) => probe.stayDate >= todayLocalIso() && probe.status !== 'blocked');
     const coverageReportHtml = isWebAudit ? '<section class="page-break"><h2>Copertura delle vendite future per OTA</h2><p>Periodo dalla data del report alla fine dell’anno successivo. Le celle non verificate NON significano vendite chiuse. Una data senza prezzo non prova da sola una chiusura: verificare camere esaurite, minimum stay, booking window, restrizioni e problemi del portale.</p>' + coverageTable(reportChannels.slice(0, 5)) + coverageTable(reportChannels.slice(5)) + '<p><b>Indicatore commerciale:</b> ' + (futureGaps.length ? 'Sono state registrate ' + futureGaps.length + ' date future con prezzo non mostrato o calendario non aperto. Controllare in extranet l’apertura delle vendite e la sincronizzazione prima di definire il periodo non commercializzato.' : 'Non sono ancora state documentate date future con prezzo assente o calendario non aperto. Servono prove per canale e data per valutare l’anticipo di vendita.') + '</p><h2>Promozioni osservate su tariffe future</h2><p>' + (futurePromotions.length ? futurePromotions.map((quote) => safe((reportChannels.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId) + ' · ' + quote.stayDate + ' · ' + promotionSummary(quote))).join('<br/>') : 'Nessuno sconto specifico della struttura confermato su una tariffa futura nel campione registrato. Last minute, Genius, mobile e member restano da verificare per data e pubblico.') + '</p><p>Fonte, data, camera e condizioni di ogni prova sono conservate nella scheda locale ed esportabili in JSON. Una campagna generica del portale non equivale a sconto applicato a questa struttura.</p></section>' : '';
 
-    const html = `
+    let html = `
       <!doctype html>
       <html lang="it">
         <head>
@@ -7424,7 +7424,51 @@ export default function App() {
       </html>
     `;
 
-    if (window.veloraDesktop?.savePdf) {
+      // Versione commerciale compatta: quattro pagine; prezzi puntuali e diagnostica restano in Velora.
+    if (isWebAudit) {
+      const pilot = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult : null;
+      const observations = pilot?.observations || [];
+      const channels = Array.from(new Set(observations.map((o) => o.otaId))).filter((id) => id !== "sito");
+      const channelRows = channels.map((id) => {
+        const rows = observations.filter((o) => o.otaId === id);
+        const verified = rows.filter((o) => (o.quotes || []).some((q) => q.verified)).length;
+        const blocked = rows.some((o) => /blocked|429|403|rate_limited|robots_denied/i.test(o.status || ""));
+        const state = verified ? "Prezzi rilevati" : blocked ? "Portale limitato" : rows.some((o) => o.status === "no_public_rate") ? "Nessun prezzo nel campione" : "Da verificare";
+        return { id, name: reportChannels.find((c) => c.id === id)?.platform || id, count: rows.length, verified, state };
+      });
+      const asymmetries = pilotDistributionAsymmetries(pilot);
+      const strengths = (reputation?.strengths || []).slice(0,2).map((x) => x.theme).join(", ") || "Da approfondire";
+      const weaknesses = (reputation?.weaknesses || []).slice(0,2).map((x) => x.theme).join(", ") || "Nessuna criticità ricorrente verificata nel campione";
+      const photographic = (photoAudit?.gaps || []).slice(0,2).join(" ") || "Qualità visiva delle immagini da valutare separatamente."; 
+      const barHtml = channelRows.map((row) => {
+        const percentage = row.count ? Math.round(row.verified / row.count * 100) : 0;
+        return '<div class="barrow"><b>'+safe(row.name)+'</b><div><div class="track"><div style="width:'+percentage+'%" class="fill"></div></div><small>'+safe(row.state)+' · '+row.verified+'/'+row.count+' controlli con tariffa validata</small></div></div>';
+      }).join("") || "<p>Nessuna verifica OTA disponibile per questo campione.</p>";
+      const actions = priorityRows.slice(0,4).map((row,i) => '<div class="action"><span>'+(i+1)+'</span><div><b>'+safe(row.item.text)+'</b><p>'+safe(recommendedAction(row))+'</p></div></div>').join("");
+      const page = (number: number, body: string) => '<section class="page"><div class="kicker">VELORA RMS · ANALISI COMMERCIALE</div>'+body+'<footer>Audit esterno · '+safe(generatedDate)+'<span>'+number+' / 4</span></footer></section>';
+      const p1 = '<h1>Diagnosi preliminare della struttura</h1><p class="lead">Analisi dei segnali pubblici per individuare opportunità di sviluppo e avviare un confronto di partnership.</p>'+
+        '<div class="meta"><div><label>Struttura</label><b>'+safe(ownerInfo.propertyName)+'</b></div><div><label>Località</label><b>'+safe(ownerInfo.location)+'</b></div><div><label>Data</label><b>'+safe(generatedDate)+'</b></div></div>'+
+        '<div class="stats"><div><label>Indice opportunità</label><strong>'+reportScore+'/100</strong></div><div><label>Voci osservate</label><strong>'+completedRows.length+'</strong></div><div><label>Da approfondire</label><strong>'+(distribution.attention+distribution.critical)+'</strong></div></div>'+
+        '<div class="note"><b>Lettura corretta:</b> l’indice indica opportunità potenziali, non la qualità assoluta della struttura. Le verifiche incomplete non sono difetti accertati.</div>'+
+        '<h2>Panoramica degli ambiti</h2><div class="cols"><article><b>Distribuzione OTA</b><p>'+channelRows.filter((x)=>x.verified>0).length+' canali con tariffe validate nel campione; la copertura va verificata sulle altre date.</p></article><article><b>Vendita diretta</b><p>'+safe(bookingStatusLabel)+'. Il completamento del checkout richiede una prova dedicata.</p></article><article><b>Reputazione</b><p>Punti apprezzati: '+safe(strengths)+'.</p></article><article><b>Immagini</b><p>'+(photoAudit?.score !== undefined ? safe(String(photoAudit.score))+'/10 indice tecnico frontend' : 'Valutazione non disponibile')+'.</p></article></div>';
+      const p2 = '<h1>Distribuzione e coerenza dei canali</h1><p class="lead">Sintesi dei prezzi letti sul frontend, senza pubblicare tutte le singole tariffe.</p>'+
+        '<h2>Copertura dei controlli tariffari</h2><p class="muted">Barre: quota di verifiche con almeno un prezzo validato; NON disponibilità effettiva dell’immobile.</p>'+barHtml+
+        '<h2>Asimmetrie osservate</h2><div class="note">'+(asymmetries.length ? safe("Sono state rilevate "+asymmetries.length+" differenze di copertura delle tipologie su date confrontate; da verificare cause e mapping.") : "Non è dimostrata un’asimmetria confrontabile nel campione. Un blocco del portale non dimostra chiusura delle vendite.")+'</div>'+
+        '<h2>Opportunità di intervento</h2><p>Verificare tipologie pubblicate, inventario, restrizioni, booking window e coerenza delle condizioni commerciali fra canali. Non attribuire discrepanze di prezzo a camere diverse.</p>';
+      const p3 = '<h1>Esperienza digitale e reputazione</h1><h2>Sito e prenotazione diretta</h2><div class="note"><b>'+safe(bookingStatusLabel)+'</b><p>Percorso osservato: '+safe(bookingMode)+'. Fornitore: '+safe(bookingProvider)+'. Checkout e pagamento non sono stati certificati.</p></div>'+
+        '<h2>Recensioni e percezione</h2><div class="stats"><div><label>Google</label><strong>'+(reputation?.rating ? safe(String(reputation.rating))+'/5' : 'n.d.')+'</strong></div><div><label>Recensioni visibili</label><strong>'+safe(String(reputation?.reviewCount ?? "n.d."))+'</strong></div><div><label>Campione letto</label><strong>'+safe(String(reputation?.sampleSize || 0))+'</strong></div></div>'+
+        '<div class="cols"><article><b>Punti di forza</b><p>'+safe(strengths)+'</p></article><article><b>Criticità ricorrenti</b><p>'+safe(weaknesses)+'</p></article></div>'+
+        '<h2>Presentazione fotografica</h2><p>Indice tecnico: <b>'+(photoAudit?.score !== undefined ? safe(String(photoAudit.score))+'/10' : 'n.d.')+'</b>; immagini rilevanti: '+safe(String(photoAudit?.imageCount ?? "n.d."))+'.</p>'+
+        '<div class="note"><b>Interventi suggeriti</b><p>'+safe(photographic)+' Migliorare la coerenza delle foto tra sito e OTA e verificare separatamente luce, styling e composizione.</p></div>';
+      const p4 = '<h1>Priorità e proposta di collaborazione</h1><p class="lead">Azioni costruite sui segnali frontend, da validare con il management prima di definire un incarico.</p><h2>Le prime opportunità</h2>'+
+        (actions || "<p>Nessuna priorità classificata con evidenza sufficiente: necessario confronto operativo.</p>") +
+        '<h2>Un percorso misurabile</h2><div class="three"><article><b>1. Verifica</b><p>Confermare dati, canali, booking engine e bisogni reali.</p></article><article><b>2. Piano mirato</b><p>Selezionare 2–3 azioni su distribuzione, conversione e contenuti.</p></article><article><b>3. Misura</b><p>Definire KPI, responsabili e primo riesame entro 30–90 giorni.</p></article></div>'+
+        '<div class="note"><b>Prossimo passo:</b> un confronto esplorativo per verificare insieme le opportunità e valutare un percorso di partnership.</div>'+
+        '<p class="muted">Limiti: audit frontend su fonti pubbliche; non verifica ricavi realizzati, margini, PMS, procedure interne o conformità normativa. Evidenze dettagliate conservate in Velora.</p>';
+      html = '<html lang="it"><head><meta charset="utf-8"><title>Velora · Audit commerciale</title><style>'+
+        '@page{size:A4;margin:14mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.48;color:#263047;margin:0}.page{min-height:258mm;page-break-after:always;break-after:page;display:flex;flex-direction:column}.page:last-child{page-break-after:auto;break-after:auto}.kicker{font-size:10px;letter-spacing:2px;color:#a48b55;font-weight:800;margin-bottom:18px}h1{color:#241449;font-size:25px;line-height:1.17;margin:0 0 12px}h2{font-size:16px;color:#241449;border-bottom:2px solid #cbb17d;margin:19px 0 9px;padding-bottom:5px}p{margin:5px 0 9px}.lead{font-size:13px;color:#566179}.muted,small{font-size:9.5px;color:#667189}.meta,.stats,.cols,.three{display:grid;gap:10px;margin:15px 0}.meta,.stats,.three{grid-template-columns:repeat(3,1fr)}.cols{grid-template-columns:1fr 1fr}.meta>div,.stats>div,.cols>article,.three>article,.action{border:1px solid #e1dce9;border-radius:9px;padding:12px}.meta label,.stats label{display:block;color:#69738a;font-size:9px;text-transform:uppercase}.meta b{color:#241449;font-size:12px}.stats strong{font-size:23px;color:#241449}.cols article{background:#fbfafc}.cols b,.three b{color:#241449}.note{border-left:4px solid #c3a970;background:#faf8f1;padding:12px;margin:13px 0}.barrow{display:grid;grid-template-columns:115px 1fr;gap:10px;align-items:center;margin:10px 0}.barrow>b{color:#241449}.track{height:10px;background:#e9e5ef;border-radius:8px;overflow:hidden}.fill{height:100%;background:#71538e;border-radius:8px}.action{display:grid;grid-template-columns:28px 1fr;gap:10px;margin:10px 0}.action span{background:#241449;color:white;border-radius:50%;height:26px;width:26px;line-height:26px;text-align:center;font-weight:800}.action p{margin:3px 0}.three article{border-top:3px solid #c3a970;background:#faf9fc;padding:12px}footer{margin-top:auto;padding-top:12px;border-top:1px solid #ded8e6;color:#7a8293;font-size:9px}footer span{float:right}</style></head><body>'+page(1,p1)+page(2,p2)+page(3,p3)+page(4,p4)+'</body></html>';
+    }
+  if (window.veloraDesktop?.savePdf) {
       try {
         const reportKind = isWebAudit
           ? "audit-web-frontend"
