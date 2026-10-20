@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v120"
+PILOT_BUILD = "velora-browser-pilot-v121"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -3789,7 +3789,7 @@ async def frontend_discover_ota_source(
         await page.wait_for_timeout(900)
         if response and response.status>=500:
             return {"status":"http_error","url":"","evidence":f"{label}: homepage HTTP {response.status}."}
-        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+        if channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} and callable(assist_callback):
             challenge=await _visible_human_challenge(page)
             if challenge.get("blocked"):
                 return {"status":"access_blocked","url":"","evidence":f"{label}: accesso negato senza verifica interattiva."}
@@ -3968,7 +3968,7 @@ async def frontend_discover_ota_source(
                 pass
             await page.wait_for_timeout(1300)
 
-            if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+            if channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} and callable(assist_callback):
                 gate=await _visible_human_challenge(page)
                 if gate.get("visible"):
                     print(f"{channel} frontend-discovery: VERIFICA VISIBILE · PAUSA PRIMA DELLA PROSSIMA QUERY",flush=True)
@@ -3988,7 +3988,7 @@ async def frontend_discover_ota_source(
 
         # Manual assistance is reserved for an actual visible human challenge,
         # not for unsuccessful property search or unavailable room inventory.
-        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+        if channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} and callable(assist_callback):
             try:
                 visible=(await page.locator("body").inner_text(timeout=2500)).lower()[:12000]
             except Exception:
@@ -9938,7 +9938,7 @@ async def observe(
             flow.append({"step":"listing","status":"completed" if _classify_ota_url(page.url)==channel else "not_reached","detail":page.url if _classify_ota_url(page.url)==channel else ""})
         if channel in {"booking","agoda","airbnb","vrbo","expedia","hotels","travelocity","trip","priceline","tripadvisor","trivago","googlehotels"}:
             await dismiss_cookie(page)
-        if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):
+        if channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} and callable(assist_callback):
             challenge=await _visible_human_challenge(page)
             limited_status=response.status if response and response.status in {403,429} else 0
             # Assisted mode is an intentional checkpoint, NOT a race against
@@ -9946,7 +9946,7 @@ async def observe(
             # time to inspect the landing page even if it has no CAPTCHA
             # marker or immediately returns HTTP 429.
             forced_portal_checkpoint=channel in {"vrbo","expedia"}
-            if forced_portal_checkpoint or challenge.get("visible") or limited_status:
+            if forced_portal_checkpoint or challenge.get("visible") or (limited_status and channel in {"vrbo","expedia","holidu"}):
                 is_challenge=bool(challenge.get("visible"))
                 kind=(
                     "access_blocked_no_challenge" if challenge.get("blocked") else
@@ -12619,7 +12619,7 @@ async def run(args: argparse.Namespace) -> dict:
                 master_discoveries,master_diag=await discover_all_ota_sources(
                     context,data,robots,on_progress=save_discovery_progress,
                     selected_ota_ids=discovery_target_ids,
-                    assist_callback=assist_callback if assisted and any(c in channels for c in ("vrbo","expedia","holidu")) else None,
+                    assist_callback=assist_callback if assisted and any(c in channels for c in ("vrbo","expedia","holidu","travelocity","trip","priceline")) else None,
                     ghost=ghost,
                 )
                 master_diag["mode"]="selected_channels_only"
@@ -13198,9 +13198,9 @@ async def run(args: argparse.Namespace) -> dict:
                                 frontend_source=await asyncio.wait_for(
                                     frontend_discover_ota_source(
                                         context,channel,data,effective_stay,robots,
-                                        assist_callback=assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost=ghost,
+                                        assist_callback=assist_callback if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else None,ghost=ghost,
                                     ),
-                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted and channel in {"vrbo","expedia","holidu"} else (
+                                    timeout=HUMAN_ASSIST_TIMEOUT if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else (
                                         155 if channel=="airbnb" else AUTO_SOURCE_DISCOVERY_TIMEOUT
                                     ),
                                 )
@@ -13332,9 +13332,9 @@ async def run(args: argparse.Namespace) -> dict:
                             try:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
-                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu"} else None,ghost,
+                                    observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else None,ghost,
                                             direct_public_source=bool(channel=="vrbo" and vrbo_single_direct_pricing)),
-                                    timeout=1000 if assisted and channel in {"vrbo","expedia","holidu"} else AUTO_OTA_OBSERVE_TIMEOUT,
+                                    timeout=1000 if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
                                 record = {
