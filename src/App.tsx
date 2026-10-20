@@ -5354,6 +5354,14 @@ export default function App() {
       updateAnswer("audit-google-actions", { note: actions || "Nessuna azione prioritaria derivata da criticità ricorrenti nel campione." });
     }
 
+    if (reputation?.status && reputation.status !== "sampled" && reputation.status !== "skipped_pricing_test") {
+      const reason = reputation.evidence || "La fonte non ha restituito un campione di recensioni verificabile.";
+      const note = "Analisi recensioni non completata (" + reputation.status + "). Motivo: " + reason + " Nessun tema inventato.";
+      for (const answerId of ["audit-google-strengths","audit-google-weaknesses","audit-google-isolated","audit-google-keywords","audit-google-actions"]) {
+        updateAnswer(answerId,{note});
+      }
+    }
+
     const photo = result.photoAudit;
     if (photo?.status === "sampled") {
       const categories = Object.entries(photo.categoryCounts || {})
@@ -5368,6 +5376,13 @@ export default function App() {
       updateAnswer("audit-photo-score", {
         current: Number(photo.score || 0),
         note,
+      });
+    }
+    if (photo?.status && photo.status !== "sampled" && photo.status !== "skipped_pricing_test") {
+      updateAnswer("audit-photo-score",{
+        note:"Audit fotografico non completato (" + photo.status + "). Motivo: " +
+          (photo.evidence || "Nessun campione fotografico pubblico verificabile.") +
+          " Nessun punteggio attribuito automaticamente.",
       });
     }
   }
@@ -5402,7 +5417,7 @@ export default function App() {
           channels: channelIds,
           ghost: localPilotGhost,
           assisted: localPilotAssisted,
-          pricingOnly: true,
+          pricingOnly: false, // La scansione OTA completa comprende sempre anche reputazione e foto.
           propertyData: {
             id: activeAuditData.id,
             name: activeAuditData.name,
