@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v118"
+PILOT_BUILD = "velora-browser-pilot-v119"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -4087,6 +4087,56 @@ async def frontend_discover_ota_source(
                             }
                 if ghost:
                     await _set_interaction_window(page,False)
+            # Metasearch: keep verified OTA referral separate from an autonomous
+            # Holidu listing. Never treat the downstream Booking price as Holidu.
+            # Inspect already opened public pages only; no extra navigation.
+            referral=None
+            observed_pages=[page]+[p for p in context.pages if p is not page]
+            core_name=( _property_name_query_variants(name) or [name])[0].lower()
+            for observed in observed_pages:
+                if observed.is_closed() or _classify_ota_url(str(observed.url or ""))!="holidu":
+                    continue
+                try:
+                    page_text=(await observed.locator("body").inner_text(timeout=2500))[:18000]
+                    links=await observed.locator("a[href]").evaluate_all(
+                        """els => els.slice(0,250).map(a=>({href:a.href,text:(a.innerText||a.getAttribute('aria-label')||'').trim().slice(0,180),parent:(a.closest('article,[data-testid],li')?.innerText||'').slice(0,750)}))"""
+                    )
+                except Exception:
+                    continue
+                # A generic Booking link elsewhere on a destination page is
+                # not sufficient evidence for this specific accommodation.
+                for link in links:
+                    context_text=(str(link.get("parent") or "")+" "+str(link.get("text") or ""))
+                    if _name_similarity(name,context_text)<0.48 and core_name not in context_text.lower():
+                        continue
+                    destination=str(link.get("href") or "")
+                    redirect_label=str(link.get("text") or "")
+                    if _classify_ota_url(destination)=="booking" or "booking.com" in redirect_label.lower():
+                        referral={
+                            "status":"referral_observed","url":"","identityVerified":False,
+                            "referralFrom":"holidu","referralTo":"booking",
+                            "referralSourceUrl":str(observed.url or ""),
+                            "referralTargetUrl":destination if _classify_ota_url(destination)=="booking" else "",
+                            "referralEvidence":"Risultato riferibile alla struttura con link/CTA Booking.com su pagina Holidu.",
+                            "evidence":"Holidu: risultato della struttura individuato con rinvio verso Booking.com; nessuna tariffa autonoma Holidu verificata.",
+                            "discoveryMode":"public Holidu listing/card referral inspection",
+                        }
+                        break
+                if referral:
+                    break
+                if ("reindirizzando al sito di booking.com" in page_text.lower()
+                    and (_name_similarity(name,page_text[:1500])>=0.48 or core_name in page_text.lower())):
+                    referral={
+                        "status":"referral_observed","url":"","identityVerified":False,
+                        "referralFrom":"holidu","referralTo":"booking",
+                        "referralSourceUrl":str(observed.url or ""),"referralTargetUrl":"",
+                        "referralEvidence":"Pagina Holidu indica esplicitamente reindirizzamento a Booking.com.",
+                        "evidence":"Holidu rinvia a Booking.com; nessuna tariffa autonoma Holidu acquisita.",
+                        "discoveryMode":"public Holidu redirect landing observation",
+                    }
+                    break
+            if referral:
+                return referral
             return {
                 "status":"not_found","url":"","identityVerified":False,
                 "candidateUrl":candidates[0] if candidates else "",
@@ -13209,9 +13259,10 @@ async def run(args: argparse.Namespace) -> dict:
                                 ] if channel=="holidu" else []
                                 record = {
                                     "otaId": channel, **effective_stay,
-                                    "status": "source_unverified" if candidate_urls else "source_missing",
+                                    "status": ("referral_observed" if channel=="holidu" and candidate_meta.get("status")=="referral_observed" else "source_unverified" if candidate_urls else "source_missing"),
                                     "quotes": [],
                                     "candidateUrls":candidate_urls[:8] if channel=="holidu" else [],
+                                    **({k:candidate_meta[k] for k in ("referralFrom","referralTo","referralSourceUrl","referralTargetUrl","referralEvidence") if k in candidate_meta} if channel=="holidu" else {}),
                                     "evidence":evidence or "Nessuna scheda univoca trovata né da discovery né dalla ricerca interna OTA."
                                 }
                         else:
