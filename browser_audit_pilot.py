@@ -13690,9 +13690,10 @@ async def run(args: argparse.Namespace) -> dict:
                             )
                         if record.get("quotes") and record.get("status")=="quote_candidates":
                             record["status"]="quote_candidates_unverified"
-                        record["evidence"]=(
-                            "PAGINA OTA TROVATA · identità da confermare. " + str(record.get("evidence") or "")
-                        )[:900]
+                        if record.get("status") not in {"rate_limited","access_blocked","http_error"}:
+                            record["evidence"]=(
+                                "PAGINA OTA TROVATA · identità da confermare. " + str(record.get("evidence") or "")
+                            )[:900]
                     if (
                         channel in {"vrbo","expedia","holidu"}
                         and record.get("status") in {"rate_limited","access_blocked"}
