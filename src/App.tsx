@@ -4529,6 +4529,10 @@ function generalMacroQuestion(macro: AssessmentMacro): AssessmentItem {
     : "Le interesserebbe valutare un supporto esterno o una gestione delegata dell'intera area " + title + "?";
   return { id: GENERAL_MACRO_PREFIX + macro.id, text };
 }
+const GENERAL_CATEGORY_PREFIX = "general-category-";
+function generalCategoryQuestion(category: AssessmentCategory): AssessmentItem {
+  return {id:GENERAL_CATEGORY_PREFIX+category.id,text:"Le interesserebbe affidare a un partner la gestione complessiva di "+category.title.toLowerCase()+", senza dover seguire internamente ogni singola attività?"};
+}
 function selectAssessmentItems(itemIds: Set<string>): AssessmentMacro[] {
   return ASSESSMENT_DATA.map((macro) => ({
     ...macro,
@@ -4540,7 +4544,7 @@ function selectAssessmentItems(itemIds: Set<string>): AssessmentMacro[] {
       }] : []),
       ...macro.categories.map((category) => ({
         ...category,
-        items: category.items.filter((item) => itemIds.has(item.id)),
+        items: [...(itemIds.has(GENERAL_CATEGORY_PREFIX+category.id) ? [generalCategoryQuestion(category)] : []), ...category.items.filter((item) => itemIds.has(item.id))],
       })).filter((category) => category.items.length > 0),
     ],
   })).filter((macro) => macro.categories.length > 0);
@@ -8870,9 +8874,11 @@ export default function App() {
                     {visibleCategories.map((category) => (
                       <div key={`customizer-${category.id}`}>
                         <div className="mb-1.5 flex items-center gap-3">
-                          <h3 className="text-[10px] font-black uppercase tracking-[0.1em] text-[#50627F]">
-                            {category.title}
-                          </h3>
+                          <label className="flex cursor-pointer items-center gap-2 rounded-md bg-[#FFF9EB] px-2 py-1" title={generalCategoryQuestion(category).text}>
+  <input type="checkbox" checked={selectedDraftSet.has(GENERAL_CATEGORY_PREFIX+category.id)} onChange={() => toggleCustomQuestion(GENERAL_CATEGORY_PREFIX+category.id)} className="accent-[#23124A]" />
+  <span className="text-[10px] font-black uppercase tracking-[0.1em] text-[#50627F]">{category.title}</span>
+  <span className="text-[9px] text-[#94703B]">Domanda generale</span>
+</label>
                           <span className="h-px flex-1 bg-[#EFE9F7]" />
                         </div>
                         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
