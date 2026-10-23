@@ -8955,7 +8955,7 @@ export default function App() {
                   onClick={confirmCustomInterview}
                   className="rounded-xl bg-[#23124A] px-6 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63]"
                 >
-                  Conferma e apri Analisi rapida
+                  Salva modifiche e apri intervista
                 </button>
               </div>
             </div>
