@@ -3478,6 +3478,17 @@ function savedInterviewTemplate(): string[] {
     if (Array.isArray(v) && v.length) return v;
     const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (legacy?.useCustomQuickSelection && legacy?.customQuickItemIds?.length) return legacy.customQuickItemIds;
+    // Migrazione protettiva: recupera la selezione già salvata sulla scheda
+    // quando il precedente software non aveva ancora una chiave modello globale.
+    const archived = JSON.parse(localStorage.getItem("velora-analyzed-structures-v1") || "[]");
+    if (Array.isArray(archived)) {
+      const activeId = localStorage.getItem("velora-active-structure-v1");
+      const active = archived.find((row: any) => row?.id === activeId);
+      if (active?.useCustomQuickSelection && active.customQuickItemIds?.length) return active.customQuickItemIds;
+      const candidates = archived.filter((row: any) => row?.useCustomQuickSelection && Array.isArray(row.customQuickItemIds) && row.customQuickItemIds.length);
+      candidates.sort((x: any, y: any) => String(y.updatedAt || "").localeCompare(String(x.updatedAt || "")));
+      if (candidates.length) return candidates[0].customQuickItemIds;
+    }
   } catch {}
   return DEFAULT_CUSTOM_QUICK_ITEM_IDS;
 }
