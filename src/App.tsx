@@ -4519,15 +4519,30 @@ const DEFAULT_CUSTOM_QUICK_ITEM_IDS = [
   ...QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS,
 ] as string[];
 
+const GENERAL_MACRO_PREFIX = "general-macro-";
+function generalMacroQuestion(macro: AssessmentMacro): AssessmentItem {
+  const title = macro.title.toLowerCase().replace(/\s+/g, " ").trim();
+  const text = macro.title.toUpperCase().includes("AMMINISTRAZ")
+    ? "Sarebbe interessante per lei affidare all'esterno l'intera gestione amministrativa, inclusi pagamenti e riconciliazioni?"
+    : macro.title.toUpperCase().includes("REVENUE")
+    ? "Sarebbe interessante affidare a un partner la gestione strategica dei prezzi e del revenue management?"
+    : "Le interesserebbe valutare un supporto esterno o una gestione delegata dell'intera area " + title + "?";
+  return { id: GENERAL_MACRO_PREFIX + macro.id, text };
+}
 function selectAssessmentItems(itemIds: Set<string>): AssessmentMacro[] {
   return ASSESSMENT_DATA.map((macro) => ({
     ...macro,
-    categories: macro.categories
-      .map((category) => ({
+    categories: [
+      ...(itemIds.has(GENERAL_MACRO_PREFIX + macro.id) ? [{
+        id: GENERAL_MACRO_PREFIX + macro.id + "-category",
+        title: "Domanda generale della macro-area",
+        items: [generalMacroQuestion(macro)],
+      }] : []),
+      ...macro.categories.map((category) => ({
         ...category,
         items: category.items.filter((item) => itemIds.has(item.id)),
-      }))
-      .filter((category) => category.items.length > 0),
+      })).filter((category) => category.items.length > 0),
+    ],
   })).filter((macro) => macro.categories.length > 0);
 }
 
@@ -8808,7 +8823,7 @@ export default function App() {
                 }))
                 .filter((category) => category.items.length > 0);
 
-              if (!visibleCategories.length) return null;
+              if (!visibleCategories.length && !generalMacroQuestion(macro).text.toLowerCase().includes(normalizedCustomizerSearch)) return null;
 
               return (
                 <section
@@ -8837,6 +8852,19 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  <div className="px-4 pt-3">
+                    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#C8A96B] bg-[#FFF9EB] p-3">
+                      <input type="checkbox" className="mt-1 accent-[#23124A]"
+                        checked={selectedDraftSet.has(GENERAL_MACRO_PREFIX + macro.id)}
+                        onChange={() => toggleCustomQuestion(GENERAL_MACRO_PREFIX + macro.id)} />
+                      <span>
+                        <span className="block text-xs font-black text-[#23124A]">Domanda generale dell'intera macro-area</span>
+                        <span className="mt-1 block text-xs leading-5 text-[#50627F]">{generalMacroQuestion(macro).text}</span>
+                        <span className="block text-[10px] text-[#50627F]">Una sola domanda, selezionabile indipendentemente dalle singole voci.</span>
+                      </span>
+                    </label>
+                  </div>
+
 
                   <div className="space-y-3 p-3 md:p-4">
                     {visibleCategories.map((category) => (
