@@ -3471,6 +3471,16 @@ const ASSESSMENT_DATA: AssessmentMacro[] = [
 ];
 
 const STORAGE_KEY = "velora-owner-assessment-v2";
+const INTERVIEW_TEMPLATE_KEY = "velora-interview-template-v1";
+function savedInterviewTemplate(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(INTERVIEW_TEMPLATE_KEY) || "null");
+    if (Array.isArray(v) && v.length) return v;
+    const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (legacy?.useCustomQuickSelection && legacy?.customQuickItemIds?.length) return legacy.customQuickItemIds;
+  } catch {}
+  return DEFAULT_CUSTOM_QUICK_ITEM_IDS;
+}
 const STRUCTURES_KEY = "velora-analyzed-structures-v1";
 const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
 const DELETED_STRUCTURES_KEY = "velora-deleted-structures-v1";
@@ -4884,14 +4894,11 @@ export default function App() {
   const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>("full");
   const [showQuickDeepDive, setShowQuickDeepDive] = useState(false);
   const [useCustomQuickSelection, setUseCustomQuickSelection] = useState(false);
-  const [customQuickItemIds, setCustomQuickItemIds] = useState<string[]>(
-    DEFAULT_CUSTOM_QUICK_ITEM_IDS
-  );
-  const [customQuickDraftIds, setCustomQuickDraftIds] = useState<string[]>(
-    DEFAULT_CUSTOM_QUICK_ITEM_IDS
-  );
+  const [customQuickItemIds, setCustomQuickItemIds] = useState<string[]>(savedInterviewTemplate);
+  const [customQuickDraftIds, setCustomQuickDraftIds] = useState<string[]>(savedInterviewTemplate);
   const [isCustomizingInterview, setIsCustomizingInterview] = useState(false);
   const [customizerSearch, setCustomizerSearch] = useState("");
+  const [interviewTargetId, setInterviewTargetId] = useState("");
   const [guideEnabled, setGuideEnabled] = useState(false);
   const [activeMacroId, setActiveMacroId] = useState(initialUiState.activeMacroId || ASSESSMENT_DATA[0]?.id || "");
   const [showOnlyPriority, setShowOnlyPriority] = useState(false);
@@ -4901,6 +4908,7 @@ export default function App() {
   const isQuickHotelBb = assessmentMode === "quick-hotel-bb";
   const isWebAudit = assessmentMode === "web-audit";
   const activeStructure = structures.find((item) => item.id === activeStructureId);
+  const interviewTarget = structures.find((item) => item.id === interviewTargetId);
   const activeAuditDataBase: AuditData = activeStructure?.auditData
     ?? knownAuditData(activeStructureId)
     ?? blankAuditDataForStructure({
@@ -5628,6 +5636,10 @@ export default function App() {
       setRateQuotes(Array.isArray(selected.rateQuotes) ? selected.rateQuotes : []);
       setAvailabilityProbes(Array.isArray(selected.availabilityProbes) ? selected.availabilityProbes : []);
       setAssessmentMode(selected.assessmentMode);
+      const ids = selected.customQuickItemIds?.length ? selected.customQuickItemIds : savedInterviewTemplate();
+      setCustomQuickItemIds(ids);
+      setCustomQuickDraftIds(ids);
+      setUseCustomQuickSelection(Boolean(selected.useCustomQuickSelection));
       setActiveMacroId(EXTERNAL_WEB_AUDIT_DATA[0]?.id ?? "");
       setHydrated(true);
       return;
@@ -5750,7 +5762,7 @@ export default function App() {
     setAvailabilityProbes(Array.isArray(structure.availabilityProbes) ? structure.availabilityProbes : []);
     setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
-    const savedInterviewIds = Array.isArray(structure.customQuickItemIds) ? structure.customQuickItemIds : DEFAULT_CUSTOM_QUICK_ITEM_IDS;
+    const savedInterviewIds = structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate();
     setCustomQuickItemIds(savedInterviewIds);
     setCustomQuickDraftIds(savedInterviewIds);
     setUseCustomQuickSelection(Boolean(structure.useCustomQuickSelection));
@@ -5967,9 +5979,8 @@ export default function App() {
   }
 
   function openInterviewCustomizer() {
-    setCustomQuickDraftIds(
-      useCustomQuickSelection ? customQuickItemIds : DEFAULT_CUSTOM_QUICK_ITEM_IDS
-    );
+    setInterviewTargetId(activeStructureId || structures[0]?.id || "");
+    setCustomQuickDraftIds(savedInterviewTemplate());
     setCustomizerSearch("");
     setIsCustomizingInterview(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -5997,13 +6008,23 @@ export default function App() {
   }
 
   function confirmCustomInterview() {
+    if (!interviewTarget) { window.alert("Seleziona la struttura a cui associare il modulo."); return; }
     if (!customQuickDraftIds.length) {
       window.alert("Seleziona almeno una voce per creare l’intervista consulenziale.");
       return;
     }
 
     const selectedData = selectAssessmentItems(new Set(customQuickDraftIds));
-    setCustomQuickItemIds(customQuickDraftIds);
+    window.localStorage.setItem(INTERVIEW_TEMPLATE_KEY, JSON.stringify(customQuickDraftIds));
+    const target = interviewTarget;
+    setStructures((old) => old.map((item) => item.id === target.id ? { ...item, customQuickItemIds: [...customQuickDraftIds], useCustomQuickSelection: true, assessmentMode: "quick-hotel-bb", updatedAt: new Date().toISOString() } : item));
+    setActiveStructureId(target.id);
+    window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, target.id);
+    setOwnerInfo({ ...EMPTY_OWNER_INFO, ...target.ownerInfo });
+    setAnswers(target.answers);
+    setRateQuotes(target.rateQuotes || []);
+    setAvailabilityProbes(target.availabilityProbes || []);
+    setCustomQuickItemIds([...customQuickDraftIds]);
     setUseCustomQuickSelection(true);
     setAssessmentMode("quick-hotel-bb");
     setShowQuickDeepDive(false);
@@ -6011,6 +6032,7 @@ export default function App() {
     setShowOnlyPriority(false);
     setSearchTerm("");
     setIsCustomizingInterview(false);
+    setShowStructures(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -8790,6 +8812,14 @@ export default function App() {
               </div>
             </div>
 
+            <div className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EB] p-4">
+              <label htmlFor="interview-target" className="block text-xs font-black">Struttura a cui associare l'intervista *</label>
+              <select id="interview-target" className="mt-2 h-12 w-full rounded-xl border bg-white px-3 text-sm font-bold" value={interviewTargetId} onChange={(event) => setInterviewTargetId(event.target.value)}>
+                <option value="">Seleziona una struttura analizzata</option>
+                {structures.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.city || "Località non indicata"}</option>)}
+              </select>
+              <p className="mt-2 text-xs text-[#50627F]">Le domande costituiscono un modello generale riutilizzabile. Al salvataggio, le selezioni vengono anche associate alla struttura indicata.</p>
+            </div>
             <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
               <label className="flex flex-col gap-2">
                 <FieldLabel>Cerca voce o reparto</FieldLabel>
@@ -8939,7 +8969,7 @@ export default function App() {
                   {customQuickDraftIds.length} domande formeranno la nuova Analisi rapida
                 </p>
                 <p className="mt-1 text-xs font-semibold text-[#50627F]">
-                  La conferma sostituisce il modello rapido corrente, senza cancellare le risposte già inserite.
+                  Il modello generale viene salvato e associato alla struttura selezionata, senza cancellare le risposte precedenti.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
