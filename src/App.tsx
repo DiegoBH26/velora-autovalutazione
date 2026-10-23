@@ -3490,7 +3490,7 @@ function savedInterviewTemplate(): string[] {
       if (candidates.length) return candidates[0].customQuickItemIds;
     }
   } catch {}
-  return DEFAULT_CUSTOM_QUICK_ITEM_IDS;
+  return SCREENSHOT_INTERVIEW_PRESET_IDS;
 }
 const STRUCTURES_KEY = "velora-analyzed-structures-v1";
 const ACTIVE_STRUCTURE_KEY = "velora-active-structure-v1";
@@ -4541,6 +4541,42 @@ const DEFAULT_CUSTOM_QUICK_ITEM_IDS = [
   ...QUICK_HOTEL_BB_CORE_ITEM_IDS,
   ...QUICK_HOTEL_BB_DEEP_DIVE_ITEM_IDS,
 ] as string[];
+
+// Modello di riferimento ricostruito dalle 20 schermate del 23/10/2026 (31 domande).
+// Il preset è usato solo in assenza di selezioni personali già salvate.
+const SCREENSHOT_INTERVIEW_PRESET_IDS: string[] = [
+  "general-macro-m4",
+  "general-macro-m25",
+  "general-macro-m115",
+  "general-macro-m212",
+  "general-macro-m259",
+  "general-macro-m312",
+  "general-macro-m364",
+  "general-macro-m414",
+  "general-macro-m448",
+  "general-macro-m497",
+  "general-macro-m543",
+  "general-macro-m563",
+  "general-macro-m594",
+  "general-macro-m648",
+  "general-macro-m718",
+  "general-category-c11",
+  "general-category-c32",
+  "general-category-c152",
+  "general-category-c313",
+  "general-category-c320",
+  "q70",
+  "q72",
+  "q89",
+  "q93",
+  "q153",
+  "q156",
+  "q157",
+  "q158",
+  "q170",
+  "q195",
+  "q198"
+];
 
 const GENERAL_MACRO_PREFIX = "general-macro-";
 function generalMacroQuestion(macro: AssessmentMacro): AssessmentItem {
