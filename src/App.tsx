@@ -5750,6 +5750,11 @@ export default function App() {
     setAvailabilityProbes(Array.isArray(structure.availabilityProbes) ? structure.availabilityProbes : []);
     setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
+    const savedInterviewIds = Array.isArray(structure.customQuickItemIds) ? structure.customQuickItemIds : DEFAULT_CUSTOM_QUICK_ITEM_IDS;
+    setCustomQuickItemIds(savedInterviewIds);
+    setCustomQuickDraftIds(savedInterviewIds);
+    setUseCustomQuickSelection(Boolean(structure.useCustomQuickSelection));
+    setIsCustomizingInterview(false);
     setActiveMacroId(
       (structure.assessmentMode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA : ASSESSMENT_DATA)[0]?.id ?? ""
     );
