@@ -3554,6 +3554,8 @@ type AnalyzedStructure = {
   availabilityProbes?: AvailabilityProbe[];
   auditData?: AuditData;
   assessmentMode: AssessmentMode;
+  customQuickItemIds?: string[];
+  useCustomQuickSelection?: boolean;
   updatedAt: string;
 };
 
@@ -5700,9 +5702,11 @@ export default function App() {
       rateQuotes,
       availabilityProbes,
       assessmentMode,
+      customQuickItemIds,
+      useCustomQuickSelection,
       updatedAt: new Date().toISOString(),
     } : item));
-  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode]);
+  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
