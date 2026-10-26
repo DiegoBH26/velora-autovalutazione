@@ -8785,53 +8785,89 @@ export default function App() {
             {(autoAuditMessage || localPilotMessage) && <p className="mt-3 rounded-xl bg-white px-4 py-3 text-xs font-semibold leading-5 text-[#50627F] ring-1 ring-[#E5DDF1]" role="status">{autoAuditMessage || localPilotMessage}</p>}
           </section>
 
-          <div className="mt-5 grid gap-4">
-            {structures.map((structure) => (
-              <article key={structure.id} className="rounded-[1.7rem] border border-[#E5DDF1] bg-white p-5 shadow-sm md:p-6">
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#C8A96B]">
-                      {structure.assessmentMode === "web-audit" ? "Audit Web & Frontend" : "Analisi Velora"}
-                    </p>
-                    <h2 className="mt-1 text-xl font-black">{structure.name}</h2>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#50627F]">
-                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.city || "Città da inserire"} {structure.province ? `(${structure.province})` : ""}</span>
-                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.rooms || "—"} camere / unità</span>
-                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{Object.keys(structure.answers).length} voci registrate</span>
-                      <span className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">Indice frontend: {structureOpportunity(structure, "frontend") === null ? "Da valutare" : structureOpportunity(structure, "frontend") + "/100"}</span>
-                      <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-900">Indice intervista: {structureOpportunity(structure, "interview") === null ? "Da compilare" : structureOpportunity(structure, "interview") + "/100"}</span>
-                      {structure.auditedAt && <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">Report {new Date(`${structure.auditedAt}T12:00:00`).toLocaleDateString("it-IT")}</span>}
+          <div className="mt-5 flex items-center justify-between gap-3 px-1">
+            <div>
+              <h2 className="text-lg font-black text-[#23124A]">Archivio strutture</h2>
+              <p className="mt-1 text-xs text-[#64748B]">Audit preliminare e intervista consulenziale sempre distinti.</p>
+            </div>
+            <span className="shrink-0 rounded-full border border-[#E5DDF1] bg-white px-3 py-1.5 text-xs font-bold text-[#50627F]">{structures.length} strutture</span>
+          </div>
+
+          <div className="mt-3 grid gap-3">
+            {structures.map((structure) => {
+              const frontendScore = structureOpportunity(structure, "frontend");
+              const interviewScore = structureOpportunity(structure, "interview");
+              return (
+                <article key={structure.id} className="rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-5 shadow-[0_4px_18px_rgba(35,18,74,0.035)] md:px-6">
+                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] xl:items-center">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#A9874A]">Struttura analizzata</p>
+                      <h3 className="mt-1.5 break-words text-lg font-black leading-snug text-[#23124A]">{structure.name}</h3>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-[#64748B]">
+                        <span>{structure.city || "Città da indicare"}{structure.province ? ` (${structure.province})` : ""}</span>
+                        <span>{structure.rooms || "n.d."} camere / unità</span>
+                        {structure.auditedAt && <span>Audit del {new Date(`${structure.auditedAt}T12:00:00`).toLocaleDateString("it-IT")}</span>}
+                      </div>
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                        <div className="flex min-h-[76px] items-center justify-between gap-3 rounded-xl border border-[#E8E4F1] bg-[#FAF9FC] px-3.5 py-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-[#23124A]">Audit frontend</p>
+                            <p className="mt-1 text-[11px] text-[#64748B]">Opportunità esterne</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            {frontendScore === null
+                              ? <span className="text-xs font-bold text-[#64748B]">Da valutare</span>
+                              : <span className="text-xl font-black tabular-nums text-[#23124A]">{frontendScore}<span className="ml-0.5 text-xs font-semibold text-[#64748B]">/100</span></span>}
+                          </div>
+                        </div>
+                        <div className="flex min-h-[76px] items-center justify-between gap-3 rounded-xl border border-[#E8E4F1] bg-[#FAF9FC] px-3.5 py-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-[#23124A]">Intervista</p>
+                            <p className="mt-1 text-[11px] text-[#64748B]">Opportunità consulenziali</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            {interviewScore === null
+                              ? <span className="text-xs font-bold text-[#64748B]">Da compilare</span>
+                              : <span className="text-xl font-black tabular-nums text-[#23124A]">{interviewScore}<span className="ml-0.5 text-xs font-semibold text-[#64748B]">/100</span></span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 xl:pl-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button type="button" onClick={() => openStructureAnalysis(structure, "web-audit")} className="min-h-11 rounded-xl bg-[#23124A] px-4 py-3 text-center text-xs font-black text-white transition hover:bg-[#372368]">
+                          Apri audit frontend
+                        </button>
+                        <button type="button" onClick={() => openStructureAnalysis(structure, "quick-hotel-bb")} className="min-h-11 rounded-xl border border-[#C8A96B] bg-white px-4 py-3 text-center text-xs font-black text-[#23124A] transition hover:bg-[#FFF8E8]">
+                          {interviewScore === null ? "Compila intervista" : "Apri intervista"}
+                        </button>
+                      </div>
+                      <div className="mt-3 flex min-h-8 flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#F0ECF5] pt-3 text-xs font-bold text-[#50627F]">
+                        {structure.reportPath && <button type="button" onClick={() => openStoredReport(structure)} className="underline-offset-4 hover:text-[#23124A] hover:underline">
+                          Report PDF
+                        </button>}
+                        {structure.website && <a href={structure.website} target="_blank" rel="noreferrer" className="underline-offset-4 hover:text-[#23124A] hover:underline">Sito web</a>}
+                        {structure.id === santantonioAudit.id && <button type="button" onClick={restoreOriginalAudit} className="underline-offset-4 hover:text-[#23124A] hover:underline">
+                          Ripristina audit
+                        </button>}
+                        <button
+                          type="button"
+                          onClick={() => deleteStructure(structure)}
+                          title={`Elimina ${structure.name}`}
+                          aria-label={`Elimina ${structure.name}`}
+                          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#9E5560] transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => openStructureAnalysis(structure, "web-audit")} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
-                      Apri audit frontend
-                    </button>
-                    <button type="button" onClick={() => openStructureAnalysis(structure, "quick-hotel-bb")} className="rounded-xl border border-[#C8A96B] bg-[#FFF9EB] px-5 py-3 text-sm font-black text-[#23124A] hover:bg-[#FFF1CF]">
-                      {structureOpportunity(structure, "interview") === null ? "Compila intervista" : "Apri intervista"}
-                    </button>
-                    {structure.reportPath && <button type="button" onClick={() => openStoredReport(structure)} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-5 py-3 text-sm font-black hover:bg-[#FFF1CF]">
-                      Apri report PDF
-                    </button>}
-                    {structure.id === santantonioAudit.id && <button type="button" onClick={restoreOriginalAudit} className="rounded-xl border border-[#E5DDF1] px-5 py-3 text-sm font-black hover:bg-[#FBF9FF]">
-                      Ripristina audit originale
-                    </button>}
-                    {structure.website && <a href={structure.website} target="_blank" rel="noreferrer" className="rounded-xl border border-[#E5DDF1] px-5 py-3 text-sm font-black hover:bg-[#FBF9FF]">Sito web</a>}
-                    <button
-                      type="button"
-                      onClick={() => deleteStructure(structure)}
-                      title={`Elimina ${structure.name}`}
-                      aria-label={`Elimina ${structure.name}`}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
           <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche e le nuove strutture restano salvate in questo browser. Per l&apos;audit automatico il software online usa l&apos;agente gratuito sullo stesso PC; i dati non verificabili restano marcati come tali.</p>
         </div>
