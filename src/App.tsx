@@ -8693,6 +8693,29 @@ export default function App() {
     ));
   }
 
+  // Indici separati: non attribuiamo uno zero a un questionario mai compilato.
+  function structureOpportunity(structure: AnalyzedStructure, source: "frontend" | "interview"): number | null {
+    const data = source === "frontend" ? EXTERNAL_WEB_AUDIT_DATA : selectAssessmentItems(new Set(structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate()));
+    const rows = flattenItems(data);
+    const valid = rows.map(({ item }) => structure.answers?.[item.id]).filter((a): a is Answer =>
+      Boolean(a && a.importance > 0 && a.fit > 0)
+    );
+    return valid.length ? scoreAverage(valid.map((a) => getItemScore(a))) : null;
+  }
+
+  function openStructureAnalysis(structure: AnalyzedStructure, mode: "web-audit" | "quick-hotel-bb") {
+    openStructure(structure);
+    setAssessmentMode(mode);
+    const selected = mode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA
+      : selectAssessmentItems(new Set(structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate()));
+    if (mode === "quick-hotel-bb") {
+      const ids = structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate();
+      setCustomQuickItemIds(ids);
+      setUseCustomQuickSelection(true);
+    }
+    setActiveMacroId(selected[0]?.id ?? "");
+  }
+
   if (showStructures) {
     return (
       <main className="min-h-screen bg-[#F7F4FB] px-4 py-8 text-[#23124A] md:px-6">
@@ -8774,13 +8797,18 @@ export default function App() {
                     <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#50627F]">
                       <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.city || "Città da inserire"} {structure.province ? `(${structure.province})` : ""}</span>
                       <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{structure.rooms || "—"} camere / unità</span>
-                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{Object.keys(structure.answers).length} voci compilate</span>
+                      <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">{Object.keys(structure.answers).length} voci registrate</span>
+                      <span className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">Indice frontend: {structureOpportunity(structure, "frontend") === null ? "Da valutare" : structureOpportunity(structure, "frontend") + "/100"}</span>
+                      <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-900">Indice intervista: {structureOpportunity(structure, "interview") === null ? "Da compilare" : structureOpportunity(structure, "interview") + "/100"}</span>
                       {structure.auditedAt && <span className="rounded-full bg-[#F3EEF9] px-3 py-1.5">Report {new Date(`${structure.auditedAt}T12:00:00`).toLocaleDateString("it-IT")}</span>}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => openStructure(structure)} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
-                      Apri analisi
+                    <button type="button" onClick={() => openStructureAnalysis(structure, "web-audit")} className="rounded-xl bg-[#23124A] px-5 py-3 text-sm font-black text-white hover:bg-[#372368]">
+                      Apri audit frontend
+                    </button>
+                    <button type="button" onClick={() => openStructureAnalysis(structure, "quick-hotel-bb")} className="rounded-xl border border-[#C8A96B] bg-[#FFF9EB] px-5 py-3 text-sm font-black text-[#23124A] hover:bg-[#FFF1CF]">
+                      {structureOpportunity(structure, "interview") === null ? "Compila intervista" : "Apri intervista"}
                     </button>
                     {structure.reportPath && <button type="button" onClick={() => openStoredReport(structure)} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-5 py-3 text-sm font-black hover:bg-[#FFF1CF]">
                       Apri report PDF
