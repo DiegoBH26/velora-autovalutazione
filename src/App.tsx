@@ -5578,6 +5578,30 @@ export default function App() {
     }
   }
 
+  async function openPortalListing(portalId: LoginPortalId) {
+    const source=(activeAuditData.sources as unknown as Record<string,{url?:string}> | undefined)?.[portalId];
+    const url=source?.url||"";
+    if(!url){
+      setPortalSessionMessage("Manca il link ufficiale verificato della scheda "+veloraAgentName(portalId)+". Cercala manualmente nel Chrome dedicato.");
+      return;
+    }
+    setPortalSessionBusy(portalId);
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("L'agente Windows non è collegato.");
+      const response=await fetch(localAgentUrl("/api/portal-session/navigate"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({portalId,url})
+      });
+      const body=await response.json() as {error?:string};
+      if(!response.ok) throw new Error(body.error||"Impossibile aprire la scheda nel browser dedicato.");
+      setPortalSessionMessage("Scheda richiesta a "+veloraAgentName(portalId)+". Verifica manualmente l'identità prima di utilizzare qualsiasi tariffa.");
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Apertura scheda non riuscita.");
+    }finally{setPortalSessionBusy(null);}
+  }
+
   async function refreshSpecialistStatuses() {
     try {
       const response = await fetch(localAgentUrl("/api/agents/status?propertyId=" + encodeURIComponent(activeAuditData.id)), { mode:"cors", cache:"no-store" });
@@ -8467,11 +8491,17 @@ export default function App() {
                           <span className="text-[10px] font-semibold opacity-80">
                             {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
                           </span>
-                          <button type="button" disabled={Boolean(portalSessionBusy)||working||localPilotRunning}
-                            onClick={()=>void managePortalSession(loginPortal,loginOpen?"finish":"start")}
-                            className="shrink-0 rounded-lg border border-current/30 bg-white/85 px-2.5 py-1.5 text-[10px] font-black text-[#23124A] disabled:opacity-40">
-                            {portalSessionBusy===loginPortal?"Attendi...":loginOpen?"Chiudi e conserva":"Apri accesso"}
-                          </button>
+                          <span className="flex shrink-0 gap-1">
+                            {loginState?.state==="open" && <button type="button"
+                              disabled={Boolean(portalSessionBusy)} onClick={()=>void openPortalListing(loginPortal)}
+                              title="Apri l'URL noto della struttura nel Chrome dedicato"
+                              className="rounded-lg border border-current/30 bg-white/85 px-2 py-1.5 text-[10px] font-black text-[#23124A] disabled:opacity-40">Scheda</button>}
+                            <button type="button" disabled={Boolean(portalSessionBusy)||working||localPilotRunning}
+                              onClick={()=>void managePortalSession(loginPortal,loginOpen?"finish":"start")}
+                              className="rounded-lg border border-current/30 bg-white/85 px-2.5 py-1.5 text-[10px] font-black text-[#23124A] disabled:opacity-40">
+                              {portalSessionBusy===loginPortal?"Attendi...":loginOpen?"Chiudi e conserva":"Apri accesso"}
+                            </button>
+                          </span>
                         </div>}
                       </div>;
                     })}
