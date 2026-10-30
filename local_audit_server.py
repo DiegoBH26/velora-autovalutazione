@@ -1136,6 +1136,9 @@ class Handler(SimpleHTTPRequestHandler):
                 if agent_id in {"booking","agoda","airbnb"} and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
                     self._json(409,{"error":"Aggiorna e riavvia agente locale e pilot v125 prima di avviare gli specialisti."}); return
                 property_id=safe_property_id(payload.get("propertyId"))
+                with STATE.lock,AUTO_STATE.lock:
+                    if STATE.running or AUTO_STATE.running:
+                        self._json(409,{"error":"La scansione classica è ancora attiva: completala prima di avviare gli specialisti."}); return
                 work=agent_workspace(property_id,agent_id)
                 work.mkdir(parents=True,exist_ok=True)
                 # Snapshot isolato: nessuno specialista modifica il JSON originale.
@@ -1249,8 +1252,9 @@ class Handler(SimpleHTTPRequestHandler):
                     "propertyType":str(payload.get("propertyType") or "").strip()[:100],
                 }
                 audit_payload,_=enrich_from_catalog(raw_audit_payload)
-                with AUTO_STATE.lock,STATE.lock:
-                    if AUTO_STATE.running or STATE.running:
+                with AUTO_STATE.lock,STATE.lock,AGENT_RUN_LOCK:
+                    specialists_active=any(v.get("state") in {"running","queued"} for v in AGENT_RUNS.values())
+                    if AUTO_STATE.running or STATE.running or specialists_active:
                         self._json(409,{"error":"Un'altra rilevazione Velora e' gia' in corso"}); return
                     AUTO_STATE.running=True
                     AUTO_STATE.error=""
@@ -1309,8 +1313,9 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError,json.JSONDecodeError) as exc:
             self._json(400,{"error":str(exc)}); return
 
-        with STATE.lock,AUTO_STATE.lock:
-            if STATE.running or AUTO_STATE.running:
+        with STATE.lock,AUTO_STATE.lock,AGENT_RUN_LOCK:
+            specialists_active=any(v.get("state") in {"running","queued"} for v in AGENT_RUNS.values())
+            if STATE.running or AUTO_STATE.running or specialists_active:
                 self._json(409,{"error":"Un'altra rilevazione Velora e' gia' in corso"}); return
             output=result_path(property_id)
             try:
