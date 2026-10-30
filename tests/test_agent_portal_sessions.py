@@ -30,9 +30,13 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn("PORTAL_SESSIONS.begin(portal_id)",self.server)
         self.assertIn("PORTAL_SESSIONS.finish(portal_id)",self.server)
         self.assertIn("PORTAL_SESSIONS.statuses()",self.server)
+        self.assertIn("/api/portal-session/navigate",self.server)
+        self.assertIn("PORTAL_SESSIONS.navigate(portal_id",self.server)
+        self.assertIn('parsed.scheme!="https"',self.module)
+        self.assertIn("self.pending_urls",self.module)
 
     def test_frontend_has_honest_manual_login_flow(self):
-        for token in ("Apri accesso","Chiudi e conserva","▶ Pubblico","loginOpen","portalSessionMessage"):
+        for token in ("Apri accesso","Chiudi e conserva","▶ Pubblico","loginOpen","portalSessionMessage","openPortalListing"):
             self.assertIn(token,self.app)
         self.assertIn("manuale e locale",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
