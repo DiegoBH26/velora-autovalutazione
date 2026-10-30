@@ -82,6 +82,7 @@ def ensure_pilot_sync():
         browser_pilot=live
         CHANNELS=namespace["CHANNELS"]
         run=namespace["run"]
+        agent_network.pilot=live
 
         # Rimuove anche il vecchio bytecode per il prossimo avvio.
         pycache=target.parent/"__pycache__"
@@ -124,6 +125,7 @@ RUNTIME_AUDITS=STATE_ROOT/"runtime-audits"
 PILOT_RESULTS=STATE_ROOT/"pilot-results"
 AGENT_RESULTS=STATE_ROOT/"specialist-agents"
 AGENT_RUN_LOCK=threading.Lock()
+AGENT_WORK_SLOTS=threading.BoundedSemaphore(2)  # evita saturazione Chrome su PC
 AGENT_RUNS={}
 OTA_SOURCE_CACHE=STATE_ROOT/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
@@ -186,12 +188,15 @@ def agent_validation_output(property_id):
 def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted):
     key=(property_id,agent_id)
     try:
-        data=json.loads(Path(property_file).read_text(encoding="utf-8"))
-        asyncio.run(agent_network.execute(
-            agent_id,data,Path(property_file),agent_output(property_id,agent_id),
-            months=months,custom_period=custom_period,ghost=ghost,
-            assisted=assisted,assist_callback=wait_for_pilot_intervention if assisted else None,
-        ))
+        with AGENT_WORK_SLOTS:
+            with AGENT_RUN_LOCK:
+                AGENT_RUNS[key]["state"]="running"
+            data=json.loads(Path(property_file).read_text(encoding="utf-8"))
+            asyncio.run(agent_network.execute(
+                agent_id,data,Path(property_file),agent_output(property_id,agent_id),
+                months=months,custom_period=custom_period,ghost=ghost,
+                assisted=False,assist_callback=None,
+            ))
         with AGENT_RUN_LOCK:
             AGENT_RUNS[key]["state"]="completed"
             AGENT_RUNS[key]["completedAt"]=datetime.now(timezone.utc).isoformat()
@@ -1046,6 +1051,8 @@ class Handler(SimpleHTTPRequestHandler):
                 agent_id=str(payload.get("agentId") or "").strip()
                 if agent_id not in agent_network.AGENTS:
                     raise ValueError("Agente non disponibile")
+                if payload.get("assisted"):
+                    raise ValueError("L'assistenza umana per gli specialisti non è ancora abilitata: usa la scansione classica.")
                 if agent_id in {"booking","agoda","airbnb"} and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
                     self._json(409,{"error":"Aggiorna e riavvia agente locale e pilot v125 prima di avviare gli specialisti."}); return
                 property_id=safe_property_id(payload.get("propertyId"))
@@ -1082,10 +1089,10 @@ class Handler(SimpleHTTPRequestHandler):
                     custom_period={"start":a.isoformat(),"end":b.isoformat(),"nights":n,"adults":adults,"frequency":frequency}
                 with AGENT_RUN_LOCK:
                     current=AGENT_RUNS.get((property_id,agent_id),{})
-                    if current.get("state")=="running":
+                    if current.get("state") in {"running","queued"}:
                         self._json(409,{"error":"Questo agente è già in esecuzione"}); return
                     AGENT_RUNS[(property_id,agent_id)]={
-                        "state":"running","agentId":agent_id,"startedAt":datetime.now(timezone.utc).isoformat(),"error":""
+                        "state":"queued","agentId":agent_id,"startedAt":datetime.now(timezone.utc).isoformat(),"error":""
                     }
                 input_path=work/"property.json"
                 input_path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
@@ -1095,7 +1102,7 @@ class Handler(SimpleHTTPRequestHandler):
                     property_id,agent_id,input_path,months,custom_period,
                     bool(payload.get("ghost",False)),bool(payload.get("assisted",False))
                 ),daemon=True,name="velora-"+agent_id).start()
-                self._json(202,{"ok":True,"propertyId":property_id,"agentId":agent_id,"state":"running"})
+                self._json(202,{"ok":True,"propertyId":property_id,"agentId":agent_id,"state":"queued"})
                 return
 
             if route=="/api/pilot/intervention":
