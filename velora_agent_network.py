@@ -17,13 +17,45 @@ from site_audit_builder import build_site_audit
 from playwright.async_api import async_playwright
 
 NETWORK_SCHEMA = "velora-specialist-network-v1"
+REVIEWER_NAME = "Giove"
 AGENTS = {
-    "booking": {"label": "Booking.com", "kind": "ota", "channel": "booking", "ready": True, "knowledge": "identità, date, camere, disponibilità, tariffe verificabili"},
-    "agoda": {"label": "Agoda", "kind": "ota", "channel": "agoda", "ready": True, "knowledge": "scheda hotel, date, candidate tariffarie, base prezzo"},
-    "airbnb": {"label": "Airbnb", "kind": "ota", "channel": "airbnb", "ready": True, "knowledge": "annunci multipli, identità, date e preventivi pubblici"},
-    "official_site": {"label": "Sito ufficiale", "kind": "site", "ready": True, "knowledge": "navigazione, contenuti, conversione, immagini e asimmetrie"},
-    "reviews": {"label": "Recensioni", "kind": "reviews", "ready": True, "knowledge": "campioni recensioni, temi ricorrenti, reputazione Google"},
+    "booking": {"name": "Minerva", "label": "Booking.com", "kind": "ota", "channel": "booking", "ready": True, "knowledge": "identità, date, camere, disponibilità, tariffe verificabili"},
+    "agoda": {"name": "Galileo", "label": "Agoda", "kind": "ota", "channel": "agoda", "ready": True, "knowledge": "scheda hotel, date, candidate tariffarie, base prezzo"},
+    "airbnb": {"name": "Apollo", "label": "Airbnb", "kind": "ota", "channel": "airbnb", "ready": True, "knowledge": "annunci multipli, identità, date e preventivi pubblici"},
+    "official_site": {"name": "Leonardo", "label": "Sito ufficiale", "kind": "site", "ready": True, "knowledge": "navigazione, contenuti, conversione, immagini e asimmetrie"},
+    "reviews": {"name": "Ipazia", "label": "Recensioni", "kind": "reviews", "ready": True, "knowledge": "campioni recensioni, temi ricorrenti, reputazione Google"},
 }
+# Reserved names only. These agents have NOT been implemented or enabled.
+FUTURE_AGENTS = {
+    "expedia": {"name": "Ercole", "label": "Expedia"},
+    "vrbo": {"name": "Atlante", "label": "Vrbo"},
+    "holidu": {"name": "Mercurio", "label": "Holidu"},
+    "hotels": {"name": "Tesla", "label": "Hotels.com"},
+    "trip": {"name": "Turing", "label": "Trip.com"},
+    "priceline": {"name": "Pitagora", "label": "Priceline"},
+    "travelocity": {"name": "Newton", "label": "Travelocity"},
+    "tripadvisor": {"name": "Socrate", "label": "Tripadvisor"},
+    "trivago": {"name": "Keplero", "label": "Trivago"},
+    "googlehotels": {"name": "Euclide", "label": "Google Hotels"},
+    "holidaycheck": {"name": "Archimede", "label": "HolidayCheck"},
+}
+
+def agent_display(agent_id: str) -> str:
+    entry = AGENTS.get(agent_id) or FUTURE_AGENTS.get(agent_id)
+    return f"{entry['name']} ({entry['label']})" if entry else agent_id
+
+def validation_rows(report: dict) -> list[dict]:
+    """Consistent, structured Giove check rows for CMD and UI."""
+    rows = []
+    for check in report.get("checks") or []:
+        agent = check.get("agentId", "")
+        rows.append({
+            "agentId": agent, "agentName": agent_display(agent),
+            "check": check.get("label", ""),
+            "status": "VALIDATO" if check.get("passed") else "ERRORE",
+            "details": check.get("detail", ""),
+        })
+    return rows
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -31,6 +63,7 @@ def _now() -> str:
 def _safe_result(value: dict, expected_id: str, agent: str) -> dict:
     result = dict(value)
     result["agentId"] = agent
+    result["agentName"] = agent_display(agent)
     result["networkSchema"] = NETWORK_SCHEMA
     if result.get("propertyId") not in (None, expected_id):
         raise ValueError("Risultato ricevuto da un’altra struttura")
@@ -168,7 +201,8 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
     return {
         "schema": "velora-agent-validation-v1", "propertyId": property_id,
         "validatedAt": _now(), "checkedBy": "manual-trigger",
-        "checks": checks, "passed": sum(1 for c in checks if c["passed"]),
+        "checks": checks, "rows": validation_rows({"checks": checks}), "reviewer": REVIEWER_NAME,
+        "passed": sum(1 for c in checks if c["passed"]),
         "total": len(checks),
         "note": "Verde solo se il dato è verificato; assenza/blocco non equivalgono ad assenza dell'offerta."
     }
