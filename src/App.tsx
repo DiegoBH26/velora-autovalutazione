@@ -4883,6 +4883,9 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
+type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string};
+type LoginPortalId = "expedia" | "vrbo" | "holidu";
+const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
 const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string; beta?: boolean}> = [
   {id:"booking",name:"Minerva",channel:"Booking.com",detail:"Date, camere e tariffe"},
@@ -4936,6 +4939,9 @@ export default function App() {
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
   const [specialistBusy, setSpecialistBusy] = useState<Record<string, boolean>>({});
   const [specialistCheckRunning, setSpecialistCheckRunning] = useState(false);
+  const [portalSessions, setPortalSessions] = useState<Record<string,PortalSessionState>>({});
+  const [portalSessionMessage, setPortalSessionMessage] = useState("");
+  const [portalSessionBusy, setPortalSessionBusy] = useState<string | null>(null);
   const [launchingBatch, setLaunchingBatch] = useState(false);
   const [selectedSupportAgents, setSelectedSupportAgents] = useState<SpecialistAgentId[]>(() => {
     try {
@@ -5517,6 +5523,42 @@ export default function App() {
           (photo.evidence || "Nessun campione fotografico pubblico verificabile.") +
           " Nessun punteggio attribuito automaticamente.",
       });
+    }
+  }
+
+  async function refreshPortalSessions() {
+    try {
+      const response=await fetch(localAgentUrl("/api/portal-session/status"), {mode:"cors",cache:"no-store"});
+      if (!response.ok) throw new Error("Aggiorna l'agente Windows per abilitare le sessioni dedicate.");
+      const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
+      setPortalSessions(data.sessions||{});
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Stato sessioni non disponibile.");
+    }
+  }
+
+  async function managePortalSession(portalId: LoginPortalId, action: "start" | "finish") {
+    if (portalSessionBusy) return;
+    setPortalSessionBusy(portalId);
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Avvia l'agente Windows prima di aprire l'accesso.");
+      const response=await fetch(localAgentUrl("/api/portal-session/"+action),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({portalId})
+      });
+      const result=await response.json() as {error?:string;session?:PortalSessionState};
+      if(!response.ok) throw new Error(result.error||"Impossibile gestire la sessione.");
+      setPortalSessions((old)=>({...old,[portalId]:result.session||{}}));
+      setPortalSessionMessage(action==="start"
+        ?"Si apre il Chrome dedicato a "+veloraAgentName(portalId)+". Accedi personalmente e naviga nel sito, poi premi «Chiudi e conserva». Nessuna password viene letta da Velora."
+        :"Chiusura di "+veloraAgentName(portalId)+" richiesta. Il profilo Chrome rimane sul PC; l'accesso non è verificato automaticamente.");
+      void refreshPortalSessions();
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Errore sessione OTA.");
+    }finally{
+      setPortalSessionBusy(null);
     }
   }
 
@@ -8364,6 +8406,9 @@ export default function App() {
                       const idle=ota?ota.idle:agent.id==="official_site"
                         ?"border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
                         :"border-purple-300 bg-white text-purple-950 hover:bg-purple-50";
+                      const loginPortal=LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId) ? agent.id as LoginPortalId : null;
+                      const loginState=loginPortal?portalSessions[loginPortal]:undefined;
+                      const loginOpen=loginState?.state==="open"||loginState?.state==="queued";
                       const stateText=state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"
                         ?"Terminato · da validare":state?.state==="failed"?"Errore":state?.hasResult?"Risultato archiviato":"Non avviato";
                       const toggle=()=>{
@@ -8393,10 +8438,22 @@ export default function App() {
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
                           <button type="button" disabled={working||localPilotRunning}
                             onClick={()=>void startSpecialistAgent(agent.id)}
-                            title={"Avvia solo "+agent.name+" ("+agent.channel+")"}
-                            aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
-                            className="inline-flex h-8 w-9 shrink-0 items-center justify-center rounded-lg bg-[#23124A] text-xs font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">▶</button>
+                            title={loginPortal?"Test pubblico senza accesso registrato":"Avvia solo "+agent.name+" ("+agent.channel+")"}
+                            aria-label={loginPortal?"Avvia test pubblico di "+agent.name:"Avvia solo "+agent.name+" ("+agent.channel+")"}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
+                            {loginPortal?"▶ Pubblico":"▶"}
+                          </button>
                         </div>
+                        {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
+                          <span className="text-[10px] font-semibold opacity-80">
+                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
+                          </span>
+                          <button type="button" disabled={Boolean(portalSessionBusy)||working||localPilotRunning}
+                            onClick={()=>void managePortalSession(loginPortal,loginOpen?"finish":"start")}
+                            className="shrink-0 rounded-lg border border-current/30 bg-white/85 px-2.5 py-1.5 text-[10px] font-black text-[#23124A] disabled:opacity-40">
+                            {portalSessionBusy===loginPortal?"Attendi...":loginOpen?"Chiudi e conserva":"Apri accesso"}
+                          </button>
+                        </div>}
                       </div>;
                     })}
                   </div>
@@ -8448,9 +8505,10 @@ export default function App() {
                     </table>
                   </div>}
                 </div>
+                {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
-                <p className="text-[10px] text-[#64748B]">Gli agenti in test riutilizzano i parser pubblici esistenti: un blocco, una pagina con login o una scheda senza verifica non diventano un prezzo valido. Gli account non vengono usati per aggirare i controlli dei portali.</p>
+                <p className="text-[10px] text-[#64748B]">Gli agenti in test riutilizzano i parser pubblici esistenti: un blocco, una pagina con login o una scheda senza verifica non diventano un prezzo valido. L’accesso è manuale e locale; la sessione non abilita automaticamente scraping autenticato né supera le restrizioni del portale.</p>
 
               </div>}
             </section>
