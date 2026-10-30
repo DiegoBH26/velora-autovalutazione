@@ -1133,7 +1133,7 @@ class Handler(SimpleHTTPRequestHandler):
                     raise ValueError("Agente non disponibile")
                 if payload.get("assisted"):
                     raise ValueError("L'assistenza umana per gli specialisti non è ancora abilitata: usa la scansione classica.")
-                if agent_id in {"booking","agoda","airbnb"} and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
+                if agent_network.AGENTS[agent_id]["kind"]=="ota" and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
                     self._json(409,{"error":"Aggiorna e riavvia agente locale e pilot v125 prima di avviare gli specialisti."}); return
                 property_id=safe_property_id(payload.get("propertyId"))
                 with STATE.lock,AUTO_STATE.lock:
