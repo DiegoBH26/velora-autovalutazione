@@ -28,9 +28,9 @@ due agenti. Per questo Agoda e Airbnb possono consultare Booking come
 - **Leonardo (Sito diretto)** – attivo
 - **Ipazia (Recensioni)** – attivo
 - **Giove (Revisore/Validatore)** – esclusivamente manuale
-- **Ercole (Expedia)**, **Atlante (Vrbo)**, **Mercurio (Holidu)** – nomi riservati, non ancora attivi
-- **Tesla (Hotels.com)**, **Turing (Trip.com)**, **Pitagora (Priceline)**, **Newton (Travelocity)**,
-  **Socrate (Tripadvisor)**, **Keplero (Trivago)**, **Euclide (Google Hotels)**,
+- **Ercole (Expedia)**, **Atlante (Vrbo)**, **Mercurio (Holidu)** – adapter **pubblico di prova**, senza login e senza bypass
+- **Tesla (Hotels.com)**, **Turing (Trip.com)**, **Pitagora (Priceline)**, **Newton (Travelocity)** – adapter **pubblico di prova** da validare
+- **Socrate (Tripadvisor)**, **Keplero (Trivago)**, **Euclide (Google Hotels)**,
   **Archimede (HolidayCheck)** – nomi riservati, non ancora attivi
 
 ### CMD: esempio illustrativo, non una scansione reale
@@ -73,6 +73,32 @@ nel browser locale, se compatibile con le condizioni dei singoli servizi.
 Non inserire account/password/OTP nel codice, nelle impostazioni condivise,
 in GitHub o nei messaggi di chat; non utilizzare login per aggirare blocchi
 anti-bot, quote o condizioni di utilizzo.
+
+## Unica console di lavoro
+La vecchia configurazione OTA separata è stata incorporata nel pannello
+**Rete agenti** con un'unica selezione colorata e un calendario comune.
+La selezione avvia soltanto i canali flaggati; **Avvia tutti** richiede
+esplicitamente tutte le dieci OTA, Leonardo e Ipazia (12 agenti in totale).
+Le esecuzioni sono avviate in parallelo ma limitate a **due browser Chrome
+contemporaneamente**; le altre entrano in coda. Non sono dodici processi
+Chrome contemporanei e questo evita di saturare la macchina.
+**Giove si avvia soltanto premendo il suo pulsante**; nessuna esecuzione
+automaticamente attribuisce un flag di validazione.
+
+### Valutazione tecnica dei quattro adattatori in prova
+- **Hotels.com/Tesla**: stessa famiglia di account One Key di
+  Expedia e Vrbo, ma serve riconoscimento autonomo della scheda e dei prezzi.
+- **Travelocity/Newton**: canale storicamente del gruppo Expedia;
+  distinguere scheda, redirect e fonte effettiva del prezzo.
+- **Priceline/Pitagora**: gruppo Booking Holdings, ma frontend autonomo;
+  il parser Booking.com **non può essere dato per equivalente**.
+- **Trip.com/Turing**: gruppo indipendente, percorsi di login e tariffazione
+  differenti da Booking/Agoda. Servono test reali e condizioni d'accesso.
+I quattro canali hanno già adapter nel pilot ma **non sono stati collaudati
+in modo da garantire un prezzo**. Il flag `In test` non equivale a disponibilità.
+L'identificazione della scheda, delle date, degli ospiti e del prezzo resta
+obbligatoria. Un redirect a un'altra OTA viene registrato senza attribuire
+falsamente la tariffa alla fonte originaria.
 
 ## Isolamento reale
 - Cartella input/output: `AppData/Local/Velora/specialist-agents/<struttura>/<agente>/`.
