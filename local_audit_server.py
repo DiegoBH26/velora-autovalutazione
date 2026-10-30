@@ -1110,7 +1110,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1125,7 +1125,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
 
-            if route in {"/api/portal-session/start","/api/portal-session/finish"}:
+            if route in {"/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
                 if PORTAL_SESSIONS is None:
                     self._json(503,{"error":"Modulo di sessione mancante. Scarica l'aggiornamento Windows."}); return
                 portal_id=str(payload.get("portalId") or "").strip().lower()
@@ -1139,6 +1139,9 @@ class Handler(SimpleHTTPRequestHandler):
                             self._json(409,{"error":"Completa gli agenti di scraping prima di aprire Chrome per il login."}); return
                         state=PORTAL_SESSIONS.begin(portal_id)
                         self._json(202,{"portalId":portal_id,"session":state,"manualOnly":True})
+                    elif route=="/api/portal-session/navigate":
+                        state=PORTAL_SESSIONS.navigate(portal_id,str(payload.get("url") or ""))
+                        self._json(200,{"portalId":portal_id,"session":state,"manualOnly":True})
                     else:
                         state=PORTAL_SESSIONS.finish(portal_id)
                         self._json(200,{"portalId":portal_id,"session":state,"manualOnly":True})
