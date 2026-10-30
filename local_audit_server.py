@@ -179,6 +179,47 @@ STATE=PilotState()
 AUTO_STATE=AutoAuditState()
 
 
+# CMD dashboard: the completion marker means a job finished, not that Giove validated its data.
+AGENT_CONSOLE_LOCK=threading.Lock()
+AGENT_TERMINAL_COLORS=(sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    and (os.name!="nt" or bool(os.environ.get("WT_SESSION") or os.environ.get("ANSICON"))))
+
+def _console_color(value, color):
+    return ("\033["+color+"m"+value+"\033[0m") if AGENT_TERMINAL_COLORS else value
+
+def _column(value, width):
+    text=str(value or "").replace("\r"," ").replace("\n"," ").replace("|","/").strip()
+    return text[:width-1]+"…" if len(text)>width else text.ljust(width)
+
+def print_agent_status(agent_id,phase,result,detail=""):
+    if agent_network is None:
+        return
+    actor=agent_network.agent_display(agent_id)
+    colored=_console_color(result, "32" if result in {"COMPLETATO","VALIDATO"}
+                           else "31" if result=="ERRORE" else "33" if result=="IN CODA" else "36")
+    with AGENT_CONSOLE_LOCK:
+        print("  "+_column(actor,28)+" | "+_column(phase,20)+" | "
+              +_column(result,12).replace(result,colored,1)+" | "+str(detail)[:150],flush=True)
+
+def print_giove_report(report):
+    with AGENT_CONSOLE_LOCK:
+        print("\n"+("="*108),flush=True)
+        print("GIOVE (VALIDATORE) - CHECK MANUALE - STRUTTURA: "+str(report.get("propertyId")),flush=True)
+        print(_column("AGENTE (OTA)",28)+" | "+_column("CONTROLLO",30)+" | "
+              +_column("ESITO",12)+" | DETTAGLIO",flush=True)
+        print("-"*108,flush=True)
+        for row in report.get("rows") or []:
+            state=str(row.get("status") or "ERRORE")
+            colored=_console_color(state,"32" if state=="VALIDATO" else "31")
+            print(_column(row.get("agentName"),28)+" | "+_column(row.get("check"),30)
+                  +" | "+_column(state,12).replace(state,colored,1)
+                  +" | "+str(row.get("details") or "")[:100].replace("\n"," "),flush=True)
+        print("-"*108,flush=True)
+        print("GIOVE: "+str(report.get("passed",0))+"/"+str(report.get("total",0))
+              +" controlli VALIDATI. I rimanenti richiedono verifica: nessun falso verde.",flush=True)
+        print("="*108+"\n",flush=True)
+
+
 def agent_workspace(property_id,agent_id):
     return AGENT_RESULTS / property_id / agent_id
 
@@ -194,7 +235,9 @@ def agent_validation_output(property_id):
 def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted):
     key=(property_id,agent_id)
     try:
+        print_agent_status(agent_id,"Avvio","IN CODA","Attesa di uno slot Chrome indipendente")
         with AGENT_WORK_SLOTS:
+            print_agent_status(agent_id,"Browser / scraping","IN CORSO",property_id)
             with AGENT_RUN_LOCK:
                 AGENT_RUNS[key]["state"]="running"
             data=json.loads(Path(property_file).read_text(encoding="utf-8"))
@@ -203,6 +246,7 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                 months=months,custom_period=custom_period,ghost=ghost,
                 assisted=False,assist_callback=None,
             ))
+        print_agent_status(agent_id,"Esecuzione","COMPLETATO","Esito salvato, in attesa del check di Giove")
         with AGENT_RUN_LOCK:
             AGENT_RUNS[key]["state"]="completed"
             AGENT_RUNS[key]["completedAt"]=datetime.now(timezone.utc).isoformat()
@@ -212,7 +256,7 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
             AGENT_RUNS[key]["state"]="failed"
             AGENT_RUNS[key]["error"]=error
             AGENT_RUNS[key]["completedAt"]=datetime.now(timezone.utc).isoformat()
-        print(f"ERRORE AGENTE {agent_id}: {error}",flush=True)
+        print_agent_status(agent_id,"Esecuzione","ERRORE",error)
 
 
 
@@ -1057,6 +1101,7 @@ class Handler(SimpleHTTPRequestHandler):
                     self._json(409,{"error":"Attendi la conclusione degli agenti prima del check: "+", ".join(active)}); return
                 outputs={agent:agent_output(property_id,agent) for agent in agent_network.AGENTS}
                 report=agent_network.evaluate(property_id,outputs)
+                print_giove_report(report)
                 dest=agent_validation_output(property_id)
                 dest.parent.mkdir(parents=True,exist_ok=True)
                 tmp=dest.with_suffix(".tmp")
