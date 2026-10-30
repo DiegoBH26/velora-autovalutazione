@@ -5049,6 +5049,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!specialistExpanded || !localPilotToken) return;
+    const propertyId=activeAuditData.id;
+    let disposed=false;
+    const update=async()=>{
+      try {
+        const response=await fetch(localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(propertyId)),{mode:"cors",cache:"no-store"});
+        if (!response.ok || disposed) return;
+        const data=await response.json() as {agents?:Record<string,SpecialistAgentState>};
+        if (!disposed) setSpecialistStatuses(data.agents||{});
+      } catch { /* service offline: detailed error shown when user presses Aggiorna stati */ }
+    };
+    void update();
+    const timer=window.setInterval(()=>void update(),6000);
+    return ()=>{disposed=true;window.clearInterval(timer);};
+  }, [specialistExpanded, localPilotToken, activeAuditData.id]);
+
+  useEffect(() => {
     if (!localPilotRunning || localPilotStartedAtMs === null) return;
     setLocalPilotElapsedMs(Date.now() - localPilotStartedAtMs);
     const timer = window.setInterval(() => {
