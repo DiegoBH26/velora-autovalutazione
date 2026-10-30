@@ -30,7 +30,12 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 import browser_audit_pilot as browser_pilot
-import velora_agent_network as agent_network
+try:
+    import velora_agent_network as agent_network
+except ImportError:
+    # Il vecchio updater Windows non includeva questo file. Non interrompere
+    # lo scraping legacy: la rete specialisti si abilita con l'updater nuovo.
+    agent_network=None
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
@@ -82,7 +87,8 @@ def ensure_pilot_sync():
         browser_pilot=live
         CHANNELS=namespace["CHANNELS"]
         run=namespace["run"]
-        agent_network.pilot=live
+        if agent_network is not None:
+            agent_network.pilot=live
 
         # Rimuove anche il vecchio bytecode per il prossimo avvio.
         pycache=target.parent/"__pycache__"
@@ -967,12 +973,16 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(200,{"running":running,"error":error,"propertyId":property_id,"result":result,"intervention":intervention or None})
             return
         if route=="/api/agents/config":
+            if agent_network is None:
+                self._json(503,{"error":"Modulo agenti non installato: scarica il nuovo AGGIORNA_VELORA_COMPLETO.bat e riavvia."}); return
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
             self._json(200,{"schema":agent_network.NETWORK_SCHEMA,"agents":agent_network.AGENTS,
                              "reviewer":"manual_only","version":"v125"})
             return
         if route in {"/api/agents/status","/api/agents/result","/api/agents/validation"}:
+            if agent_network is None:
+                self._json(503,{"error":"Rete agenti non ancora installata; scraping classico disponibile."}); return
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
             query=parse_qs(urlparse(self.path).query)
@@ -1034,6 +1044,9 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route in {"/api/agents/validate","/api/agents/start"} and agent_network is None:
+                self._json(503,{"error":"Modulo specialisti mancante. Aggiorna i file con il nuovo updater Windows."}); return
 
             if route=="/api/agents/validate":
                 property_id=safe_property_id(payload.get("propertyId"))
