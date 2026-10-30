@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,6 +46,7 @@ class ManualPortalSessions:
             for key in PORTALS
         }
         self.stop_events: dict[str, threading.Event] = {}
+        self.pending_urls: dict[str, str] = {}
 
     def statuses(self) -> dict:
         with self.lock:
@@ -80,6 +82,30 @@ class ManualPortalSessions:
             self.state[portal]["message"] = "Chiusura del browser e salvataggio del profilo locale..."
             return dict(self.state[portal])
 
+    def navigate(self, portal: str, url: str) -> dict:
+        """Only a user-triggered top-level navigation, never data extraction."""
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        if not isinstance(url, str) or len(url)>2048:
+            raise ValueError("URL annuncio non valido")
+        parsed=urlparse(url)
+        hosts={
+            "expedia":("expedia.it","expedia.com"),
+            "vrbo":("vrbo.com",),
+            "holidu":("holidu.it","holidu.com"),
+        }
+        host=(parsed.hostname or "").lower()
+        allowed=hosts[portal]
+        if parsed.scheme!="https" or parsed.username or parsed.password or parsed.port not in (None,443) or not any(
+                host==domain or host.endswith("."+domain) for domain in allowed):
+            raise ValueError("Il link deve appartenere al portale selezionato e utilizzare HTTPS")
+        with self.lock:
+            if self.state[portal]["state"]!="open":
+                raise RuntimeError("Apri prima il Chrome dell'agente ed effettua l'accesso.")
+            self.pending_urls[portal]=url
+            self.state[portal]["message"]="Apertura della scheda richiesta dall'utente. Continua la navigazione nel Chrome dedicato."
+            return dict(self.state[portal])
+
     def _run(self, portal: str, stop: threading.Event) -> None:
         try:
             asyncio.run(self._browser(portal, stop))
@@ -100,6 +126,7 @@ class ManualPortalSessions:
         finally:
             with self.lock:
                 self.stop_events.pop(portal, None)
+                self.pending_urls.pop(portal, None)
 
     async def _browser(self, portal: str, stop: threading.Event) -> None:
         config = PORTALS[portal]
@@ -125,7 +152,19 @@ class ManualPortalSessions:
                         "startedAt": self.state[portal].get("startedAt"),
                     }
                 print(f"[SESSIONE] {config['name']} ({config['label']}) | APERTA | Login manuale richiesto; nessuna password letta", flush=True)
-                await asyncio.to_thread(stop.wait, SESSION_MAX_SECONDS)
+                loop=asyncio.get_running_loop()
+                deadline=loop.time()+SESSION_MAX_SECONDS
+                while not stop.is_set() and loop.time()<deadline:
+                    with self.lock:
+                        next_url=self.pending_urls.pop(portal,None)
+                    if next_url:
+                        try:
+                            await page.goto(next_url,wait_until="domcontentloaded",timeout=45000)
+                            print(f"[SESSIONE] {config['name']} ({config['label']}) | NAVIGAZIONE | Apertura scheda richiesta dall'utente",flush=True)
+                        except Exception as exc:
+                            with self.lock:
+                                self.state[portal]["message"]="Impossibile aprire la scheda: "+type(exc).__name__
+                    await asyncio.sleep(0.6)
             finally:
                 await context.close()
 
