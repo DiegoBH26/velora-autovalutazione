@@ -27,14 +27,18 @@ class AgentCatalogTest(unittest.TestCase):
 
     def test_live_agents_named_uniquely(self):
         expected={"booking":"Minerva","agoda":"Galileo","airbnb":"Apollo",
-                  "official_site":"Leonardo","reviews":"Ipazia"}
+                  "official_site":"Leonardo","reviews":"Ipazia",
+                  "expedia":"Ercole","vrbo":"Atlante","holidu":"Mercurio",
+                  "hotels":"Tesla","travelocity":"Newton","trip":"Turing","priceline":"Pitagora"}
         self.assertEqual({k:v["name"] for k,v in self.catalog.items()},expected)
-        self.assertEqual(len({v["name"] for v in self.catalog.values()}),5)
+        self.assertEqual(len({v["name"] for v in self.catalog.values()}),12)
 
     def test_reserved_agents_not_runnable(self):
-        self.assertEqual(self.planned["expedia"]["name"],"Ercole")
-        self.assertEqual(self.planned["vrbo"]["name"],"Atlante")
-        self.assertEqual(self.planned["holidu"]["name"],"Mercurio")
+        self.assertEqual(self.catalog["expedia"]["name"],"Ercole")
+        self.assertEqual(self.catalog["vrbo"]["name"],"Atlante")
+        self.assertEqual(self.catalog["holidu"]["name"],"Mercurio")
+        self.assertTrue(all(self.catalog[x].get("beta") for x in
+                            ("expedia","vrbo","holidu","hotels","travelocity","trip","priceline")))
         self.assertTrue(set(self.planned).isdisjoint(self.catalog))
         self.assertEqual(len({v["name"] for v in list(self.catalog.values())+list(self.planned.values())}),
                          len(self.catalog)+len(self.planned))
