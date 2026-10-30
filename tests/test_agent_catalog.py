@@ -49,7 +49,7 @@ class AgentCatalogTest(unittest.TestCase):
         self.assertIn('route=="/api/agents/validate"',self.server)
         self.assertIn('if active:',self.server)
         self.assertIn('result=="VALIDATO"',self.server)
-        self.assertIn('Giove (Revisore / Validatore)',self.app)
+        self.assertIn('Giove · Revisore / Validatore',self.app)
         self.assertIn('✓ VALIDATO',self.app)
 
     def test_legacy_and_questions_untouched(self):
