@@ -32,6 +32,8 @@ def _safe_result(value: dict, expected_id: str, agent: str) -> dict:
     result = dict(value)
     result["agentId"] = agent
     result["networkSchema"] = NETWORK_SCHEMA
+    if result.get("propertyId") not in (None, expected_id):
+        raise ValueError("Risultato ricevuto da un’altra struttura")
     result["propertyId"] = expected_id
     result["completedAt"] = _now()
     return result
@@ -71,9 +73,19 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "rooms": str(data.get("rooms") or ""),
             "propertyType": data.get("propertyType", "Struttura ricettiva"),
         })
+        # Recupera il collaudato audit fotografico multi-pagina, non un parser nuovo.
+        profile = property_file.parent / "chrome-photos"
+        picture_data={**data,"sources":{**(data.get("sources") or {}),
+            "sito":{"label":"Sito ufficiale","url":site}}}
+        async with async_playwright() as playwright:
+            context=await pilot._launch_velora_context(playwright,profile,picture_data,"foto sito diretto",ghost)
+            try:
+                photos=await pilot.frontend_photo_audit(context,picture_data,{})
+            finally:
+                await context.close()
         result = _safe_result({
-            "schema": NETWORK_SCHEMA, "auditData": audit,
-            "evidence": "Audit sito diretto realizzato con il motore esistente; risultati senza tariffe OTA.",
+            "schema": NETWORK_SCHEMA, "auditData": audit,"photoAudit": photos,
+            "evidence": "Audit navigazione sito + foto multi-pagina; nessuna tariffa OTA.",
         }, data["id"], agent)
     else:  # reviews only
         profile = property_file.parent / "chrome-reviews"
@@ -81,11 +93,26 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             context = await pilot._launch_velora_context(playwright, profile, data, "recensioni", ghost)
             try:
                 google = await pilot.google_reputation_observation(context, data)
+                # Profilazione pubblica OTA: solo rating e quantità recensioni.
+                # I prezzi eventualmente visibili sono esclusi dall'output reviews.
+                ota_profiles = {}
+                for channel in ("booking", "agoda", "airbnb"):
+                    source = (data.get("sources") or {}).get(channel) or {}
+                    url = source.get("url") if isinstance(source, dict) else ""
+                    if not url:
+                        ota_profiles[channel]={"status":"source_missing","evidence":"Scheda OTA non ancora verificata"}
+                        continue
+                    try:
+                        item = await pilot.observe_ota_profile(context,channel,url,{})
+                        ota_profiles[channel]={k:v for k,v in item.items()
+                            if k in ("status","url","title","rating","ratingScale","reviewCount","recommendationRate","evidence")}
+                    except Exception as exc:
+                        ota_profiles[channel]={"status":"error","evidence":type(exc).__name__}
             finally:
                 await context.close()
         result = _safe_result({
-            "schema": NETWORK_SCHEMA, "reputation": google,
-            "evidence": "Analisi dedicata delle recensioni Google: non esegue discovery prezzi o tariffe.",
+            "schema": NETWORK_SCHEMA, "reputation": google,"otaReviewProfiles": ota_profiles,
+            "evidence": "Analisi Google + metriche reputazione OTA pubbliche, senza discovery prezzi né tariffe.",
         }, data["id"], agent)
     _write(output, result)
     return result
@@ -129,6 +156,10 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             positive = [c for c in checks_site if c.get("status") in {"present", "partial"}]
             add(agent, "site", "Evidenze verificabili del sito", bool(positive),
                 f"{len(positive)} controlli con riscontro su {len(checks_site)}")
+            photo=result.get("photoAudit") or {}
+            add(agent,"photos","Qualità foto verificata",photo.get("status")=="sampled"
+                and bool(photo.get("imageCount",0)),
+                f"Stato {photo.get('status','n.d.')}; immagini {photo.get('imageCount',0)}")
         elif agent == "reviews":
             rep = result.get("reputation") or {}
             add(agent, "sample", "Campione recensioni verificato",
