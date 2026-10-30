@@ -4881,6 +4881,16 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 ] as const;
 
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
+type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "official_site" | "reviews";
+type SpecialistAgentState = {state?: "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
+type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
+const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; detail: string}> = [
+  {id:"booking",name:"Booking.com",detail:"Date, camere e tariffe"},
+  {id:"agoda",name:"Agoda",detail:"Scheda hotel e preventivi"},
+  {id:"airbnb",name:"Airbnb",detail:"Annunci e tariffe"},
+  {id:"official_site",name:"Sito diretto",detail:"Sito, navigazione e immagini"},
+  {id:"reviews",name:"Recensioni",detail:"Reputazione e temi ricorrenti"}
+];
 
 export default function App() {
   const initialUiState = useMemo(() => loadUiState(), []);
@@ -4903,6 +4913,12 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
+  const [specialistExpanded, setSpecialistExpanded] = useState(false);
+  const [specialistMessage, setSpecialistMessage] = useState("");
+  const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
+  const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
+  const [specialistBusy, setSpecialistBusy] = useState<Record<string, boolean>>({});
+  const [specialistCheckRunning, setSpecialistCheckRunning] = useState(false);
   const [localPilotGhost, setLocalPilotGhost] = useState(() => window.localStorage.getItem("velora-pilot-ghost") === "1");
   const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") === "1");
   const [localPilotPeriod, setLocalPilotPeriod] = useState<LocalPilotPeriod>(() => {
@@ -5461,6 +5477,117 @@ export default function App() {
           " Nessun punteggio attribuito automaticamente.",
       });
     }
+  }
+
+  async function refreshSpecialistStatuses() {
+    try {
+      const response = await fetch(localAgentUrl("/api/agents/status?propertyId=" + encodeURIComponent(activeAuditData.id)), { mode:"cors", cache:"no-store" });
+      if (!response.ok) throw new Error("Rete agenti non disponibile: aggiorna l'agente Windows alla v125.");
+      const data = await response.json() as {agents?: Record<string,SpecialistAgentState>};
+      setSpecialistStatuses(data.agents || {});
+    } catch (error) {
+      setSpecialistMessage(error instanceof Error ? error.message : "Impossibile leggere lo stato degli agenti.");
+    }
+  }
+
+  async function startSpecialistAgent(agentId: SpecialistAgentId) {
+    if (specialistBusy[agentId]) return;
+    const propertyId = activeAuditData.id;
+    setSpecialistBusy((old) => ({...old,[agentId]:true}));
+    setSpecialistChecks(null);
+    setSpecialistMessage("Avvio agente " + agentId + " · ogni specialista mantiene il proprio risultato.");
+    try {
+      const token = await connectLocalAgent(false);
+      if (!token) throw new Error("Avvia prima l'agente Velora sul PC.");
+      const started = await fetch(localAgentUrl("/api/agents/start"), {
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({
+          agentId,propertyId,months:localPilotPeriod==="custom"?1:localPilotPeriod,
+          customPeriod:localPilotPeriod==="custom"?{
+            start:customPilotStart,end:customPilotEnd,nights:customPilotNights,
+            adults:customPilotAdults,frequency:customPilotFrequency
+          }:undefined,
+          ghost:localPilotGhost,assisted:false,
+          propertyData:{
+            id:activeAuditData.id,name:activeAuditData.name,city:activeAuditData.city,
+            province:activeAuditData.province,rooms:activeAuditData.rooms,
+            website:activeAuditData.website,sources:activeAuditData.sources
+          }
+        })
+      });
+      if (!started.ok) {
+        const detail=await started.json() as {error?:string};
+        throw new Error(detail.error || "Impossibile avviare lo specialista.");
+      }
+      setSpecialistStatuses((old)=>({...old,[agentId]:{state:"running"}}));
+      for(let attempt=0;attempt<2400;attempt++){
+        await new Promise((resolve)=>window.setTimeout(resolve,3000));
+        const response=await fetch(localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(propertyId)),{mode:"cors",cache:"no-store"});
+        if(!response.ok) throw new Error("Stato degli agenti non disponibile.");
+        const status=await response.json() as {agents?:Record<string,SpecialistAgentState>};
+        setSpecialistStatuses(status.agents||{});
+        const entry=status.agents?.[agentId];
+        if(entry?.state==="failed") throw new Error(entry.error || "Agente interrotto.");
+        if(entry?.state==="completed"){
+          setSpecialistMessage("Agente "+agentId+" completato. Evidenze salvate in archivio separato; esegui il check del revisore per validarle.");
+          if(agentId==="booking" || agentId==="agoda" || agentId==="airbnb" || agentId==="reviews"){
+            const resultResponse=await fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(propertyId)+"&agentId="+agentId),{mode:"cors",cache:"no-store"});
+            if(resultResponse.ok && window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)===propertyId){
+              const partial=await resultResponse.json() as BrowserPilotResult;
+              if(agentId==="reviews"){
+                applyPilotEvidence({...partial,schema:"velora-browser-audit-pilot-v1",observations:[]});
+              } else {
+                setBrowserPilotResult((previous)=>{
+                  const combined: BrowserPilotResult={
+                    ...(previous?.propertyId===propertyId?previous:partial),
+                    propertyId, schema:"velora-browser-audit-pilot-v1",
+                    createdAt:previous?.propertyId===propertyId?previous.createdAt:partial.createdAt,
+                    observations:[
+                      ...(previous?.propertyId===propertyId?previous.observations:[]).filter((observation)=>observation.otaId!==agentId),
+                      ...(partial.observations||[])
+                    ],
+                    discoveredSources:{...(previous?.propertyId===propertyId?previous.discoveredSources:{}),...(partial.discoveredSources||{})},
+                    otaProfiles:{...(previous?.propertyId===propertyId?previous.otaProfiles:{}),...(partial.otaProfiles||{})},
+                    reputation:previous?.propertyId===propertyId?previous.reputation:partial.reputation,
+                    photoAudit:previous?.propertyId===propertyId?previous.photoAudit:partial.photoAudit
+                  };
+                  window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
+                  return combined;
+                });
+                applyPilotEvidence(partial);
+              }
+            }
+          }
+          return;
+        }
+      }
+      setSpecialistMessage("L'agente è ancora in esecuzione. Usa Aggiorna stati per controllare l'esito senza rilanciare.");
+    }catch(error){
+      setSpecialistMessage(error instanceof Error?error.message:"Errore nell'avvio dell'agente");
+    }finally{
+      setSpecialistBusy((old)=>({...old,[agentId]:false}));
+    }
+  }
+
+  async function validateSpecialistNetwork() {
+    setSpecialistCheckRunning(true);
+    setSpecialistChecks(null);
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Collega l'agente locale.");
+      const response=await fetch(localAgentUrl("/api/agents/validate"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({propertyId:activeAuditData.id})
+      });
+      const value=await response.json() as {error?:string;checks?:AgentCheck[];passed?:number;total?:number};
+      if(!response.ok) throw new Error(value.error||"Check non disponibile");
+      setSpecialistChecks(value.checks||[]);
+      setSpecialistMessage("Check completato: "+(value.passed||0)+"/"+(value.total||0)+" controlli con riscontro positivo. Nessun dato inventato.");
+    }catch(error){
+      setSpecialistMessage(error instanceof Error?error.message:"Check non riuscito");
+    }finally{setSpecialistCheckRunning(false);}
   }
 
   async function startLocalPilot(months: LocalPilotPeriod, channelIds: string[]) {
@@ -8088,6 +8215,62 @@ export default function App() {
                 <button type="button" onClick={() => void respondLocalPilotIntervention("skip")} className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-xs font-black text-amber-950">Salta questa OTA</button>
               </div>
             </div>}
+            <section className="mt-4 rounded-2xl border border-[#D9D0E8] bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wide text-[#A9874A]">Rete di agenti specialisti · v125</p>
+                  <h3 className="mt-1 text-lg font-black text-[#23124A]">Un agente dedicato per ogni analisi</h3>
+                  <p className="mt-1 text-[11px] text-[#50627F]">Le OTA lavorano con profili separati. Il revisore non avvia nuove scansioni: controlla solo i risultati esistenti, quando lo richiedi.</p>
+                </div>
+                <button type="button" onClick={() => {setSpecialistExpanded(!specialistExpanded);if(!specialistExpanded) void refreshSpecialistStatuses();}} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-4 py-2.5 text-xs font-black text-[#23124A]">
+                  {specialistExpanded?"Chiudi rete agenti":"Apri rete agenti"}
+                </button>
+              </div>
+              {specialistExpanded && <div className="mt-4 space-y-4 border-t border-[#EAE3F2] pt-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {SPECIALIST_AGENTS.map((agent)=>{
+                    const state=specialistStatuses[agent.id];
+                    const running=Boolean(specialistBusy[agent.id]||state?.state==="running");
+                    return <div key={agent.id} className="flex flex-col justify-between gap-3 rounded-xl border border-[#E5DDF1] bg-[#FBFAFD] p-3.5">
+                      <div>
+                        <p className="text-sm font-black text-[#23124A]">{agent.name}</p>
+                        <p className="mt-0.5 text-[11px] text-[#64748B]">{agent.detail}</p>
+                        <p className="mt-2 text-[11px] font-bold text-[#50627F]">
+                          {running?"In esecuzione":state?.state==="completed"?"Esecuzione completata":state?.state==="failed"?"Interrotto":state?.hasResult?"Esito archiviato":"Non avviato"}
+                        </p>
+                      </div>
+                      <button type="button" disabled={running} onClick={()=>void startSpecialistAgent(agent.id)} className="min-h-10 rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                        {running?"Agente al lavoro...":"Avvia "+agent.name}
+                      </button>
+                    </div>;
+                  })}
+                </div>
+                <div className="rounded-xl border border-[#D8C8A5] bg-[#FFFDF8] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-[#23124A]">Revisore / Validatore</p>
+                      <p className="mt-1 text-[11px] text-[#64748B]">Check su identità, date, preventivi ed evidenze. Nessun segno verde prima del comando.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={()=>void refreshSpecialistStatuses()} className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-black">Aggiorna stati</button>
+                      <button type="button" disabled={specialistCheckRunning} onClick={()=>void validateSpecialistNetwork()} className="rounded-lg bg-[#23124A] px-4 py-2 text-xs font-black text-white disabled:opacity-40">
+                        {specialistCheckRunning?"Verifica in corso...":"Esegui check"}
+                      </button>
+                    </div>
+                  </div>
+                  {specialistChecks!==null && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {specialistChecks.map((check)=>(
+                      <div key={check.agentId+"-"+check.code} className="rounded-lg border border-[#E5DDF1] bg-white p-2.5">
+                        <p className="text-[11px] font-black text-[#23124A]">{check.passed?"✓ Verificato":"Da verificare"} · {check.agentId} · {check.label}</p>
+                        <p className="mt-1 text-[10px] text-[#50627F]">{check.detail}</p>
+                      </div>
+                    ))}
+                  </div>}
+                </div>
+                {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
+                <p className="text-[10px] text-[#64748B]">Gli accessi registrati a portali terzi richiedono autorizzazione e sessioni separate. CAPTCHA e limitazioni dei portali non vengono aggirati. Lo scraping precedente resta disponibile sotto.</p>
+              </div>}
+            </section>
             {!localPilotToken ? <div className="mt-4 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
               <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
