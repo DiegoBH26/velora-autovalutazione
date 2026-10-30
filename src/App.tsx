@@ -5078,6 +5078,22 @@ export default function App() {
   }, [specialistExpanded, localPilotToken, activeAuditData.id]);
 
   useEffect(() => {
+    if (!specialistExpanded || !localPilotToken) return;
+    let disposed=false;
+    const update=async()=>{
+      try {
+        const response=await fetch(localAgentUrl("/api/portal-session/status"),{mode:"cors",cache:"no-store"});
+        if(!response.ok || disposed) return;
+        const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
+        if(!disposed) setPortalSessions(data.sessions||{});
+      }catch { /* login module may not yet be installed on the Windows agent */ }
+    };
+    void update();
+    const timer=window.setInterval(()=>void update(),6000);
+    return ()=>{disposed=true;window.clearInterval(timer);};
+  },[specialistExpanded,localPilotToken]);
+
+  useEffect(() => {
     if (!localPilotRunning || localPilotStartedAtMs === null) return;
     setLocalPilotElapsedMs(Date.now() - localPilotStartedAtMs);
     const timer = window.setInterval(() => {
@@ -8373,6 +8389,9 @@ export default function App() {
                 <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
               </div>}
 
+                <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
+                  <strong>Ercole, Atlante e Mercurio:</strong> il tasto <strong>Apri accesso</strong> apre un Chrome personale e conserva il profilo sul PC. Il pulsante <strong>▶ Pubblico</strong> resta un test del motore pubblico e non utilizza la sessione registrata. Per l'automazione dei contenuti autenticati servono integrazioni o autorizzazioni dei rispettivi portali.
+                </p>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
