@@ -37,10 +37,16 @@ except ImportError:
     LOGIN_PORTALS={}
 try:
     import velora_agent_network as agent_network
-except ImportError:
-    # Il vecchio updater Windows non includeva questo file. Non interrompere
-    # lo scraping legacy: la rete specialisti si abilita con l'updater nuovo.
+    AGENT_IMPORT_ERROR=""
+except ImportError as exc:
+    # Mantieni operative le scansioni storiche ma rendi visibile il motivo del 503.
     agent_network=None
+    AGENT_IMPORT_ERROR=f"{type(exc).__name__}: {exc}"
+
+def specialist_unavailable_message():
+    detail=(" Motivo rilevato: "+AGENT_IMPORT_ERROR) if AGENT_IMPORT_ERROR else ""
+    return ("Rete specialisti non disponibile. Esegui AGGIORNA_VELORA_COMPLETO.bat "
+            "nella cartella dell'agente e riavvia AVVIA_AGENTE_VELORA.bat."+detail)
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
@@ -1053,7 +1059,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if route=="/api/agents/config":
             if agent_network is None:
-                self._json(503,{"error":"Modulo agenti non installato: scarica il nuovo AGGIORNA_VELORA_COMPLETO.bat e riavvia."}); return
+                self._json(503,{"error":specialist_unavailable_message()}); return
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
             self._json(200,{"schema":agent_network.NETWORK_SCHEMA,"agents":agent_network.AGENTS,
@@ -1062,7 +1068,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if route in {"/api/agents/status","/api/agents/result","/api/agents/validation"}:
             if agent_network is None:
-                self._json(503,{"error":"Rete agenti non ancora installata; scraping classico disponibile."}); return
+                self._json(503,{"error":specialist_unavailable_message()}); return
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
             query=parse_qs(urlparse(self.path).query)
@@ -1150,7 +1156,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if route in {"/api/agents/validate","/api/agents/start"} and agent_network is None:
-                self._json(503,{"error":"Modulo specialisti mancante. Aggiorna i file con il nuovo updater Windows."}); return
+                self._json(503,{"error":specialist_unavailable_message()}); return
 
             if route=="/api/agents/validate":
                 property_id=safe_property_id(payload.get("propertyId"))
@@ -1393,7 +1399,14 @@ if __name__=="__main__":
 
     pilot_build=ensure_pilot_sync()
 
-    print("Versione agente: velora-local-agent-v124 · fix URL /rooms/ Airbnb e OTA · diagnostica candidati · Booking/Agoda invariati · mai login",flush=True)
+    print("Versione agente: velora-local-agent-v125 · rete agenti e sessioni OTA",flush=True)
+    if agent_network is None:
+        print("ERRORE RETE AGENTI: "+specialist_unavailable_message(),flush=True)
+    else:
+        count=len(agent_network.AGENTS)
+        print(f"RETE AGENTI: {count}/12 specialisti caricati · revisore {agent_network.REVIEWER_NAME} disponibile",flush=True)
+        if count!=12:
+            print("ERRORE RETE AGENTI: numero specialisti inatteso. Non avviare i test.",flush=True)
     print(f"Versione pilot: {pilot_build}",flush=True)
     print(f"Cartella runtime locale: {STATE_ROOT}",flush=True)
     if pilot_build != EXPECTED_PILOT_BUILD:
