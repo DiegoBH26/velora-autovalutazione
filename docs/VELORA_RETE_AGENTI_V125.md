@@ -49,6 +49,18 @@ può segnalare VALIDATO (verde quando il terminale supporta ANSI) o ERRORE (ross
 Le righe non eseguite non ricevono un falso verde.
 
 ## Registrazioni Expedia / Vrbo / Holidu
+Nota accesso Expedia (ottobre 2026): nel caso osservato dall'utente
+l'account cliente viene confermato con email, codice temporaneo via email
+e verifica del telefono, senza richiesta di password tradizionale.
+Questa modalità è compatibile con l'esperienza One Key; non bisogna
+inventare o memorizzare una password che il servizio non ha richiesto.
+Per Vrbo provare prima l'accesso con il medesimo account cliente Expedia,
+senza duplicare inutilmente la registrazione.
+In Holidu selezionare l'area **Ospiti/viaggiatori**, non la registrazione
+di una nuova proprietà; anche l'accesso tramite link personale email
+è una modalità prevista dalle condizioni pubblicate. Il metodo effettivo
+può variare, va verificato nel frontend reale.
+
 La prima registrazione deve essere effettuata manualmente dal titolare
 dell'account, che accetta termini, eventuali verifiche di identità, OTP e
 consensi. Expedia e Vrbo condividono l'accesso One Key per i clienti,
