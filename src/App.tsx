@@ -5705,17 +5705,24 @@ export default function App() {
   async function launchAgentBatch(ids: SpecialistAgentId[]) {
     if (!ids.length || launchingBatch || localPilotRunning) return;
     setLaunchingBatch(true);
-    setAgentRunIds(ids);
-    setAgentRunStartedAt(Date.now());
-    setAgentRunClock(Date.now());
     try {
       const token=await connectLocalAgent(false);
-      if (!token) {
-        setSpecialistMessage("Avvia l'agente locale v125 prima di avviare la rete.");
-        return;
+      if (!token) throw new Error("Avvia l'agente locale Windows aggiornato prima di avviare la rete.");
+      const check=await fetch(localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),{mode:"cors",cache:"no-store"});
+      if (!check.ok) {
+        const details=await check.json().catch(()=>({})) as {error?:string};
+        throw new Error(details.error||"Modulo specialisti non disponibile sul PC. Esegui AGGIORNA_VELORA_COMPLETO.bat e riavvia l'agente Windows.");
       }
-      setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Fino a due sessioni Chrome contemporanee; le altre attendono in coda.");
-      await Promise.all(ids.map((id)=>startSpecialistAgent(id)));
+      setAgentRunIds(ids);
+      const startedAt=Date.now();
+      setAgentRunStartedAt(startedAt);
+      setAgentRunClock(startedAt);
+      setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Massimo due sessioni Chrome contemporanee.");
+      await Promise.all(ids.map(id=>startSpecialistAgent(id)));
+    } catch(error) {
+      setAgentRunIds([]);
+      setAgentRunStartedAt(null);
+      setSpecialistMessage(error instanceof Error?error.message:"Avvio agenti non riuscito.");
     } finally {
       setLaunchingBatch(false);
     }
