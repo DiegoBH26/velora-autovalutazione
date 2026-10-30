@@ -4881,24 +4881,24 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 ] as const;
 
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
-type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "official_site" | "reviews";
+type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
-const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string}> = [
+const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string; beta?: boolean}> = [
   {id:"booking",name:"Minerva",channel:"Booking.com",detail:"Date, camere e tariffe"},
   {id:"agoda",name:"Galileo",channel:"Agoda",detail:"Scheda hotel e preventivi"},
   {id:"airbnb",name:"Apollo",channel:"Airbnb",detail:"Annunci e tariffe"},
-  {id:"official_site",name:"Leonardo",channel:"Sito diretto",detail:"Sito, navigazione e immagini"},
+  {id:"vrbo",name:"Atlante",channel:"Vrbo",detail:"Annunci, identità e preventivi pubblici",beta:true},
+  {id:"expedia",name:"Ercole",channel:"Expedia",detail:"Prezzi pubblici, date e blocchi",beta:true},
+  {id:"holidu",name:"Mercurio",channel:"Holidu",detail:"Annunci, reindirizzamenti e prezzi",beta:true},
+  {id:"hotels",name:"Tesla",channel:"Hotels.com",detail:"Identità e tariffe pubbliche",beta:true},
+  {id:"travelocity",name:"Newton",channel:"Travelocity",detail:"Schede e tariffe pubbliche",beta:true},
+  {id:"trip",name:"Turing",channel:"Trip.com",detail:"Identità e tariffe, ove visibili",beta:true},
+  {id:"priceline",name:"Pitagora",channel:"Priceline",detail:"Schede e prezzi pubblici",beta:true},
+  {id:"official_site",name:"Leonardo",channel:"Sito diretto",detail:"Navigazione, foto e contenuti"},
   {id:"reviews",name:"Ipazia",channel:"Recensioni",detail:"Reputazione e temi ricorrenti"}
 ];
 const FUTURE_AGENTS = [
-  {name:"Ercole",channel:"Expedia"},
-  {name:"Atlante",channel:"Vrbo"},
-  {name:"Mercurio",channel:"Holidu"},
-  {name:"Tesla",channel:"Hotels.com"},
-  {name:"Turing",channel:"Trip.com"},
-  {name:"Pitagora",channel:"Priceline"},
-  {name:"Newton",channel:"Travelocity"},
   {name:"Socrate",channel:"Tripadvisor"},
   {name:"Keplero",channel:"Trivago"},
   {name:"Euclide",channel:"Google Hotels"},
@@ -4930,12 +4930,13 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
-  const [specialistExpanded, setSpecialistExpanded] = useState(false);
+  const [specialistExpanded, setSpecialistExpanded] = useState(true);
   const [specialistMessage, setSpecialistMessage] = useState("");
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
   const [specialistBusy, setSpecialistBusy] = useState<Record<string, boolean>>({});
   const [specialistCheckRunning, setSpecialistCheckRunning] = useState(false);
+  const [launchingBatch, setLaunchingBatch] = useState(false);
   const [localPilotGhost, setLocalPilotGhost] = useState(() => window.localStorage.getItem("velora-pilot-ghost") === "1");
   const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") === "1");
   const [localPilotPeriod, setLocalPilotPeriod] = useState<LocalPilotPeriod>(() => {
