@@ -31,6 +31,11 @@ from urllib.request import Request, urlopen
 
 import browser_audit_pilot as browser_pilot
 try:
+    from velora_portal_sessions import ManualPortalSessions, PORTALS as LOGIN_PORTALS
+except ImportError:
+    ManualPortalSessions=None
+    LOGIN_PORTALS={}
+try:
     import velora_agent_network as agent_network
 except ImportError:
     # Il vecchio updater Windows non includeva questo file. Non interrompere
@@ -133,6 +138,7 @@ AGENT_RESULTS=STATE_ROOT/"specialist-agents"
 AGENT_RUN_LOCK=threading.Lock()
 AGENT_WORK_SLOTS=threading.BoundedSemaphore(2)  # evita saturazione Chrome su PC
 AGENT_RUNS={}
+PORTAL_SESSIONS=ManualPortalSessions(STATE_ROOT) if ManualPortalSessions is not None else None
 OTA_SOURCE_CACHE=STATE_ROOT/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
 for _runtime_dir in (STATE_ROOT,RUNTIME_PROPERTIES,RUNTIME_AUDITS,PILOT_RESULTS,AGENT_RESULTS):
@@ -1032,6 +1038,19 @@ class Handler(SimpleHTTPRequestHandler):
                 result=None
             self._json(200,{"running":running,"error":error,"propertyId":property_id,"result":result,"intervention":intervention or None})
             return
+        if route=="/api/portal-session/status":
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            if PORTAL_SESSIONS is None:
+                self._json(503,{"error":"Aggiorna l'agente locale: manca il modulo di navigazione assistita."}); return
+            self._json(200,{
+                "portals":{key:{"name":value["name"],"label":value["label"],
+                                "authentication":value["authentication"],"scraping":value["scraping"]}
+                           for key,value in LOGIN_PORTALS.items()},
+                "sessions":PORTAL_SESSIONS.statuses(),"manualOnly":True,
+                "message":"Login e navigazione effettuati dall'utente in Chrome locale. Lo scraping autenticato non è abilitato."
+            })
+            return
         if route=="/api/agents/config":
             if agent_network is None:
                 self._json(503,{"error":"Modulo agenti non installato: scarica il nuovo AGGIORNA_VELORA_COMPLETO.bat e riavvia."}); return
@@ -1091,7 +1110,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1105,6 +1124,27 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route in {"/api/portal-session/start","/api/portal-session/finish"}:
+                if PORTAL_SESSIONS is None:
+                    self._json(503,{"error":"Modulo di sessione mancante. Scarica l'aggiornamento Windows."}); return
+                portal_id=str(payload.get("portalId") or "").strip().lower()
+                if portal_id not in LOGIN_PORTALS:
+                    self._json(400,{"error":"Portale di login non riconosciuto"}); return
+                try:
+                    if route=="/api/portal-session/start":
+                        with AGENT_RUN_LOCK:
+                            busy=any(row.get("state") in {"running","queued"} for row in AGENT_RUNS.values())
+                        if busy:
+                            self._json(409,{"error":"Completa gli agenti di scraping prima di aprire Chrome per il login."}); return
+                        state=PORTAL_SESSIONS.begin(portal_id)
+                        self._json(202,{"portalId":portal_id,"session":state,"manualOnly":True})
+                    else:
+                        state=PORTAL_SESSIONS.finish(portal_id)
+                        self._json(200,{"portalId":portal_id,"session":state,"manualOnly":True})
+                except RuntimeError as exc:
+                    self._json(409,{"error":str(exc)})
+                return
 
             if route in {"/api/agents/validate","/api/agents/start"} and agent_network is None:
                 self._json(503,{"error":"Modulo specialisti mancante. Aggiorna i file con il nuovo updater Windows."}); return
