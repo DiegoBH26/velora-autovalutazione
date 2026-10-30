@@ -88,6 +88,22 @@ if exist "__pycache__" (
   del /Q "__pycache__\velora_portal_sessions*.pyc" 2>nul
 )
 
+rem Verifica reale: file scaricati non significa agenti importabili.
+set "VELORA_PY="
+if exist ".venv\Scripts\python.exe" set "VELORA_PY=.venv\Scripts\python.exe"
+if defined VELORA_PY goto :verifica_import
+where py >nul 2>nul
+if not errorlevel 1 set "VELORA_PY=py -3"
+if defined VELORA_PY goto :verifica_import
+where python >nul 2>nul
+if not errorlevel 1 set "VELORA_PY=python"
+:verifica_import
+if not defined VELORA_PY goto :errore_import
+echo.
+echo Verifico import e registrazione dei 12 agenti e di Giove...
+%VELORA_PY% -c "import velora_agent_network as n; import velora_portal_sessions as p; assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
+if errorlevel 1 goto :errore_import
+
 echo.
 echo ==========================================================
 echo   AGGIORNAMENTO COMPLETATO
@@ -101,6 +117,21 @@ echo dalla stessa cartella.
 echo.
 pause
 exit /b 0
+
+:errore_import
+echo.
+echo ==========================================================
+echo   ERRORE: RETE AGENTI NON CARICABILE
+echo ==========================================================
+echo.
+echo I file sono stati scaricati ma Python non riesce a importare
+echo tutti gli specialisti. Controlla l'errore mostrato qui sopra.
+echo Se manca una libreria, esegui INSTALLA_AGENTE_VELORA.bat,
+echo poi ripeti AGGIORNA_VELORA_COMPLETO.bat.
+echo Non avviare i test finche non leggi OK: 12/12.
+echo.
+pause
+exit /b 1
 
 :errore
 echo.
