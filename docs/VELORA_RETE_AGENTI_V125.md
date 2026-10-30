@@ -75,15 +75,23 @@ in GitHub o nei messaggi di chat; non utilizzare login per aggirare blocchi
 anti-bot, quote o condizioni di utilizzo.
 
 ## Unica console di lavoro
-La vecchia configurazione OTA separata è stata incorporata nel pannello
-**Rete agenti** con un'unica selezione colorata e un calendario comune.
-La selezione avvia soltanto i canali flaggati; **Avvia tutti** richiede
-esplicitamente tutte le dieci OTA, Leonardo e Ipazia (12 agenti in totale).
-Le esecuzioni sono avviate in parallelo ma limitate a **due browser Chrome
-contemporaneamente**; le altre entrano in coda. Non sono dodici processi
-Chrome contemporanei e questo evita di saturare la macchina.
-**Giove si avvia soltanto premendo il suo pulsante**; nessuna esecuzione
-automaticamente attribuisce un flag di validazione.
+La UI mostra **un solo pannello**, organizzato in:
+1. calendario condiviso (1, 6, 12 mesi o personalizzato), notti, ospiti, frequenza;
+2. **un'unica griglia compatta di 12 agenti colorati**: 10 OTA, Leonardo (sito), Ipazia (recensioni);
+3. comandi **Avvia analisi selezionata** e **Avvia tutti i 12 agenti**;
+4. **Giove**, con pulsante manuale di validazione e tabella esiti.
+
+Ogni card colorata è il **solo selettore** dell'agente (checkbox e nome); il
+piccolo pulsante ▶ avvia **soltanto quell'agente**. Lo stato è visibile nella
+stessa card. La selezione OTA e quella dei due agenti non OTA restano salvate
+nel browser. **Seleziona tutti** e **Deseleziona** agiscono su tutti e 12.
+Le esecuzioni partono su richiesta, con massimo **due Chrome simultanei**;
+le altre sono in coda e il CMD mostra il nome specialista.
+
+Il vecchio selettore duplicato e i pulsanti del motore classico sono rimossi
+dalla vista. **I backend del motore classico non sono cancellati** per
+preservare la compatibilità. Giove non si avvia automaticamente: solo il
+pulsante **Avvia Giove · Esegui check** attiva la validazione.
 
 ### Valutazione tecnica dei quattro adattatori in prova
 - **Hotels.com/Tesla**: stessa famiglia di account One Key di
