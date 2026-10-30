@@ -157,6 +157,21 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
         checks.append({"agentId": agent, "code": code, "label": label,
                        "passed": bool(ok), "status": "verified" if ok else "review",
                        "detail": reason[:500]})
+    # Audit incrociato: la stessa finestra deve essere usata da OGNI OTA.
+    # Agenti isolati potrebbero risolvere Booking a orari diversi; in tal caso
+    # Giove NON conferma il confronto tra piattaforme.
+    booking_locks={}
+    reference_path=outputs.get("booking")
+    if reference_path is not None:
+        try:
+            booking_report=json.loads(reference_path.read_text(encoding="utf-8"))
+            if booking_report.get("propertyId")==property_id:
+                for row in booking_report.get("bookingReferenceStays") or []:
+                    month=str(row.get("month") or "")
+                    if month and row.get("checkin") and row.get("checkout"):
+                        booking_locks[month]=(row["checkin"],row["checkout"],row.get("adults"))
+        except (OSError,ValueError):
+            pass
     for agent, path in outputs.items():
         try:
             result = json.loads(path.read_text(encoding="utf-8"))
@@ -181,6 +196,21 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             errors = [o for o in observations if o.get("status") in ("blocked", "rate_limited", "access_blocked", "login_required", "dates_mismatch_booking_reference", "robots_denied")]
             add(agent, "access", "Accesso pubblico senza blocchi", bool(observations) and not errors,
                 f"{len(errors)} osservazioni con blocchi o date incoerenti")
+            if agent != "booking":
+                local_locks={
+                    str(row.get("month") or ""): (
+                        row.get("checkin"),row.get("checkout"),row.get("adults"))
+                    for row in result.get("bookingReferenceStays") or []
+                    if row.get("month") and row.get("checkin") and row.get("checkout")
+                }
+                common=set(booking_locks)&set(local_locks)
+                consistent=bool(booking_locks and local_locks and
+                    set(local_locks)==set(booking_locks) and
+                    all(booking_locks[month]==local_locks[month] for month in common))
+                add(agent,"shared_booking_lock","Stesse date Booking fra agenti",consistent,
+                    f"Riferimento Minerva: {len(booking_locks)} finestre; {agent_display(agent)}: {len(local_locks)}."
+                    + (" Date condivise confermate." if consistent else
+                       " Date non confrontabili o Minerva non ancora eseguita: non validare il delta."))
         elif agent == "official_site":
             audit = result.get("auditData") or {}
             add(agent, "identity", "Sito ufficiale identificato", bool(audit.get("website")) and audit.get("id") == property_id,
