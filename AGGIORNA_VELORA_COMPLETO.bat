@@ -17,7 +17,7 @@ pause
 
 set "BASE=https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main"
 
-for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py ota_public_source_hints.json) do (
+for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py ota_public_source_hints.json) do (
   if exist "%%F" copy /Y "%%F" "%%F.bak" >nul 2>nul
 )
 
@@ -46,7 +46,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_quote_history.py?nocache=%RANDOM%' -OutFile 'velora_quote_history.py.new'"
 if errorlevel 1 goto :errore
 
-echo [6/6] Scarico riferimenti pubblici OTA forniti dall'utente...
+echo [6/7] Scarico rete agenti specialisti...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_agent_network.py?nocache=%RANDOM%' -OutFile 'velora_agent_network.py.new'"
+if errorlevel 1 goto :errore
+
+echo [7/7] Scarico riferimenti pubblici OTA forniti dall'utente...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/ota_public_source_hints.json?nocache=%RANDOM%' -OutFile 'ota_public_source_hints.json.new'"
 if errorlevel 1 goto :errore
@@ -54,7 +59,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try{$h=Get-Content 'ota_public_source_hints.json.new' -Raw | ConvertFrom-Json; if($h.schema -ne 'velora-public-ota-source-hints-v1'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
 
-for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new) do (
+for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new velora_agent_network.py.new) do (
   for %%S in ("%%F") do if %%~zS LSS 1000 goto :errore
 )
 
@@ -67,11 +72,13 @@ move /Y "browser_audit_pilot.py.new" "browser_audit_pilot.py" >nul
 move /Y "site_audit_builder.py.new" "site_audit_builder.py" >nul
 move /Y "booking_engine.py.new" "booking_engine.py" >nul
 move /Y "velora_quote_history.py.new" "velora_quote_history.py" >nul
+move /Y "velora_agent_network.py.new" "velora_agent_network.py" >nul
 move /Y "ota_public_source_hints.json.new" "ota_public_source_hints.json" >nul
 
 if exist "__pycache__" (
   del /Q "__pycache__\browser_audit_pilot*.pyc" 2>nul
   del /Q "__pycache__\local_audit_server*.pyc" 2>nul
+  del /Q "__pycache__\velora_agent_network*.pyc" 2>nul
 )
 
 echo.
