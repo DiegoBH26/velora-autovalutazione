@@ -8409,7 +8409,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
-                      onClick={()=>void launchAgentBatch([...localPilotSelectedChannels as SpecialistAgentId[],...selectedSupportAgents])
+                      onClick={()=>void launchAgentBatch([...localPilotSelectedChannels as SpecialistAgentId[],...selectedSupportAgents])}
                       className="rounded-xl bg-[#23124A] px-4 py-3 text-xs font-black text-white disabled:opacity-40">
                       {launchingBatch?"Rete al lavoro…":"Avvia analisi selezionata"}
                     </button>
