@@ -4884,13 +4884,30 @@ type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
-const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; detail: string}> = [
-  {id:"booking",name:"Booking.com",detail:"Date, camere e tariffe"},
-  {id:"agoda",name:"Agoda",detail:"Scheda hotel e preventivi"},
-  {id:"airbnb",name:"Airbnb",detail:"Annunci e tariffe"},
-  {id:"official_site",name:"Sito diretto",detail:"Sito, navigazione e immagini"},
-  {id:"reviews",name:"Recensioni",detail:"Reputazione e temi ricorrenti"}
+const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string}> = [
+  {id:"booking",name:"Minerva",channel:"Booking.com",detail:"Date, camere e tariffe"},
+  {id:"agoda",name:"Galileo",channel:"Agoda",detail:"Scheda hotel e preventivi"},
+  {id:"airbnb",name:"Apollo",channel:"Airbnb",detail:"Annunci e tariffe"},
+  {id:"official_site",name:"Leonardo",channel:"Sito diretto",detail:"Sito, navigazione e immagini"},
+  {id:"reviews",name:"Ipazia",channel:"Recensioni",detail:"Reputazione e temi ricorrenti"}
 ];
+const FUTURE_AGENTS = [
+  {name:"Ercole",channel:"Expedia"},
+  {name:"Atlante",channel:"Vrbo"},
+  {name:"Mercurio",channel:"Holidu"},
+  {name:"Tesla",channel:"Hotels.com"},
+  {name:"Turing",channel:"Trip.com"},
+  {name:"Pitagora",channel:"Priceline"},
+  {name:"Newton",channel:"Travelocity"},
+  {name:"Socrate",channel:"Tripadvisor"},
+  {name:"Keplero",channel:"Trivago"},
+  {name:"Euclide",channel:"Google Hotels"},
+  {name:"Archimede",channel:"HolidayCheck"}
+];
+function veloraAgentName(id: string): string {
+  const selected=SPECIALIST_AGENTS.find((agent)=>agent.id===id);
+  return selected ? selected.name+" ("+selected.channel+")" : id;
+}
 
 export default function App() {
   const initialUiState = useMemo(() => loadUiState(), []);
@@ -5495,7 +5512,7 @@ export default function App() {
     const propertyId = activeAuditData.id;
     setSpecialistBusy((old) => ({...old,[agentId]:true}));
     setSpecialistChecks(null);
-    setSpecialistMessage("Avvio agente " + agentId + " · ogni specialista mantiene il proprio risultato.");
+    setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · cartella risultati indipendente.");
     try {
       const token = await connectLocalAgent(false);
       if (!token) throw new Error("Avvia prima l'agente Velora sul PC.");
@@ -5530,7 +5547,7 @@ export default function App() {
         const entry=status.agents?.[agentId];
         if(entry?.state==="failed") throw new Error(entry.error || "Agente interrotto.");
         if(entry?.state==="completed"){
-          setSpecialistMessage("Agente "+agentId+" completato. Evidenze salvate in archivio separato; esegui il check del revisore per validarle.");
+          setSpecialistMessage(veloraAgentName(agentId)+" ha terminato. Esito archiviato, non ancora validato da Giove.");
           if(agentId==="booking" || agentId==="agoda" || agentId==="airbnb" || agentId==="reviews"){
             const resultResponse=await fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(propertyId)+"&agentId="+agentId),{mode:"cors",cache:"no-store"});
             if(resultResponse.ok && window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)===propertyId){
@@ -5584,7 +5601,7 @@ export default function App() {
       const value=await response.json() as {error?:string;checks?:AgentCheck[];passed?:number;total?:number};
       if(!response.ok) throw new Error(value.error||"Check non disponibile");
       setSpecialistChecks(value.checks||[]);
-      setSpecialistMessage("Check completato: "+(value.passed||0)+"/"+(value.total||0)+" controlli con riscontro positivo. Nessun dato inventato.");
+      setSpecialistMessage("Giove ha completato il check: "+(value.passed||0)+"/"+(value.total||0)+" controlli validati. I restanti richiedono intervento.");
     }catch(error){
       setSpecialistMessage(error instanceof Error?error.message:"Check non riuscito");
     }finally{setSpecialistCheckRunning(false);}
@@ -8233,38 +8250,57 @@ export default function App() {
                     const running=Boolean(specialistBusy[agent.id]||state?.state==="running"||state?.state==="queued");
                     return <div key={agent.id} className="flex flex-col justify-between gap-3 rounded-xl border border-[#E5DDF1] bg-[#FBFAFD] p-3.5">
                       <div>
-                        <p className="text-sm font-black text-[#23124A]">{agent.name}</p>
+                        <p className="text-sm font-black text-[#23124A]">{agent.name} <span className="font-semibold text-[#50627F]">({agent.channel})</span></p>
                         <p className="mt-0.5 text-[11px] text-[#64748B]">{agent.detail}</p>
                         <p className="mt-2 text-[11px] font-bold text-[#50627F]">
-                          {state?.state==="queued"?"In coda":running?"In esecuzione":state?.state==="completed"?"Esecuzione completata":state?.state==="failed"?"Interrotto":state?.hasResult?"Esito archiviato":"Non avviato"}
+                          {state?.state==="queued"?"In coda":running?"In esecuzione":state?.state==="completed"?"✓ Esecuzione terminata · da validare":state?.state==="failed"?"Errore esecuzione":state?.hasResult?"Esito archiviato · da validare":"Non avviato"}
                         </p>
                       </div>
                       <button type="button" disabled={running} onClick={()=>void startSpecialistAgent(agent.id)} className="min-h-10 rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-                        {running?"Agente al lavoro...":"Avvia "+agent.name}
+                        {running?"Agente al lavoro...":"Avvia "+agent.name+" ("+agent.channel+")"}
                       </button>
                     </div>;
                   })}
                 </div>
+                <div className="rounded-xl border border-[#EEE8F4] bg-[#FBFAFD] p-3">
+                  <p className="text-[11px] font-black text-[#23124A]">Altri agenti già nominati · in preparazione</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {FUTURE_AGENTS.map((agent)=><span key={agent.channel} title="Non ancora attivo" className="rounded-lg border border-[#E5DDF1] bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#64748B]">
+                      {agent.name} ({agent.channel}) · non attivo
+                    </span>)}
+                  </div>
+                </div>
                 <div className="rounded-xl border border-[#D8C8A5] bg-[#FFFDF8] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black text-[#23124A]">Revisore / Validatore</p>
+                      <p className="text-sm font-black text-[#23124A]">Giove (Revisore / Validatore)</p>
                       <p className="mt-1 text-[11px] text-[#64748B]">Check su identità, date, preventivi ed evidenze. Nessun segno verde prima del comando.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={()=>void refreshSpecialistStatuses()} className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-black">Aggiorna stati</button>
                       <button type="button" disabled={specialistCheckRunning} onClick={()=>void validateSpecialistNetwork()} className="rounded-lg bg-[#23124A] px-4 py-2 text-xs font-black text-white disabled:opacity-40">
-                        {specialistCheckRunning?"Verifica in corso...":"Esegui check"}
+                        {specialistCheckRunning?"Giove sta verificando...":"Avvia Giove · Esegui check"}
                       </button>
                     </div>
                   </div>
-                  {specialistChecks!==null && <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {specialistChecks.map((check)=>(
-                      <div key={check.agentId+"-"+check.code} className="rounded-lg border border-[#E5DDF1] bg-white p-2.5">
-                        <p className="text-[11px] font-black text-[#23124A]">{check.passed?"✓ Verificato":"Da verificare"} · {check.agentId} · {check.label}</p>
-                        <p className="mt-1 text-[10px] text-[#50627F]">{check.detail}</p>
-                      </div>
-                    ))}
+                  {specialistChecks!==null && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
+                    <table className="w-full min-w-[650px] text-left text-[11px]">
+                      <thead className="bg-[#F4F0F8] text-[#23124A]">
+                        <tr><th className="px-3 py-2.5">Agente / OTA</th><th className="px-3 py-2.5">Controllo</th><th className="px-3 py-2.5">Esito di Giove</th><th className="px-3 py-2.5">Evidenza / errore</th></tr>
+                      </thead>
+                      <tbody>
+                        {specialistChecks.map((check)=>(
+                          <tr key={check.agentId+"-"+check.code} className="border-t border-[#EEE8F4] align-top">
+                            <td className="px-3 py-2.5 font-bold text-[#23124A]">{veloraAgentName(check.agentId)}</td>
+                            <td className="px-3 py-2.5 text-[#50627F]">{check.label}</td>
+                            <td className="px-3 py-2.5">
+                              <span className={"inline-flex rounded-md px-2 py-1 font-black "+(check.passed?"bg-emerald-100 text-emerald-800":"bg-red-50 text-red-700")}>{check.passed?"✓ VALIDATO":"ERRORE"}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-[#50627F]">{check.detail}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>}
                 </div>
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
