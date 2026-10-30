@@ -22,18 +22,18 @@ AGENTS = {
     "booking": {"name": "Minerva", "label": "Booking.com", "kind": "ota", "channel": "booking", "ready": True, "knowledge": "identità, date, camere, disponibilità, tariffe verificabili"},
     "agoda": {"name": "Galileo", "label": "Agoda", "kind": "ota", "channel": "agoda", "ready": True, "knowledge": "scheda hotel, date, candidate tariffarie, base prezzo"},
     "airbnb": {"name": "Apollo", "label": "Airbnb", "kind": "ota", "channel": "airbnb", "ready": True, "knowledge": "annunci multipli, identità, date e preventivi pubblici"},
+    "expedia": {"name": "Ercole", "label": "Expedia", "kind": "ota", "channel": "expedia", "ready": True, "beta": True, "knowledge": "adapter pubblico storico; può essere bloccato"},
+    "vrbo": {"name": "Atlante", "label": "Vrbo", "kind": "ota", "channel": "vrbo", "ready": True, "beta": True, "knowledge": "adapter pubblico storico; limita tentativi quando HTTP 429"},
+    "holidu": {"name": "Mercurio", "label": "Holidu", "kind": "ota", "channel": "holidu", "ready": True, "beta": True, "knowledge": "adapter pubblico storico; registra redirect e assenza pagina propria"},
+    "hotels": {"name": "Tesla", "label": "Hotels.com", "kind": "ota", "channel": "hotels", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot, controlli di identità e tariffe"},
+    "travelocity": {"name": "Newton", "label": "Travelocity", "kind": "ota", "channel": "travelocity", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot, controllo redirect Expedia"},
+    "trip": {"name": "Turing", "label": "Trip.com", "kind": "ota", "channel": "trip", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot; login richiesto se la pagina lo mostra"},
+    "priceline": {"name": "Pitagora", "label": "Priceline", "kind": "ota", "channel": "priceline", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot, rilevazioni tariffarie da verificare"},
     "official_site": {"name": "Leonardo", "label": "Sito ufficiale", "kind": "site", "ready": True, "knowledge": "navigazione, contenuti, conversione, immagini e asimmetrie"},
     "reviews": {"name": "Ipazia", "label": "Recensioni", "kind": "reviews", "ready": True, "knowledge": "campioni recensioni, temi ricorrenti, reputazione Google"},
 }
 # Reserved names only. These agents have NOT been implemented or enabled.
 FUTURE_AGENTS = {
-    "expedia": {"name": "Ercole", "label": "Expedia"},
-    "vrbo": {"name": "Atlante", "label": "Vrbo"},
-    "holidu": {"name": "Mercurio", "label": "Holidu"},
-    "hotels": {"name": "Tesla", "label": "Hotels.com"},
-    "trip": {"name": "Turing", "label": "Trip.com"},
-    "priceline": {"name": "Pitagora", "label": "Priceline"},
-    "travelocity": {"name": "Newton", "label": "Travelocity"},
     "tripadvisor": {"name": "Socrate", "label": "Tripadvisor"},
     "trivago": {"name": "Keplero", "label": "Trivago"},
     "googlehotels": {"name": "Euclide", "label": "Google Hotels"},
@@ -84,7 +84,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
     """Run an independently scoped specialist. Legacy parsers remain unchanged."""
     if agent not in AGENTS or not AGENTS[agent]["ready"]:
         raise ValueError("Agente non disponibile")
-    if agent in {"booking", "agoda", "airbnb"}:
+    if AGENTS[agent]["kind"] == "ota":
         args = argparse.Namespace(
             property=str(property_file), output=str(output), channels=agent,
             months=months, today=None, dry_run=False, ghost=ghost,
@@ -165,7 +165,7 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             continue
         add(agent, "property", "Associazione struttura", result.get("propertyId") == property_id,
             "Identificativo struttura coerente" if result.get("propertyId") == property_id else "Struttura non corrispondente")
-        if agent in {"booking", "agoda", "airbnb"}:
+        if AGENTS.get(agent, {}).get("kind") == "ota":
             observations = [o for o in result.get("observations", []) if o.get("otaId") == agent]
             valid_prices = [q for o in observations for q in o.get("quotes", []) if q.get("verified") and o.get("sourceIdentityVerified") is not False]
             date_ok = bool(observations) and all(
