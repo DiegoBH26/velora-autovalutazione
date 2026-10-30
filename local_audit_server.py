@@ -1050,6 +1050,11 @@ class Handler(SimpleHTTPRequestHandler):
 
             if route=="/api/agents/validate":
                 property_id=safe_property_id(payload.get("propertyId"))
+                with AGENT_RUN_LOCK:
+                    active=[name for (pid,name),value in AGENT_RUNS.items()
+                            if pid==property_id and value.get("state") in {"running","queued"}]
+                if active:
+                    self._json(409,{"error":"Attendi la conclusione degli agenti prima del check: "+", ".join(active)}); return
                 outputs={agent:agent_output(property_id,agent) for agent in agent_network.AGENTS}
                 report=agent_network.evaluate(property_id,outputs)
                 dest=agent_validation_output(property_id)
