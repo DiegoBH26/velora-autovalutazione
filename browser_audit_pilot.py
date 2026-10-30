@@ -30,7 +30,7 @@ from selectolax.parser import HTMLParser
 from booking_engine import detect_booking_engine
 
 
-PILOT_BUILD = "velora-browser-pilot-v124"
+PILOT_BUILD = "velora-browser-pilot-v125"
 SCHEMA = "velora-browser-audit-pilot-v1"
 CHANNELS = ("sito", "booking", "airbnb", "expedia", "vrbo", "holidu", "hotels", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
 OTA_DISCOVERY_ORDER = ("booking", "airbnb", "expedia", "hotels", "vrbo", "holidu", "agoda", "trip", "priceline", "travelocity", "tripadvisor", "trivago", "googlehotels", "holidaycheck")
@@ -12512,8 +12512,17 @@ async def run(args: argparse.Namespace) -> dict:
     async with async_playwright() as playwright:
         # Discovery e pricing usano profili distinti. Una sessione lunga di ricerca
         # non può più trascinare con sé un BrowserContext instabile nella fase prezzi.
-        discovery_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-discovery"
-        pricing_profile_dir=Path(__file__).resolve().parent/"velora-browser-profile-pricing"
+        # Specialist agents never share Chrome user data or cookies. Existing
+        # legacy profiles remain unchanged for backward compatibility.
+        specialist_id=str(getattr(args,"agent_id","") or "")
+        if specialist_id and specialist_id not in {"booking","agoda","airbnb"}:
+            raise ValueError("Identità agente OTA non supportata")
+        if specialist_id and channels != [specialist_id]:
+            raise ValueError("Un agente specialista può leggere solo la propria OTA")
+        isolated_root=Path(args.property).resolve().parent if specialist_id else Path(__file__).resolve().parent
+        suffix=f"-{specialist_id}" if specialist_id else ""
+        discovery_profile_dir=isolated_root/("velora-browser-profile-discovery"+suffix)
+        pricing_profile_dir=isolated_root/("velora-browser-profile-pricing"+suffix)
         context=await _launch_velora_context(
             playwright,discovery_profile_dir,data,"discovery OTA",ghost
         )
