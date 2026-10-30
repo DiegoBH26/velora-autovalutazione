@@ -181,8 +181,24 @@ AUTO_STATE=AutoAuditState()
 
 # CMD dashboard: the completion marker means a job finished, not that Giove validated its data.
 AGENT_CONSOLE_LOCK=threading.Lock()
-AGENT_TERMINAL_COLORS=(sys.stdout.isatty() and not os.environ.get("NO_COLOR")
-    and (os.name!="nt" or bool(os.environ.get("WT_SESSION") or os.environ.get("ANSICON"))))
+
+def _enable_agent_console_colors():
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return False
+    if os.name!="nt":
+        return True
+    try:
+        import ctypes
+        kernel32=ctypes.windll.kernel32
+        handle=kernel32.GetStdHandle(-11)
+        flags=ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle,ctypes.byref(flags)):
+            return False
+        return bool(kernel32.SetConsoleMode(handle,flags.value|0x0004))
+    except Exception:
+        return False
+
+AGENT_TERMINAL_COLORS=_enable_agent_console_colors()
 
 def _console_color(value, color):
     return ("\033["+color+"m"+value+"\033[0m") if AGENT_TERMINAL_COLORS else value
@@ -195,7 +211,7 @@ def print_agent_status(agent_id,phase,result,detail=""):
     if agent_network is None:
         return
     actor=agent_network.agent_display(agent_id)
-    colored=_console_color(result, "32" if result in {"COMPLETATO","VALIDATO"}
+    colored=_console_color(result, "32" if result=="VALIDATO"
                            else "31" if result=="ERRORE" else "33" if result=="IN CODA" else "36")
     with AGENT_CONSOLE_LOCK:
         print("  "+_column(actor,28)+" | "+_column(phase,20)+" | "
@@ -1022,7 +1038,8 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
             self._json(200,{"schema":agent_network.NETWORK_SCHEMA,"agents":agent_network.AGENTS,
-                             "reviewer":"manual_only","version":"v125"})
+                             "plannedAgents":agent_network.FUTURE_AGENTS,
+                             "reviewer":{"name":agent_network.REVIEWER_NAME,"trigger":"manual_only"},"version":"v125"})
             return
         if route in {"/api/agents/status","/api/agents/result","/api/agents/validation"}:
             if agent_network is None:
