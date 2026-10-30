@@ -5549,11 +5549,11 @@ export default function App() {
         if(entry?.state==="failed") throw new Error(entry.error || "Agente interrotto.");
         if(entry?.state==="completed"){
           setSpecialistMessage(veloraAgentName(agentId)+" ha terminato. Esito archiviato, non ancora validato da Giove.");
-          if(agentId==="booking" || agentId==="agoda" || agentId==="airbnb" || agentId==="reviews"){
+          if(SPECIALIST_AGENTS.some((item)=>item.id===agentId)){
             const resultResponse=await fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(propertyId)+"&agentId="+agentId),{mode:"cors",cache:"no-store"});
             if(resultResponse.ok && window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)===propertyId){
               const partial=await resultResponse.json() as BrowserPilotResult;
-              if(agentId==="reviews"){
+              if(agentId==="reviews" || agentId==="official_site"){
                 applyPilotEvidence({...partial,schema:"velora-browser-audit-pilot-v1",observations:[]});
               } else {
                 setBrowserPilotResult((previous)=>{
