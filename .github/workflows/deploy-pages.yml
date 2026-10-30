@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile local audit agent
-        run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py velora_agent_network.py
+        run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py velora_agent_network.py velora_portal_sessions.py
       - name: Validate specialist agent metadata and legacy protections
         run: python -m unittest discover -s tests -p 'test_agent_*.py'
       - name: Configure Pages
