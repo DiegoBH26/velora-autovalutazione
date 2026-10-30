@@ -4943,6 +4943,9 @@ export default function App() {
   const [portalSessionMessage, setPortalSessionMessage] = useState("");
   const [portalSessionBusy, setPortalSessionBusy] = useState<string | null>(null);
   const [launchingBatch, setLaunchingBatch] = useState(false);
+  const [agentRunIds, setAgentRunIds] = useState<SpecialistAgentId[]>([]);
+  const [agentRunStartedAt, setAgentRunStartedAt] = useState<number | null>(null);
+  const [agentRunClock, setAgentRunClock] = useState(Date.now());
   const [selectedSupportAgents, setSelectedSupportAgents] = useState<SpecialistAgentId[]>(() => {
     try {
       const prior = JSON.parse(window.localStorage.getItem("velora-pilot-selected-support-agents") || "[]");
@@ -5693,9 +5696,18 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    if (!agentRunStartedAt) return;
+    const interval = window.setInterval(() => setAgentRunClock(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [agentRunStartedAt]);
+
   async function launchAgentBatch(ids: SpecialistAgentId[]) {
     if (!ids.length || launchingBatch || localPilotRunning) return;
     setLaunchingBatch(true);
+    setAgentRunIds(ids);
+    setAgentRunStartedAt(Date.now());
+    setAgentRunClock(Date.now());
     try {
       const token=await connectLocalAgent(false);
       if (!token) {
@@ -8554,6 +8566,24 @@ export default function App() {
                     </table>
                   </div>}
                 </div>
+                {agentRunStartedAt !== null && agentRunIds.length > 0 && (() => {
+                  const entries=agentRunIds.map(id=>specialistStatuses[id]?.state);
+                  const done=entries.filter(state=>state==="completed"||state==="failed").length;
+                  const running=entries.filter(state=>state==="running").length;
+                  const queued=entries.filter(state=>state==="queued").length;
+                  const complete=done===agentRunIds.length && !launchingBatch;
+                  const percentage=Math.round((done/agentRunIds.length)*100);
+                  return <div className="rounded-xl border border-emerald-200 bg-white p-3" role="status" aria-live="polite">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-black text-[#23124A]">
+                      <span>{complete?"Scansione agenti terminata":"Scansione agenti in corso"} · {done}/{agentRunIds.length} completati o interrotti</span>
+                      <span className="inline-flex items-center gap-3 font-mono"><span>{formatPilotElapsed(Math.max(0,agentRunClock-agentRunStartedAt))}</span><span>{percentage}%</span></span>
+                    </div>
+                    <div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-label="Avanzamento agenti">
+                      <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{width:percentage+"%"}} />
+                    </div>
+                    <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{running} al lavoro · {queued} in coda · {entries.filter(state=>state==="failed").length} interrotti. La percentuale rappresenta gli agenti che hanno terminato, non le pagine visitate.</p>
+                  </div>;
+                })()}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
