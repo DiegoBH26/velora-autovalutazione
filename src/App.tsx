@@ -5616,15 +5616,26 @@ export default function App() {
     }
   }
 
-  async function startSpecialistAgent(agentId: SpecialistAgentId) {
+  async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true) {
     if (specialistBusy[agentId]) return;
     const propertyId = activeAuditData.id;
     setSpecialistBusy((old) => ({...old,[agentId]:true}));
     setSpecialistChecks(null);
-    setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · cartella risultati indipendente.");
+    setSpecialistMessage("Verifica servizio Windows per "+veloraAgentName(agentId)+".");
+    let accepted = false;
     try {
       const token = await connectLocalAgent(false);
       if (!token) throw new Error("Avvia prima l'agente Velora sul PC.");
+      const readiness = await fetch(localAgentUrl("/api/agents/config"),{mode:"cors",cache:"no-store"});
+      if (!readiness.ok) {
+        const detail = await readiness.json().catch(()=>({})) as {error?:string};
+        throw new Error(detail.error || "Rete dei 12 agenti non disponibile. Aggiorna e riavvia l'agente Windows.");
+      }
+      const network = await readiness.json() as {agents?:Record<string,unknown>;reviewer?:{name?:string}};
+      if (Object.keys(network.agents||{}).length!==12 || network.reviewer?.name!=="Giove") {
+        throw new Error("Rete incompleta: attesi 12 agenti e Giove. Aggiorna l'agente Windows.");
+      }
+      setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · cartella risultati indipendente.");
       const started = await fetch(localAgentUrl("/api/agents/start"), {
         method:"POST",mode:"cors",
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
@@ -5646,7 +5657,14 @@ export default function App() {
         const detail=await started.json() as {error?:string};
         throw new Error(detail.error || "Impossibile avviare lo specialista.");
       }
+      accepted = true;
       setSpecialistStatuses((old)=>({...old,[agentId]:{state:"running"}}));
+      if (trackProgress) {
+        const startedAt=Date.now();
+        setAgentRunIds([agentId]);
+        setAgentRunStartedAt(startedAt);
+        setAgentRunClock(startedAt);
+      }
       for(let attempt=0;attempt<2400;attempt++){
         await new Promise((resolve)=>window.setTimeout(resolve,3000));
         const response=await fetch(localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(propertyId)),{mode:"cors",cache:"no-store"});
@@ -5690,6 +5708,10 @@ export default function App() {
       }
       setSpecialistMessage("L'agente è ancora in esecuzione. Usa Aggiorna stati per controllare l'esito senza rilanciare.");
     }catch(error){
+      if (trackProgress && !accepted) {
+        setAgentRunIds([]);
+        setAgentRunStartedAt(null);
+      }
       setSpecialistMessage(error instanceof Error?error.message:"Errore nell'avvio dell'agente");
     }finally{
       setSpecialistBusy((old)=>({...old,[agentId]:false}));
@@ -5718,7 +5740,7 @@ export default function App() {
       setAgentRunStartedAt(startedAt);
       setAgentRunClock(startedAt);
       setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Massimo due sessioni Chrome contemporanee.");
-      await Promise.all(ids.map(id=>startSpecialistAgent(id)));
+      await Promise.all(ids.map(id=>startSpecialistAgent(id,false)));
     } catch(error) {
       setAgentRunIds([]);
       setAgentRunStartedAt(null);
