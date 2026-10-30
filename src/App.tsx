@@ -4882,7 +4882,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "official_site" | "reviews";
-type SpecialistAgentState = {state?: "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
+type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
 const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; detail: string}> = [
   {id:"booking",name:"Booking.com",detail:"Date, camere e tariffe"},
@@ -8230,13 +8230,13 @@ export default function App() {
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {SPECIALIST_AGENTS.map((agent)=>{
                     const state=specialistStatuses[agent.id];
-                    const running=Boolean(specialistBusy[agent.id]||state?.state==="running");
+                    const running=Boolean(specialistBusy[agent.id]||state?.state==="running"||state?.state==="queued");
                     return <div key={agent.id} className="flex flex-col justify-between gap-3 rounded-xl border border-[#E5DDF1] bg-[#FBFAFD] p-3.5">
                       <div>
                         <p className="text-sm font-black text-[#23124A]">{agent.name}</p>
                         <p className="mt-0.5 text-[11px] text-[#64748B]">{agent.detail}</p>
                         <p className="mt-2 text-[11px] font-bold text-[#50627F]">
-                          {running?"In esecuzione":state?.state==="completed"?"Esecuzione completata":state?.state==="failed"?"Interrotto":state?.hasResult?"Esito archiviato":"Non avviato"}
+                          {state?.state==="queued"?"In coda":running?"In esecuzione":state?.state==="completed"?"Esecuzione completata":state?.state==="failed"?"Interrotto":state?.hasResult?"Esito archiviato":"Non avviato"}
                         </p>
                       </div>
                       <button type="button" disabled={running} onClick={()=>void startSpecialistAgent(agent.id)} className="min-h-10 rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
