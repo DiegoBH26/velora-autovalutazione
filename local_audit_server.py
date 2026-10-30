@@ -26,14 +26,15 @@ from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 import browser_audit_pilot as browser_pilot
+import velora_agent_network as agent_network
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v124"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -121,9 +122,12 @@ STATE_ROOT=(Path(_local_appdata)/"Velora") if _local_appdata else (ROOT/"tmp"/"v
 RUNTIME_PROPERTIES=STATE_ROOT/"runtime-properties"
 RUNTIME_AUDITS=STATE_ROOT/"runtime-audits"
 PILOT_RESULTS=STATE_ROOT/"pilot-results"
+AGENT_RESULTS=STATE_ROOT/"specialist-agents"
+AGENT_RUN_LOCK=threading.Lock()
+AGENT_RUNS={}
 OTA_SOURCE_CACHE=STATE_ROOT/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
-for _runtime_dir in (STATE_ROOT,RUNTIME_PROPERTIES,RUNTIME_AUDITS,PILOT_RESULTS):
+for _runtime_dir in (STATE_ROOT,RUNTIME_PROPERTIES,RUNTIME_AUDITS,PILOT_RESULTS,AGENT_RESULTS):
     _runtime_dir.mkdir(parents=True,exist_ok=True)
 
 PROPERTIES={
@@ -165,6 +169,40 @@ class AutoAuditState:
 
 STATE=PilotState()
 AUTO_STATE=AutoAuditState()
+
+
+def agent_workspace(property_id,agent_id):
+    return AGENT_RESULTS / property_id / agent_id
+
+
+def agent_output(property_id,agent_id):
+    return agent_workspace(property_id,agent_id) / "result.json"
+
+
+def agent_validation_output(property_id):
+    return AGENT_RESULTS / property_id / "validation.json"
+
+
+def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted):
+    key=(property_id,agent_id)
+    try:
+        data=json.loads(Path(property_file).read_text(encoding="utf-8"))
+        asyncio.run(agent_network.execute(
+            agent_id,data,Path(property_file),agent_output(property_id,agent_id),
+            months=months,custom_period=custom_period,ghost=ghost,
+            assisted=assisted,assist_callback=wait_for_pilot_intervention if assisted else None,
+        ))
+        with AGENT_RUN_LOCK:
+            AGENT_RUNS[key]["state"]="completed"
+            AGENT_RUNS[key]["completedAt"]=datetime.now(timezone.utc).isoformat()
+    except Exception as exc:
+        error=f"{type(exc).__name__}: {str(exc)[:300]}"
+        with AGENT_RUN_LOCK:
+            AGENT_RUNS[key]["state"]="failed"
+            AGENT_RUNS[key]["error"]=error
+            AGENT_RUNS[key]["completedAt"]=datetime.now(timezone.utc).isoformat()
+        print(f"ERRORE AGENTE {agent_id}: {error}",flush=True)
+
 
 
 def _notify_windows_intervention(intervention: dict) -> None:
@@ -899,7 +937,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "propertyIds":sorted(PROPERTIES),
                 "onlineBridge":True,
                 "autoAudit":True,
-                "agentVersion":"velora-local-agent-v124",
+                "agentVersion":"velora-local-agent-v125",
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
@@ -923,6 +961,41 @@ class Handler(SimpleHTTPRequestHandler):
                 result=None
             self._json(200,{"running":running,"error":error,"propertyId":property_id,"result":result,"intervention":intervention or None})
             return
+        if route=="/api/agents/config":
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            self._json(200,{"schema":agent_network.NETWORK_SCHEMA,"agents":agent_network.AGENTS,
+                             "reviewer":"manual_only","version":"v125"})
+            return
+        if route in {"/api/agents/status","/api/agents/result","/api/agents/validation"}:
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                property_id=safe_property_id((query.get("propertyId") or [""])[0])
+            except ValueError:
+                self._json(400,{"error":"Struttura non valida"}); return
+            if route=="/api/agents/status":
+                with AGENT_RUN_LOCK:
+                    status={agent:dict(AGENT_RUNS.get((property_id,agent),{})) for agent in agent_network.AGENTS}
+                for agent in status:
+                    status[agent]["hasResult"]=agent_output(property_id,agent).is_file()
+                self._json(200,{"propertyId":property_id,"agents":status,
+                                 "validationAvailable":agent_validation_output(property_id).is_file()})
+                return
+            if route=="/api/agents/validation":
+                target=agent_validation_output(property_id)
+            else:
+                agent=(query.get("agentId") or [""])[0]
+                if agent not in agent_network.AGENTS:
+                    self._json(400,{"error":"Agente non valido"}); return
+                target=agent_output(property_id,agent)
+            try:
+                value=json.loads(target.read_text(encoding="utf-8"))
+            except (OSError,json.JSONDecodeError):
+                self._json(404,{"error":"Nessun esito salvato"}); return
+            self._json(200,value)
+            return
         if route=="/api/audit/status":
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
@@ -942,7 +1015,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -956,6 +1029,74 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/agents/validate":
+                property_id=safe_property_id(payload.get("propertyId"))
+                outputs={agent:agent_output(property_id,agent) for agent in agent_network.AGENTS}
+                report=agent_network.evaluate(property_id,outputs)
+                dest=agent_validation_output(property_id)
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                tmp=dest.with_suffix(".tmp")
+                tmp.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+                tmp.replace(dest)
+                self._json(200,report)
+                return
+
+            if route=="/api/agents/start":
+                agent_id=str(payload.get("agentId") or "").strip()
+                if agent_id not in agent_network.AGENTS:
+                    raise ValueError("Agente non disponibile")
+                if agent_id in {"booking","agoda","airbnb"} and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
+                    self._json(409,{"error":"Aggiorna e riavvia agente locale e pilot v125 prima di avviare gli specialisti."}); return
+                property_id=safe_property_id(payload.get("propertyId"))
+                work=agent_workspace(property_id,agent_id)
+                work.mkdir(parents=True,exist_ok=True)
+                # Snapshot isolato: nessuno specialista modifica il JSON originale.
+                supplied=payload.get("propertyData")
+                if not isinstance(supplied,dict) or supplied.get("id")!=property_id:
+                    raise ValueError("Identità struttura non coerente")
+                base_path=resolve_property_path(property_id)
+                base_data={}
+                if base_path is not None:
+                    try: base_data=json.loads(base_path.read_text(encoding="utf-8"))
+                    except (OSError,json.JSONDecodeError): base_data={}
+                data={**base_data, **supplied}
+                base_sources=base_data.get("sources") or {}
+                data["sources"]={**base_sources,**(supplied.get("sources") or {})}
+                data["id"]=property_id
+                if data.get("website") and not data["sources"].get("sito"):
+                    data["sources"]["sito"]={"label":"Sito ufficiale","url":data["website"]}
+                months=payload.get("months",1)
+                if months not in (1,6,12):
+                    raise ValueError("Seleziona 1, 6 o 12 mesi")
+                custom_period=payload.get("customPeriod")
+                if custom_period is not None:
+                    if not isinstance(custom_period,dict) or not all(k in custom_period for k in ("start","end","nights","adults","frequency")):
+                        raise ValueError("Calendario personalizzato non valido")
+                    from datetime import date as _date, timedelta as _timedelta
+                    a,b=_date.fromisoformat(str(custom_period["start"])),_date.fromisoformat(str(custom_period["end"]))
+                    n=int(custom_period["nights"]); adults=int(custom_period["adults"])
+                    frequency=str(custom_period["frequency"])
+                    if a<_date.today() or b<a or (b-a).days>366 or n not in (1,2,3,4,5,7,14) or not 1<=adults<=12 or frequency not in ("daily","weekly","biweekly") or a+_timedelta(days=n)>b:
+                        raise ValueError("Calendario personalizzato non valido")
+                    custom_period={"start":a.isoformat(),"end":b.isoformat(),"nights":n,"adults":adults,"frequency":frequency}
+                with AGENT_RUN_LOCK:
+                    current=AGENT_RUNS.get((property_id,agent_id),{})
+                    if current.get("state")=="running":
+                        self._json(409,{"error":"Questo agente è già in esecuzione"}); return
+                    AGENT_RUNS[(property_id,agent_id)]={
+                        "state":"running","agentId":agent_id,"startedAt":datetime.now(timezone.utc).isoformat(),"error":""
+                    }
+                input_path=work/"property.json"
+                input_path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                agent_output(property_id,agent_id).unlink(missing_ok=True)
+                agent_validation_output(property_id).unlink(missing_ok=True)
+                threading.Thread(target=run_specialist_job,args=(
+                    property_id,agent_id,input_path,months,custom_period,
+                    bool(payload.get("ghost",False)),bool(payload.get("assisted",False))
+                ),daemon=True,name="velora-"+agent_id).start()
+                self._json(202,{"ok":True,"propertyId":property_id,"agentId":agent_id,"state":"running"})
+                return
 
             if route=="/api/pilot/intervention":
                 action=str(payload.get("action") or "").strip().lower()
