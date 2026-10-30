@@ -5588,6 +5588,22 @@ export default function App() {
     }
   }
 
+  async function launchAgentBatch(ids: SpecialistAgentId[]) {
+    if (!ids.length || launchingBatch || localPilotRunning) return;
+    setLaunchingBatch(true);
+    try {
+      const token=await connectLocalAgent(false);
+      if (!token) {
+        setSpecialistMessage("Avvia l'agente locale v125 prima di avviare la rete.");
+        return;
+      }
+      setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Fino a due sessioni Chrome contemporanee; le altre attendono in coda.");
+      await Promise.all(ids.map((id)=>startSpecialistAgent(id)));
+    } finally {
+      setLaunchingBatch(false);
+    }
+  }
+
   async function validateSpecialistNetwork() {
     setSpecialistCheckRunning(true);
     setSpecialistChecks(null);
@@ -8233,95 +8249,25 @@ export default function App() {
                 <button type="button" onClick={() => void respondLocalPilotIntervention("skip")} className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-xs font-black text-amber-950">Salta questa OTA</button>
               </div>
             </div>}
-            <section className="mt-4 rounded-2xl border border-[#D9D0E8] bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <section className="mt-4 overflow-hidden rounded-2xl border border-[#D9D0E8] bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EAE3F2] bg-[#F9F7FC] p-4 sm:p-5">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-wide text-[#A9874A]">Rete di agenti specialisti · v125</p>
-                  <h3 className="mt-1 text-lg font-black text-[#23124A]">Un agente dedicato per ogni analisi</h3>
-                  <p className="mt-1 text-[11px] text-[#50627F]">Le OTA lavorano con profili separati. Il revisore non avvia nuove scansioni: controlla solo i risultati esistenti, quando lo richiedi.</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#A9874A]">Velora · Rete agenti specializzati</p>
+                  <h3 className="mt-1 text-lg font-black text-[#23124A]">Scraping, sito diretto e recensioni</h3>
+                  <p className="mt-1 text-[11px] text-[#50627F]">Un unico centro di comando: seleziona i canali, imposta le date e avvia gli agenti. Giove valida gli esiti su richiesta.</p>
                 </div>
-                <button type="button" onClick={() => {setSpecialistExpanded(!specialistExpanded);if(!specialistExpanded) void refreshSpecialistStatuses();}} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-4 py-2.5 text-xs font-black text-[#23124A]">
-                  {specialistExpanded?"Chiudi rete agenti":"Apri rete agenti"}
+                <button type="button" onClick={() => {setSpecialistExpanded(!specialistExpanded);if(!specialistExpanded) void refreshSpecialistStatuses();}} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2.5 text-xs font-black text-[#23124A]">
+                  {specialistExpanded?"Riduci pannello":"Apri rete agenti"}
                 </button>
               </div>
-              {specialistExpanded && <div className="mt-4 space-y-4 border-t border-[#EAE3F2] pt-4">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {SPECIALIST_AGENTS.map((agent)=>{
-                    const state=specialistStatuses[agent.id];
-                    const running=Boolean(specialistBusy[agent.id]||state?.state==="running"||state?.state==="queued");
-                    return <div key={agent.id} className="flex flex-col justify-between gap-3 rounded-xl border border-[#E5DDF1] bg-[#FBFAFD] p-3.5">
-                      <div>
-                        <p className="text-sm font-black text-[#23124A]">{agent.name} <span className="font-semibold text-[#50627F]">({agent.channel})</span></p>
-                        <p className="mt-0.5 text-[11px] text-[#64748B]">{agent.detail}</p>
-                        <p className="mt-2 text-[11px] font-bold text-[#50627F]">
-                          {state?.state==="queued"?"In coda":running?"In esecuzione":state?.state==="completed"?"✓ Esecuzione terminata · da validare":state?.state==="failed"?"Errore esecuzione":state?.hasResult?"Esito archiviato · da validare":"Non avviato"}
-                        </p>
-                      </div>
-                      <button type="button" disabled={running} onClick={()=>void startSpecialistAgent(agent.id)} className="min-h-10 rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-                        {running?"Agente al lavoro...":"Avvia "+agent.name+" ("+agent.channel+")"}
-                      </button>
-                    </div>;
-                  })}
-                </div>
-                <div className="rounded-xl border border-[#EEE8F4] bg-[#FBFAFD] p-3">
-                  <p className="text-[11px] font-black text-[#23124A]">Altri agenti già nominati · in preparazione</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {FUTURE_AGENTS.map((agent)=><span key={agent.channel} title="Non ancora attivo" className="rounded-lg border border-[#E5DDF1] bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#64748B]">
-                      {agent.name} ({agent.channel}) · non attivo
-                    </span>)}
+              {specialistExpanded && <div className="space-y-5 p-4 sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-[#23124A]">1 · Parametri della scansione</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Lo stesso calendario è utilizzato dai diversi agenti OTA; Booking resta il riferimento per le date.</p>
                   </div>
+                  <span className="rounded-full border border-[#E5DDF1] bg-[#F4F0F8] px-3 py-1.5 text-[11px] font-black text-[#23124A]">{localPilotSelectedChannels.length}/10 OTA selezionate</span>
                 </div>
-                <div className="rounded-xl border border-[#D8C8A5] bg-[#FFFDF8] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-black text-[#23124A]">Giove (Revisore / Validatore)</p>
-                      <p className="mt-1 text-[11px] text-[#64748B]">Check su identità, date, preventivi ed evidenze. Nessun segno verde prima del comando.</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={()=>void refreshSpecialistStatuses()} className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-black">Aggiorna stati</button>
-                      <button type="button" disabled={specialistCheckRunning} onClick={()=>void validateSpecialistNetwork()} className="rounded-lg bg-[#23124A] px-4 py-2 text-xs font-black text-white disabled:opacity-40">
-                        {specialistCheckRunning?"Giove sta verificando...":"Avvia Giove · Esegui check"}
-                      </button>
-                    </div>
-                  </div>
-                  {specialistChecks!==null && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
-                    <table className="w-full min-w-[650px] text-left text-[11px]">
-                      <thead className="bg-[#F4F0F8] text-[#23124A]">
-                        <tr><th className="px-3 py-2.5">Agente / OTA</th><th className="px-3 py-2.5">Controllo</th><th className="px-3 py-2.5">Esito di Giove</th><th className="px-3 py-2.5">Evidenza / errore</th></tr>
-                      </thead>
-                      <tbody>
-                        {specialistChecks.map((check)=>(
-                          <tr key={check.agentId+"-"+check.code} className="border-t border-[#EEE8F4] align-top">
-                            <td className="px-3 py-2.5 font-bold text-[#23124A]">{veloraAgentName(check.agentId)}</td>
-                            <td className="px-3 py-2.5 text-[#50627F]">{check.label}</td>
-                            <td className="px-3 py-2.5">
-                              <span className={"inline-flex rounded-md px-2 py-1 font-black "+(check.passed?"bg-emerald-100 text-emerald-800":"bg-red-50 text-red-700")}>{check.passed?"✓ VALIDATO":"ERRORE"}</span>
-                            </td>
-                            <td className="px-3 py-2.5 text-[#50627F]">{check.detail}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>}
-                </div>
-                {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
-                <p className="text-[10px] text-[#64748B]">Gli accessi registrati a portali terzi richiedono autorizzazione e sessioni separate. CAPTCHA e limitazioni dei portali non vengono aggirati. Lo scraping precedente resta disponibile sotto.</p>
-              </div>}
-            </section>
-            {!localPilotToken ? <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => void connectLocalAgent(false)} className="rounded-xl border border-[#C8A96B] bg-white px-4 py-2 text-xs font-black text-[#23124A]">Collega agente locale</button>
-              <span className="text-[10px] font-semibold text-[#50627F]">Puoi restare su Velora online: l'agente esegue Chrome/Playwright sul tuo PC.</span>
-            </div> : <div className="mt-4 rounded-2xl border border-[#E5DDF1] bg-white p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-wide text-[#23124A]">Configura test OTA</p>
-                  <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Scegli periodo e canali. Bianco = escluso; colorato = selezionato. Velora analizzerà soltanto le OTA che scegli.</p>
-                </div>
-                <div className="rounded-xl bg-[#F6F2FA] px-3 py-2 text-[10px] font-black text-[#23124A]">
-                  {localPilotSelectedChannels.length}/10 OTA · {localPilotPeriod === "custom" ? "Date personalizzate" : localPilotPeriod === 12 ? "12 mesi avanti" : `${localPilotPeriod} ${localPilotPeriod === 1 ? "mese" : "mesi"}`}
-                </div>
-              </div>
-
               <div className="mt-4">
                 <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-[#50627F]">Periodo</p>
                 <div className="flex flex-wrap gap-2">
@@ -8335,7 +8281,7 @@ export default function App() {
                     return <button
                       key={option.value}
                       type="button"
-                      disabled={localPilotRunning}
+                      disabled={localPilotRunning || launchingBatch}
                       aria-pressed={selected}
                       onClick={() => {
                         setLocalPilotPeriod(option.value);
@@ -8353,83 +8299,144 @@ export default function App() {
               {localPilotPeriod === "custom" && <div className="mt-4 rounded-xl border border-[#D8CEE7] bg-white p-4">
                 <p className="mb-3 text-xs font-black text-[#23124A]">Intervallo personalizzato · soggiorni nel range selezionato</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="text-xs font-semibold">Dal<input aria-label="Data inizio" type="date" disabled={localPilotRunning} value={customPilotStart} onChange={e=>setCustomPilotStart(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
-                  <label className="text-xs font-semibold">Al<input aria-label="Data fine" type="date" disabled={localPilotRunning} min={customPilotStart} value={customPilotEnd} onChange={e=>setCustomPilotEnd(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
-                  <label className="text-xs font-semibold">Notti<select value={customPilotNights} disabled={localPilotRunning} onChange={e=>setCustomPilotNights(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{[1,2,3,4,5,7,14].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
-                  <label className="text-xs font-semibold">Ospiti<select value={customPilotAdults} disabled={localPilotRunning} onChange={e=>setCustomPilotAdults(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
-                  <label className="col-span-2 text-xs font-semibold">Campionamento<select value={customPilotFrequency} disabled={localPilotRunning} onChange={e=>setCustomPilotFrequency(e.target.value as "daily"|"weekly"|"biweekly")} className="mt-1 block w-full rounded-lg border p-2"><option value="weekly">Settimanale</option><option value="biweekly">Ogni 14 giorni</option><option value="daily">Giornaliero</option></select></label>
+                  <label className="text-xs font-semibold">Dal<input aria-label="Data inizio" type="date" disabled={localPilotRunning || launchingBatch} value={customPilotStart} onChange={e=>setCustomPilotStart(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
+                  <label className="text-xs font-semibold">Al<input aria-label="Data fine" type="date" disabled={localPilotRunning || launchingBatch} min={customPilotStart} value={customPilotEnd} onChange={e=>setCustomPilotEnd(e.target.value)} className="mt-1 block w-full rounded-lg border p-2"/></label>
+                  <label className="text-xs font-semibold">Notti<select value={customPilotNights} disabled={localPilotRunning || launchingBatch} onChange={e=>setCustomPilotNights(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{[1,2,3,4,5,7,14].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+                  <label className="text-xs font-semibold">Ospiti<select value={customPilotAdults} disabled={localPilotRunning || launchingBatch} onChange={e=>setCustomPilotAdults(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+                  <label className="col-span-2 text-xs font-semibold">Campionamento<select value={customPilotFrequency} disabled={localPilotRunning || launchingBatch} onChange={e=>setCustomPilotFrequency(e.target.value as "daily"|"weekly"|"biweekly")} className="mt-1 block w-full rounded-lg border p-2"><option value="weekly">Settimanale</option><option value="biweekly">Ogni 14 giorni</option><option value="daily">Giornaliero</option></select></label>
                 </div>
                 <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
               </div>}
-              <div className="mt-4">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-[#50627F]">OTA da analizzare</p>
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      disabled={localPilotRunning}
-                      onClick={() => {
-                        const all = LOCAL_PILOT_OTA_OPTIONS.map((item) => item.id);
+
+                <div className="border-t border-[#EEE8F4] pt-5">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wide text-[#23124A]">2 · Agenti OTA</p>
+                      <p className="mt-1 text-[11px] text-[#64748B]">Clicca la selezione colorata per includere un canale. Il suo pulsante avvia soltanto quell'agente.</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <button type="button" disabled={launchingBatch || localPilotRunning} onClick={()=>{
+                        const all=LOCAL_PILOT_OTA_OPTIONS.map((ota)=>ota.id);
                         setLocalPilotSelectedChannels([...all]);
-                        window.localStorage.setItem("velora-pilot-selected-channels", JSON.stringify(all));
-                      }}
-                      className="text-[10px] font-black text-[#23124A] underline decoration-[#C8A96B] underline-offset-2 disabled:opacity-50"
-                    >Seleziona tutte</button>
-                    <button
-                      type="button"
-                      disabled={localPilotRunning}
-                      onClick={() => {
+                        window.localStorage.setItem("velora-pilot-selected-channels",JSON.stringify(all));
+                      }} className="text-xs font-black text-[#23124A] underline underline-offset-4 disabled:opacity-40">Seleziona tutte</button>
+                      <button type="button" disabled={launchingBatch || localPilotRunning} onClick={()=>{
                         setLocalPilotSelectedChannels([]);
-                        window.localStorage.setItem("velora-pilot-selected-channels", "[]");
-                      }}
-                      className="text-[10px] font-black text-[#50627F] underline decoration-[#D8CEE7] underline-offset-2 disabled:opacity-50"
-                    >Deseleziona tutte</button>
+                        window.localStorage.setItem("velora-pilot-selected-channels","[]");
+                      }} className="text-xs font-black text-[#64748B] underline underline-offset-4 disabled:opacity-40">Deseleziona</button>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {LOCAL_PILOT_OTA_OPTIONS.map((ota)=>{
+                      const agent=SPECIALIST_AGENTS.find((row)=>row.id===ota.id);
+                      const chosen=localPilotSelectedChannels.includes(ota.id);
+                      const state=specialistStatuses[ota.id];
+                      const working=Boolean(specialistBusy[ota.id] || state?.state==="queued" || state?.state==="running");
+                      return <div key={ota.id} className={"flex min-h-[145px] flex-col justify-between gap-3 rounded-xl border p-3.5 transition "+(chosen?ota.active:ota.idle)}>
+                        <div>
+                          <button type="button" disabled={launchingBatch || localPilotRunning} aria-pressed={chosen} aria-label={(chosen?"Escludi ":"Seleziona ")+ota.label} onClick={()=>{
+                            const next=chosen?localPilotSelectedChannels.filter((id)=>id!==ota.id):[...localPilotSelectedChannels,ota.id];
+                            const ordered=LOCAL_PILOT_OTA_OPTIONS.map((item)=>item.id).filter((id)=>next.includes(id));
+                            setLocalPilotSelectedChannels(ordered);
+                            window.localStorage.setItem("velora-pilot-selected-channels",JSON.stringify(ordered));
+                          }} className="flex w-full items-center justify-between gap-2 text-left">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className={"flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-black "+(chosen?"border-current bg-white/70":"border-current/40 bg-white")}>{chosen?"✓":""}</span>
+                              <span className="font-black text-[13px]">{agent?.name || ota.label} <span className="font-semibold">({ota.label})</span></span>
+                            </span>
+                            {agent?.beta && <span className="shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[9px] font-bold">In test</span>}
+                          </button>
+                          <p className="mt-2 text-[11px] opacity-80">{agent?.detail || "Test pubblico"}</p>
+                          <p className="mt-1 text-[10px] font-bold opacity-80">{state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"?"Terminato · non validato":state?.state==="failed"?"Errore: controlla Giove":state?.hasResult?"Risultato archiviato":"Non avviato"}</p>
+                        </div>
+                        <button type="button" disabled={working || localPilotRunning} onClick={()=>void startSpecialistAgent(ota.id as SpecialistAgentId)}
+                          className="min-h-10 rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white transition hover:bg-[#372368] disabled:opacity-40">
+                          {working?"Agente in attività":"Avvia "+(agent?.name || ota.label)}
+                        </button>
+                      </div>;
+                    })}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {LOCAL_PILOT_OTA_OPTIONS.map((ota) => {
-                    const selected = localPilotSelectedChannels.includes(ota.id);
-                    return <button
-                      key={ota.id}
-                      type="button"
-                      disabled={localPilotRunning}
-                      aria-pressed={selected}
-                      onClick={() => {
-                        const next = selected
-                          ? localPilotSelectedChannels.filter((id) => id !== ota.id)
-                          : [...localPilotSelectedChannels, ota.id];
-                        const ordered = LOCAL_PILOT_OTA_OPTIONS.map((item) => item.id).filter((id) => next.includes(id));
-                        setLocalPilotSelectedChannels(ordered);
-                        window.localStorage.setItem("velora-pilot-selected-channels", JSON.stringify(ordered));
-                      }}
-                      className={`rounded-xl border px-4 py-2 text-xs font-black transition disabled:opacity-50 ${selected ? ota.active : ota.idle}`}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <span className={`flex h-4 w-4 items-center justify-center rounded-full border text-[9px] ${selected ? "border-current bg-white/70" : "border-current/40 bg-white"}`}>{selected ? "✓" : ""}</span>
-                        {ota.label}
-                      </span>
-                    </button>;
-                  })}
+                <div className="border-t border-[#EEE8F4] pt-5">
+                  <p className="mb-3 text-xs font-black uppercase tracking-wide text-[#23124A]">3 · Agenti di approfondimento</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {SPECIALIST_AGENTS.filter((agent)=>agent.id==="official_site" || agent.id==="reviews").map((agent)=>{
+                      const state=specialistStatuses[agent.id];
+                      const working=Boolean(specialistBusy[agent.id] || state?.state==="queued" || state?.state==="running");
+                      return <div key={agent.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E5DDF1] bg-[#FAF9FC] px-4 py-3">
+                        <div>
+                          <p className="text-sm font-black text-[#23124A]">{agent.name} ({agent.channel})</p>
+                          <p className="mt-1 text-[11px] text-[#64748B]">{agent.detail} · {state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"?"Terminato · non validato":state?.state==="failed"?"Errore":"Non avviato"}</p>
+                        </div>
+                        <button type="button" disabled={working || localPilotRunning} onClick={()=>void startSpecialistAgent(agent.id)} className="rounded-lg bg-[#23124A] px-4 py-2.5 text-xs font-black text-white disabled:opacity-40">
+                          {working?"In attività":"Avvia "+agent.name}
+                        </button>
+                      </div>;
+                    })}
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#EEE8F4] pt-4">
-                <div className="text-[10px] leading-4 text-[#50627F]">
-                  <b className="text-[#23124A]">Selezione:</b> {localPilotSelectedChannels.length
-                    ? LOCAL_PILOT_OTA_OPTIONS.filter((ota) => localPilotSelectedChannels.includes(ota.id)).map((ota) => ota.label).join(" · ")
-                    : "nessuna OTA selezionata"}
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
+                  <div>
+                    <p className="text-sm font-black text-[#23124A]">4 · Comando di avvio</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Partenza parallela, massimo due browser alla volta; gli altri agenti restano in coda. Il check di Giove è sempre manuale.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={launchingBatch || localPilotRunning || localPilotSelectedChannels.length===0}
+                      onClick={()=>void launchAgentBatch(localPilotSelectedChannels as SpecialistAgentId[])}
+                      className="rounded-xl bg-[#23124A] px-4 py-3 text-xs font-black text-white disabled:opacity-40">
+                      {launchingBatch?"Rete al lavoro…":"Avvia analisi selezionata"}
+                    </button>
+                    <button type="button" disabled={launchingBatch || localPilotRunning}
+                      onClick={()=>void launchAgentBatch(SPECIALIST_AGENTS.map((agent)=>agent.id))}
+                      className="rounded-xl border border-[#C8A96B] bg-white px-4 py-3 text-xs font-black text-[#23124A] disabled:opacity-40">
+                      Avvia tutti i 12 agenti
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={localPilotRunning || localPilotSelectedChannels.length === 0}
-                  onClick={() => void startLocalPilot(localPilotPeriod, localPilotSelectedChannels)}
-                  className="rounded-xl bg-[#23124A] px-5 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-[#33205B] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {localPilotRunning ? "Analisi in corso…" : "Avvia analisi selezionata"}
-                </button>
-              </div>
-            </div>}
+
+                <div className="rounded-xl border border-[#D8C8A5] bg-[#FFFDF8] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-[#23124A]">Giove · Revisore / Validatore</p>
+                      <p className="mt-1 text-[11px] text-[#64748B]">Valida identità, date, preventivi ed evidenze. Senza avvio manuale nessun check verde.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={()=>void refreshSpecialistStatuses()} className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-black">Aggiorna stati</button>
+                      <button type="button" disabled={specialistCheckRunning || launchingBatch} onClick={()=>void validateSpecialistNetwork()} className="rounded-lg bg-[#23124A] px-4 py-2 text-xs font-black text-white disabled:opacity-40">
+                        {specialistCheckRunning?"Giove sta verificando...":"Avvia Giove · Esegui check"}
+                      </button>
+                    </div>
+                  </div>
+                  {specialistChecks!==null && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
+                    <table className="w-full min-w-[650px] text-left text-[11px]">
+                      <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="px-3 py-2.5">Agente / OTA</th><th className="px-3 py-2.5">Controllo</th><th className="px-3 py-2.5">Esito di Giove</th><th className="px-3 py-2.5">Evidenza / errore</th></tr></thead>
+                      <tbody>{specialistChecks.map((check)=>(
+                        <tr key={check.agentId+"-"+check.code} className="border-t border-[#EEE8F4] align-top">
+                          <td className="px-3 py-2.5 font-bold text-[#23124A]">{veloraAgentName(check.agentId)}</td>
+                          <td className="px-3 py-2.5 text-[#50627F]">{check.label}</td>
+                          <td className="px-3 py-2.5"><span className={"inline-flex rounded-md px-2 py-1 font-black "+(check.passed?"bg-emerald-100 text-emerald-800":"bg-red-50 text-red-700")}>{check.passed?"✓ VALIDATO":"ERRORE"}</span></td>
+                          <td className="px-3 py-2.5 text-[#50627F]">{check.detail}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>}
+                </div>
+                {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
+                {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
+                <p className="text-[10px] text-[#64748B]">Gli agenti in test riutilizzano i parser pubblici esistenti: un blocco, una pagina con login o una scheda senza verifica non diventano un prezzo valido. Gli account non vengono usati per aggirare i controlli dei portali.</p>
+                <details className="rounded-xl border border-[#EEE8F4] bg-white p-3">
+                  <summary className="cursor-pointer text-[11px] font-black text-[#50627F]">Modalità classica (compatibilità)</summary>
+                  <p className="mt-2 text-[11px] text-[#64748B]">Usa il vecchio motore multi-OTA solo se necessario per confrontare una scansione precedente. Non avviarlo mentre lavorano gli specialisti.</p>
+                  <button type="button" disabled={launchingBatch || localPilotRunning || localPilotSelectedChannels.length===0}
+                    onClick={()=>void startLocalPilot(localPilotPeriod,localPilotSelectedChannels)}
+                    className="mt-2 rounded-lg border border-[#D8CEE7] px-3 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                    Avvia motore classico sulle OTA selezionate
+                  </button>
+                </details>
+              </div>}
+            </section>
             {localPilotMessage && <p className="mt-2 text-[11px] font-semibold text-[#23124A]" role="status">{localPilotMessage}</p>}
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
             {browserPilotResult?.propertyId === activeAuditData.id && <>
