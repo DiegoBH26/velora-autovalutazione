@@ -12515,7 +12515,7 @@ async def run(args: argparse.Namespace) -> dict:
         # Specialist agents never share Chrome user data or cookies. Existing
         # legacy profiles remain unchanged for backward compatibility.
         specialist_id=str(getattr(args,"agent_id","") or "")
-        if specialist_id and specialist_id not in {"booking","agoda","airbnb"}:
+        if specialist_id and specialist_id not in {"booking","agoda","airbnb","expedia","vrbo","holidu","hotels","travelocity","trip","priceline"}:
             raise ValueError("Identità agente OTA non supportata")
         if specialist_id and channels != [specialist_id]:
             raise ValueError("Un agente specialista può leggere solo la propria OTA")
