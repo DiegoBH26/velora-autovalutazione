@@ -61,7 +61,7 @@ class VeloraSpecialistContracts(unittest.TestCase):
     def test_frontend_matches_backend_and_reports_accepted_starts(self):
         app = source("src/App.tsx")
         for agent in IDS:
-            self.assertRegex(app, r'\\bid:"' + agent + r'"')
+            self.assertIn('id:"' + agent + '"', app)
         self.assertIn("async function launchAgentBatch", app)
         self.assertIn("startSpecialistAgent(id,false)", app)
         self.assertIn('const readiness = await fetch(localAgentUrl("/api/agents/config")', app)
