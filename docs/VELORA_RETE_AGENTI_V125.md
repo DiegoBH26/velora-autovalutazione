@@ -21,6 +21,47 @@ Booking rimane **riferimento obbligatorio delle date** anche per gli altri
 due agenti. Per questo Agoda e Airbnb possono consultare Booking come
 *dipendenza di calendario*, senza eseguire gli altri parser OTA.
 
+## Nomi degli agenti (v125)
+- **Minerva (Booking.com)** – attivo
+- **Galileo (Agoda)** – attivo
+- **Apollo (Airbnb)** – attivo
+- **Leonardo (Sito diretto)** – attivo
+- **Ipazia (Recensioni)** – attivo
+- **Giove (Revisore/Validatore)** – esclusivamente manuale
+- **Ercole (Expedia)**, **Atlante (Vrbo)**, **Mercurio (Holidu)** – nomi riservati, non ancora attivi
+- **Tesla (Hotels.com)**, **Turing (Trip.com)**, **Pitagora (Priceline)**, **Newton (Travelocity)**,
+  **Socrate (Tripadvisor)**, **Keplero (Trivago)**, **Euclide (Google Hotels)**,
+  **Archimede (HolidayCheck)** – nomi riservati, non ancora attivi
+
+### CMD: esempio illustrativo, non una scansione reale
+```text
+AGENTE (OTA)                 | FASE                 | ESITO        | DETTAGLIO
+Minerva (Booking.com)        | Browser / scraping   | IN CORSO     | perla-saracena
+Minerva (Booking.com)        | Esecuzione           | COMPLETATO   | Esito salvato, da validare
+
+GIOVE (VALIDATORE) - CHECK MANUALE
+AGENTE (OTA)                 | CONTROLLO             | ESITO        | DETTAGLIO
+Minerva (Booking.com)        | Date Booking           | VALIDATO     | Date confermate
+Apollo (Airbnb)              | Tariffe verificate     | ERRORE       | Nessuna tariffa verificata
+```
+La fine di un'esecuzione **non è** una validazione. Solo Giove, avviato manualmente,
+può segnalare VALIDATO (verde quando il terminale supporta ANSI) o ERRORE (rosso).
+Le righe non eseguite non ricevono un falso verde.
+
+## Registrazioni Expedia / Vrbo / Holidu
+La prima registrazione deve essere effettuata manualmente dal titolare
+dell'account, che accetta termini, eventuali verifiche di identità, OTP e
+consensi. Expedia e Vrbo condividono l'accesso One Key per i clienti,
+quindi verificare se una sola iscrizione sia sufficiente. Holidu distingue
+i flussi per ospiti e per proprietari: non iscrivere una proprietà soltanto
+per osservare i prezzi.
+
+La futura automazione potrà riutilizzare soltanto sessioni autorizzate,
+nel browser locale, se compatibile con le condizioni dei singoli servizi.
+Non inserire account/password/OTP nel codice, nelle impostazioni condivise,
+in GitHub o nei messaggi di chat; non utilizzare login per aggirare blocchi
+anti-bot, quote o condizioni di utilizzo.
+
 ## Isolamento reale
 - Cartella input/output: `AppData/Local/Velora/specialist-agents/<struttura>/<agente>/`.
 - Profili Chrome `velora-browser-profile-discovery-<OTA>` e
