@@ -16,18 +16,21 @@ class UnifiedDashboardTest(unittest.TestCase):
         self.assertIn("Scraping, sito diretto e recensioni",self.app)
         self.assertEqual(self.app.count(">Configura test OTA</p>"),0)
         self.assertEqual(self.app.count(">OTA da analizzare</p>"),0)
-        self.assertIn("LOCAL_PILOT_OTA_OPTIONS.map((ota)=>",self.app)
+        self.assertIn("SPECIALIST_AGENTS.map((agent)=>",self.app)
+        self.assertIn("selectedSupportAgents",self.app)
+        self.assertNotIn(">3 · Agenti di approfondimento</p>",self.app)
         self.assertIn("Avvia analisi selezionata",self.app)
         self.assertIn("Avvia tutti i 12 agenti",self.app)
         self.assertIn("Avvia Giove · Esegui check",self.app)
-        self.assertIn("Modalità classica (compatibilità)",self.app)
+        self.assertNotIn("Modalità classica (compatibilità)",self.app)
+        self.assertIn("▶",self.app)
 
     def test_ten_channels_and_beta_markers(self):
         for channel in ["booking","agoda","airbnb","vrbo","expedia","holidu",
                         "hotels","travelocity","trip","priceline"]:
             self.assertIn('"'+channel+'": {"name": ',self.agents)
-        self.assertIn("agent?.beta",self.app)
-        self.assertIn('"agent_id",""',self.pilot)
+        self.assertIn("agent.beta",self.app)
+        self.assertIn('getattr(args,"agent_id","")',self.pilot)
         self.assertIn("AGENT_WORK_SLOTS=threading.BoundedSemaphore(2)",self.server)
 
     def test_color_and_period_are_preserved(self):
