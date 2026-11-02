@@ -4032,8 +4032,8 @@ const PILOT_GENERIC_PROPERTY_TOKENS=new Set([
   "si","apre","nuova","finestra","www","com","vista","mare",
 ]);
 function pilotDistinctiveNameWords(value:string):string[] {
-  return (value||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase()
-    .replace(/[^a-z0-9]+/g," ").trim().split(/\\s+/)
+  return (value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase()
+    .replace(/[^a-z0-9]+/g," ").trim().split(/\s+/)
     .filter(token=>token.length>=4&&!PILOT_GENERIC_PROPERTY_TOKENS.has(token));
 }
 function pilotListingIdentityWarning(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
