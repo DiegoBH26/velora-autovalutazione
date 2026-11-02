@@ -3728,6 +3728,7 @@ type DiscoveredPilotSource = {
 type BrowserPilotResult = {
   schema: "velora-browser-audit-pilot-v1";
   propertyId: string;
+  propertyName?: string;
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   discoveredSources?: Record<string, DiscoveredPilotSource>;
@@ -3905,6 +3906,10 @@ function pilotCoverageSummary(result: BrowserPilotResult | null | undefined, mon
   const entries = (result?.observations || []).filter((item) => item.month === month && item.otaId === otaId);
   if (!entries.length) return "";
   const item = entries[entries.length - 1];
+  if(result) {
+    const identityWarning=pilotListingIdentityWarning(result,item);
+    if(identityWarning) return identityWarning;
+  }
   const quotes = Array.isArray(item.quotes) ? item.quotes : [];
   const quoteCount = quotes.length;
   const verifiedCount = quotes.filter((quote) => quote.verified).length;
@@ -4016,6 +4021,61 @@ const PILOT_OTA_LABELS: Record<string,string> = {
   tripadvisor:"Tripadvisor", trivago:"Trivago", googlehotels:"Google Hotels", holidaycheck:"HolidayCheck",
 };
 
+// UI-level safeguard: keep raw parser evidence, but never silently treat a
+// clearly different OTA listing as the property being audited.
+const PILOT_GENERIC_PROPERTY_TOKENS=new Set([
+  "villa","tenuta","masseria","agriturismo","hotel","relais","resort",
+  "agriresort","b","bb","bed","breakfast","suites","suite","appartamento",
+  "apartments","apartment","camera","camere","casa","dimora","holiday",
+  "luxury","booking","airbnb","agoda","expedia","spa","in","di","del",
+  "della","the","and","le","la","il","con","it","italia","italy",
+  "si","apre","nuova","finestra","www","com","vista","mare",
+]);
+function pilotDistinctiveNameWords(value:string):string[] {
+  return (value||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase()
+    .replace(/[^a-z0-9]+/g," ").trim().split(/\\s+/)
+    .filter(token=>token.length>=4&&!PILOT_GENERIC_PROPERTY_TOKENS.has(token));
+}
+function pilotListingIdentityWarning(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
+  const expected=String(result.propertyName||"").trim();
+  if(!expected) return "";
+  const expectedWords=pilotDistinctiveNameWords(expected);
+  if(!expectedWords.length) return "";
+  const discovery=result.discoveredSources?.[observation.otaId];
+  // An unverified URL is never evidence that a property's identity matches.
+  // Booking title is the property name; Airbnb multi-listing uses the listing
+  // title (often stored in roomType); for other portals prefer the page title.
+  const ownTitle=String(observation.title||discovery?.title||"").trim();
+  const airbnbListing=observation.otaId==="airbnb"
+    ? String((observation.quotes||[]).find(q=>/villa|agriturismo|masseria|tenuta|hotel|relais|resort|b&b|dimora/i.test(String(q.roomType||"")))?.roomType||"").trim()
+    : "";
+  const listingName=observation.otaId==="airbnb" ? (airbnbListing||ownTitle) : ownTitle;
+  if (!listingName) return "";
+  const candidateWords=pilotDistinctiveNameWords(listingName);
+  if(!candidateWords.length) return "";
+  if(expectedWords.some(word=>candidateWords.includes(word))) return "";
+  // Treat strongly different observed titles as identity mismatches, not a
+  // proof of a different legal property. No price is used for comparison.
+  return "Identità non coerente: struttura richiesta «"+expected+"», scheda osservata «"+listingName.slice(0,110)+"». Prezzi esclusi dal confronto.";
+}
+function pilotComparisonEvidence(result:BrowserPilotResult|null|undefined):{comparable:boolean; channels:number; identityWarnings:string[]} {
+  if(!result) return {comparable:false,channels:0,identityWarnings:[]};
+  const warnings=new Set<string>();
+  const cohorts=new Map<string,Set<string>>();
+  for(const obs of result.observations||[]) {
+    const warning=pilotListingIdentityWarning(result,obs);
+    if(warning) { warnings.add((PILOT_OTA_LABELS[obs.otaId]||obs.otaId)+": "+warning);continue; }
+    for(const q of obs.quotes||[]) {
+      if(!q.verified || !q.referenceRoomKey || q.comparisonSelected===false) continue;
+      const key=obs.checkin+"|"+obs.checkout+"|"+q.referenceRoomKey;
+      if(!cohorts.has(key)) cohorts.set(key,new Set());
+      cohorts.get(key)!.add(obs.otaId);
+    }
+  }
+  const compared=[...cohorts.values()].filter(channels=>channels.size>=2);
+  return {comparable:compared.length>0,channels:compared.length?Math.max(...compared.map(c=>c.size)):0,identityWarnings:[...warnings]};
+}
+
 type OtaDistributionAsymmetry = {
   checkin: string; checkout: string; otaId: string; otaLabel: string;
   unitCount: number; maxUnitCount: number; referenceChannels: string[]; units: string[]; finding: string;
@@ -4026,6 +4086,7 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   const stayMap = new Map<string, Map<string, { units:Set<string>; labels:Map<string,string>; explicitNoRate:boolean }>>();
   for (const observation of result.observations || []) {
     if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
+    if(pilotListingIdentityWarning(result,observation)) continue;
     const key=[observation.checkin,observation.checkout].join("|");
     if (!stayMap.has(key)) stayMap.set(key,new Map());
     const byOta=stayMap.get(key)!;
@@ -4117,6 +4178,7 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
   const rows: RateQuote[] = [];
   for (const observation of result.observations || []) {
     if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
+    if(pilotListingIdentityWarning(result,observation)) continue;
     const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
     for (const quote of observation.quotes || []) {
       if (quote.comparisonSelected === false) continue;
