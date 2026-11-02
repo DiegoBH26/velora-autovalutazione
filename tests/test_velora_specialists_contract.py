@@ -180,7 +180,9 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertIn("launch_persistent_context", sessions)
         for portal in ("expedia", "vrbo", "holidu"):
             self.assertIn('"' + portal + '": {', sessions)
-        self.assertIn('"scraping": "disabled_until_authorized"', sessions)
+        self.assertIn('"scraping": "account_profile_opt_in_test"', sessions)
+        self.assertIn("def has_saved_profile",sessions)
+        self.assertIn("profileSaved",sessions)
 
 if __name__ == "__main__":
     unittest.main()
