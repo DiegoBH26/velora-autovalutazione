@@ -13873,6 +13873,22 @@ async def run(args: argparse.Namespace) -> dict:
                                     pass
 
                     record=describe_frontend_observation(channel,record)
+                    if opted_in_profile and channel==specialist_id:
+                        # A saved Chrome profile does not prove the session is
+                        # currently authenticated or that prices are public.
+                        # Keep observed amounts for review, never as validated
+                        # cross-OTA rates without explicit audience verification.
+                        record["sessionMode"]="registered_profile_opt_in"
+                        record["accountAuthenticationVerified"]=False
+                        for quote in record.get("quotes") or []:
+                            quote["verified"]=False
+                            quote["referenceRoomKey"]=""
+                            quote["roomMatchStatus"]="not-selected"
+                            quote["comparisonWarning"]=(
+                                "Profilo Chrome registrato usato. Login e tipologia di tariffa "
+                                "non verificati automaticamente: importo osservato solo a "
+                                "titolo diagnostico, escluso dal confronto pubblico."
+                            )
                     if record.get("quotes"):
                         normalized_quotes=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
                         public_quotes=[item for item in normalized_quotes if public_quote_without_login(item)]
