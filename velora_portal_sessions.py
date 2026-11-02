@@ -20,17 +20,17 @@ PORTALS = {
     "expedia": {
         "name": "Ercole", "label": "Expedia", "home": "https://www.expedia.it/",
         "authentication": "Email + codice temporaneo; inserimento manuale.",
-        "scraping": "disabled_until_authorized",
+        "scraping": "account_profile_opt_in_test",
     },
     "vrbo": {
         "name": "Atlante", "label": "Vrbo", "home": "https://www.vrbo.com/it-it/",
         "authentication": "Account One Key Expedia + codice temporaneo; inserimento manuale.",
-        "scraping": "disabled_until_authorized",
+        "scraping": "account_profile_opt_in_test",
     },
     "holidu": {
         "name": "Mercurio", "label": "Holidu", "home": "https://www.holidu.it/",
         "authentication": "Email + password; inserimento manuale.",
-        "scraping": "disabled_until_authorized",
+        "scraping": "account_profile_opt_in_test",
     },
 }
 SESSION_MAX_SECONDS = 45 * 60
