@@ -260,6 +260,63 @@ def agent_validation_output(property_id):
     return AGENT_RESULTS / property_id / "validation.json"
 
 
+def specialist_progress(agent_id, run_state, result_path):
+    """Live progress based on persisted checkpoints, never elapsed-time guesses.
+
+    This reads the incremental JSON written by the existing pilot and does
+    not navigate or alter any OTA parser.
+    """
+    state=run_state.get("state") or ""
+    if state=="completed":
+        return {"progress":100,"phase":"Analisi terminata","progressDetail":"Esito archiviato; Giove non ha ancora validato le evidenze."}
+    if state=="queued":
+        return {"progress":0,"phase":"In coda","progressDetail":"In attesa dello slot browser."}
+    if state not in ("running","failed"):
+        return {"progress":0,"phase":"Non avviato","progressDetail":""}
+    phase="Avvio browser"
+    detail="Apertura Chrome e identificazione struttura."
+    progress=2
+    try:
+        snapshot=json.loads(result_path.read_text(encoding="utf-8"))
+        if snapshot.get("propertyId") != run_state.get("propertyId", snapshot.get("propertyId")):
+            raise ValueError("Risultato di struttura diversa")
+        if snapshot.get("identityResolution"):
+            progress,phase,detail=12,"Identificazione completata","Ricerca della scheda OTA selezionata."
+        discovery=snapshot.get("discoveryProgress") or {}
+        if discovery:
+            total=max(1,int(discovery.get("total") or 1))
+            found=min(total,max(0,int(discovery.get("completed") or 0)))
+            progress=max(progress,20+int(25*found/total))
+            phase,detail="Ricerca scheda OTA",f"Discovery: {found}/{total} canali selezionati."
+        phases=snapshot.get("browserPhases") or []
+        if any(item.get("phase")=="discovery" and item.get("status")=="completed" for item in phases):
+            progress=max(progress,48)
+            phase,detail="Ricerca completata","Preparazione della verifica delle date e tariffe."
+        if any(item.get("phase")=="pricing" for item in phases):
+            progress=max(progress,54)
+            phase,detail="Verifica tariffe","Preparazione e controllo dei preventivi."
+        plan=snapshot.get("plan") or []
+        months=max(1,len(plan))
+        locks=min(months,len(snapshot.get("bookingReferenceStays") or []))
+        if locks:
+            progress=max(progress,54+int(14*locks/months))
+            phase,detail="Date Booking di riferimento",f"Finestre di soggiorno determinate: {locks}/{months}."
+        observations=snapshot.get("observations") or []
+        expected=months*max(1,len(snapshot.get("selectedChannels") or [agent_id]))
+        processed=min(expected,len(observations))
+        if processed:
+            progress=max(progress,68+int(28*processed/expected))
+            phase,detail="Rilevazione OTA",f"Controlli tariffari registrati: {processed}/{expected}."
+        if any(item.get("phase")=="pricing" and item.get("status")=="completed" for item in phases):
+            progress=max(progress,98)
+            phase,detail="Controlli conclusi","Salvataggio del risultato."
+    except (OSError,ValueError,TypeError,AttributeError):
+        pass
+    if state=="failed":
+        return {"progress":min(progress,99),"phase":"Interrotto con errore","progressDetail":str(run_state.get("error") or detail)[:220]}
+    return {"progress":min(progress,99),"phase":phase,"progressDetail":detail}
+
+
 def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted):
     key=(property_id,agent_id)
     try:
@@ -1080,7 +1137,10 @@ class Handler(SimpleHTTPRequestHandler):
                 with AGENT_RUN_LOCK:
                     status={agent:dict(AGENT_RUNS.get((property_id,agent),{})) for agent in agent_network.AGENTS}
                 for agent in status:
-                    status[agent]["hasResult"]=agent_output(property_id,agent).is_file()
+                    target=agent_output(property_id,agent)
+                    status[agent]["hasResult"]=target.is_file()
+                    snapshot={**status[agent],"propertyId":property_id}
+                    status[agent].update(specialist_progress(agent,snapshot,target))
                 self._json(200,{"propertyId":property_id,"agents":status,
                                  "validationAvailable":agent_validation_output(property_id).is_file()})
                 return
