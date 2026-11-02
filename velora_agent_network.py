@@ -103,6 +103,65 @@ def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
     return result
 
 
+def _listing_key(channel: str, url: str) -> str:
+    """Canonical listing identifier, never the search/home page."""
+    from urllib.parse import urlparse
+    import re
+    parsed = urlparse(str(url or ""))
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    path = parsed.path.lower().rstrip("/")
+    if not host or not path:
+        return ""
+    if channel == "airbnb":
+        match = re.search(r"/rooms/(\\d+)", path)
+        return f"airbnb:{match.group(1)}" if match and host.endswith("airbnb.com") else ""
+    if channel == "agoda":
+        match = re.search(r"/(?:[a-z]{2}-[a-z]{2}/)?([^/]+)\\.html", path)
+        return f"agoda:{match.group(1)}" if match and host.endswith("agoda.com") else ""
+    return f"{host}:{path}"
+
+
+def enforce_known_listing_identity(result: dict, agent: str, data: dict) -> dict:
+    """Reject drift away from explicitly saved, previously verified OTA listing IDs.
+
+    A candidate or unverified source must not be converted into an identity lock.
+    Airbnb may legitimately have multiple validated room IDs.
+    """
+    if agent not in {"airbnb", "agoda"}:
+        return result
+    source = (data.get("sources") or {}).get(agent) or {}
+    if not isinstance(source, dict):
+        return result
+    explicit = bool(source.get("identityVerified") is True or
+                    source.get("verified") is True or
+                    source.get("verification") == "page_identity_lock")
+    # A saved URL without provenance is a navigation hint, not evidence.
+    if not explicit:
+        return result
+    urls = [source.get("url"), *(source.get("listingUrls") or [])]
+    locks = {_listing_key(agent, url) for url in urls}
+    locks.discard("")
+    if not locks:
+        return result
+    result["knownListingIdentityLock"] = sorted(locks)
+    for observation in result.get("observations") or []:
+        if observation.get("otaId") != agent:
+            continue
+        observed = _listing_key(agent, observation.get("finalUrl") or
+                               observation.get("sourceUrl") or "")
+        if observed in locks:
+            continue
+        observation["identityQuarantined"] = True
+        observation["sourceIdentityVerified"] = False
+        observation["identityQuarantineReason"] = (
+            "ERRORE IDENTITÀ: annuncio diverso dalle schede OTA precedentemente validate"
+        )
+        for quote in observation.get("quotes") or []:
+            quote["verified"] = False
+            quote["identityRejected"] = True
+    return result
+
+
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -155,7 +214,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             authorized_profile_dir=str(authorized_profile_dir) if authorized_profile_dir else None,
         )
         raw = await pilot.run(args)
-        result = quarantine_identity_mismatches(_safe_result(raw, data["id"], agent), agent)
+        result = quarantine_identity_mismatches(enforce_known_listing_identity(_safe_result(raw, data["id"], agent), agent, data), agent)
     elif agent == "official_site":
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
