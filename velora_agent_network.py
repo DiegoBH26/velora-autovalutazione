@@ -71,6 +71,43 @@ def _safe_result(value: dict, expected_id: str, agent: str) -> dict:
     result["completedAt"] = _now()
     return result
 
+def enforce_portal_scope(result: dict, agent: str) -> dict:
+    """Reject observations that end on another portal, without changing parsers."""
+    from urllib.parse import urlparse
+    domains = {
+        "booking": ("booking.com",),
+        "airbnb": ("airbnb.com", "airbnb.it"),
+        "agoda": ("agoda.com",),
+        "expedia": ("expedia.it", "expedia.com"),
+        "vrbo": ("vrbo.com", "vrbo.it"),
+        "holidu": ("holidu.it", "holidu.com"),
+        "hotels": ("hotels.com",),
+        "travelocity": ("travelocity.com",),
+        "trip": ("trip.com",),
+        "priceline": ("priceline.com",),
+    }
+    allowed = domains.get(agent, ())
+    for obs in result.get("observations") or []:
+        if obs.get("otaId") != agent:
+            continue
+        url = str(obs.get("finalUrl") or "")
+        if not url:
+            continue
+        host = (urlparse(url).hostname or "").lower()
+        if any(host == d or host.endswith("." + d) for d in allowed):
+            continue
+        obs["identityQuarantined"] = True
+        obs["sourceIdentityVerified"] = False
+        obs["portalScopeViolation"] = True
+        obs["identityQuarantineReason"] = (
+            f"ERRORE PORTALE: {agent_display(agent)} ha raggiunto un dominio esterno alla propria OTA"
+        )
+        for quote in obs.get("quotes") or []:
+            quote["verified"] = False
+            quote["identityRejected"] = True
+    return result
+
+
 def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
     """Fail closed on wrong-property evidence before results reach the reviewer.
 
@@ -214,7 +251,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             authorized_profile_dir=str(authorized_profile_dir) if authorized_profile_dir else None,
         )
         raw = await pilot.run(args)
-        result = quarantine_identity_mismatches(enforce_known_listing_identity(_safe_result(raw, data["id"], agent), agent, data), agent)
+        result = quarantine_identity_mismatches(enforce_portal_scope(enforce_known_listing_identity(_safe_result(raw, data["id"], agent), agent, data), agent), agent)
     elif agent == "official_site":
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
