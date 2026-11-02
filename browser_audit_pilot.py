@@ -11307,6 +11307,7 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
     strengths=[]
     weaknesses=[]
     isolated=[]
+    isolated_positive=[]
     recurring_themes=[]
     for theme,stat in theme_stats.items():
         pos=int(stat["positive"])
@@ -11322,6 +11323,12 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
             }
             strengths.append(item)
             recurring_themes.append({**item,"sentiment":"positivo"})
+        elif pos==1:
+            isolated_positive.append({
+                "theme":theme,"count":1,"weight":"segnale isolato",
+                "phrases":stat["phrasesPositive"][:3],
+                "examples":stat["examplesPositive"][:2],
+            })
 
         if neg>=2:
             item={
@@ -11347,6 +11354,7 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
     weaknesses.sort(key=lambda item:(item["count"],item["theme"]),reverse=True)
     recurring_themes.sort(key=lambda item:(item["count"],item["sentiment"]=="negativo",item["theme"]),reverse=True)
     isolated.sort(key=lambda item:item["theme"])
+    isolated_positive.sort(key=lambda item:item["theme"])
 
     # Le parole singole restano solo come supporto diagnostico. Nel frontend
     # mostreremo i temi ricorrenti, che sono molto più utili commercialmente.
@@ -11360,6 +11368,7 @@ def analyze_review_sample(reviews: list[dict]) -> dict:
         "strengths":strengths[:10],
         "weaknesses":weaknesses[:10],
         "isolatedSignals":isolated[:10],
+        "positiveSignals":isolated_positive[:12],
         "recurringThemes":recurring_themes[:14],
         "keywords":[{"word":word,"count":count} for word,count in keywords],
     }
