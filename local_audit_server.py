@@ -295,6 +295,15 @@ def specialist_progress(agent_id, run_state, result_path):
         if any(item.get("phase")=="pricing" for item in phases):
             progress=max(progress,54)
             phase,detail="Verifica tariffe","Preparazione e controllo dei preventivi."
+        reference_identity=snapshot.get("bookingReferenceIdentity") or {}
+        if reference_identity.get("status")=="mismatch_or_unverified":
+            progress=max(progress,55)
+            phase="Booking non corrisponde"
+            detail=(
+                "Scheda Booking scartata: "
+                + str(reference_identity.get("observedProperty") or "identità non verificata")[:80]
+                + ". Nessuna ricerca Booking su questa struttura; prezzi OTA non comparabili."
+            )
         plan=snapshot.get("plan") or []
         months=max(1,len(plan))
         locks=min(months,len(snapshot.get("bookingReferenceStays") or []))
