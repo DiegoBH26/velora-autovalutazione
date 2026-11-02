@@ -11087,6 +11087,9 @@ REVIEW_THEME_RULES = {
     "Piscina e area relax": ("piscina","pool","spa","jacuzzi","idromassaggio","wellness","relax"),
     "Servizi e dotazioni": ("servizi","services","dotazioni","amenities","ristorante","restaurant"),
     "Manutenzione": ("manutenzione","maintenance","rotto","rotta","broken","vecchio","vecchia","datato","datata","malfunzion"),
+    "Giardino e natura": ("giardino","garden","verde","campagna","countryside","natura","nature","paesaggio","landscape","ulivi","olivi","tranquility"),
+    "Cucina e ristorante": ("cucina","cibo","food","dinner","pranzo","cena","ristorante","restaurant","piatti","prodotti locali","local food"),
+    "Ospitalità e atmosfera": ("ospitalita","ospitalità","hospitality","atmosfera","atmosphere","familiare","family-run","famiglia","family","calore","welcoming"),
 }
 
 REVIEW_ACTIONS = {
@@ -11105,11 +11108,14 @@ REVIEW_ACTIONS = {
     "Piscina e area relax": "Verificare stato, temperatura, pulizia e comunicazione della piscina; valorizzarla se emerge come elemento distintivo.",
     "Servizi e dotazioni": "Allineare servizi realmente disponibili, stagionalità, costi e fotografie su sito e OTA.",
     "Manutenzione": "Aprire una checklist per camera/area con priorità, responsabile e tempi di chiusura dei difetti ricorrenti.",
+    "Giardino e natura": "Verificare cura degli spazi esterni e valorizzare gli elementi naturali descritti dagli ospiti.",
+    "Cucina e ristorante": "Verificare qualità ed effettiva disponibilità dei servizi food, valorizzando quelli apprezzati.",
+    "Ospitalità e atmosfera": "Confrontare i commenti con l'esperienza di accoglienza e valorizzare l'atmosfera se confermata.",
 }
 
 REVIEW_POSITIVE_CUES = (
     "ottim","eccellent","stupend","fantastic","perfett","bellissim","bello","bella","gradevol","piacevol",
-    "pulit","impeccabil","curat","comodo","comoda","spazios","tranquill","silenzios","gentil","disponibil",
+    "pulit","impeccabil","curat","comodo","comoda","spazios","tranquill","silenzios","gentil","disponibil","ospital","rilassant","suggestiv","immers",
     "consigliat","buon","buona","super","facile","vicin","relax","meravigli","accoglient","top"
 )
 
@@ -11717,7 +11723,7 @@ async def google_reputation_observation(context, data: dict) -> dict:
                   text=clean(filtered.join(' '));
                 }
                 if (!text) continue;
-                const starNode=card.querySelector('span[role="img"][aria-label*="stell" i],span[role="img"][aria-label*="star" i],[role="img"][aria-label*="stell" i],[role="img"][aria-label*="star" i]');
+                const starNode=card.querySelector('span[role="img"][aria-label*="stell" i],span[role="img"][aria-label*="star" i],[role="img"][aria-label*="stell" i],[role="img"][aria-label*="star" i], .kvMYJc[aria-label], [class*="rating"][aria-label]');
                 const starAria=clean(starNode?.getAttribute('aria-label'));
                 const starMatch=starAria.match(/([1-5](?:[.,]\d)?)/);
                 const dateNode=card.querySelector('.rsqaWe,.xRkPPb,.DU9Pgb');
