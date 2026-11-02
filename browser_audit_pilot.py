@@ -3803,10 +3803,11 @@ async def frontend_discover_ota_source(
             queries.append(f"{variant} {city}")
         if variant:
             queries.append(variant)
-    # Solo come ultimo fallback usa la località da sola: non deve prevalere sul brand.
-    if city:
+    # Non fare ricerche solo per località quando il nome è noto: confondono
+    # agriturismi diversi dello stesso comune (Villa Casale / Villa Luisa).
+    if city and not name:
         queries.append(city)
-    queries=list(dict.fromkeys(q for q in queries if q))[:7]
+    queries=list(dict.fromkeys(q for q in queries if q))[:6]
     if not queries:
         return {"status":"not_found","url":"","evidence":f"{label}: nome/località non disponibili per la ricerca interna."}
 
@@ -3971,6 +3972,17 @@ async def frontend_discover_ota_source(
             except Exception:
                 option=None
 
+            if option is not None and best_score>=0.25:
+                try:
+                    option_title=re.sub(r"\s+"," ",(await option.inner_text(timeout=450)) or "").strip()
+                except Exception:
+                    option_title=""
+                if not specialist_booking_name_matches(name,option_title,city):
+                    print(
+                        f"{channel} search: suggerimento non corrispondente scartato · "
+                        f"cercato={name} · suggerito={option_title[:110]}",flush=True
+                    )
+                    option=None
             if option is not None and best_score>=0.25:
                 try:
                     await option.click(timeout=1800)
