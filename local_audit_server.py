@@ -1257,6 +1257,14 @@ class Handler(SimpleHTTPRequestHandler):
                 session_mode=str(payload.get("sessionMode") or "public").strip().lower()
                 if session_mode not in {"public","account"}:
                     raise ValueError("Modalità agente non riconosciuta")
+                # These specialists must never silently revert to anonymous navigation.
+                if agent_id in {"expedia", "vrbo", "holidu"} and session_mode != "account":
+                    self._json(409, {"error": (
+                        "Seleziona Modalità Account per Expedia, Vrbo o Holidu. "
+                        "Apri accesso, effettua personalmente il login, chiudi e conserva "
+                        "il profilo Chrome e avvia nuovamente questo agente."
+                    )})
+                    return
                 account_profile=None
                 if session_mode=="account":
                     if PORTAL_SESSIONS is None or agent_id not in LOGIN_PORTALS:
