@@ -8,6 +8,7 @@ from pathlib import Path
 SOURCE=(Path(__file__).resolve().parents[1]/"velora_agent_network.py").read_text(encoding="utf-8")
 TREE=ast.parse(SOURCE)
 ns={"Path":Path,"json":json, "_now":lambda:"test-time",
+    "REVIEWER_NAME":"Giove",
     "agent_display":lambda name:name,
     "validation_rows":lambda report:report["checks"],
     "AGENTS":{"expedia":{"kind":"ota"},"booking":{"kind":"ota"},
