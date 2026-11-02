@@ -175,14 +175,19 @@ def enforce_known_listing_identity(result: dict, agent: str, data: dict) -> dict
     if agent not in {"airbnb", "agoda"}:
         return result
     source = (data.get("sources") or {}).get(agent) or {}
-    if not isinstance(source, dict):
-        return result
-    explicit = bool(source.get("identityVerified") is True or
-                    source.get("verified") is True or
-                    source.get("verification") == "page_identity_lock")
-    # A saved URL without provenance is a navigation hint, not evidence.
-    if not explicit:
-        return result
+    saved_verified = isinstance(source,dict) and bool(
+        source.get("identityVerified") is True or source.get("verified") is True
+        or source.get("verification") == "page_identity_lock")
+    if not saved_verified:
+        fresh = (result.get("discoveredSources") or {}).get(agent) or {}
+        fresh_verified = isinstance(fresh,dict) and bool(
+            fresh.get("identityVerified") is True
+            or fresh.get("verification") == "page_identity_lock"
+            or fresh.get("status") == "existing_verified")
+        # A candidate URL without verified provenance is never a trusted lock.
+        if not fresh_verified:
+            return result
+        source=fresh
     urls = [source.get("url"), *(source.get("listingUrls") or [])]
     locks = {_listing_key(agent, url) for url in urls}
     locks.discard("")
