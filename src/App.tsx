@@ -5401,9 +5401,17 @@ export default function App() {
 
   function applyPilotEvidence(result: BrowserPilotResult) {
     const automaticPilotQuotes = pilotDetectedRateQuotes(result);
-    if (automaticPilotQuotes.length) {
-      setRateQuotes((previous) => mergePilotRateQuotes(previous, automaticPilotQuotes));
-      setSelectedRateCohort((current) => current || rateCohortKey(automaticPilotQuotes[0]));
+    // Replace previous automatic quotes for retested OTA/date even when all newly
+    // observed quotes were rejected due to a different property identity.
+    const retested=new Set((result.observations||[]).map(obs=>obs.otaId+"|"+obs.checkin));
+    if(retested.size) {
+      setRateQuotes(previous=>mergePilotRateQuotes(
+        previous.filter(row=>row.origin!=="pilot" || !retested.has(row.otaId+"|"+row.stayDate)),
+        automaticPilotQuotes
+      ));
+    }
+    if(automaticPilotQuotes.length) {
+      setSelectedRateCohort(current=>current || rateCohortKey(automaticPilotQuotes[0]));
     }
     const automaticBookingCount = automaticPilotQuotes.filter((quote) => quote.otaId === "booking").length;
     const automaticCounts = Object.fromEntries(PILOT_TARIFF_OTA_IDS.filter((otaId)=>otaId!=="booking").map((otaId) => [otaId, automaticPilotQuotes.filter((quote) => quote.otaId === otaId).length]));
@@ -7909,12 +7917,13 @@ export default function App() {
       const channels = Array.from(new Set(observations.map((o) => o.otaId))).filter((id) => id !== "sito");
       const channelRows = channels.map((id) => {
         const rows = observations.filter((o) => o.otaId === id);
-        const verified = rows.filter((o) => (o.quotes || []).some((q) => q.verified)).length;
+        const verified = rows.filter((o) => !pilot || !pilotListingIdentityWarning(pilot,o)).filter((o) => (o.quotes || []).some((q) => q.verified)).length;
         const blocked = rows.some((o) => /blocked|429|403|rate_limited|robots_denied/i.test(o.status || ""));
         const state = verified ? "Prezzi rilevati" : blocked ? "Portale limitato" : rows.some((o) => o.status === "no_public_rate") ? "Nessun prezzo nel campione" : "Da verificare";
         return { id, name: reportChannels.find((c) => c.id === id)?.platform || id, count: rows.length, verified, state };
       });
       const asymmetries = pilotDistributionAsymmetries(pilot);
+      const comparisonEvidence=pilotComparisonEvidence(pilot);
       const strengths = (reputation?.strengths || []).slice(0,2).map((x) => x.theme).join(", ") || "Da approfondire";
       const weaknesses = (reputation?.weaknesses || []).slice(0,2).map((x) => x.theme).join(", ") || "Nessuna criticità ricorrente verificata nel campione";
       const photographic = (photoAudit?.gaps || []).slice(0,2).join(" ") || "Qualità visiva delle immagini da valutare separatamente."; 
@@ -7924,7 +7933,8 @@ export default function App() {
       }).join("") || "<p>Nessuna verifica OTA disponibile per questo campione.</p>";
       const asymmetryTable = asymmetries.length ? '<table class="asym-table"><thead><tr><th>Date del test</th><th>OTA</th><th>Tipologie rilevate</th><th>Confronto / opportunità</th></tr></thead><tbody>'+
         asymmetries.slice(0,5).map((x)=>'<tr><td>'+safe(x.checkin+" → "+x.checkout)+'</td><td><b>'+safe(x.otaLabel)+'</b></td><td>'+x.unitCount+' di '+x.maxUnitCount+'</td><td>'+safe(x.finding).slice(0,320)+'</td></tr>').join("") + '</tbody></table>' :
-        '<div class="note"><b>Nessuna asimmetria dimostrata nel campione.</b><p>Un sito bloccato, una data non confermata o una camera diversa non dimostrano né disparità di prezzo né vendite chiuse.</p></div>';
+        '<div class="note"><b>'+safe(comparisonEvidence.comparable ? "Nessuna asimmetria di camere dimostrata nel campione confrontabile." : "CONFRONTO NON DETERMINABILE: evidenze comparabili insufficienti.")+'</b><p>Un sito bloccato, una scheda di un'altra struttura o una camera diversa non dimostrano né parità tariffaria né asimmetria verificata. La mancanza di confronto non significa che i prezzi siano uguali.</p></div>'+
+        (comparisonEvidence.identityWarnings.length ? '<div class="note"><b>ATTENZIONE - Possibili schede di altre strutture</b><p>'+safe(comparisonEvidence.identityWarnings.slice(0,4).join(" | "))+'</p></div>' : '');
       const interventionCards = [
         {title:"Distribuzione e revenue", observation:asymmetries.length ? "Tipologie visibili differenti tra OTA nel campione confrontabile." : "Campione non sufficiente a dimostrare asimmetrie di inventario.", action:"Allineare le schede camera, verificare disponibilità futura, restrizioni e regole tariffarie; validare in extranet e PMS."},
         {title:"Prenotazione diretta",observation:bookingStatusLabel,action:"Testare l’intero percorso dalla scelta delle date al riepilogo prenotazione; verificare chiarezza e vantaggi del canale diretto."},
@@ -8380,11 +8390,25 @@ export default function App() {
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <h4 className="text-sm font-black text-[#23124A]">Copertura OTA e asimmetrie distributive</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Confronto eseguito solo sulle stesse date e usando tipologie/unità con prezzo frontend validato. La differenza è un fatto osservato; la causa tecnica (channel manager, mapping, allotment, restrizioni o stop-sale) resta da verificare.</p>
+            {browserPilotResult && (() => {
+              const evidence=pilotComparisonEvidence(browserPilotResult);
+              return <div className="mt-3 space-y-2">
+                {evidence.identityWarnings.length>0 && <div className="rounded-lg border border-amber-300 bg-white p-3">
+                  <p className="text-xs font-black text-[#874A00]">Attenzione · possibili schede di altre strutture</p>
+                  <p className="mt-1 text-[11px] text-[#50627F]">I prezzi delle schede con nome incoerente sono esclusi dai confronti. Non sono dati validati della struttura selezionata.</p>
+                  {evidence.identityWarnings.map((warning,index)=><p key={index} className="mt-1 text-[11px] font-semibold text-[#874A00]">{warning}</p>)}
+                </div>}
+                {!evidence.comparable && <div className="rounded-lg border border-[#D8C8A5] bg-white p-3">
+                  <p className="text-xs font-black text-[#23124A]">Confronto OTA non determinabile · evidenze comparabili insufficienti</p>
+                  <p className="mt-1 text-[11px] text-[#50627F]">Non risultano due portali con prezzi validati per la stessa struttura, camera, date e condizioni. Questo non dimostra che le tariffe siano uguali né che non esistano asimmetrie.</p>
+                </div>}
+              </div>;
+            })()}
             {pilotDistributionAsymmetries(browserPilotResult).length === 0
-              ? <div className="mt-3 space-y-2"><p className="text-xs font-semibold text-[#23124A]">Nessuna asimmetria di camere dimostrata per le date analizzate. Stato delle verifiche per OTA:</p>
+              ? <div className="mt-3 space-y-2"><p className="text-xs font-semibold text-[#23124A]">{pilotComparisonEvidence(browserPilotResult).comparable ? "Nessuna asimmetria di camere dimostrata nel campione confrontabile." : "Verifiche OTA disponibili (non equivalgono a un confronto validato):"}</p>
                 {activeAuditData.otaPresence.filter(channel=>channel.id!=="sito").map(channel=>{
                   const observations=(browserPilotResult?.observations || []).filter(observation=>observation.otaId===channel.id);
-                  const verified=observations.filter(observation=>(observation.quotes||[]).some(quote=>quote.verified)).length;
+                  const verified=observations.filter(observation=>!browserPilotResult || !pilotListingIdentityWarning(browserPilotResult,observation)).filter(observation=>(observation.quotes||[]).some(quote=>quote.verified)).length;
                   const total=Math.max(1,observations.length);
                   const pct=Math.min(100,Math.round(verified/total*100));
                   const reason=observations.length ? pilotCoverageSummary(browserPilotResult,observations[0].month,channel.id) : "Non verificato nel campione";
