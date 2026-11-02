@@ -13205,7 +13205,22 @@ async def run(args: argparse.Namespace) -> dict:
             # using it as date reference. A title like Tenuta Palmira must NEVER
             # become the canonical search name for Tenuta Speculizzi.
             reference_for_specialist=bool(specialist_id and specialist_id != "booking")
-            if reference_for_specialist:
+            shared_booking_locks={
+                str(row.get("month")): row
+                for row in (data.get("_specialistBookingLocks") or [])
+                if isinstance(row,dict) and row.get("month") and row.get("checkin")
+                and row.get("checkout") and row.get("requestedCheckin")
+                and row.get("requestedCheckout")
+            } if reference_for_specialist else {}
+            if reference_for_specialist and shared_booking_locks:
+                booking_reference_source=""
+                sources.pop("booking",None)
+                result["bookingReferenceIdentity"]={
+                    "status":"shared_minerva_lock",
+                    "requestedProperty":str(data.get("name") or ""),
+                    "evidence":"Date Minerva riutilizzate: nessuna navigazione Booking dello specialista.",
+                }
+            if reference_for_specialist and not shared_booking_locks:
                 target_name=str(data.get("name") or "")
                 target_city=str(data.get("city") or "")
                 result["bookingReferenceIdentity"]={
@@ -13314,6 +13329,21 @@ async def run(args: argparse.Namespace) -> dict:
                 booking_source=booking_reference_source or (
                     (sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
                 )
+                shared_stay=shared_booking_locks.get(str(planned_stay.get("month"))) if reference_for_specialist else None
+                use_shared_stay=bool(
+                    shared_stay
+                    and shared_stay.get("requestedCheckin")==planned_stay.get("checkin")
+                    and shared_stay.get("requestedCheckout")==planned_stay.get("checkout")
+                    and shared_stay.get("adults")==planned_stay.get("adults",2)
+                )
+                if use_shared_stay:
+                    effective_stay.update({
+                        "checkin":shared_stay["checkin"],
+                        "checkout":shared_stay["checkout"],
+                        "nights":shared_stay.get("nights",planned_stay.get("nights")),
+                        "adults":shared_stay["adults"],
+                    })
+                    booking_source=""
                 if booking_source:
                     search_page=await context.new_page()
                     try:
@@ -13425,6 +13455,30 @@ async def run(args: argparse.Namespace) -> dict:
                             flush=True,
                         )
                     write_result(output,result)
+                elif use_shared_stay:
+                    resolution={
+                        "status":"reused_minerva_lock",
+                        "requestedCheckin":planned_stay.get("checkin"),
+                        "requestedCheckout":planned_stay.get("checkout"),
+                        "resolvedCheckin":effective_stay["checkin"],
+                        "resolvedCheckout":effective_stay["checkout"],
+                        "attempts":0,
+                        "evidence":"Date Minerva riutilizzate senza navigazione Booking.",
+                    }
+                    result["bookingDateResolution"].append(resolution)
+                    result["bookingReferenceStays"].append({
+                        "month":planned_stay.get("month"),
+                        "requestedCheckin":planned_stay.get("checkin"),
+                        "requestedCheckout":planned_stay.get("checkout"),
+                        "checkin":effective_stay["checkin"],
+                        "checkout":effective_stay["checkout"],
+                        "nights":effective_stay.get("nights"),
+                        "adults":effective_stay.get("adults",2),
+                        "status":"reused_minerva_lock",
+                        "source":"booking",
+                    })
+                    write_result(output,result)
+                    print("MINERVA LOCK riutilizzato senza navigare Booking",flush=True)
                 else:
                     resolution={
                         "status":"booking_reference_unavailable",
@@ -13858,7 +13912,7 @@ async def run(args: argparse.Namespace) -> dict:
                     record["bookingReferenceNights"]=effective_stay.get("nights")
                     record["bookingReferenceAdults"]=effective_stay.get("adults",2)
                     booking_dates_verified=bool(
-                        resolution.get("status") in {"initial_dates_available","shifted_to_available_booking_dates"}
+                        resolution.get("status") in {"initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock"}
                     )
                     if reference_for_specialist and not booking_dates_verified:
                         # Only the selected OTA is scanned. Prices, if found, can be
