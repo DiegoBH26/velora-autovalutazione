@@ -127,6 +127,38 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertIn("agentRunFinishedAt", app)
         self.assertIn("setAgentRunFinishedAt(finishedAt)", app)
 
+    def test_specialist_rejects_wrong_booking_property_by_distinctive_name(self):
+        pilot_source = source("browser_audit_pilot.py")
+        tree = ast.parse(pilot_source)
+        fn = next(node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "specialist_booking_name_matches")
+        import re
+        import unicodedata
+        def normalize(value):
+            text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").lower()
+            return " ".join(re.findall(r"[a-z0-9]+", text))
+        namespace = {"_norm_name": normalize}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "booking-identity-test", "exec"), namespace)
+        is_same = namespace["specialist_booking_name_matches"]
+        self.assertFalse(is_same("Tenuta Speculizzi", "Tenuta Palmira", "Salve"))
+        self.assertFalse(is_same("Tenuta Speculizzi", "Tenuta Palmira - Salve", "Salve"))
+        self.assertTrue(is_same("Tenuta Speculizzi", "Tenuta Speculizzi - Salve", "Salve"))
+        self.assertTrue(is_same("Masseria Giovanni", "Agriresort Masseria Giovanni", "Martano"))
+        self.assertFalse(is_same("Masseria Giovanni", "Masseria Giulia", "Martano"))
+
+    def test_specialists_do_not_use_booking_searchresults_for_date_lock(self):
+        pilot = source("browser_audit_pilot.py")
+        self.assertIn("reference_for_specialist=bool(specialist_id and specialist_id != \"booking\")", pilot)
+        self.assertIn("verify_booking_candidate_page(", pilot)
+        self.assertIn("IDENTITY MISMATCH", pilot)
+        self.assertIn("if not booking_reference_source and not reference_for_specialist:", pilot)
+        self.assertIn("if reference_for_specialist:\n                            # A single Expedia", pilot)
+        self.assertIn("booking_probe_direct_dated_detail(", pilot)
+        self.assertIn("max_shifts=2 if reference_for_specialist else None", pilot)
+        self.assertIn("if not reference_for_specialist and initial_booking.get(\"status\") not in {", pilot)
+        self.assertIn("def booking_dated_search_observation(", pilot)
+        self.assertIn("def specialist_booking_name_matches(", pilot)
+
     def test_manual_login_remains_separate_from_automated_scraping(self):
         sessions = source("velora_portal_sessions.py")
         self.assertIn("launch_persistent_context", sessions)
