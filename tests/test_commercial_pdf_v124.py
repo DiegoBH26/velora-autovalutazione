@@ -12,6 +12,6 @@ class CommercialReport(unittest.TestCase):
         self.assertIn('Tabella completa delle valutazioni', APP)
     def test_commercial_method_caveats(self):
         self.assertIn('Una verifica bloccata', APP) if 'Una verifica bloccata' in APP else self.assertIn('Un sito bloccato', APP)
-        self.assertIn('Limiti: audit frontend', APP)
+        self.assertIn('CONFRONTO NON DETERMINABILE', APP)
 if __name__=="__main__":
     unittest.main()
