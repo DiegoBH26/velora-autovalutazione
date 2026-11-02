@@ -326,7 +326,7 @@ def specialist_progress(agent_id, run_state, result_path):
     return {"progress":min(progress,99),"phase":phase,"progressDetail":detail}
 
 
-def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted):
+def run_specialist_job(property_id,agent_id,property_file,months,custom_period,ghost,assisted,account_profile=None):
     key=(property_id,agent_id)
     try:
         print_agent_status(agent_id,"Avvio","IN CODA","Attesa di uno slot Chrome indipendente")
@@ -339,6 +339,7 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
                 assisted=False,assist_callback=None,
+                authorized_profile_dir=Path(account_profile) if account_profile else None,
             ))
         print_agent_status(agent_id,"Esecuzione","COMPLETATO","Esito salvato, in attesa del check di Giove")
         with AGENT_RUN_LOCK:
@@ -1253,6 +1254,19 @@ class Handler(SimpleHTTPRequestHandler):
                     raise ValueError("L'assistenza umana per gli specialisti non è ancora abilitata: usa la scansione classica.")
                 if agent_network.AGENTS[agent_id]["kind"]=="ota" and getattr(browser_pilot,"PILOT_BUILD","")!=EXPECTED_PILOT_BUILD:
                     self._json(409,{"error":"Aggiorna e riavvia agente locale e pilot v125 prima di avviare gli specialisti."}); return
+                session_mode=str(payload.get("sessionMode") or "public").strip().lower()
+                if session_mode not in {"public","account"}:
+                    raise ValueError("Modalità agente non riconosciuta")
+                account_profile=None
+                if session_mode=="account":
+                    if PORTAL_SESSIONS is None or agent_id not in LOGIN_PORTALS:
+                        self._json(409,{"error":"La modalità Account è disponibile solo per Expedia, Vrbo e Holidu con profilo Chrome locale."}); return
+                    session=PORTAL_SESSIONS.statuses().get(agent_id) or {}
+                    if session.get("state") in {"open","queued"}:
+                        self._json(409,{"error":"Prima chiudi e conserva la sessione manuale di questo portale. Chrome non può usare lo stesso profilo due volte."}); return
+                    if not PORTAL_SESSIONS.has_saved_profile(agent_id):
+                        self._json(409,{"error":"Nessun profilo Chrome salvato per "+agent_id+". Premi Apri accesso, effettua il login e poi Chiudi e conserva."}); return
+                    account_profile=str(PORTAL_SESSIONS.profile_dir(agent_id))
                 property_id=safe_property_id(payload.get("propertyId"))
                 with STATE.lock,AUTO_STATE.lock:
                     if STATE.running or AUTO_STATE.running:
@@ -1301,9 +1315,10 @@ class Handler(SimpleHTTPRequestHandler):
                 agent_validation_output(property_id).unlink(missing_ok=True)
                 threading.Thread(target=run_specialist_job,args=(
                     property_id,agent_id,input_path,months,custom_period,
-                    bool(payload.get("ghost",False)),bool(payload.get("assisted",False))
+                    bool(payload.get("ghost",False)),bool(payload.get("assisted",False)),
+                    account_profile
                 ),daemon=True,name="velora-"+agent_id).start()
-                self._json(202,{"ok":True,"propertyId":property_id,"agentId":agent_id,"state":"queued"})
+                self._json(202,{"ok":True,"propertyId":property_id,"agentId":agent_id,"state":"queued","sessionMode":session_mode})
                 return
 
             if route=="/api/pilot/intervention":
