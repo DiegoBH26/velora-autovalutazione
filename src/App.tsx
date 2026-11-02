@@ -4067,7 +4067,9 @@ function pilotComparisonEvidence(result:BrowserPilotResult|null|undefined):{comp
     if(warning) { warnings.add((PILOT_OTA_LABELS[obs.otaId]||obs.otaId)+": "+warning);continue; }
     for(const q of obs.quotes||[]) {
       if(!q.verified || !q.referenceRoomKey || q.comparisonSelected===false) continue;
-      const key=obs.checkin+"|"+obs.checkout+"|"+q.referenceRoomKey;
+      const conditions=[q.board,q.refund,q.taxes,q.audience].map(normalizedRateToken);
+      if(conditions.some(value=>!value || /da verificare|non verificat|unknown|not verified/.test(value))) continue;
+      const key=[obs.checkin,obs.checkout,q.referenceRoomKey,q.guests,q.nights,...conditions].join("|");
       if(!cohorts.has(key)) cohorts.set(key,new Set());
       cohorts.get(key)!.add(obs.otaId);
     }
@@ -8664,7 +8666,7 @@ export default function App() {
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
                       onClick={()=>void launchAgentBatch([...localPilotSelectedChannels as SpecialistAgentId[],...selectedSupportAgents])}
                       className="rounded-xl bg-[#23124A] px-4 py-3 text-xs font-black text-white disabled:opacity-40">
-                      {launchingBatch?"Rete al lavoro…":"Avvia analisi selezionata"}
+                      {launchingBatch?"Rete al lavoro…":"Avvia analisi selezionata · Pubblico"}
                     </button>
                     <button type="button" disabled={launchingBatch || localPilotRunning}
                       onClick={()=>void launchAgentBatch(SPECIALIST_AGENTS.map((agent)=>agent.id))}
@@ -8732,7 +8734,7 @@ export default function App() {
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
-                <p className="text-[10px] text-[#64748B]">Gli agenti in test riutilizzano i parser pubblici esistenti: un blocco, una pagina con login o una scheda senza verifica non diventano un prezzo valido. L’accesso è manuale e locale; la sessione non abilita automaticamente scraping autenticato né supera le restrizioni del portale.</p>
+                <p className="text-[10px] text-[#64748B]">Gli agenti utilizzano i parser esistenti. ▶ Pubblico opera senza account; ▶ Account (Expedia, Vrbo e Holidu) tenta la navigazione con il profilo Chrome registrato salvato, soltanto se lo selezioni esplicitamente. Il login non viene verificato automaticamente e gli eventuali prezzi osservati con account restano diagnostici finché pubblico, condizioni, stanza e identità non siano confermati. Nessuna modalità aggira i blocchi o le restrizioni del portale.</p>
 
               </div>}
             </section>
@@ -8740,7 +8742,7 @@ export default function App() {
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
             {browserPilotResult?.propertyId === activeAuditData.id && <>
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
-                {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotDetectedRateQuotes(browserPilotResult).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
+                {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotDetectedRateQuotes(browserPilotResult).filter(row=>row.pilotVerified).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
               </p>
               <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 14 fonti complessive = 10 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
               {(browserPilotResult.roomReferences || []).length > 0 && <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-950">
