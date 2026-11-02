@@ -13603,8 +13603,7 @@ async def run(args: argparse.Namespace) -> dict:
                             candidate_meta=result.get("discoveredSources",{}).get(channel) or {}
                             candidate_title=str(candidate_meta.get("title") or "").strip()
                             if (
-                                channel in unverified_source_ids
-                                and candidate_title
+                                candidate_title
                                 and not specialist_booking_name_matches(
                                     str(data.get("name") or ""),candidate_title,
                                     str(data.get("city") or ""),
