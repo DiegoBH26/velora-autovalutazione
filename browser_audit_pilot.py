@@ -12786,22 +12786,20 @@ async def run(args: argparse.Namespace) -> dict:
             single_ota_known=bool(single_ota_id and single_ota_id in known_ota_sources)
 
             selected_discovery_ids=[ota_id for ota_id in OTA_DISCOVERY_ORDER if ota_id in channels]
+            # Do not assume every Airbnb property must have two room listings.
+            # A previously saved listing is verified before pricing, not rediscovered
+            # just to obtain arbitrary extra candidates.
             missing_discovery_ids=[
                 ota_id for ota_id in selected_discovery_ids
                 if ota_id not in known_ota_sources
-                or (
-                    ota_id=="airbnb"
-                    and len(((sources.get("airbnb") or {}).get("listingUrls") or []))<2
-                )
             ]
             # Test diagnostico: le schede già note non vengono riscoperte ad ogni prova.
             # Quando aggiungi una nuova OTA, Velora fa discovery soltanto di quella/e mancanti.
             quick_retest=bool(
                 vrbo_single_direct_pricing
-                or (pricing_only and selected_discovery_ids and not missing_discovery_ids
-                    and not ({"airbnb","vrbo"} & set(selected_discovery_ids)))
+                or (pricing_only and selected_discovery_ids and not missing_discovery_ids)
             )
-            discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids or ota in {"airbnb","vrbo"}] if pricing_only else selected_discovery_ids)
+            discovery_target_ids=([ota for ota in selected_discovery_ids if ota in missing_discovery_ids] if pricing_only else selected_discovery_ids)
 
             if quick_retest:
                 master_discoveries={}
@@ -13578,7 +13576,7 @@ async def run(args: argparse.Namespace) -> dict:
                         if (
                             channel!="booking" and channel in OTA_DISCOVERY_ORDER
                             and not (channel=="vrbo" and vrbo_single_direct_pricing)
-                            and (not source or channel in unverified_source_ids or channel in {"airbnb","vrbo"})
+                            and (not source or channel in unverified_source_ids)
                         ):
                             try:
                                 frontend_source=await asyncio.wait_for(
