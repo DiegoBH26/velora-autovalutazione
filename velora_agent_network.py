@@ -242,6 +242,27 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "con la struttura selezionata. Controlla nome e associazione prima di avviare l'OTA."
         )
     if AGENTS[agent]["kind"] == "ota":
+        # Guard cached sources before any external browser navigation.
+        from urllib.parse import urlparse
+        allowed = {
+            "booking": ("booking.com",), "airbnb": ("airbnb.com", "airbnb.it"),
+            "agoda": ("agoda.com",), "expedia": ("expedia.com", "expedia.it"),
+            "vrbo": ("vrbo.com", "vrbo.it"), "holidu": ("holidu.com", "holidu.it"),
+            "hotels": ("hotels.com",), "travelocity": ("travelocity.com",),
+            "trip": ("trip.com",), "priceline": ("priceline.com",),
+        }
+        saved = (data.get("sources") or {}).get(agent) or {}
+        if isinstance(saved, dict):
+            for target in [saved.get("url"), *(saved.get("listingUrls") or [])]:
+                if not target:
+                    continue
+                url = urlparse(str(target))
+                host = (url.hostname or "").lower()
+                if url.scheme != "https" or not any(
+                    host == d or host.endswith("." + d) for d in allowed.get(agent, ())
+                ):
+                    raise ValueError("ERRORE PORTALE: la scheda salvata per "
+                        + agent_display(agent) + " appartiene a un dominio esterno alla propria OTA.")
         args = argparse.Namespace(
             property=str(property_file), output=str(output), channels=agent,
             months=months, today=None, dry_run=False, ghost=ghost,
