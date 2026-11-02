@@ -5708,7 +5708,7 @@ export default function App() {
       if (Object.keys(network.agents||{}).length!==12 || network.reviewer?.name!=="Giove") {
         throw new Error("Rete incompleta: attesi 12 agenti e Giove. Aggiorna l'agente Windows.");
       }
-      setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · cartella risultati indipendente.");
+      setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · "+(sessionMode==="account"?"profilo Chrome registrato (login da verificare)":"navigazione pubblica")+" · cartella risultati indipendente.");
       const started = await fetch(localAgentUrl("/api/agents/start"), {
         method:"POST",mode:"cors",
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
