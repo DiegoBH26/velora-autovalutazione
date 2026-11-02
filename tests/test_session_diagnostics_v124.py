@@ -15,8 +15,8 @@ class SessionDiagnosticsV124(unittest.TestCase):
         self.assertIn("HUMAN_HANDOFF_END",PILOT)
         self.assertIn("same_context=",PILOT)
         self.assertIn("cookiesShared",PILOT)
-        self.assertIn('"velora-browser-pilot-v124"',PILOT)
-        self.assertIn('"velora-browser-pilot-v124"',SERVER)
+        self.assertIn('"velora-browser-pilot-v125"',PILOT)
+        self.assertIn('"velora-browser-pilot-v125"',SERVER)
 
 if __name__=="__main__":
     unittest.main()

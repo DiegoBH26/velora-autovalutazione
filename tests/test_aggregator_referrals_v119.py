@@ -11,8 +11,8 @@ class AggregatorReferralV119(unittest.TestCase):
     def test_syntax_and_version_alignment(self):
         ast.parse(PILOT)
         ast.parse(AGENT)
-        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v119"',PILOT)
-        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v119"',AGENT)
+        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v125"',PILOT)
+        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"',AGENT)
 
     def test_holidu_referral_is_not_a_tariff(self):
         self.assertIn('if channel=="holidu":',PILOT)
@@ -23,7 +23,7 @@ class AggregatorReferralV119(unittest.TestCase):
         self.assertIn('candidate_meta.get("status")=="referral_observed"',PILOT)
 
     def test_no_change_to_assistance_scope(self):
-        self.assertIn('if channel in {"vrbo","expedia","holidu"} and callable(assist_callback):',PILOT)
+        self.assertIn('if channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} and callable(assist_callback):',PILOT)
 
 if __name__=="__main__":
     unittest.main()

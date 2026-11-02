@@ -10,8 +10,8 @@ class FrontendDiagnosticV120(unittest.TestCase):
     def test_parse_and_agent_alignment(self):
         ast.parse(PILOT)
         ast.parse(AGENT)
-        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v120"',PILOT)
-        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v120"',AGENT)
+        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v125"',PILOT)
+        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"',AGENT)
 
     def test_only_restricted_channels(self):
         self.assertIn('if channel not in {"vrbo","expedia","holidu"}:',PILOT)

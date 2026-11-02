@@ -28,8 +28,8 @@ class CustomCalendarTests(unittest.TestCase):
 
     def test_version_and_contract(self):
         ast.parse(AGENT)
-        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v122"',PILOT)
-        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v122"',AGENT)
+        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v125"',PILOT)
+        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"',AGENT)
         self.assertIn('customPeriod: months === "custom"',APP)
         self.assertIn('custom_period=custom_period',AGENT)
         self.assertIn('custom_date_plan(today,custom_settings)',PILOT)

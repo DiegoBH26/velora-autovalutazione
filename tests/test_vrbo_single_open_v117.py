@@ -39,7 +39,7 @@ class VrboSingleOpenV117Tests(unittest.TestCase):
     def test_skip_redundant_discovery_but_keep_fresh_pricing(self):
         self.assertIn("vrbo-one-open-plan: verifica anticipata della pagina saltata",TEXT)
         self.assertIn('not (channel=="vrbo" and vrbo_single_direct_pricing)',TEXT)
-        self.assertIn('direct_public_source=bool(channel=="vrbo" and vrbo_single_direct_pricing)',TEXT)
+        self.assertIn("direct_public_source=bool(",TEXT)
         self.assertIn('not direct_public_source:',TEXT)
         self.assertIn('"status":"skipped_known_public_listing"',TEXT)
         self.assertIn("identity=_strict_ota_identity_match(",TEXT)

@@ -15,8 +15,8 @@ class HumanAssistV121(unittest.TestCase):
     def test_code_parses_and_versions_match(self):
         ast.parse(PILOT)
         ast.parse(AGENT)
-        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v121"',PILOT)
-        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v121"',AGENT)
+        self.assertIn('PILOT_BUILD = "velora-browser-pilot-v125"',PILOT)
+        self.assertIn('EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"',AGENT)
 
     def test_callback_scope_and_wait(self):
         self.assertIn('if channel in '+EXTRA+' and callable(assist_callback):',PILOT)
