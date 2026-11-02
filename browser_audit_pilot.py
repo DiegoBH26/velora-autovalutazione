@@ -12564,6 +12564,10 @@ async def run(args: argparse.Namespace) -> dict:
             # arbitrary account paths from a remotely supplied property snapshot.
             if not profile_candidate.is_dir():
                 raise ValueError("Profilo Chrome registrato non presente sul PC.")
+            # Both discovery and pricing must use the same explicitly authorized
+            # profile; the former is closed before the latter starts. Otherwise
+            # Google/OTA discovery would still run anonymously despite ▶ Account.
+            discovery_profile_dir=profile_candidate
             pricing_profile_dir=profile_candidate
             result["sessionMode"]="registered_profile_opt_in"
             result["method"]=(
@@ -12774,7 +12778,16 @@ async def run(args: argparse.Namespace) -> dict:
                 pass
             # Separate persistent profiles isolate discovery from pricing. They do NOT share cookie state.
             # Record the boundary explicitly so manual verification is not mistaken for a shared session.
-            result["browserPhases"].append({"phase":"session_boundary","status":"new_persistent_profile","from":"discovery","to":"pricing","cookiesShared":False,"reason":"Isolamento stabilità browser; eventuale verifica umana va ripetuta nel profilo prezzi se richiesta."})
+            result["browserPhases"].append({
+                "phase":"session_boundary",
+                "status":"reused_authorized_profile" if opted_in_profile else "new_persistent_profile",
+                "from":"discovery","to":"pricing","cookiesShared":bool(opted_in_profile),
+                "reason":(
+                    "Stesso profilo locale esplicitamente scelto; browser di discovery chiuso prima di aprire pricing."
+                    if opted_in_profile else
+                    "Isolamento stabilità browser; eventuale verifica umana va ripetuta nel profilo prezzi se richiesta."
+                ),
+            })
             write_result(output,result)
             print("SESSION_BOUNDARY · discovery -> pricing · persistent_profiles_separate · cookies_not_shared",flush=True)
             await asyncio.sleep(0.8)
