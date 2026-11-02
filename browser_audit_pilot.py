@@ -9170,7 +9170,7 @@ async def booking_resolve_reference_stay(
 
     # Se Booking è tecnicamente irraggiungibile/bloccato non cambiare data:
     # spostare il soggiorno non risolverebbe il problema e aumenterebbe le richieste.
-    if initial_status in {"rate_limited","blocked","robots_denied","robots_unavailable","http_error","navigation_error"}:
+    if initial_status in {"rate_limited","blocked","robots_denied","robots_unavailable","http_error","navigation_error","identity_mismatch"}:
         return stay,initial_record,{
             "status":"initial_dates_technical_stop",
             "requestedCheckin":stay["checkin"],
