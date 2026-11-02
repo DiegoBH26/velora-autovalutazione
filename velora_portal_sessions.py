@@ -48,9 +48,22 @@ class ManualPortalSessions:
         self.stop_events: dict[str, threading.Event] = {}
         self.pending_urls: dict[str, str] = {}
 
+    def profile_dir(self, portal: str) -> Path:
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        return self.base / portal / "chrome-profile"
+
+    def has_saved_profile(self, portal: str) -> bool:
+        # This detects a Chrome profile, not whether its authentication is valid.
+        profile=self.profile_dir(portal)
+        return (profile / "Local State").is_file() or (profile / "Default" / "Preferences").is_file()
+
     def statuses(self) -> dict:
         with self.lock:
-            return {key: dict(value) for key, value in self.state.items()}
+            entries={key: dict(value) for key,value in self.state.items()}
+        for portal,state in entries.items():
+            state["profileSaved"]=self.has_saved_profile(portal)
+        return entries
 
     def begin(self, portal: str) -> dict:
         if portal not in PORTALS:
@@ -130,7 +143,7 @@ class ManualPortalSessions:
 
     async def _browser(self, portal: str, stop: threading.Event) -> None:
         config = PORTALS[portal]
-        user_data_dir = self.base / portal / "chrome-profile"
+        user_data_dir = self.profile_dir(portal)
         user_data_dir.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as playwright:
             context = await playwright.chromium.launch_persistent_context(
