@@ -10914,6 +10914,49 @@ async def observe(
             )[:900]
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
         record["visibleExcerpt"] = re.sub(r"\s+", " ", body)[:350]
+        # Evidence from this SAME OTA page: no additional searches or navigation.
+        # A rendered sample is not proof that two galleries contain identical photos.
+        if channel in {"booking","airbnb","agoda","expedia","vrbo","holidu",
+                       "hotels","travelocity","trip","priceline"}:
+            try:
+                frontend=await page.evaluate(r"""() => {
+                  const clean=(x)=>String(x||'').replace(/\s+/g,' ').trim();
+                  const labels=Array.from(document.querySelectorAll('h1,h2,h3')).slice(0,24)
+                    .map(el=>clean(el.innerText)).filter(Boolean).slice(0,12);
+                  const images=Array.from(document.querySelectorAll('img')).filter(img=>
+                    (img.naturalWidth>=300 && img.naturalHeight>=180) ||
+                    (img.clientWidth>=300 && img.clientHeight>=180)
+                  ).slice(0,24).map((img,index)=>{
+                    const raw=img.currentSrc||img.src||'';
+                    let ref='';
+                    try {const url=new URL(raw,location.href);ref=url.origin+url.pathname;} catch {}
+                    return {order:index+1,src:ref.slice(0,350),
+                      alt:clean(img.alt).slice(0,150),
+                      width:img.naturalWidth||0,height:img.naturalHeight||0};
+                  }).filter(img=>img.src);
+                  const words=clean(document.body?.innerText||'').slice(0,22000);
+                  const tokens={
+                    wifi:/\bwi.?fi\b|internet wireless/i,
+                    parking:/parcheggio|parking/i,
+                    pool:/piscina|swimming pool/i,
+                    spa:/\bspa\b|centro benessere|wellness/i,
+                    breakfast:/colazione|breakfast/i,
+                    airConditioning:/aria condizionata|air conditioning/i,
+                    cancellation:/cancellazione|cancellation/i
+                  };
+                  const mentioned=Object.entries(tokens).filter(([,rx])=>rx.test(words)).map(([key])=>key);
+                  const policy=words.match(/.{0,100}(?:cancellazione|cancellation|non rimborsabile|refundable).{0,150}/i);
+                  return {photoCountInDom:images.length,photoOrderSample:images,
+                    headings:labels,mentionedAmenities:mentioned,
+                    policyExcerpt:policy?clean(policy[0]).slice(0,260):'',
+                    sampleOnly:true};
+                }""")
+                record["frontendSnapshot"]=frontend
+            except Exception as snapshot_exc:
+                record["frontendSnapshot"]={
+                    "sampleOnly":True, "status":"unavailable",
+                    "evidence":type(snapshot_exc).__name__,
+                }
     except Exception as exc:
         record.update(status="navigation_error", evidence=f"{type(exc).__name__}: {str(exc)[:180]}")
     return record
