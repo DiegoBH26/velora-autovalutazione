@@ -146,6 +146,19 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertTrue(is_same("Masseria Giovanni", "Agriresort Masseria Giovanni", "Martano"))
         self.assertFalse(is_same("Masseria Giovanni", "Masseria Giulia", "Martano"))
 
+    def test_experimental_specialists_reject_mismatched_structure_snapshot(self):
+        module=ast.parse(source("velora_agent_network.py"))
+        func=next(node for node in module.body if isinstance(node,ast.FunctionDef)
+                  and node.name=="specialist_input_matches_property_id")
+        namespace={}
+        exec(compile(ast.Module(body=[func],type_ignores=[]),"identity-input-test","exec"),namespace)
+        check=namespace["specialist_input_matches_property_id"]
+        self.assertTrue(check({"id":"tenuta-speculizzi-salve","name":"Tenuta Speculizzi","city":"Salve"}))
+        self.assertFalse(check({"id":"tenuta-speculizzi-salve","name":"Tenuta Palmira","city":"Salve"}))
+        self.assertTrue(check({"id":"casa-albergo-santantonio-alberobello","name":"Casa Albergo Sant'Antonio","city":"Alberobello"}))
+        self.assertTrue(check({"id":"bra-hotel","name":"Bra Hotel","city":"Bari"}))
+        self.assertIn('agent in {"expedia","vrbo","holidu"}',source("velora_agent_network.py"))
+
     def test_specialists_do_not_use_booking_searchresults_for_date_lock(self):
         pilot = source("browser_audit_pilot.py")
         self.assertIn("reference_for_specialist=bool(specialist_id and specialist_id != \"booking\")", pilot)
@@ -158,6 +171,9 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertIn("if not reference_for_specialist and initial_booking.get(\"status\") not in {", pilot)
         self.assertIn("def booking_dated_search_observation(", pilot)
         self.assertIn("def specialist_booking_name_matches(", pilot)
+        self.assertIn('record["dateReference"]="requested_plan_unverified_booking"',pilot)
+        self.assertIn('record["bookingReferenceStatus"]=',pilot)
+        self.assertIn('record["comparisonWarning"]=',pilot)
 
     def test_manual_login_remains_separate_from_automated_scraping(self):
         sessions = source("velora_portal_sessions.py")
