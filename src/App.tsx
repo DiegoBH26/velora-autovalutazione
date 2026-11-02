@@ -5710,6 +5710,7 @@ export default function App() {
   }
 
   async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true, sessionMode: "public" | "account" = "public") {
+    const selectedSessionMode: "public" | "account" = ["expedia","vrbo","holidu"].includes(agentId) ? "account" : sessionMode;
     if (specialistBusy[agentId]) return;
     const propertyId = activeAuditData.id;
     setSpecialistBusy((old) => ({...old,[agentId]:true}));
@@ -5728,7 +5729,7 @@ export default function App() {
       if (Object.keys(network.agents||{}).length!==12 || network.reviewer?.name!=="Giove") {
         throw new Error("Rete incompleta: attesi 12 agenti e Giove. Aggiorna l'agente Windows.");
       }
-      setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · "+(sessionMode==="account"?"profilo Chrome registrato (login da verificare)":"navigazione pubblica")+" · cartella risultati indipendente.");
+      setSpecialistMessage("Avvio "+veloraAgentName(agentId)+" · "+(selectedSessionMode==="account"?"profilo Chrome registrato (login da verificare)":"navigazione pubblica")+" · cartella risultati indipendente.");
       const started = await fetch(localAgentUrl("/api/agents/start"), {
         method:"POST",mode:"cors",
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
@@ -5738,7 +5739,7 @@ export default function App() {
             start:customPilotStart,end:customPilotEnd,nights:customPilotNights,
             adults:customPilotAdults,frequency:customPilotFrequency
           }:undefined,
-          ghost:localPilotGhost,assisted:false,sessionMode,
+          ghost:localPilotGhost,assisted:false,sessionMode:selectedSessionMode,
           propertyData:{
             id:activeAuditData.id,name:activeAuditData.name,city:activeAuditData.city,
             province:activeAuditData.province,rooms:activeAuditData.rooms,
