@@ -349,6 +349,32 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                         or o.get("status") in {"wrong_property_listing", "identity_mismatch", "wrong_property"}]
             add(agent, "listing_identity", "Identità scheda OTA", bool(observations) and not rejected,
                 f"{len(rejected)} schede con ERRORE IDENTITÀ: le rispettive tariffe sono escluse")
+            # Giove: independent audit of agent scope and authenticated profile.
+            from urllib.parse import urlparse
+            portal_domains = {
+                "booking": ("booking.com",), "airbnb": ("airbnb.com", "airbnb.it"),
+                "agoda": ("agoda.com",), "expedia": ("expedia.it", "expedia.com"),
+                "vrbo": ("vrbo.com", "vrbo.it"), "holidu": ("holidu.it", "holidu.com"),
+                "hotels": ("hotels.com",), "travelocity": ("travelocity.com",),
+                "trip": ("trip.com",), "priceline": ("priceline.com",),
+            }
+            allowed = portal_domains.get(agent, ())
+            wrong_domain = []
+            for observation in observations:
+                host = (urlparse(str(observation.get("finalUrl") or "")).hostname or "").lower()
+                if host and not any(host == domain or host.endswith("." + domain)
+                                    for domain in allowed):
+                    wrong_domain.append(host)
+            add(agent, "portal_scope", "Portale assegnato", bool(observations) and not wrong_domain,
+                f"{len(wrong_domain)} pagine su un dominio non autorizzato per questo agente")
+            account_required = agent in {"expedia", "vrbo", "holidu"}
+            account_ok = result.get("sessionMode") == "registered_profile_opt_in"
+            if account_required:
+                add(agent, "account_profile", "Profilo account autorizzato", account_ok,
+                    "Profilo Chrome dedicato selezionato; login effettivo non verificato"
+                    if account_ok else "Scansione non effettuata con il profilo Account")
+            if wrong_domain or (account_required and not account_ok):
+                valid_prices = []
             date_ok = bool(observations) and all(
                 o.get("dateReference") == "booking"
                 and o.get("checkin") == o.get("bookingReferenceCheckin")
