@@ -13693,7 +13693,33 @@ async def run(args: argparse.Namespace) -> dict:
                     record["bookingReferenceCheckout"]=effective_stay["checkout"]
                     record["bookingReferenceNights"]=effective_stay.get("nights")
                     record["bookingReferenceAdults"]=effective_stay.get("adults",2)
-                    record["dateReference"]="booking"
+                    booking_dates_verified=bool(
+                        resolution.get("status") in {"initial_dates_available","shifted_to_available_booking_dates"}
+                    )
+                    if reference_for_specialist and not booking_dates_verified:
+                        # Only the selected OTA is scanned. Prices, if found, can be
+                        # shown as standalone observations but never mislabelled as
+                        # matched to a verified Booking stay or room.
+                        record["dateReference"]="requested_plan_unverified_booking"
+                        record["bookingReferenceCheckin"]=""
+                        record["bookingReferenceCheckout"]=""
+                        record["bookingReferenceStatus"]=str(resolution.get("status") or "not_verified")
+                        record["comparisonWarning"]=(
+                            "Data Booking della struttura esatta non confermata; "
+                            "eventuali prezzi Expedia sono osservazioni autonome, "
+                            "NON confrontabili con Booking."
+                        )
+                        for quote in record.get("quotes") or []:
+                            quote["referenceRoomKey"]=""
+                            quote["comparisonSelected"]=False
+                            quote["comparisonWarning"]=record["comparisonWarning"]
+                        print(
+                            f"{effective_stay['month']} SPECIALIST DATE WARNING · "
+                            "Booking non verificato · confronto OTA disabilitato",
+                            flush=True,
+                        )
+                    else:
+                        record["dateReference"]="booking"
 
                     # Nessuna OTA può cambiare autonomamente la finestra di confronto.
                     # Se un adapter restituisce date diverse, i prezzi vengono annullati.
