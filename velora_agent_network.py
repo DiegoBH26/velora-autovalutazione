@@ -113,10 +113,10 @@ def _listing_key(channel: str, url: str) -> str:
     if not host or not path:
         return ""
     if channel == "airbnb":
-        match = re.search(r"/rooms/(\\d+)", path)
+        match = re.search(r"/rooms/(\d+)", path)
         return f"airbnb:{match.group(1)}" if match and host.endswith("airbnb.com") else ""
     if channel == "agoda":
-        match = re.search(r"/(?:[a-z]{2}-[a-z]{2}/)?([^/]+)\\.html", path)
+        match = re.search(r"/(?:[a-z]{2}-[a-z]{2}/)?([^/]+)\.html", path)
         return f"agoda:{match.group(1)}" if match and host.endswith("agoda.com") else ""
     return f"{host}:{path}"
 
