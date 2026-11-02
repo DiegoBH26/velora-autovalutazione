@@ -71,6 +71,38 @@ def _safe_result(value: dict, expected_id: str, agent: str) -> dict:
     result["completedAt"] = _now()
     return result
 
+def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
+    """Fail closed on wrong-property evidence before results reach the reviewer.
+
+    Keep raw diagnostic observations, but never allow their quotes to be
+    marked as verified. This does not alter the legacy OTA parsers.
+    """
+    if agent not in {"booking", "airbnb", "agoda", "expedia", "vrbo", "holidu",
+                     "hotels", "travelocity", "trip", "priceline"}:
+        return result
+    bad_statuses = {"wrong_property_listing", "identity_mismatch", "wrong_property",
+                    "listing_identity_mismatch"}
+    for observation in result.get("observations") or []:
+        if observation.get("otaId") != agent:
+            continue
+        check = observation.get("identityCheck") or {}
+        mismatch = (observation.get("status") in bad_statuses
+                    or observation.get("sourceIdentityVerified") is False
+                    or (isinstance(check, dict) and check.get("verified") is False
+                        and check.get("ok") is False))
+        if not mismatch:
+            continue
+        observation["identityQuarantined"] = True
+        observation["identityQuarantineReason"] = (
+            "ERRORE IDENTITÀ: scheda non attribuibile con certezza alla struttura selezionata"
+        )
+        observation["sourceIdentityVerified"] = False
+        for quote in observation.get("quotes") or []:
+            quote["verified"] = False
+            quote["identityRejected"] = True
+    return result
+
+
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -123,7 +155,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             authorized_profile_dir=str(authorized_profile_dir) if authorized_profile_dir else None,
         )
         raw = await pilot.run(args)
-        result = _safe_result(raw, data["id"], agent)
+        result = quarantine_identity_mismatches(_safe_result(raw, data["id"], agent), agent)
     elif agent == "official_site":
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
@@ -212,7 +244,15 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             "Identificativo struttura coerente" if result.get("propertyId") == property_id else "Struttura non corrispondente")
         if AGENTS.get(agent, {}).get("kind") == "ota":
             observations = [o for o in result.get("observations", []) if o.get("otaId") == agent]
-            valid_prices = [q for o in observations for q in o.get("quotes", []) if q.get("verified") and o.get("sourceIdentityVerified") is not False]
+            valid_prices = [q for o in observations for q in o.get("quotes", [])
+                            if q.get("verified") and not o.get("identityQuarantined")
+                            and o.get("sourceIdentityVerified") is not False
+                            and o.get("status") not in {"wrong_property_listing", "identity_mismatch", "wrong_property"}]
+            rejected = [o for o in observations if o.get("identityQuarantined")
+                        or o.get("sourceIdentityVerified") is False
+                        or o.get("status") in {"wrong_property_listing", "identity_mismatch", "wrong_property"}]
+            add(agent, "listing_identity", "Identità scheda OTA", bool(observations) and not rejected,
+                f"{len(rejected)} schede con ERRORE IDENTITÀ: le rispettive tariffe sono escluse")
             date_ok = bool(observations) and all(
                 o.get("dateReference") == "booking"
                 and o.get("checkin") == o.get("bookingReferenceCheckin")
