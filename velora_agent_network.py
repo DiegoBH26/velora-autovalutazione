@@ -77,6 +77,30 @@ def _write(path: Path, data: dict) -> None:
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
 
+def specialist_input_matches_property_id(data: dict) -> bool:
+    """Guard against an agent scanning an unrelated name under a saved property ID.
+
+    The guard applies only to experimental OTA agents; existing Booking,
+    Airbnb and Agoda behavior is not changed. Slug tokens are advisory only
+    unless a distinctive, non-locality identifier is present.
+    """
+    import re
+    import unicodedata
+    def compact(text):
+        return re.sub(r"[^a-z0-9]", "", unicodedata.normalize(
+            "NFKD", str(text or "")).encode("ascii", "ignore").decode("ascii").lower())
+    property_id=str(data.get("id") or "")
+    name=compact(data.get("name"))
+    city=compact(data.get("city"))
+    ignored={"tenuta","masseria","hotel","villa","resort","relais","suites","suite",
+             "dimora","struttura","agriturismo","albergo","luxury","puglia","booking"}
+    tokens=[t for t in re.split(r"[-_]+",property_id.lower()) if len(t)>=6
+            and t not in ignored and t != city and not t.isdigit()]
+    if not tokens or not name:
+        return bool(name)
+    return any(compact(token) in name for token in tokens)
+
+
 async def execute(agent: str, data: dict, property_file: Path, output: Path,
                   *, months: int = 1, custom_period: dict | None = None,
                   ghost: bool = False, assisted: bool = False,
@@ -84,6 +108,11 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
     """Run an independently scoped specialist. Legacy parsers remain unchanged."""
     if agent not in AGENTS or not AGENTS[agent]["ready"]:
         raise ValueError("Agente non disponibile")
+    if agent in {"expedia","vrbo","holidu"} and not specialist_input_matches_property_id(data):
+        raise ValueError(
+            "IDENTITY MISMATCH: il nome della struttura nello snapshot non è coerente "
+            "con la struttura selezionata. Controlla nome e associazione prima di avviare l'OTA."
+        )
     if AGENTS[agent]["kind"] == "ota":
         args = argparse.Namespace(
             property=str(property_file), output=str(output), channels=agent,
