@@ -4946,6 +4946,7 @@ export default function App() {
   const [agentRunIds, setAgentRunIds] = useState<SpecialistAgentId[]>([]);
   const [agentRunStartedAt, setAgentRunStartedAt] = useState<number | null>(null);
   const [agentRunClock, setAgentRunClock] = useState(Date.now());
+  const [agentRunFinishedAt, setAgentRunFinishedAt] = useState<number | null>(null);
   const [selectedSupportAgents, setSelectedSupportAgents] = useState<SpecialistAgentId[]>(() => {
     try {
       const prior = JSON.parse(window.localStorage.getItem("velora-pilot-selected-support-agents") || "[]");
@@ -5663,6 +5664,7 @@ export default function App() {
         const startedAt=Date.now();
         setAgentRunIds([agentId]);
         setAgentRunStartedAt(startedAt);
+        setAgentRunFinishedAt(null);
         setAgentRunClock(startedAt);
       }
       for(let attempt=0;attempt<2400;attempt++){
@@ -5719,10 +5721,19 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!agentRunStartedAt) return;
+    if (!agentRunStartedAt || agentRunFinishedAt!==null) return;
     const interval = window.setInterval(() => setAgentRunClock(Date.now()), 1000);
     return () => window.clearInterval(interval);
-  }, [agentRunStartedAt]);
+  }, [agentRunStartedAt, agentRunFinishedAt]);
+
+  useEffect(() => {
+    if (!agentRunStartedAt || !agentRunIds.length || agentRunFinishedAt!==null) return;
+    if (agentRunIds.every(id=>specialistStatuses[id]?.state==="completed" || specialistStatuses[id]?.state==="failed")) {
+      const finishedAt=Date.now();
+      setAgentRunFinishedAt(finishedAt);
+      setAgentRunClock(finishedAt);
+    }
+  }, [agentRunStartedAt, agentRunIds, agentRunFinishedAt, specialistStatuses]);
 
   async function launchAgentBatch(ids: SpecialistAgentId[]) {
     if (!ids.length || launchingBatch || localPilotRunning) return;
@@ -5738,6 +5749,7 @@ export default function App() {
       setAgentRunIds(ids);
       const startedAt=Date.now();
       setAgentRunStartedAt(startedAt);
+      setAgentRunFinishedAt(null);
       setAgentRunClock(startedAt);
       setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Massimo due sessioni Chrome contemporanee.");
       await Promise.all(ids.map(id=>startSpecialistAgent(id,false)));
