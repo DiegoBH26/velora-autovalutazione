@@ -6,12 +6,16 @@ on:
     paths:
       - browser_audit_pilot.py
       - local_audit_server.py
+      - velora_agent_network.py
+      - velora_portal_sessions.py
       - tests/**
       - .github/workflows/verify-ota-pilot.yml
   pull_request:
     paths:
       - browser_audit_pilot.py
       - local_audit_server.py
+      - velora_agent_network.py
+      - velora_portal_sessions.py
       - tests/**
 
 permissions:
@@ -26,7 +30,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile scraper and local agent
-        run: python -m py_compile browser_audit_pilot.py local_audit_server.py
+        run: python -m py_compile browser_audit_pilot.py local_audit_server.py velora_agent_network.py velora_portal_sessions.py
       - name: OTA listing regression tests
         run: python -m unittest discover -s tests -p 'test_*.py'
       - name: Require synchronized agent and pilot versions
