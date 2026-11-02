@@ -5006,6 +5006,10 @@ export default function App() {
   const [specialistMessage, setSpecialistMessage] = useState("");
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
+  const [frontendComparisons,setFrontendComparisons]=useState<Array<{
+    leftAgent:string;rightAgent:string;photoCountLeft:number;photoCountRight:number;
+    differentServiceMentions:string[];status:string;note:string;
+  }>>([]);
   const [specialistBusy, setSpecialistBusy] = useState<Record<string, boolean>>({});
   const [specialistCheckRunning, setSpecialistCheckRunning] = useState(false);
   const [portalSessions, setPortalSessions] = useState<Record<string,PortalSessionState>>({});
@@ -5879,9 +5883,13 @@ export default function App() {
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
         body:JSON.stringify({propertyId:activeAuditData.id})
       });
-      const value=await response.json() as {error?:string;checks?:AgentCheck[];passed?:number;total?:number};
+      const value=await response.json() as {error?:string;checks?:AgentCheck[];passed?:number;total?:number;frontendComparisons?:Array<{
+        leftAgent:string;rightAgent:string;photoCountLeft:number;photoCountRight:number;
+        differentServiceMentions:string[];status:string;note:string;
+      }>};
       if(!response.ok) throw new Error(value.error||"Check non disponibile");
       setSpecialistChecks(value.checks||[]);
+      setFrontendComparisons(value.frontendComparisons||[]);
       setSpecialistMessage("Giove ha completato il check: "+(value.passed||0)+"/"+(value.total||0)+" controlli validati. I restanti richiedono intervento.");
     }catch(error){
       setSpecialistMessage(error instanceof Error?error.message:"Check non riuscito");
@@ -8735,6 +8743,22 @@ export default function App() {
                         </tr>
                       ))}</tbody>
                     </table>
+                  </div>}
+                  {specialistChecks!==null && frontendComparisons.length>0 && <div className="mt-3 rounded-xl border border-[#E5DDF1] bg-white p-3">
+                    <p className="text-xs font-black text-[#23124A]">Giove · Confronto frontend OTA</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Differenze osservate nei campioni di foto e servizi: segnali da verificare, non prove definitive di asimmetria.</p>
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full min-w-[570px] text-left text-[11px]">
+                        <thead><tr><th className="p-2">OTA confrontate</th><th className="p-2">Foto visibili nel campione</th><th className="p-2">Servizi menzionati diversamente</th></tr></thead>
+                        <tbody>{frontendComparisons.map((comparison,index)=>(
+                          <tr className="border-t border-[#EEE8F4]" key={comparison.leftAgent+"-"+comparison.rightAgent+"-"+index}>
+                            <td className="p-2 font-bold">{veloraAgentName(comparison.leftAgent)} / {veloraAgentName(comparison.rightAgent)}</td>
+                            <td className="p-2">{comparison.photoCountLeft} / {comparison.photoCountRight}</td>
+                            <td className="p-2">{comparison.differentServiceMentions.length ? comparison.differentServiceMentions.join(", ") : "Nessun segnale nel campione"}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
                   </div>}
                 </div>
                 {agentRunStartedAt !== null && agentRunIds.length > 0 && (() => {
