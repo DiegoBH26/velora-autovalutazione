@@ -13576,7 +13576,44 @@ async def run(args: argparse.Namespace) -> dict:
                                 )
                                 write_result(output,result)
 
-                        if not source:
+                        # Identity gate after discovery but BEFORE opening any
+                        # tariff page. A cached Agoda/Expedia/Vrbo/Holidu title
+                        # belonging to another hotel cannot be used as a rate
+                        # candidate, even if the address/city is the same.
+                        wrong_listing_name=""
+                        if channel in {"agoda","expedia","vrbo","holidu"} and source:
+                            candidate_meta=result.get("discoveredSources",{}).get(channel) or {}
+                            candidate_title=str(candidate_meta.get("title") or "").strip()
+                            if (
+                                channel in unverified_source_ids
+                                and candidate_title
+                                and not specialist_booking_name_matches(
+                                    str(data.get("name") or ""),candidate_title,
+                                    str(data.get("city") or ""),
+                                )
+                            ):
+                                wrong_listing_name=candidate_title
+                                print(
+                                    f"{effective_stay['month']} {channel}: WRONG PROPERTY SKIPPED "
+                                    f"· expected={data.get('name')} · observed={candidate_title}",
+                                    flush=True,
+                                )
+                                result.setdefault("discoveredSources",{}).setdefault(channel,{})["identityVerified"]=False
+                                result["discoveredSources"][channel]["identityMismatch"]=True
+                                source=""
+                                write_result(output,result)
+                        if wrong_listing_name:
+                            record={
+                                "otaId":channel,**effective_stay,
+                                "status":"wrong_property_listing","quotes":[],
+                                "evidence":(
+                                    f"Scheda scartata: richiesta «{data.get('name','')}», "
+                                    f"titolo osservato «{wrong_listing_name}». "
+                                    "Identità diversa/non verificabile: nessuna navigazione tariffaria "
+                                    "sulla struttura sbagliata, nessun prezzo attribuito."
+                                )[:900],
+                            }
+                        elif not source:
                             discovery = result.get("discoveredSources", {}).get(channel, {})
                             evidence = discovery.get("evidence") if isinstance(discovery, dict) else ""
                             if quick_retest and channel in OTA_DISCOVERY_ORDER:
