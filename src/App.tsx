@@ -3660,6 +3660,11 @@ type BrowserPilotReputation = {
   strengths?: BrowserPilotReviewTheme[];
   weaknesses?: BrowserPilotReviewTheme[];
   isolatedSignals?: BrowserPilotReviewTheme[];
+  positiveSignals?: BrowserPilotReviewTheme[];
+  sampleQuality?: "sampled" | "limited" | "no_text";
+  sampleCoveragePct?: number | null;
+  panelOpened?: boolean;
+  scrollPasses?: number;
   recurringThemes?: BrowserPilotReviewTheme[];
   keywords?: { word: string; count: number }[];
   evidence?: string;
@@ -5553,7 +5558,18 @@ export default function App() {
         ].filter(Boolean).join("\n");
       };
 
-      const strengths = (reputation.strengths || []).map((entry) => formatTheme(entry, "forza")).join("\n\n");
+      const recurringStrengths = (reputation.strengths || []).map((entry) => formatTheme(entry, "forza")).join("\n\n");
+      const positiveSignals = (reputation.positiveSignals || []).map((entry) => {
+        const examples=(entry.examples||[]).slice(0,1).map(value=>"“"+value+"”").join(" · ");
+        return [
+          entry.theme+" — riscontro positivo in 1 recensione (NON ricorrente)",
+          examples?"Esempio nel campione: "+examples:"",
+        ].filter(Boolean).join("\n");
+      }).join("\n\n");
+      const strengths = [
+        recurringStrengths ? "PUNTI DI FORZA RICORRENTI:\n"+recurringStrengths : "",
+        positiveSignals ? "SEGNALI POSITIVI ISOLATI (da verificare su campione più ampio):\n"+positiveSignals : "",
+      ].filter(Boolean).join("\n\n");
       const weaknesses = (reputation.weaknesses || []).map((entry) => formatTheme(entry, "criticita")).join("\n\n");
 
       const isolated = (reputation.isolatedSignals || []).map((entry) => {
@@ -5578,7 +5594,7 @@ export default function App() {
         ].filter(Boolean).join("\n");
       }).join("\n\n");
 
-      updateAnswer("audit-google-strengths", { note: strengths || "Nessun punto di forza ricorrente classificato nel campione disponibile." });
+      updateAnswer("audit-google-strengths", { note: strengths || "Nessun punto di forza classificabile nel campione effettivamente letto. Copertura: "+(reputation.sampleSize||0)+"/"+(reputation.reviewCount??"n.d.")+". Non significa assenza di recensioni positive." });
       updateAnswer("audit-google-weaknesses", { note: weaknesses || "Nessuna criticità ricorrente classificata nel campione disponibile." });
       updateAnswer("audit-google-isolated", { note: isolated || "Nessuna segnalazione isolata significativa nel campione disponibile." });
       updateAnswer("audit-google-keywords", { note: recurringThemes || "Nessun tema ripetuto in almeno due recensioni del campione." });
@@ -8983,12 +8999,14 @@ export default function App() {
                 ? ` · ${Math.round(((browserPilotResult.reputation.sampleSize || 0) / browserPilotResult.reputation.reviewCount) * 100)}%`
                 : ""}.
               {" "}Forze e criticità descrivono esclusivamente il campione effettivamente letto.
+              {browserPilotResult.reputation.sampleQuality==="limited" && <span className="ml-1 font-bold text-amber-800">Campione limitato: le ricorrenze possono non emergere nonostante recensioni positive esistenti.</span>}
+              {browserPilotResult.reputation.panelOpened===false && <span className="ml-1 font-bold text-amber-800">L'apertura del pannello recensioni Google non è stata confermata.</span>}
             </div>
           </>}
 
           <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-4 lg:grid-cols-2">
             {([
-              ["audit-google-strengths", "Punti di forza ricorrenti"],
+              ["audit-google-strengths", "Punti di forza e segnali positivi isolati"],
               ["audit-google-weaknesses", "Criticità ricorrenti"],
               ["audit-google-isolated", "Segnalazioni isolate da monitorare"],
               ["audit-google-actions", "Azioni operative dalle recensioni"],
