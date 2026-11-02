@@ -133,8 +133,8 @@ def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
         check = observation.get("identityCheck") or {}
         mismatch = (observation.get("status") in bad_statuses
                     or observation.get("sourceIdentityVerified") is False
-                    or (isinstance(check, dict) and check.get("verified") is False
-                        and check.get("ok") is False))
+                    or (isinstance(check, dict) and (check.get("verified") is False
+                        or check.get("ok") is False)))
         if not mismatch:
             continue
         observation["identityQuarantined"] = True
@@ -397,6 +397,9 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             wrong_domain = []
             for observation in observations:
                 host = (urlparse(str(observation.get("finalUrl") or "")).hostname or "").lower()
+                if (agent == "holidu" and observation.get("portalReferralOnly")
+                        and observation.get("referralTo") == "booking"):
+                    continue
                 if host and not any(host == domain or host.endswith("." + domain)
                                     for domain in allowed):
                     wrong_domain.append(host)
@@ -408,7 +411,7 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 add(agent, "account_profile", "Profilo account autorizzato", account_ok,
                     "Profilo Chrome dedicato selezionato; login effettivo non verificato"
                     if account_ok else "Scansione non effettuata con il profilo Account")
-            if wrong_domain or (account_required and not account_ok):
+            if wrong_domain or (account_required and not account_ok) or result.get("propertyId") != property_id:
                 valid_prices = []
             snapshots=[o.get("frontendSnapshot") for o in observations
                        if isinstance(o.get("frontendSnapshot"),dict)
