@@ -73,6 +73,8 @@ class VeloraReviewIdentityTests(unittest.TestCase):
         self.assertIn('pricing_profile_dir=profile_candidate',pilot)
         self.assertIn('"cookiesShared":bool(opted_in_profile)',pilot)
         self.assertIn('account_observation=bool(opted_in_profile and channel==specialist_id)',pilot)
+        self.assertIn('and channel not in unverified_source_ids',pilot)
+        self.assertIn('direct_public_source=bool(',pilot)
         self.assertIn('quote["verified"]=False',pilot)
         server=src("local_audit_server.py")
         self.assertIn('PORTAL_SESSIONS.has_saved_profile(agent_id)',server)
