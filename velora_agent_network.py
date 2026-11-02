@@ -96,6 +96,14 @@ def enforce_portal_scope(result: dict, agent: str) -> dict:
         host = (urlparse(url).hostname or "").lower()
         if any(host == d or host.endswith("." + d) for d in allowed):
             continue
+        # Holidu may legitimately redirect to Booking: preserve the referral
+        # as a discovery finding, but NEVER as an independent Holidu rate.
+        if (agent == "holidu" and obs.get("status") == "referral_observed"
+                and obs.get("referralTo") == "booking"):
+            for quote in obs.get("quotes") or []:
+                quote["verified"] = False
+            obs["portalReferralOnly"] = True
+            continue
         obs["identityQuarantined"] = True
         obs["sourceIdentityVerified"] = False
         obs["portalScopeViolation"] = True
@@ -340,6 +348,7 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
     # Agenti isolati potrebbero risolvere Booking a orari diversi; in tal caso
     # Giove NON conferma il confronto tra piattaforme.
     booking_locks={}
+    frontend_samples={}
     reference_path=outputs.get("booking")
     if reference_path is not None:
         try:
@@ -396,6 +405,18 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                     if account_ok else "Scansione non effettuata con il profilo Account")
             if wrong_domain or (account_required and not account_ok):
                 valid_prices = []
+            snapshots=[o.get("frontendSnapshot") for o in observations
+                       if isinstance(o.get("frontendSnapshot"),dict)
+                       and not o.get("identityQuarantined")
+                       and o.get("sourceIdentityVerified") is not False
+                       and o.get("frontendSnapshot",{}).get("sampleOnly")]
+            usable=[s for s in snapshots if s.get("photoOrderSample") or s.get("mentionedAmenities")]
+            add(agent, "frontend_sample", "Foto, servizi e condizioni nella scheda",
+                bool(usable),
+                f"{len(usable)} campioni frontend dalla scheda OTA; contenuto indicativo, "
+                "non prova automatica di foto identiche o servizi effettivamente offerti")
+            if usable:
+                frontend_samples[agent]=usable[0]
             date_ok = bool(observations) and all(
                 o.get("dateReference") == "booking"
                 and o.get("checkin") == o.get("bookingReferenceCheckin")
@@ -441,10 +462,27 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             add(agent, "sample", "Campione recensioni verificato",
                 rep.get("status") == "sampled" and bool(rep.get("sampleSize", 0)),
                 f"Stato: {rep.get('status', 'n.d.')}; campione: {rep.get('sampleSize', 0)}")
+    comparisons=[]
+    sample_agents=sorted(frontend_samples)
+    for left_index,left in enumerate(sample_agents):
+        for right in sample_agents[left_index+1:]:
+            a,b=frontend_samples[left],frontend_samples[right]
+            left_amenities=set(a.get("mentionedAmenities") or [])
+            right_amenities=set(b.get("mentionedAmenities") or [])
+            differences=sorted(left_amenities.symmetric_difference(right_amenities))
+            comparisons.append({
+                "leftAgent":left,"rightAgent":right,
+                "photoCountLeft":len(a.get("photoOrderSample") or []),
+                "photoCountRight":len(b.get("photoOrderSample") or []),
+                "differentServiceMentions":differences,
+                "status":"indicative_review_required",
+                "note":"Differenze nel campione visibile: non provano da sole asimmetrie reali né ordine foto identico.",
+            })
     return {
         "schema": "velora-agent-validation-v1", "propertyId": property_id,
         "validatedAt": _now(), "checkedBy": "manual-trigger",
         "checks": checks, "rows": validation_rows({"checks": checks}), "reviewer": REVIEWER_NAME,
+        "frontendComparisons":comparisons,
         "passed": sum(1 for c in checks if c["passed"]),
         "total": len(checks),
         "note": "Verde solo se il dato è verificato; assenza/blocco non equivalgono ad assenza dell'offerta."
