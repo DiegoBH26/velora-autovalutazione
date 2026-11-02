@@ -4945,7 +4945,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
-type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string};
+type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string; profileSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
@@ -5687,7 +5687,7 @@ export default function App() {
     }
   }
 
-  async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true) {
+  async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true, sessionMode: "public" | "account" = "public") {
     if (specialistBusy[agentId]) return;
     const propertyId = activeAuditData.id;
     setSpecialistBusy((old) => ({...old,[agentId]:true}));
@@ -5716,7 +5716,7 @@ export default function App() {
             start:customPilotStart,end:customPilotEnd,nights:customPilotNights,
             adults:customPilotAdults,frequency:customPilotFrequency
           }:undefined,
-          ghost:localPilotGhost,assisted:false,
+          ghost:localPilotGhost,assisted:false,sessionMode,
           propertyData:{
             id:activeAuditData.id,name:activeAuditData.name,city:activeAuditData.city,
             province:activeAuditData.province,rooms:activeAuditData.rooms,
@@ -8625,10 +8625,18 @@ export default function App() {
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             {loginPortal?"▶ Pubblico":"▶"}
                           </button>
+                          {loginPortal && <button type="button"
+                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||!loginState?.profileSaved||loginOpen}
+                            onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
+                            title={loginState?.profileSaved?"Usa il profilo Chrome locale salvato; login e disponibilità non garantiti":"Prima usa Apri accesso e Chiudi e conserva"}
+                            aria-label={"Avvia "+agent.name+" con profilo account registrato"}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-[#23124A] bg-white px-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">
+                            ▶ Account
+                          </button>}
                         </div>
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
+                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo disponibile · login da verificare":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
