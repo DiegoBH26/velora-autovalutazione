@@ -80,6 +80,53 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertIn("n.REVIEWER_NAME=='Giove'", updater)
         self.assertIn("if errorlevel 1 goto :errore_import", updater)
 
+    def test_progress_uses_saved_milestones_not_elapsed_seconds(self):
+        import json
+        import tempfile
+        tree = ast.parse(source("local_audit_server.py"))
+        fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "specialist_progress")
+        namespace = {"json": json}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "progress-test", "exec"), namespace)
+        progress = namespace["specialist_progress"]
+        with tempfile.TemporaryDirectory() as temp:
+            result_file = Path(temp) / "result.json"
+            running = {"state": "running", "propertyId": "sample"}
+            self.assertEqual(progress("expedia", running, result_file)["progress"], 2)
+            partial = {
+                "propertyId": "sample",
+                "identityResolution": {"status": "resolved"},
+                "plan": [{"month": "2026-11"}],
+                "selectedChannels": ["expedia"],
+                "discoveryProgress": {"stage": "targeted", "completed": 0, "total": 1},
+                "browserPhases": [],
+                "bookingReferenceStays": [],
+                "observations": [],
+            }
+            result_file.write_text(json.dumps(partial), encoding="utf-8")
+            self.assertGreaterEqual(progress("expedia", running, result_file)["progress"], 12)
+            partial["discoveryProgress"]["completed"] = 1
+            partial["browserPhases"] = [{"phase": "discovery", "status": "completed"}, {"phase": "pricing", "status": "running"}]
+            result_file.write_text(json.dumps(partial), encoding="utf-8")
+            mid = progress("expedia", running, result_file)
+            self.assertGreaterEqual(mid["progress"], 54)
+            self.assertLess(mid["progress"], 100)
+            partial["bookingReferenceStays"] = [{"month": "2026-11"}]
+            partial["observations"] = [{"otaId": "expedia", "status": "no_public_rate"}]
+            result_file.write_text(json.dumps(partial), encoding="utf-8")
+            observed = progress("expedia", running, result_file)
+            self.assertGreaterEqual(observed["progress"], 90)
+            self.assertLess(observed["progress"], 100)
+            self.assertIn("1/1", observed["progressDetail"])
+            self.assertEqual(progress("expedia", {"state": "completed"}, result_file)["progress"], 100)
+
+    def test_frontend_displays_live_phase_and_freezes_finished_timer(self):
+        app = source("src/App.tsx")
+        self.assertIn("item?.progress", app)
+        self.assertIn("active?.state?.phase", app)
+        self.assertIn("active?.state?.progressDetail", app)
+        self.assertIn("agentRunFinishedAt", app)
+        self.assertIn("setAgentRunFinishedAt(finishedAt)", app)
+
     def test_manual_login_remains_separate_from_automated_scraping(self):
         sessions = source("velora_portal_sessions.py")
         self.assertIn("launch_persistent_context", sessions)
