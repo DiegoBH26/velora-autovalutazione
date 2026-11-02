@@ -1121,7 +1121,7 @@ class Handler(SimpleHTTPRequestHandler):
                                 "authentication":value["authentication"],"scraping":value["scraping"]}
                            for key,value in LOGIN_PORTALS.items()},
                 "sessions":PORTAL_SESSIONS.statuses(),"manualOnly":True,
-                "message":"Login e navigazione effettuati dall'utente in Chrome locale. Lo scraping autenticato non è abilitato."
+                "message":"Login sempre manuale. Il tasto Account tenta il riuso del profilo Chrome conservato; l'autenticazione effettiva non è garantita, prezzi privati non validati per il confronto."
             })
             return
         if route=="/api/agents/config":
