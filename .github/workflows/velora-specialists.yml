@@ -8,6 +8,8 @@ on:
       - 'local_audit_server.py'
       - 'AGGIORNA_VELORA_COMPLETO.bat'
       - 'src/App.tsx'
+      - 'browser_audit_pilot.py'
+      - 'tests/test_agent_portal_sessions.py'
       - 'tests/test_velora_specialists_contract.py'
       - '.github/workflows/velora-specialists.yml'
   workflow_dispatch:
@@ -22,5 +24,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run offline contract tests
+      - name: Run offline specialist contracts
         run: python -m unittest discover -s tests -p 'test_velora_specialists_contract.py' -v
+      - name: Run local-session safety contracts
+        run: python -m unittest discover -s tests -p 'test_agent_portal_sessions.py' -v
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Compile frontend
+        run: npm run build
