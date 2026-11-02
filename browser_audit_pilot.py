@@ -12465,6 +12465,35 @@ async def _launch_velora_context(playwright, profile_dir: Path, data: dict, phas
     )
 
 
+def specialist_booking_name_matches(expected: str, observed: str, city: str = "") -> bool:
+    """Fail closed when a specialist's cached Booking page is a different property.
+
+    Never use a shared locality or a generic accommodation word as identity.
+    This guard affects the specialist-only cross-OTA reference, not the legacy
+    Booking/Agoda/Airbnb parsers or their own scans.
+    """
+    generic = {
+        "tenuta", "masseria", "hotel", "villa", "resort", "relais", "suites",
+        "suite", "apartments", "apartment", "casa", "dimora", "bed", "breakfast",
+        "guesthouse", "agriturismo", "b", "bb", "b&b", "the", "and", "di", "del",
+        "della", "delle", "da", "la", "le", "il", "lo", "in", "a", "spa", "luxury",
+        "booking", "com", "italia", "italy",
+    }
+    norm_expected = _norm_name(str(expected or ""))
+    norm_observed = _norm_name(str(observed or ""))
+    if not norm_expected or not norm_observed:
+        return False
+    city_words = set(_norm_name(str(city or "")).split())
+    tokens = [word for word in norm_expected.split()
+              if len(word) >= 4 and word not in generic and word not in city_words]
+    observed_words = set(norm_observed.split())
+    # Distinctive name words must be present in the observed listing title.
+    if tokens:
+        return all(token in observed_words for token in tokens)
+    # When the property name is entirely generic, only an exact title suffices.
+    return norm_expected == norm_observed
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -13048,7 +13077,62 @@ async def run(args: argparse.Namespace) -> dict:
             # Le altre OTA non scelgono mai date proprie: ricevono la finestra esatta
             # risolta su Booking (stessa durata e stessi ospiti).
             booking_reference_source=(sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
-            if not booking_reference_source:
+            # Focused OTA agent: verify the saved Booking *property identity* before
+            # using it as date reference. A title like Tenuta Palmira must NEVER
+            # become the canonical search name for Tenuta Speculizzi.
+            reference_for_specialist=bool(specialist_id and specialist_id != "booking")
+            if reference_for_specialist:
+                target_name=str(data.get("name") or "")
+                target_city=str(data.get("city") or "")
+                result["bookingReferenceIdentity"]={
+                    "status":"not_verified","requestedProperty":target_name,
+                    "evidence":"Nessun riferimento Booking confermato per questa struttura.",
+                }
+                if booking_reference_source:
+                    try:
+                        candidate=await asyncio.wait_for(
+                            verify_booking_candidate_page(
+                                context,booking_reference_source,target_name,target_city,
+                                str(data.get("address") or ""),robots,
+                            ),timeout=36,
+                        )
+                    except Exception as exc:
+                        candidate={"ok":False,"title":"","evidence":type(exc).__name__}
+                    observed_name=str(candidate.get("title") or "")
+                    strict_match=bool(
+                        candidate.get("ok")
+                        and specialist_booking_name_matches(target_name,observed_name,target_city)
+                        and booking_path_key(str(candidate.get("url") or "")) == booking_path_key(booking_reference_source)
+                    )
+                    if strict_match:
+                        result["bookingReferenceIdentity"]={
+                            "status":"verified","requestedProperty":target_name,
+                            "observedProperty":observed_name,
+                            "url":booking_reference_source,
+                            "evidence":"Nome distintivo e URL della scheda Booking verificati.",
+                        }
+                        print(f"SPECIALIST BOOKING IDENTITY OK · struttura={target_name} · scheda={observed_name}",flush=True)
+                    else:
+                        result["bookingReferenceIdentity"]={
+                            "status":"mismatch_or_unverified",
+                            "requestedProperty":target_name,
+                            "observedProperty":observed_name,
+                            "evidence":(
+                                "Scheda Booking non attribuibile con certezza alla struttura richiesta; "
+                                "riferimento scartato, non viene usato per stabilire date o tariffe. "
+                                + str(candidate.get("evidence") or "")
+                            )[:900],
+                        }
+                        print(
+                            f"IDENTITY MISMATCH · Booking ignorato per {target_name} · "
+                            f"scheda osservata={observed_name or 'non verificata'} · "
+                            "Nessuna ricerca Booking su struttura diversa.",
+                            flush=True,
+                        )
+                        booking_reference_source=""
+                        sources.pop("booking",None)
+                write_result(output,result)
+            if not booking_reference_source and not reference_for_specialist:
                 try:
                     ref_discovery=await asyncio.wait_for(
                         discover_booking_source(
