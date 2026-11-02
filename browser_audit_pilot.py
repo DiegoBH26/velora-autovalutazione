@@ -13658,7 +13658,14 @@ async def run(args: argparse.Namespace) -> dict:
                                 page = await context.new_page()
                                 record = await asyncio.wait_for(
                                     observe(page, channel, source, effective_stay, robots, data.get("name",""), data.get("city",""),assist_callback if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else None,ghost,
-                                            direct_public_source=bool(channel=="vrbo" and vrbo_single_direct_pricing)),
+                                            direct_public_source=bool(
+                                                (channel=="vrbo" and vrbo_single_direct_pricing)
+                                                or (
+                                                    opted_in_profile and channel==specialist_id
+                                                    and channel in {"expedia","vrbo","holidu"}
+                                                    and channel not in unverified_source_ids
+                                                )
+                                            )),
                                     timeout=1000 if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
