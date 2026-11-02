@@ -4882,7 +4882,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
-type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean};
+type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
 type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
@@ -8596,21 +8596,31 @@ export default function App() {
                   </div>}
                 </div>
                 {agentRunStartedAt !== null && agentRunIds.length > 0 && (() => {
-                  const entries=agentRunIds.map(id=>specialistStatuses[id]?.state);
-                  const done=entries.filter(state=>state==="completed"||state==="failed").length;
-                  const running=entries.filter(state=>state==="running").length;
-                  const queued=entries.filter(state=>state==="queued").length;
+                  const entries=agentRunIds.map(id=>specialistStatuses[id]);
+                  const done=entries.filter(item=>item?.state==="completed"||item?.state==="failed").length;
+                  const running=entries.filter(item=>item?.state==="running").length;
+                  const queued=entries.filter(item=>item?.state==="queued").length;
+                  const failed=entries.filter(item=>item?.state==="failed").length;
                   const complete=done===agentRunIds.length && !launchingBatch;
-                  const percentage=Math.round((done/agentRunIds.length)*100);
+                  const totalProgress=entries.reduce((sum,item)=>{
+                    if(item?.state==="completed"||item?.state==="failed") return sum+100;
+                    const partial=Number(item?.progress??(item?.state==="running"?2:0));
+                    return sum+Math.max(0,Math.min(99,Number.isFinite(partial)?partial:0));
+                  },0);
+                  const percentage=Math.round(totalProgress/agentRunIds.length);
+                  const active=agentRunIds.map(id=>({id,state:specialistStatuses[id]})).find(item=>item.state?.state==="running");
+                  const phase=active?.state?.phase || (queued?"Agenti in attesa":complete?"Esecuzioni terminate":"Avvio agenti");
+                  const detail=active?.state?.progressDetail || (queued?"Attesa disponibilità del browser.":"");
                   return <div className="rounded-xl border border-emerald-200 bg-white p-3" role="status" aria-live="polite">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-black text-[#23124A]">
-                      <span>{complete?"Scansione agenti terminata":"Scansione agenti in corso"} · {done}/{agentRunIds.length} completati o interrotti</span>
+                      <span>{complete?(failed?"Scansione terminata con errori":"Scansione agenti terminata"):"Scansione agenti in corso"} · {done}/{agentRunIds.length} conclusi</span>
                       <span className="inline-flex items-center gap-3 font-mono"><span>{formatPilotElapsed(Math.max(0,agentRunClock-agentRunStartedAt))}</span><span>{percentage}%</span></span>
                     </div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-label="Avanzamento agenti">
-                      <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{width:percentage+"%"}} />
+                    <div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-label="Avanzamento scansione per fasi">
+                      <div className={"h-full rounded-full transition-all duration-500 "+(complete&&failed?"bg-amber-500":"bg-emerald-500")} style={{width:percentage+"%"}} />
                     </div>
-                    <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{running} al lavoro · {queued} in coda · {entries.filter(state=>state==="failed").length} interrotti. La percentuale rappresenta gli agenti che hanno terminato, non le pagine visitate.</p>
+                    <p className="mt-2 text-[10px] font-semibold text-[#23124A]">{active?veloraAgentName(active.id)+" · ":""}{phase}{detail?" · "+detail:""}</p>
+                    <p className="mt-1 text-[10px] font-semibold text-[#50627F]">{running} al lavoro · {queued} in coda · {failed} interrotti. Percentuale calcolata sulle fasi concluse e sui campioni registrati, non sul tempo trascorso.</p>
                   </div>;
                 })()}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
