@@ -12555,6 +12555,29 @@ async def run(args: argparse.Namespace) -> dict:
         suffix=f"-{specialist_id}" if specialist_id else ""
         discovery_profile_dir=isolated_root/("velora-browser-profile-discovery"+suffix)
         pricing_profile_dir=isolated_root/("velora-browser-profile-pricing"+suffix)
+        opted_in_profile=str(getattr(args,"authorized_profile_dir",None) or "").strip()
+        if opted_in_profile:
+            if specialist_id not in {"expedia","vrbo","holidu"} or channels != [specialist_id]:
+                raise ValueError("Profilo registrato consentito soltanto all'agente OTA corrispondente.")
+            profile_candidate=Path(opted_in_profile).resolve()
+            # The local service owns and validates this location. Never accept
+            # arbitrary account paths from a remotely supplied property snapshot.
+            if not profile_candidate.is_dir():
+                raise ValueError("Profilo Chrome registrato non presente sul PC.")
+            pricing_profile_dir=profile_candidate
+            result["sessionMode"]="registered_profile_opt_in"
+            result["method"]=(
+                "Navigazione con profilo Chrome locale scelto dall'utente. "
+                "Login non verificato automaticamente; tariffe member/app non utilizzate "
+                "nel confronto pubblico; limiti HTTP e verifiche umane rispettati."
+            )
+            print(
+                f"{specialist_id}: ACCOUNT MODE richiesto · profilo Chrome locale persistente · "
+                "autenticazione da verificare sul portale; nessun bypass di blocchi",
+                flush=True,
+            )
+        else:
+            result["sessionMode"]="public"
         context=await _launch_velora_context(
             playwright,discovery_profile_dir,data,"discovery OTA",ghost
         )
