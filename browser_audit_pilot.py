@@ -9145,6 +9145,7 @@ async def booking_resolve_reference_stay(
     stay: dict,
     robots: dict,
     initial_record: dict,
+    max_shifts: int | None = None,
 ) -> tuple[dict, dict, dict]:
     """Trova una finestra Booking tariffata prima di interrogare le altre OTA.
 
@@ -9183,6 +9184,8 @@ async def booking_resolve_reference_stay(
     # Ricerca progressiva ma contenuta: abbastanza ampia per trovare una finestra
     # prenotabile senza trasformare un singolo mese in decine di richieste.
     offsets=[1,2,3,5,7,10,14,21,28,42,56]
+    if max_shifts is not None:
+        offsets=offsets[:max(0,int(max_shifts))]
     carrier=await context.new_page()
     attempts=1
     try:
@@ -13193,14 +13196,42 @@ async def run(args: argparse.Namespace) -> dict:
                 if booking_source:
                     search_page=await context.new_page()
                     try:
-                        initial_booking=await booking_dated_search_observation(
-                            search_page,
-                            booking_source,
-                            data.get("name",""),
-                            data.get("city",""),
-                            effective_stay,
-                            robots,
-                        )
+                        if reference_for_specialist:
+                            # A single Expedia/Vrbo/Holidu specialist must not browse
+                            # Booking search results or select a similarly named hotel.
+                            # Use ONLY the identity-verified, exact Booking listing.
+                            initial_booking=await asyncio.wait_for(
+                                booking_probe_direct_dated_detail(
+                                    search_page,booking_source,effective_stay,robots
+                                ),timeout=43,
+                            )
+                            if not initial_booking:
+                                initial_booking={
+                                    "status":"needs_human_review","quotes":[],
+                                    "evidence":"Solo scheda Booking esatta verificata: preventivo non confermato; nessuna ricerca per nomi simili."
+                                }
+                            elif initial_booking.get("finalUrl"):
+                                final_key=booking_path_key(str(initial_booking.get("finalUrl") or ""))
+                                original_key=booking_path_key(booking_source)
+                                if not final_key or final_key!=original_key:
+                                    initial_booking={
+                                        "status":"identity_mismatch","quotes":[],
+                                        "evidence":"La scheda Booking datata ha reindirizzato a un altro alloggio: riferimento rifiutato."
+                                    }
+                            print(
+                                f"{effective_stay['month']} SPECIALIST BOOKING · "
+                                f"solo URL verificata · status={initial_booking.get('status')}",
+                                flush=True,
+                            )
+                        else:
+                            initial_booking=await booking_dated_search_observation(
+                                search_page,
+                                booking_source,
+                                data.get("name",""),
+                                data.get("city",""),
+                                effective_stay,
+                                robots,
+                            )
                     finally:
                         await search_page.close()
 
@@ -13210,7 +13241,7 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
 
-                    if initial_booking.get("status") not in {
+                    if not reference_for_specialist and initial_booking.get("status") not in {
                         "quote_candidates","quote_candidates_unverified","no_public_rate","needs_human_review"
                     }:
                         page=await context.new_page()
@@ -13234,6 +13265,7 @@ async def run(args: argparse.Namespace) -> dict:
                         effective_stay,
                         robots,
                         initial_booking,
+                        max_shifts=2 if reference_for_specialist else None,
                     )
                     result["bookingDateResolution"].append(resolution)
                     reference_lock={
