@@ -5770,7 +5770,25 @@ export default function App() {
             if(resultResponse.ok && window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)===propertyId){
               const partial=await resultResponse.json() as BrowserPilotResult;
               if(agentId==="reviews" || agentId==="official_site"){
-                applyPilotEvidence({...partial,schema:"velora-browser-audit-pilot-v1",observations:[]});
+                const specialistPartial:BrowserPilotResult={
+                  ...partial,propertyId,schema:"velora-browser-audit-pilot-v1",
+                  observations:[],
+                };
+                setBrowserPilotResult(previous=>{
+                  const sameProperty=previous?.propertyId===propertyId;
+                  const combined:BrowserPilotResult={
+                    ...(sameProperty?previous:specialistPartial),
+                    propertyId,schema:"velora-browser-audit-pilot-v1",
+                    propertyName:sameProperty?previous.propertyName:(specialistPartial.propertyName||activeAuditData.name),
+                    createdAt:sameProperty?previous.createdAt:(specialistPartial.createdAt||new Date().toISOString()),
+                    observations:sameProperty?previous.observations:[],
+                    reputation:agentId==="reviews"?(specialistPartial.reputation||{}):(sameProperty?previous.reputation:undefined),
+                    photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
+                  };
+                  window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
+                  return combined;
+                });
+                applyPilotEvidence(specialistPartial);
               } else {
                 setBrowserPilotResult((previous)=>{
                   const combined: BrowserPilotResult={
