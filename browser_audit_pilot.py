@@ -14008,9 +14008,30 @@ async def run(args: argparse.Namespace) -> dict:
                             )
                     if record.get("quotes"):
                         normalized_quotes=[normalize_quote_price_fields(dict(item)) for item in record.get("quotes") or []]
-                        public_quotes=[item for item in normalized_quotes if public_quote_without_login(item)]
-                        removed_private=len(normalized_quotes)-len(public_quotes)
+                        # In explicit Account mode keep observed member/account
+                        # amounts as NON-validated diagnostic rows for the
+                        # property owner. Do not turn them into public rates or
+                        # price deltas; Public mode remains strictly filtered.
+                        account_observation=bool(opted_in_profile and channel==specialist_id)
+                        public_quotes=(
+                            normalized_quotes if account_observation else
+                            [item for item in normalized_quotes if public_quote_without_login(item)]
+                        )
+                        removed_private=0 if account_observation else len(normalized_quotes)-len(public_quotes)
                         record["quotes"]=public_quotes
+                        if account_observation:
+                            for quote in record["quotes"]:
+                                quote["verified"]=False
+                                quote["referenceRoomKey"]=""
+                                quote["comparisonSelected"]=True
+                                quote["audience"]=str(quote.get("audience") or "Account registrato, tipologia tariffa non verificata")
+                                quote["comparisonWarning"]=(
+                                    "TARIFFA OSSERVATA CON ACCOUNT: utente registrato; "
+                                    "non attribuita a tariffa pubblica confrontabile, "
+                                    "identità/camera/condizioni da confermare."
+                                )
+                            if record.get("quotes") and record.get("status")=="quote_candidates":
+                                record["status"]="quote_candidates_unverified"
                         if removed_private:
                             record["evidence"]=(
                                 str(record.get("evidence") or "")+
