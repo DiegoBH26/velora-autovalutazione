@@ -11417,9 +11417,16 @@ async def google_reputation_observation(context, data: dict) -> dict:
             if ranked:
                 ranked.sort(key=lambda item:item[0],reverse=True)
                 score,loc,txt,_=ranked[0]
-                if score>=0.50:
+                # Only open a Google place whose distinctive name agrees:
+                # località alone and similar generic agriturismo names are unsafe.
+                if score>=0.50 and specialist_booking_name_matches(name,txt,city):
                     await loc.click(timeout=2400)
                     await page.wait_for_timeout(2600)
+                else:
+                    print(
+                        f"Google reviews: candidato scartato · richiesto={name} · "
+                        f"osservato={txt} · similarità={score:.0%}",flush=True,
+                    )
         except Exception:
             pass
 
@@ -11433,6 +11440,25 @@ async def google_reputation_observation(context, data: dict) -> dict:
                         break
             except Exception:
                 pass
+
+        if not observed_name or not specialist_booking_name_matches(name,observed_name,city):
+            print(
+                f"Google reviews: IDENTITÀ NON VERIFICATA · richiesto={name} · "
+                f"risultato={observed_name or 'senza titolo'}",flush=True,
+            )
+            return {
+                "status":"identity_unverified",
+                "source":"Google Maps pubblico",
+                "url":page.url,
+                "name":observed_name,
+                "sampleSize":0,"strengths":[],"weaknesses":[],
+                "positiveSignals":[],"isolatedSignals":[],"keywords":[],
+                "evidence":(
+                    "Ricerca Google Maps non attribuibile con certezza alla struttura: "
+                    f"richiesto «{name}», osservato «{observed_name or 'titolo assente'}». "
+                    "Recensioni di altre strutture escluse."
+                )[:500],
+            }
 
         # Rating e numero recensioni soltanto dall'header della scheda, mai dalle singole review.
         meta=await page.evaluate(r"""() => {
@@ -11592,11 +11618,23 @@ async def google_reputation_observation(context, data: dict) -> dict:
             pass
 
         card_selector="div.jftiEf[data-review-id], div[data-review-id], div.jftiEf, div[role=\"article\"]"
-        # Carica un campione consistente; scroll del pannello recensioni, non della pagina generica.
-        for _ in range(12):
+        # Carica un campione più ampio, solo nel pannello pubblico recensioni.
+        # Fermati se quattro scorrimenti consecutivi non restituiscono nuove card.
+        stagnant=0
+        previous_card_count=0
+        scroll_passes=0
+        for _ in range(22):
             try:
                 cards=page.locator(card_selector)
                 count=await cards.count()
+                if count<=previous_card_count:
+                    stagnant+=1
+                else:
+                    stagnant=0
+                    previous_card_count=count
+                if stagnant>=4 or count>=100:
+                    break
+                scroll_passes+=1
                 if count:
                     last=cards.nth(count-1)
                     await last.scroll_into_view_if_needed(timeout=1300)
@@ -11690,16 +11728,29 @@ async def google_reputation_observation(context, data: dict) -> dict:
                   date:clean(dateNode?.textContent).slice(0,100),
                   hasResponse
                 });
-                if (out.length>=60) break;
+                if (out.length>=90) break;
               }
               return out;
             }""")
         except Exception:
             reviews=[]
 
-        # Se la scheda espone un bottone recensioni ma non abbiamo estratto card,
-        # non inventare rating/analisi: rendi il limite esplicito.
+        # Un campione non rappresentativo non significa assenza di punti di
+        # forza: conserva i positivi isolati e segnala la copertura reale.
         analysis=analyze_review_sample(reviews)
+        sample_count=int(analysis.get("sampleSize") or 0)
+        review_ratio=(sample_count/review_count) if review_count else None
+        sample_quality=(
+            "no_text" if not sample_count else
+            "limited" if sample_count<6 or (review_ratio is not None and review_ratio<0.15) else
+            "sampled"
+        )
+        print(
+            f"Google reviews coverage: sample={sample_count} / "
+            f"published={review_count if review_count is not None else '?'} · "
+            f"quality={sample_quality} · scroll={scroll_passes}",
+            flush=True,
+        )
         try:
             dom_diag=await page.evaluate(r"""() => ({
               reviewId:document.querySelectorAll('[data-review-id]').length,
@@ -11730,12 +11781,19 @@ async def google_reputation_observation(context, data: dict) -> dict:
             "name":observed_name or name,
             "rating":rating,
             "reviewCount":review_count,
+            "sampleQuality":sample_quality,
+            "sampleCoveragePct":round(100*review_ratio,1) if review_ratio is not None else None,
+            "scrollPasses":scroll_passes,
+            "panelOpened":bool(opened),
             **analysis,
             "evidence":(
                 f"Google Maps: scheda «{observed_name or name}»; "
                 f"rating {rating if rating is not None else 'n.d.'}; "
                 f"recensioni totali {review_count if review_count is not None else 'n.d.'}; "
-                f"campione testuale analizzato {len(reviews)}."
+                f"campione testuale analizzato {len(reviews)}. "
+                f"Copertura: {round(100*review_ratio,1) if review_ratio is not None else 'non calcolabile'}%; "
+                f"qualità campione: {sample_quality}. "
+                "Nessuna ricorrenza = nessuna ricorrenza dimostrata nel campione, NON assenza di punti di forza."
             )[:900],
         }
     except Exception as exc:
