@@ -1317,6 +1317,25 @@ class Handler(SimpleHTTPRequestHandler):
                     AGENT_RUNS[(property_id,agent_id)]={
                         "state":"queued","agentId":agent_id,"startedAt":datetime.now(timezone.utc).isoformat(),"error":""
                     }
+                # Reuse Minerva date locks only when the saved result belongs
+                # to the exact same property. Never accept locks supplied by the UI.
+                data.pop("_specialistBookingLocks",None)
+                if agent_id not in {"booking","official_site","reviews"}:
+                    try:
+                        booking_result=json.loads(agent_output(property_id,"booking").read_text(encoding="utf-8"))
+                        same_property=(booking_result.get("propertyId")==property_id
+                            and booking_result.get("propertyName")==data.get("name"))
+                        if same_property:
+                            rows=[dict(row) for row in booking_result.get("bookingReferenceStays") or []
+                                if isinstance(row,dict) and row.get("month")
+                                and row.get("requestedCheckin") and row.get("requestedCheckout")
+                                and row.get("checkin") and row.get("checkout")
+                                and row.get("status") in {"initial_dates_available","shifted_to_available_booking_dates"}]
+                            if rows:
+                                data["_specialistBookingLocks"]=rows
+                                print(f"[GI0VE] Date Minerva riutilizzabili: {len(rows)}",flush=True)
+                    except (FileNotFoundError,OSError,ValueError,TypeError):
+                        pass
                 input_path=work/"property.json"
                 input_path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
                 agent_output(property_id,agent_id).unlink(missing_ok=True)
