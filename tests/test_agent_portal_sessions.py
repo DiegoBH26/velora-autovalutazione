@@ -36,12 +36,17 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn("self.pending_urls",self.module)
 
     def test_frontend_has_honest_manual_login_flow(self):
-        for token in ("Apri accesso","Chiudi e conserva","▶ Pubblico","loginOpen","portalSessionMessage","openPortalListing"):
+        for token in ("Apri accesso","Chiudi e conserva","▶ Pubblico","▶ Account","loginOpen","portalSessionMessage","openPortalListing"):
             self.assertIn(token,self.app)
-        self.assertIn("manuale e locale",self.app)
+        self.assertIn("Il login non viene verificato automaticamente",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
         self.assertIn("startSpecialistAgent(agent.id)",self.app)
         self.assertIn("SCREENSHOT_INTERVIEW_PRESET_IDS",self.app)
+        self.assertIn("loginState?.profileSaved",self.app)
+        self.assertIn('sessionMode: "public" | "account"',self.app)
+        self.assertIn('session_mode=="account"',self.server)
+        self.assertIn("PORTAL_SESSIONS.has_saved_profile(agent_id)",self.server)
+        self.assertIn('session.get("state") in {"open","queued"}',self.server)
 
     def test_windows_updater_includes_file(self):
         self.assertIn("velora_portal_sessions.py.new",self.updater)
