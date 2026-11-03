@@ -5244,8 +5244,10 @@ export default function App() {
           guests:capture.guests>0?capture.guests:2
         });
         setCompanionMessage(
-          capture.rooms.length+" camere lette dal Chrome normale. "+
-          "Controlla struttura e date, poi importa le tariffe in un unico passaggio."
+          capture.rooms.length>0
+            ? capture.rooms.length+" camere lette dal Chrome normale. "+
+              "Controlla struttura e date, poi importa le tariffe in un unico passaggio. "+capture.warning
+            : "Nessuna camera importabile: "+capture.warning
         );
       }
     };
