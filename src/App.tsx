@@ -5739,7 +5739,7 @@ export default function App() {
     }
   }
 
-  async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true, sessionMode: "public" | "account" = "public") {
+  async function startSpecialistAgent(agentId: SpecialistAgentId, trackProgress = true, sessionMode: "public" | "account" = "public", onAccepted?: () => void) {
     const selectedSessionMode: "public" | "account" = ["expedia","vrbo","holidu"].includes(agentId) ? "account" : sessionMode;
     if (specialistBusy[agentId]) return;
     const propertyId = activeAuditData.id;
@@ -5783,6 +5783,7 @@ export default function App() {
         throw new Error(detail.error || "Impossibile avviare lo specialista.");
       }
       accepted = true;
+      onAccepted?.();
       setSpecialistStatuses((old)=>({...old,[agentId]:{state:"running"}}));
       if (trackProgress) {
         const startedAt=Date.now();
@@ -5899,13 +5900,24 @@ export default function App() {
       // Check saved account profiles BEFORE starting the timer. Otherwise
       // three account-only agents silently reject and the UI stays at 0%.
       await requireSpecialistAccountProfiles(ids);
-      setAgentRunIds(ids);
-      const startedAt=Date.now();
-      setAgentRunStartedAt(startedAt);
-      setAgentRunFinishedAt(null);
-      setAgentRunClock(startedAt);
-      setSpecialistMessage("Rete in avvio: "+ids.map(veloraAgentName).join(" · ")+". Massimo due sessioni Chrome contemporanee.");
-      await Promise.all(ids.map(id=>startSpecialistAgent(id,false)));
+      const acceptedIds:SpecialistAgentId[]=[];
+      setSpecialistMessage("Verifica dei profili completata. Invio richieste al servizio locale...");
+      // The timer starts only after Windows confirms acceptance of an agent.
+      await Promise.all(ids.map(id=>startSpecialistAgent(id,false,"public",()=>{
+        acceptedIds.push(id);
+        setAgentRunIds([...acceptedIds]);
+        if (acceptedIds.length===1) {
+          const startedAt=Date.now();
+          setAgentRunStartedAt(startedAt);
+          setAgentRunFinishedAt(null);
+          setAgentRunClock(startedAt);
+        }
+      })));
+      if (acceptedIds.length===0) {
+        setAgentRunIds([]);
+        setAgentRunStartedAt(null);
+        setAgentRunFinishedAt(null);
+      }
     } catch(error) {
       setAgentRunIds([]);
       setAgentRunStartedAt(null);
