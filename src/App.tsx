@@ -5020,6 +5020,7 @@ export default function App() {
   const [portalSessionBusy, setPortalSessionBusy] = useState<string | null>(null);
   const [portalCredentialEditing,setPortalCredentialEditing] = useState<LoginPortalId | null>(null);
   const [portalCredentialDrafts,setPortalCredentialDrafts] = useState<Record<string,{email:string;password:string}>>({});
+  const [portalSavedAccounts,setPortalSavedAccounts] = useState<Record<string,{credentialSaved:boolean;savedEmail:string;error?:string}>>({});
   const [launchingBatch, setLaunchingBatch] = useState(false);
   const [agentRunIds, setAgentRunIds] = useState<SpecialistAgentId[]>([]);
   const [agentRunStartedAt, setAgentRunStartedAt] = useState<number | null>(null);
@@ -5158,6 +5159,11 @@ export default function App() {
     const timer=window.setInterval(()=>void update(),6000);
     return ()=>{disposed=true;window.clearInterval(timer);};
   }, [specialistExpanded, localPilotToken, activeAuditData.id]);
+
+  useEffect(() => {
+    if (!specialistExpanded || !localPilotToken) return;
+    void refreshSavedPortalAccounts(localPilotToken);
+  },[specialistExpanded,localPilotToken]);
 
   useEffect(() => {
     if (!specialistExpanded || !localPilotToken) return;
@@ -5686,9 +5692,38 @@ export default function App() {
     }finally{setPortalSessionBusy(null);}
   }
 
+  async function readPortalSavedAccount(portalId:LoginPortalId,token:string) {
+    const response=await fetch(localAgentUrl("/api/portal-account/info"),{
+      method:"POST",mode:"cors",cache:"no-store",
+      headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+      body:JSON.stringify({portalId})
+    });
+    const result=await response.json() as {error?:string;status?:{credentialSaved:boolean;savedEmail:string}};
+    if(!response.ok) throw new Error(result.error||"Verifica dell'email salvata non disponibile.");
+    const status=result.status;
+    if(!status || typeof status.credentialSaved!=="boolean" || typeof status.savedEmail!=="string")
+      throw new Error("Risposta del Gestore credenziali incompleta: aggiorna l'agente Windows.");
+    return {credentialSaved:status.credentialSaved,savedEmail:status.savedEmail};
+  }
+
+  async function refreshSavedPortalAccounts(token:string) {
+    const rows=await Promise.all(LOGIN_PORTAL_IDS.map(async id=>{
+      try {
+        return {id,status:await readPortalSavedAccount(id,token)};
+      } catch(error) {
+        return {id,status:{credentialSaved:false,savedEmail:"",error:error instanceof Error?error.message:"Stato accessi non disponibile"}};
+      }
+    }));
+    setPortalSavedAccounts(old=>{
+      const next={...old};
+      for(const {id,status} of rows) next[id]=status;
+      return next;
+    });
+  }
+
   async function managePortalCredentials(portalId:LoginPortalId,action:"save"|"remove") {
     if(portalSessionBusy) return;
-    const draft=portalCredentialDrafts[portalId]||{email:"",password:""};
+    const draft=portalCredentialDrafts[portalId]||{email:portalSavedAccounts[portalId]?.savedEmail||"",password:""};
     if(action==="save" && !draft.email.trim()){
       setPortalSessionMessage("Inserisci l’email dell’account "+veloraAgentName(portalId)+".");
       return;
@@ -5702,13 +5737,21 @@ export default function App() {
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
         body:JSON.stringify({portalId,...(action==="save"?{email:draft.email.trim(),password:draft.password}:{})})
       });
-      const result=await response.json() as {error?:string;status?:{credentialSaved:boolean;profileSaved:boolean}};
+      const result=await response.json() as {error?:string;status?:{credentialSaved:boolean;savedEmail?:string;profileSaved:boolean}};
       if(!response.ok) throw new Error(result.error||"Operazione Gestore credenziali Windows non riuscita.");
-      setPortalCredentialDrafts(old=>({...old,[portalId]:{email:"",password:""}}));
+      // A 200 from /save is insufficient: verify the value can be read back
+      // from Windows Credential Manager before showing any success state.
+      const actual=await readPortalSavedAccount(portalId,token);
+      if(action==="save" && (!actual.credentialSaved || actual.savedEmail!==draft.email.trim()))
+        throw new Error("Email non confermata sul PC: premi Rileggi accessi e verifica il salvataggio.");
+      if(action==="remove" && actual.credentialSaved)
+        throw new Error("La rimozione non è stata confermata dal Gestore credenziali Windows.");
+      setPortalSavedAccounts(old=>({...old,[portalId]:actual}));
+      setPortalCredentialDrafts(old=>({...old,[portalId]:{email:actual.savedEmail,password:""}}));
       setPortalCredentialEditing(null);
       setPortalSessionMessage(action==="save"
-        ?"Email salvata nel Gestore credenziali Windows. Prima premi «Accedi e verifica» in "+veloraAgentName(portalId)+", poi potrai avviare ▶ Account."
-        :"Credenziali locali cancellate per "+veloraAgentName(portalId)+". La sessione Chrome già salvata, se presente, non è stata cancellata.");
+        ?"Email verificata nel Gestore credenziali Windows per "+veloraAgentName(portalId)+". Ora premi «Accedi e verifica» prima di ▶ Account."
+        :"Email rimossa dal PC per "+veloraAgentName(portalId)+". Eventuali profili Chrome separati restano conservati.");
       await refreshPortalSessions();
     }catch(error){
       setPortalSessionMessage(error instanceof Error?error.message:"Errore gestione credenziali.");
@@ -5721,6 +5764,7 @@ export default function App() {
       if (!response.ok) throw new Error("Aggiorna l'agente Windows per abilitare le sessioni dedicate.");
       const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
       setPortalSessions(data.sessions||{});
+      if(localPilotToken) await refreshSavedPortalAccounts(localPilotToken);
     }catch(error){
       setPortalSessionMessage(error instanceof Error?error.message:"Stato sessioni non disponibile.");
     }
@@ -8954,9 +8998,22 @@ export default function App() {
                           </button>
                         </div>}
                         {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
+                          {portalSavedAccounts[loginPortal]?.credentialSaved && portalSavedAccounts[loginPortal]?.savedEmail
+                            ? <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2" role="status">
+                                <p className="text-[10px] font-black text-emerald-800">✓ EMAIL SALVATA SU QUESTO PC</p>
+                                <p className="mt-1 break-all text-[12px] font-black text-emerald-950">{portalSavedAccounts[loginPortal].savedEmail}</p>
+                                <p className="mt-1 text-[10px] text-emerald-800">Verificata nel Gestore credenziali Windows. Il login su Expedia/Vrbo è un passaggio separato.</p>
+                              </div>
+                            : <p className="mb-2 text-[10px] font-semibold opacity-80" role="status">
+                                {portalSavedAccounts[loginPortal]?.error
+                                  ? "Email non verificabile: "+portalSavedAccounts[loginPortal].error
+                                  : loginState?.credentialSaved
+                                    ? "Email registrata in Windows · rilettura non ancora confermata"
+                                    : "Nessuna email salvata su questo PC"}
+                              </p>}
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-[10px] font-semibold opacity-80">
-                              {loginState?.credentialSaved?"Accesso protetto in Windows":"Credenziali non memorizzate"}
+                              {portalSavedAccounts[loginPortal]?.credentialSaved?"Email memorizzata in Windows":loginState?.credentialSaved?"Email da verificare":"Credenziali non memorizzate"}
                             </span>
                             <div className="flex gap-2">
                               {loginState?.credentialSaved && <button type="button"
@@ -8964,7 +9021,13 @@ export default function App() {
                                 onClick={()=>void managePortalCredentials(loginPortal,"remove")}
                                 className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
                               <button type="button" disabled={Boolean(portalSessionBusy)||working}
-                                onClick={()=>setPortalCredentialEditing(portalCredentialEditing===loginPortal?null:loginPortal)}
+                                onClick={()=>{
+                                  const isOpening=portalCredentialEditing!==loginPortal;
+                                  if(isOpening) setPortalCredentialDrafts(old=>({...old,[loginPortal]:{
+                                    email:portalSavedAccounts[loginPortal]?.savedEmail||old[loginPortal]?.email||"",password:""
+                                  }}));
+                                  setPortalCredentialEditing(isOpening?loginPortal:null);
+                                }}
                                 className="text-[10px] font-black underline disabled:opacity-40">
                                 {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
                               </button>
@@ -8973,7 +9036,7 @@ export default function App() {
                           {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
                             <label className="text-[10px] font-bold">Email account esistente
                               <input type="email" autoComplete="off"
-                                value={portalCredentialDrafts[loginPortal]?.email||""}
+                                value={portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail??""}
                                 onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
                                 className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
                             </label>
@@ -8983,7 +9046,7 @@ export default function App() {
                                 onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
                                 className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
                             </label>
-                            <p className="text-[10px] opacity-80">I dati vengono inviati soltanto all’agente locale e salvati nel Gestore credenziali Windows. Mai su GitHub o nel report. Non inserire codici OTP qui.</p>
+                            <p className="text-[10px] opacity-80">Dopo «Salva» l'email verrà riletta dal PC e mostrata sopra anche quando riapri Velora. La password non viene mai mostrata né salvata nel browser. Non inserire codici OTP qui.</p>
                             <button type="button" disabled={Boolean(portalSessionBusy)}
                               onClick={()=>void managePortalCredentials(loginPortal,"save")}
                               className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
