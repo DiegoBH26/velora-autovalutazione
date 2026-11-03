@@ -77,14 +77,35 @@ class ManualPortalSessions:
             raise ValueError("Portale non supportato")
         return bool(self.vault and self.vault.exists(portal))
 
+    def account_info(self, portal: str) -> dict:
+        """Exact saved email, only for the local token-protected account route."""
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        if self.vault is None:
+            raise RuntimeError("Il Gestore credenziali Windows non è disponibile.")
+        email=self.vault.saved_email(portal)
+        return {"credentialSaved":email is not None, "savedEmail":email or ""}
+
     def save_credentials(self, portal: str, email: str, password: str) -> dict:
         if portal not in PORTALS:
             raise ValueError("Portale non supportato")
         if self.vault is None:
             raise RuntimeError("Le credenziali protette sono disponibili soltanto sul PC Windows.")
-        # The email and secret are never echoed back to the web app.
+        email=str(email or "").strip()
+        # When re-saving the same account with an empty password field,
+        # preserve a previously stored password instead of silently wiping it.
+        existing=self.vault.load(portal)
+        if existing and existing[0].casefold()==email.casefold() and not password:
+            password=existing[1]
         self.vault.save(portal, email, password)
-        return {"credentialSaved": True, "profileSaved": self.has_saved_profile(portal)}
+        # The write must be read back successfully from Windows before the
+        # user can see a "saved" confirmation. Never return the password.
+        actual=self.vault.saved_email(portal)
+        if actual!=email:
+            raise RuntimeError(
+                "Salvataggio non confermato: Windows non restituisce l'email attesa."
+            )
+        return {**self.account_info(portal), "profileSaved":self.has_saved_profile(portal)}
 
     def remove_credentials(self, portal: str) -> dict:
         if portal not in PORTALS:
@@ -92,7 +113,7 @@ class ManualPortalSessions:
         if self.vault is None:
             raise RuntimeError("Il Gestore credenziali Windows non è disponibile.")
         self.vault.remove(portal)
-        return {"credentialSaved": False, "profileSaved": self.has_saved_profile(portal)}
+        return {**self.account_info(portal), "profileSaved":self.has_saved_profile(portal)}
 
 
     def start_account_check(self, portal: str) -> dict:
