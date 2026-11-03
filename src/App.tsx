@@ -4952,7 +4952,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
-type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string; profileSaved?: boolean};
+type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
@@ -5018,6 +5018,8 @@ export default function App() {
   const [portalSessions, setPortalSessions] = useState<Record<string,PortalSessionState>>({});
   const [portalSessionMessage, setPortalSessionMessage] = useState("");
   const [portalSessionBusy, setPortalSessionBusy] = useState<string | null>(null);
+  const [portalCredentialEditing,setPortalCredentialEditing] = useState<LoginPortalId | null>(null);
+  const [portalCredentialDrafts,setPortalCredentialDrafts] = useState<Record<string,{email:string;password:string}>>({});
   const [launchingBatch, setLaunchingBatch] = useState(false);
   const [agentRunIds, setAgentRunIds] = useState<SpecialistAgentId[]>([]);
   const [agentRunStartedAt, setAgentRunStartedAt] = useState<number | null>(null);
@@ -5641,6 +5643,36 @@ export default function App() {
     }
   }
 
+
+  async function managePortalCredentials(portalId:LoginPortalId,action:"save"|"remove") {
+    if(portalSessionBusy) return;
+    const draft=portalCredentialDrafts[portalId]||{email:"",password:""};
+    if(action==="save" && !draft.email.trim()){
+      setPortalSessionMessage("Inserisci l’email dell’account "+veloraAgentName(portalId)+".");
+      return;
+    }
+    setPortalSessionBusy(portalId);
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Prima collega l’agente Velora su Windows.");
+      const response=await fetch(localAgentUrl("/api/portal-account/"+action),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({portalId,...(action==="save"?{email:draft.email.trim(),password:draft.password}:{})})
+      });
+      const result=await response.json() as {error?:string;status?:{credentialSaved:boolean;profileSaved:boolean}};
+      if(!response.ok) throw new Error(result.error||"Operazione Gestore credenziali Windows non riuscita.");
+      setPortalCredentialDrafts(old=>({...old,[portalId]:{email:"",password:""}}));
+      setPortalCredentialEditing(null);
+      setPortalSessionMessage(action==="save"
+        ?"Credenziali di "+veloraAgentName(portalId)+" salvate solo nel Gestore credenziali Windows. Ora premi ▶ Account. Se il portale chiede un codice, Velora si fermerà."
+        :"Credenziali locali cancellate per "+veloraAgentName(portalId)+". La sessione Chrome già salvata, se presente, non è stata cancellata.");
+      await refreshPortalSessions();
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Errore gestione credenziali.");
+    }finally{setPortalSessionBusy(null);}
+  }
+
   async function refreshPortalSessions() {
     try {
       const response=await fetch(localAgentUrl("/api/portal-session/status"), {mode:"cors",cache:"no-store"});
@@ -5720,12 +5752,12 @@ export default function App() {
       "Avvio non eseguito: chiudi e conserva prima il browser dedicato di " +
       open.map(veloraAgentName).join(", ")+"."
     );
-    const missing=required.filter(id=>!sessions[id]?.profileSaved);
+    const missing=required.filter(id=>!sessions[id]?.profileSaved && !sessions[id]?.credentialSaved);
     if (missing.length) throw new Error(
       "Avvio non eseguito: account da configurare per " +
       missing.map(veloraAgentName).join(", ") +
-      ". Premi «Apri accesso» nel rispettivo agente, accedi manualmente al portale e " +
-      "premi «Chiudi e conserva». Poi ripeti la scansione. Nessun timer è stato avviato."
+      ". Salva una volta l’email e la password in «Configura credenziali» (solo Windows), " +
+      "oppure premi «Apri accesso» e «Chiudi e conserva». Nessun timer è stato avviato."
     );
   }
 
@@ -8749,7 +8781,7 @@ export default function App() {
               </div>}
 
                 <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> se hai già creato l’account Expedia, Vrbo o Holidu non devi crearne un altro. Premi <strong>▶ Account</strong> per verificare sul momento il profilo Chrome salvato: se non è disponibile, Velora indica esattamente cosa manca e non fa partire il timer. Per collegare il tuo account esistente al Chrome dedicato premi <strong>Apri accesso</strong>, entra con le credenziali già in uso e poi <strong>Chiudi e conserva</strong>. Il login effettivo e la possibilità di leggere prezzi restano da verificare.
+                  <strong>Ercole, Atlante e Mercurio:</strong> configura una volta le credenziali Windows protette, oppure usa <strong>Apri accesso</strong> e <strong>Chiudi e conserva</strong> per salvare il profilo Chrome. Con <strong>▶ Account</strong> l’agente riusa autonomamente la sessione o tenta un accesso con i dati locali. Se il portale richiede un codice email, un CAPTCHA o una conferma di sicurezza, Velora si ferma e richiede il tuo intervento.
                 </p>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -8833,7 +8865,7 @@ export default function App() {
                         {(specialistLaunchErrors[agent.id] || (state?.state==="failed" && state.error)) && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{specialistLaunchErrors[agent.id] || state?.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo disponibile · login da verificare":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso non salvato: premi Apri accesso"}
+                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo Chrome disponibile":loginState?.credentialSaved?"Credenziali Windows salvate · avvio automatico possibile":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
@@ -8847,18 +8879,57 @@ export default function App() {
                             </button>
                           </span>
                         </div>}
+
+                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold opacity-80">
+                              {loginState?.credentialSaved?"Accesso protetto in Windows":"Credenziali non memorizzate"}
+                            </span>
+                            <div className="flex gap-2">
+                              {loginState?.credentialSaved && <button type="button"
+                                disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>void managePortalCredentials(loginPortal,"remove")}
+                                className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
+                              <button type="button" disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>setPortalCredentialEditing(portalCredentialEditing===loginPortal?null:loginPortal)}
+                                className="text-[10px] font-black underline disabled:opacity-40">
+                                {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
+                              </button>
+                            </div>
+                          </div>
+                          {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
+                            <label className="text-[10px] font-bold">Email account esistente
+                              <input type="email" autoComplete="off"
+                                value={portalCredentialDrafts[loginPortal]?.email||""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <label className="text-[10px] font-bold">Password (lascia vuoto se Expedia o Vrbo usano soltanto un codice email)
+                              <input type="password" autoComplete="new-password"
+                                value={portalCredentialDrafts[loginPortal]?.password||""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <p className="text-[10px] opacity-80">I dati vengono inviati soltanto all’agente locale e salvati nel Gestore credenziali Windows. Mai su GitHub o nel report. Non inserire codici OTP qui.</p>
+                            <button type="button" disabled={Boolean(portalSessionBusy)}
+                              onClick={()=>void managePortalCredentials(loginPortal,"save")}
+                              className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
+                              Salva accesso sul PC
+                            </button>
+                          </div>}
+                        </div>}
                       </div>;
                     })}
                   </div>
                 </div>
 
                 {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
-                    (!portalSessions[id]?.profileSaved || ["open","queued"].includes(portalSessions[id]?.state||""))) &&
+                    ((!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved) || ["open","queued"].includes(portalSessions[id]?.state||""))) &&
                   <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950" role="alert">
                     Avvio Account non disponibile per: {LOGIN_PORTAL_IDS.filter(id=>localPilotSelectedChannels.includes(id) &&
-                      (!portalSessions[id]?.profileSaved || ["open","queued"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
-                    Se gli account sui portali esistono già, non registrarli di nuovo: apri il Chrome dedicato con «Apri accesso», accedi con l’account esistente e premi «Chiudi e conserva».
-                    Il timer non partirà finché i profili richiesti non saranno pronti.
+                      (!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved || ["open","queued"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
+                    Puoi salvare le credenziali nel Gestore credenziali Windows usando «Configura credenziali», oppure completare manualmente il login con «Apri accesso» e «Chiudi e conserva».
+                    Il timer parte soltanto se un agente locale accetta il lavoro; i codici email e i CAPTCHA richiedono comunque l’utente.
                   </p>}
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
                   <div>
