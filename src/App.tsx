@@ -6711,6 +6711,10 @@ export default function App() {
   }
 
   function addRateQuote() {
+    if (manualRateSource && rateDraft.otaId!==manualRateSource.otaId) {
+      window.alert("La rilevazione assistita deve restare sul portale selezionato.");
+      return;
+    }
     if (manualRateSource?.locked && (
       rateDraft.otaId !== manualRateSource.otaId ||
       rateDraft.stayDate !== manualRateSource.checkin ||
@@ -9061,6 +9065,34 @@ export default function App() {
                           </span>
                         </div>}
 
+                        {agent.id==="expedia" && <div className="mt-2 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-2.5">
+                          <p className="text-[11px] font-black text-[#23124A]">Expedia · acquisizione assistita</p>
+                          <p className="mt-1 text-[10px] leading-relaxed text-[#50627F]">
+                            Alternativa al browser automatizzato bloccato: consulta il prezzo nel tuo Chrome normale,
+                            poi registralo con data, struttura, camera e URL. Non è uno scraping e non richiede VPN.
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer"
+                              className="rounded-lg border border-[#C8A96B] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A]">
+                              Apri Expedia nel browser normale ↗
+                            </a>
+                            <button type="button" onClick={prepareExpediaAssistedRate}
+                              className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
+                              Registra tariffa che vedo
+                            </button>
+                          </div>
+                          <p className="mt-2 text-[10px] font-bold text-[#5E466B]">
+                            {rateQuotes.filter(quote=>quote.otaId==="expedia"&&quote.origin==="manual").length} rilevazione/i manuali Expedia salvate nella scheda attiva.
+                          </p>
+                          <p className="mt-2 text-[10px] leading-relaxed text-[#50627F]">
+                            Accesso automatico ufficiale:{" "}
+                            <a href="https://partner.expediagroup.com/en-us/join-us/rapid-api"
+                              target="_blank" rel="noopener noreferrer" className="font-black underline">
+                              richiedi valutazione Rapid API ↗
+                            </a>.
+                            L'accesso è soggetto ad approvazione partner e non corrisponde necessariamente ai prezzi del sito Expedia.
+                          </p>
+                        </div>}
                         {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
@@ -9464,17 +9496,34 @@ export default function App() {
                 <b>Acquisizione assistita · {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}</b>
                 <button type="button" onClick={() => setManualRateSource(null)} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
               </div>
-              <p className="mt-1">Date Booking bloccate: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti.</p>
-              <p className="mt-1 text-[#50627F]">Inserisci solo il prezzo totale e la camera realmente visibili nel portale. L'inserimento sarà contrassegnato come manuale, non come scraping automatico. Se la pagina è ancora bloccata, non inserire prezzi.</p>
+              {manualRateSource.locked
+                ? <p className="mt-1">Date del campione già previsto: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Devi verificare le stesse date nel browser.</p>
+                : <p className="mt-1">Nessuna data campione disponibile: imposta check-in, notti e ospiti secondo ciò che hai realmente consultato.</p>}
+              <p className="mt-1 text-[#50627F]">Inserisci soltanto una tariffa realmente visibile nel tuo browser normale, per la stessa struttura e le stesse date. Il valore sarà contrassegnato come manuale e non diventerà automaticamente una tariffa verificata dall'agente.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="text-[11px] font-black text-[#23124A]">Nome esatto della struttura mostrato nella pagina
+                  <input type="text" value={manualRateSource.listingName||""}
+                    onChange={(e)=>setManualRateSource(previous=>previous?{...previous,listingName:e.target.value,identityConfirmed:false}:previous)}
+                    placeholder="Come appare su Expedia (es. Masseria Tenuta Specolizzi)"
+                    className="mt-1 block w-full rounded-lg border border-[#D9CCE8] bg-white p-2 text-xs" />
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-[#D9CCE8] bg-white p-2 text-[11px] font-semibold text-[#23124A]">
+                  <input type="checkbox" checked={Boolean(manualRateSource.identityConfirmed)}
+                    onChange={(e)=>setManualRateSource(previous=>previous?{...previous,identityConfirmed:e.target.checked}:previous)}
+                    className="h-4 w-4 shrink-0"/>
+                  Ho verificato che nome, fotografie/località, camera, date e ospiti corrispondono alla struttura che sto analizzando.
+                </label>
+              </div>
+              <p className="mt-2 text-[10px] text-[#50627F]">Incolla più sotto l'URL esatto del preventivo Expedia. Non copiare URL della pagina CAPTCHA o di un'altra struttura. Il prezzo resta non comparabile finché non è confermata la stessa unità di Booking.</p>
             </div>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
-            <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
-            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} disabled={Boolean(manualRateSource)} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
+            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" min={todayLocalIso()} disabled={Boolean(manualRateSource?.locked)} value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Totale camera in EUR<input type="number" min="0.01" step="0.01" value={rateDraft.total || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, total: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
-            <label className="text-[11px] font-black text-[#23124A]">Notti<input type="number" min="1" value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Notti<input type="number" min="1" disabled={Boolean(manualRateSource?.locked)} value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Tipologia camera<input value={rateDraft.roomType} onChange={(event) => setRateDraft((previous) => ({ ...previous, roomType: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">ID unità fisica verificata<input value={rateDraft.unitId || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, unitId: event.target.value }))} placeholder="Stesso ID solo se la camera è davvero identica" className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
-            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" value={rateDraft.guests} onChange={(event) => setRateDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" disabled={Boolean(manualRateSource?.locked)} value={rateDraft.guests} onChange={(event) => setRateDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Trattamento<select value={rateDraft.board} onChange={(event) => setRateDraft((previous) => ({ ...previous, board: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Colazione inclusa</option><option>Solo camera</option><option>Altro / non chiaro</option></select></label>
             <label className="text-[11px] font-black text-[#23124A]">Cancellazione<select value={rateDraft.refund} onChange={(event) => setRateDraft((previous) => ({ ...previous, refund: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Rimborsabile</option><option>Parzialmente rimborsabile</option><option>Non rimborsabile</option><option>Non chiaro</option></select></label>
             <label className="text-[11px] font-black text-[#23124A]">Pubblico<select value={rateDraft.audience} onChange={(event) => setRateDraft((previous) => ({ ...previous, audience: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Pubblico senza login</option><option>Iscritto / loyalty</option><option>Solo app / mobile</option><option>Altro</option></select></label>
@@ -9502,7 +9551,7 @@ export default function App() {
           {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).length} righe tariffarie automatiche rilevate su {new Set(rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).map((quote) => quote.otaId)).size} canale/i</b>. I valori non validati restano visibili ma non alimentano il delta. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
           <details className="my-3 rounded-xl border border-[#E5DDF1]"><summary className="cursor-pointer p-3 text-xs font-black text-[#23124A]">Riepilogo mensile OTA · prezzi e disponibilità · apri/chiudi</summary><div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(rateQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{<><span className="block text-[10px] leading-4 text-[#50627F]">{monthlyCoverageSummary(comparableQuotes, availabilityProbes, month, channel.id, browserPilotResult)}</span>{cell.average !== null && <span className="mt-1 block text-[10px] font-bold text-[#23124A]">€{cell.average.toFixed(2)} · {cell.count} rilevazione/i · {cell.verified} validate{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span>}</>}</td>; })}</tr>)}</tbody></table></div></details>
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
-          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.promotion || "inserimento manuale")}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
+          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : ("rilevazione manuale"+(quote.manualListingTitle?" · "+quote.manualListingTitle:""))}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
             <b>Promozioni verificate su una tariffa futura:</b> {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).length || "nessuna"}.
             {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).slice(-6).map((quote) => <p key={`promo-${quote.id}`} className="mt-1">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId} · {quote.stayDate} · {promotionSummary(quote)}</p>)}
