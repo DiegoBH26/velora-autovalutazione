@@ -5248,6 +5248,7 @@ export default function App() {
       }
     };
     window.addEventListener("message",receive);
+    window.postMessage({source:"velora-online-v1",type:"COMPANION_PING"},window.location.origin);
     return ()=>window.removeEventListener("message",receive);
   },[activeAuditData.id]);
   useEffect(() => {
@@ -9296,31 +9297,110 @@ export default function App() {
                         </div>}
 
                         {agent.id==="expedia" && <div className="mt-2 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-2.5">
-                          <p className="text-[11px] font-black text-[#23124A]">Expedia · acquisizione assistita</p>
+                          <p className="text-[12px] font-black text-[#23124A]">Expedia · lettura camere dal Chrome normale</p>
                           <p className="mt-1 text-[10px] leading-relaxed text-[#50627F]">
-                            Alternativa al browser automatizzato bloccato: consulta il prezzo nel tuo Chrome normale,
-                            poi registralo con data, struttura, camera e URL. Non è uno scraping e non richiede VPN.
+                            Non compilare prezzi o camere a mano. Apri la struttura Expedia nel Chrome che usi normalmente,
+                            seleziona le date e premi «Acquisisci camere da Chrome» qui sotto.
+                            Velora leggerà le tariffe già visibili sulla pagina, senza automatizzare il login o superare i controlli del portale.
                           </p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer"
                               className="rounded-lg border border-[#C8A96B] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A]">
-                              Apri Expedia nel browser normale ↗
+                              Apri Expedia ↗
                             </a>
-                            <button type="button" onClick={prepareExpediaAssistedRate}
+                            <button type="button" onClick={captureExpediaFromChrome}
                               className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
-                              Registra tariffa che vedo
+                              Acquisisci camere da Chrome
                             </button>
                           </div>
+                          <p className="mt-2 text-[10px] font-semibold text-[#5E466B]">
+                            {companionInstalled
+                              ? "Estensione Chrome Companion rilevata."
+                              : "Richiede l'estensione Chrome Companion (installazione una sola volta)."}
+                          </p>
+                          {companionMessage && <p className="mt-2 rounded-lg border border-[#E2D1AA] bg-white p-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status">
+                            {companionMessage}
+                          </p>}
+                          {companionCapture && companionCapture.propertyId===activeAuditData.id && <div className="mt-2 rounded-lg border border-[#E2D1AA] bg-white p-2">
+                            <p className="text-[11px] font-black text-[#23124A]">
+                              {companionCapture.rooms.length} camere Expedia lette automaticamente
+                            </p>
+                            <p className="mt-1 break-words text-[10px] text-[#50627F]">
+                              Pagina: {companionCapture.propertyName||companionCapture.pageTitle}
+                            </p>
+                            {!matchingExpediaProperty(
+                              companionCapture.propertyName+" "+companionCapture.pageTitle,
+                              activeAuditData.name,activeAuditData.city
+                            ) && <p className="mt-2 font-bold text-rose-700 text-[10px]" role="alert">
+                              Attenzione: identità della struttura non confermata. Non importerò prezzi di una scheda diversa.
+                            </p>}
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                              <label className="text-[10px] font-bold text-[#23124A]">
+                                Check-in
+                                <input type="date" value={companionStay.checkin} min={todayLocalIso()}
+                                  disabled={Boolean(companionCapture.checkin)}
+                                  onChange={event=>setCompanionStay(previous=>({...previous,checkin:event.target.value}))}
+                                  className="mt-1 w-full rounded-md border border-[#D9CCE8] p-1 text-[10px]"/>
+                              </label>
+                              <label className="text-[10px] font-bold text-[#23124A]">
+                                Check-out
+                                <input type="date" value={companionStay.checkout}
+                                  disabled={Boolean(companionCapture.checkout)}
+                                  onChange={event=>setCompanionStay(previous=>({...previous,checkout:event.target.value}))}
+                                  className="mt-1 w-full rounded-md border border-[#D9CCE8] p-1 text-[10px]"/>
+                              </label>
+                              <label className="text-[10px] font-bold text-[#23124A]">
+                                Ospiti
+                                <input type="number" min={1} value={companionStay.guests}
+                                  disabled={companionCapture.guests>0}
+                                  onChange={event=>setCompanionStay(previous=>({...previous,guests:Number(event.target.value)}))}
+                                  className="mt-1 w-full rounded-md border border-[#D9CCE8] p-1 text-[10px]"/>
+                              </label>
+                            </div>
+                            {(!companionCapture.checkin||!companionCapture.checkout) && <p className="mt-1 text-[10px] text-amber-800">
+                              Le date non sono presenti nel collegamento Expedia: selezionale qui una sola volta, secondo la ricerca realmente visibile.
+                            </p>}
+                            <div className="mt-2 max-h-64 overflow-auto">
+                              <table className="w-full border-collapse text-[10px]">
+                                <thead><tr className="border-b border-[#E5DDF1] text-left text-[#23124A]">
+                                  <th className="py-1">Camera Expedia</th><th className="py-1 text-right">Totale</th>
+                                  <th className="py-1 pl-2">Corrispondenza Booking</th>
+                                </tr></thead>
+                                <tbody>{companionCapture.rooms.map((room,i)=>{
+                                  const guess=nearbyBookingRoom(room.roomType,
+                                    [...new Set(rateQuotes.filter(q=>q.otaId==="booking").map(q=>q.roomType))]);
+                                  return <tr key={i} className="border-b border-[#F0E8F6] align-top">
+                                    <td className="py-1 pr-2">{room.roomType}</td>
+                                    <td className="py-1 text-right font-black">€ {room.total.toFixed(2)}</td>
+                                    <td className="py-1 pl-2 text-[#50627F]">
+                                      {guess
+                                        ? "Possibile: "+guess.room+" · da verificare"
+                                        : "Nessuna corrispondenza certa"}
+                                    </td>
+                                  </tr>;
+                                })}</tbody>
+                              </table>
+                            </div>
+                            <button type="button" onClick={importCompanionExpediaRates}
+                              disabled={!companionCapture.rooms.length ||
+                                !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)}
+                              className="mt-2 w-full rounded-lg bg-[#23124A] p-2 text-[11px] font-black text-white disabled:opacity-40">
+                              Importa tutte le {companionCapture.rooms.length} tariffe nel report
+                            </button>
+                            <p className="mt-1 text-[10px] text-[#50627F]">
+                              I nomi simili sono suggerimenti, non identità fisiche confermate. Confronti percentuali soltanto
+                              con camere, date e condizioni effettivamente omogenee.
+                            </p>
+                          </div>}
                           <p className="mt-2 text-[10px] font-bold text-[#5E466B]">
-                            {rateQuotes.filter(quote=>quote.otaId==="expedia"&&quote.origin==="manual").length} rilevazione/i manuali Expedia salvate nella scheda attiva.
+                            {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} tariffe Expedia importate dal browser nella struttura attiva.
                           </p>
                           <p className="mt-2 text-[10px] leading-relaxed text-[#50627F]">
-                            Accesso automatico ufficiale:{" "}
-                            <a href="https://partner.expediagroup.com/en-us/join-us/rapid-api"
+                            Per un agente completamente autonomo, il percorso corretto è un accesso dati autorizzato:
+                            {" "}<a href="https://partner.expediagroup.com/en-us/join-us/rapid-api"
                               target="_blank" rel="noopener noreferrer" className="font-black underline">
-                              richiedi valutazione Rapid API ↗
-                            </a>.
-                            L'accesso è soggetto ad approvazione partner e non corrisponde necessariamente ai prezzi del sito Expedia.
+                              Expedia Group Rapid API ↗
+                            </a> (soggetta ad approvazione e verifica del caso d'uso).
                           </p>
                         </div>}
                         {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
