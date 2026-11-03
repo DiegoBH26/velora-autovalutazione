@@ -5002,6 +5002,8 @@ export default function App() {
   const [localPilotToken, setLocalPilotToken] = useState("");
   const [localPilotRunning, setLocalPilotRunning] = useState(false);
   const [localPilotMessage, setLocalPilotMessage] = useState("");
+  const [resetScrapingRunning,setResetScrapingRunning]=useState(false);
+  const [resetScrapingMessage,setResetScrapingMessage]=useState("");
   const [specialistExpanded, setSpecialistExpanded] = useState(true);
   const [specialistMessage, setSpecialistMessage] = useState("");
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
@@ -5895,6 +5897,94 @@ export default function App() {
     }catch(error){
       setSpecialistMessage(error instanceof Error?error.message:"Check non riuscito");
     }finally{setSpecialistCheckRunning(false);}
+  }
+
+  async function resetCurrentStructureScraping() {
+    const propertyId=activeAuditData.id;
+    const propertyName=activeAuditData.name;
+    if (resetScrapingRunning) return;
+    if (localPilotRunning || autoAuditRunning || launchingBatch ||
+        Object.values(specialistStatuses).some(item=>item?.state==="running" || item?.state==="queued")) {
+      setResetScrapingMessage("Attendi che tutte le scansioni della struttura siano terminate.");
+      return;
+    }
+    if (!window.confirm(
+      "RESET SCRAPING - " + propertyName + "\n\n" +
+      "Cancella tutte le rilevazioni OTA e del sito diretto, prezzi, " +
+      "pagine individuate, recensioni, fotografie, risultati dei 12 agenti " +
+      "e verifiche di Giove per questa struttura.\n\n" +
+      "La scheda della struttura, l'intervista e i profili Chrome di accesso " +
+      "a Expedia, Vrbo e Holidu resteranno conservati.\n\n" +
+      "L'operazione è irreversibile. Vuoi proseguire?"
+    )) return;
+    setResetScrapingRunning(true);
+    setResetScrapingMessage("Cancellazione dei risultati locali in corso...");
+    try {
+      const token=await connectLocalAgent(false);
+      if (!token) throw new Error("Avvia l'agente locale Windows prima del reset.");
+      const response=await fetch(localAgentUrl("/api/scraping/reset"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({
+          propertyId, name:propertyName, website:activeAuditData.website,
+          city:activeAuditData.city,
+        }),
+      });
+      const payload=await response.json().catch(()=>({})) as {error?:string;sharedCachePreserved?:boolean};
+      if (!response.ok) throw new Error(payload.error || "Reset sul PC non riuscito.");
+      if (activeAuditData.id !== propertyId) throw new Error("Struttura cambiata durante il reset: ricarica la pagina.");
+      // Keep the property's identity and consulting interview. Clear only audit evidence.
+      const keepOtherAnswers=(answers:Record<string,Answer>)=>Object.fromEntries(
+        Object.entries(answers||{}).filter(([key])=>!key.startsWith("audit-"))
+      ) as Record<string,Answer>;
+      setStructures(previous=>previous.map(item=>{
+        if (item.id!==propertyId) return item;
+        return {
+          ...item, website:item.website || item.auditData?.website || "",
+          reportPath:undefined, auditedAt:undefined,
+          auditData:blankAuditDataForStructure({
+            id:item.id, name:item.name,city:item.city,province:item.province,
+            rooms:item.rooms,website:item.website || item.auditData?.website || "",
+          }),
+          answers:keepOtherAnswers(item.answers),
+          rateQuotes:[],availabilityProbes:[],
+          updatedAt:new Date().toISOString(),
+        };
+      }));
+      setAnswers(previous=>keepOtherAnswers(previous));
+      setRateQuotes([]);
+      setAvailabilityProbes([]);
+      setSelectedRateCohort("");
+      setBrowserPilotResult(null);
+      window.localStorage.removeItem("velora-browser-pilot:"+propertyId);
+      setSpecialistStatuses({});
+      setSpecialistChecks(null);
+      setFrontendComparisons([]);
+      setAgentRunIds([]);
+      setAgentRunStartedAt(null);
+      setAgentRunFinishedAt(null);
+      setSpecialistMessage("");
+      setAutoAuditMessage("");
+      setLocalPilotMessage("");
+      setLocalPilotProgress(0);
+      setLocalPilotIntervention(null);
+      setLocalPilotSelectedChannels([]);
+      setSelectedSupportAgents([]);
+      window.localStorage.setItem("velora-pilot-selected-channels","[]");
+      window.localStorage.setItem("velora-pilot-selected-support-agents","[]");
+      setResetScrapingMessage(
+        "Reset completato per " + propertyName +
+        ". Nessun risultato precedente verrà utilizzato nei prossimi test." +
+        (payload.sharedCachePreserved ? " Una cache condivisa con altre strutture è stata preservata." : "")
+      );
+    } catch(error) {
+      setResetScrapingMessage(
+        "Reset NON completato: " + (error instanceof Error?error.message:"Errore sconosciuto") +
+        ". I risultati esistenti restano visibili."
+      );
+    } finally {
+      setResetScrapingRunning(false);
+    }
   }
 
   async function startLocalPilot(months: LocalPilotPeriod, channelIds: string[]) {
@@ -8798,7 +8888,17 @@ export default function App() {
               </div>}
             </section>
             {localPilotMessage && <p className="mt-2 text-[11px] font-semibold text-[#23124A]" role="status">{localPilotMessage}</p>}
-            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Importa esiti della prova locale<input type="file" accept=".json,application/json" onChange={importBrowserPilotResult} className="sr-only" /></label>
+              <button type="button"
+                disabled={resetScrapingRunning || localPilotRunning || autoAuditRunning || launchingBatch || specialistCheckRunning}
+                onClick={()=>void resetCurrentStructureScraping()}
+                className="inline-flex items-center gap-2 rounded-xl border border-red-300 bg-white px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Cancella soltanto i dati di scraping della struttura corrente, non la scheda o l'intervista">
+                {resetScrapingRunning?"Reset in corso...":"↺ Reset scraping OTA, sito e recensioni"}
+              </button>
+            </div>
+            {resetScrapingMessage && <p className="mt-2 rounded-xl border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{resetScrapingMessage}</p>}
             {browserPilotResult?.propertyId === activeAuditData.id && <>
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
                 {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotDetectedRateQuotes(browserPilotResult).filter(row=>row.pilotVerified).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
