@@ -17,6 +17,7 @@ import os
 import sys
 import re
 import secrets
+import shutil
 import threading
 import types
 import unicodedata
@@ -801,9 +802,18 @@ def reset_property_runtime(payload):
         sources=runtime_data.get("sources") or {}
         website=str(((sources.get("sito") or {}).get("url") if isinstance(sources.get("sito"),dict) else "") or "")
 
-    with STATE.lock,AUTO_STATE.lock:
-        if STATE.running or AUTO_STATE.running:
-            raise RuntimeError("Non puoi cancellare i dati locali mentre una scansione è in corso.")
+    # A reset must never race with any specialist writing into its folder.
+    # Lock order matches agent start: classic states, then the agent registry.
+    with STATE.lock,AUTO_STATE.lock,AGENT_RUN_LOCK:
+        active_agents=[
+            agent for (pid,agent),status in AGENT_RUNS.items()
+            if pid==property_id and status.get("state") in {"running","queued"}
+        ]
+        if STATE.running or AUTO_STATE.running or active_agents:
+            detail=(" Agenti attivi: "+", ".join(active_agents)) if active_agents else ""
+            raise RuntimeError(
+                "Attendi che tutte le scansioni siano terminate prima del reset."+detail
+            )
 
     removed=[]
     for path in (runtime_path,auto_audit_output_path(property_id),result_path(property_id)):
@@ -814,20 +824,46 @@ def reset_property_runtime(payload):
         except OSError as exc:
             raise RuntimeError(f"Impossibile cancellare {path.name}: {type(exc).__name__}") from exc
 
+    # Remove only the exact cached identity. A similar name or a shared
+    # website hostname must never cause another property's records to vanish.
     cache=_read_ota_cache()
-    wanted_host=_site_host(website)
-    wanted_name=_norm(name)
+    identity_payload=runtime_data if runtime_data else {
+        "name":name, "website":website,
+        "city":str(payload.get("city") or ""),
+    }
+    cache_key=_identity_key(identity_payload)
     removed_cache=[]
-    for key,entry in list(cache.items()):
-        if not isinstance(entry,dict):
-            continue
-        entry_host=_site_host(str(entry.get("site") or ""))
-        entry_name=_norm(entry.get("name") or "")
-        if (wanted_host and entry_host==wanted_host) or (wanted_name and entry_name==wanted_name):
-            removed_cache.append(key)
-            cache.pop(key,None)
-    if removed_cache:
-        _write_ota_cache(cache)
+    shared_cache=False
+    if cache_key and cache_key in cache:
+        for other_path in RUNTIME_PROPERTIES.glob("*.json"):
+            if other_path.name==runtime_path.name:
+                continue
+            try:
+                other=json.loads(other_path.read_text(encoding="utf-8"))
+            except (OSError,json.JSONDecodeError):
+                continue
+            if _identity_key(other)==cache_key:
+                shared_cache=True
+                break
+        if not shared_cache:
+            cache.pop(cache_key,None)
+            removed_cache.append(cache_key)
+            _write_ota_cache(cache)
+
+    # All twelve agents and Giove store their reports under this property's
+    # own folder; the manually authorized OTA browser profiles are elsewhere.
+    agent_dir=AGENT_RESULTS/property_id
+    if agent_dir.exists():
+        try:
+            shutil.rmtree(agent_dir)
+            removed.append("specialist-agents/"+property_id)
+        except OSError as exc:
+            raise RuntimeError("Impossibile eliminare gli esiti degli agenti: "
+                               +type(exc).__name__) from exc
+    with AGENT_RUN_LOCK:
+        for key in list(AGENT_RUNS):
+            if key[0]==property_id:
+                AGENT_RUNS.pop(key,None)
 
     with STATE.lock:
         if STATE.property_id==property_id:
@@ -850,6 +886,9 @@ def reset_property_runtime(payload):
         "propertyId":property_id,
         "removedFiles":removed,
         "removedCacheEntries":len(removed_cache),
+        "sharedCachePreserved":shared_cache,
+        "agentRunsReset":True,
+        "portalLoginProfilesPreserved":True,
     }
 
 
@@ -1186,7 +1225,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1360,7 +1399,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(200,{"ok":True,"action":STATE.intervention_action})
                 return
 
-            if route=="/api/pilot/reset":
+            if route in {"/api/pilot/reset","/api/scraping/reset"}:
                 try:
                     result=reset_property_runtime(payload)
                 except RuntimeError as exc:
