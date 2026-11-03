@@ -5700,6 +5700,34 @@ export default function App() {
     }finally{setPortalSessionBusy(null);}
   }
 
+  async function requireSpecialistAccountProfiles(ids: SpecialistAgentId[]): Promise<void> {
+    const required=ids.filter((id): id is LoginPortalId =>
+      LOGIN_PORTAL_IDS.includes(id as LoginPortalId));
+    if (!required.length) return;
+    const response=await fetch(localAgentUrl("/api/portal-session/status"),{
+      mode:"cors",cache:"no-store"
+    });
+    if (!response.ok) throw new Error(
+      "Impossibile verificare gli accessi Expedia, Vrbo e Holidu. " +
+      "Aggiorna e riavvia l'agente Windows."
+    );
+    const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
+    const sessions=data.sessions||{};
+    setPortalSessions(sessions);
+    const open=required.filter(id=>["open","queued"].includes(sessions[id]?.state||""));
+    if (open.length) throw new Error(
+      "Avvio non eseguito: chiudi e conserva prima il browser dedicato di " +
+      open.map(veloraAgentName).join(", ")+"."
+    );
+    const missing=required.filter(id=>!sessions[id]?.profileSaved);
+    if (missing.length) throw new Error(
+      "Avvio non eseguito: account da configurare per " +
+      missing.map(veloraAgentName).join(", ") +
+      ". Premi «Apri accesso» nel rispettivo agente, accedi manualmente al portale e " +
+      "premi «Chiudi e conserva». Poi ripeti la scansione. Nessun timer è stato avviato."
+    );
+  }
+
   async function refreshSpecialistStatuses() {
     try {
       const response = await fetch(localAgentUrl("/api/agents/status?propertyId=" + encodeURIComponent(activeAuditData.id)), { mode:"cors", cache:"no-store" });
@@ -5722,6 +5750,7 @@ export default function App() {
     try {
       const token = await connectLocalAgent(false);
       if (!token) throw new Error("Avvia prima l'agente Velora sul PC.");
+      await requireSpecialistAccountProfiles([agentId]);
       const readiness = await fetch(localAgentUrl("/api/agents/config"),{mode:"cors",cache:"no-store"});
       if (!readiness.ok) {
         const detail = await readiness.json().catch(()=>({})) as {error?:string};
@@ -5823,11 +5852,19 @@ export default function App() {
       }
       setSpecialistMessage("L'agente è ancora in esecuzione. Usa Aggiorna stati per controllare l'esito senza rilanciare.");
     }catch(error){
+      const message=error instanceof Error?error.message:"Errore nell'avvio dell'agente";
       if (trackProgress && !accepted) {
         setAgentRunIds([]);
         setAgentRunStartedAt(null);
+        setAgentRunFinishedAt(null);
       }
-      setSpecialistMessage(error instanceof Error?error.message:"Errore nell'avvio dell'agente");
+      if (!accepted) {
+        setSpecialistStatuses(old=>({...old,[agentId]:{
+          state:"failed",error:message,phase:"Avvio rifiutato",
+          progressDetail:"Nessuna navigazione avviata."
+        }}));
+      }
+      setSpecialistMessage(message);
     }finally{
       setSpecialistBusy((old)=>({...old,[agentId]:false}));
     }
@@ -5859,6 +5896,9 @@ export default function App() {
         const details=await check.json().catch(()=>({})) as {error?:string};
         throw new Error(details.error||"Modulo specialisti non disponibile sul PC. Esegui AGGIORNA_VELORA_COMPLETO.bat e riavvia l'agente Windows.");
       }
+      // Check saved account profiles BEFORE starting the timer. Otherwise
+      // three account-only agents silently reject and the UI stays at 0%.
+      await requireSpecialistAccountProfiles(ids);
       setAgentRunIds(ids);
       const startedAt=Date.now();
       setAgentRunStartedAt(startedAt);
@@ -5869,6 +5909,7 @@ export default function App() {
     } catch(error) {
       setAgentRunIds([]);
       setAgentRunStartedAt(null);
+      setAgentRunFinishedAt(null);
       setSpecialistMessage(error instanceof Error?error.message:"Avvio agenti non riuscito.");
     } finally {
       setLaunchingBatch(false);
@@ -8688,7 +8729,7 @@ export default function App() {
               </div>}
 
                 <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> il tasto <strong>Apri accesso</strong> apre un Chrome personale e conserva il profilo sul PC. Il pulsante <strong>▶ Pubblico</strong> resta un test del motore pubblico e non utilizza la sessione registrata. Per l'automazione dei contenuti autenticati servono integrazioni o autorizzazioni dei rispettivi portali.
+                  <strong>Ercole, Atlante e Mercurio:</strong> per avviare la scansione occorre prima preparare il rispettivo account. Premi <strong>Apri accesso</strong>, effettua il login nella finestra Chrome dedicata, poi <strong>Chiudi e conserva</strong>. Solo allora si abilita <strong>▶ Account</strong>. Velora riutilizza il profilo salvato; il login effettivo e la possibilità di leggere prezzi restano da verificare.
                 </p>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -8753,19 +8794,18 @@ export default function App() {
                         </button>
                         <div className="mt-2.5 flex items-center justify-between gap-2">
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
-                          <button type="button" disabled={working||localPilotRunning}
+                          {!loginPortal ? <button type="button" disabled={working||localPilotRunning}
                             onClick={()=>void startSpecialistAgent(agent.id)}
-                            title={loginPortal?"Test pubblico senza accesso registrato":"Avvia solo "+agent.name+" ("+agent.channel+")"}
-                            aria-label={loginPortal?"Avvia test pubblico di "+agent.name:"Avvia solo "+agent.name+" ("+agent.channel+")"}
+                            title={"Avvia solo "+agent.name+" ("+agent.channel+")"}
+                            aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
-                            {loginPortal?"▶ Pubblico":"▶"}
-                          </button>
-                          {loginPortal && <button type="button"
+                            ▶
+                          </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||!loginState?.profileSaved||loginOpen}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
-                            title={loginState?.profileSaved?"Usa il profilo Chrome locale salvato; login e disponibilità non garantiti":"Prima usa Apri accesso e Chiudi e conserva"}
-                            aria-label={"Avvia "+agent.name+" con profilo account registrato"}
-                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-[#23124A] bg-white px-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">
+                            title={loginState?.profileSaved?"Avvia con il profilo Chrome locale salvato; login effettivo da verificare":"Prima premi Apri accesso, poi Chiudi e conserva"}
+                            aria-label={"Avvia "+agent.name+" con account registrato"}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white disabled:opacity-40">
                             ▶ Account
                           </button>}
                         </div>
@@ -8799,7 +8839,7 @@ export default function App() {
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
                       onClick={()=>void launchAgentBatch([...localPilotSelectedChannels as SpecialistAgentId[],...selectedSupportAgents])}
                       className="rounded-xl bg-[#23124A] px-4 py-3 text-xs font-black text-white disabled:opacity-40">
-                      {launchingBatch?"Rete al lavoro…":"Avvia analisi selezionata · Pubblico"}
+                      {launchingBatch?"Verifica e avvio agenti…":"Avvia analisi selezionata"}
                     </button>
                     <button type="button" disabled={launchingBatch || localPilotRunning}
                       onClick={()=>void launchAgentBatch(SPECIALIST_AGENTS.map((agent)=>agent.id))}
