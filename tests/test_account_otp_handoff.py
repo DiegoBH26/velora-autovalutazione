@@ -42,6 +42,48 @@ class FakeVerifiedPage:
 
 
 class OtpHandoffTests(unittest.TestCase):
+    def test_saved_email_readback_is_exact_and_survives_reopen(self):
+        class FakeVault:
+            def __init__(self):
+                self.records={}
+            def load(self,portal):
+                return self.records.get(portal)
+            def save(self,portal,email,password):
+                self.records[portal]=(email,password)
+            def saved_email(self,portal):
+                stored=self.records.get(portal)
+                return stored[0] if stored else None
+            def remove(self,portal):
+                self.records.pop(portal,None)
+        with tempfile.TemporaryDirectory() as root:
+            sessions=ManualPortalSessions(Path(root))
+            sessions.vault=FakeVault()
+            stored=sessions.save_credentials("expedia","user@example.com","")
+            self.assertEqual(stored["savedEmail"],"user@example.com")
+            self.assertTrue(stored["credentialSaved"])
+            self.assertEqual(sessions.account_info("expedia")["savedEmail"],"user@example.com")
+            sessions.save_credentials("holidu","another@example.com","private-test-password")
+            saved=sessions.save_credentials("holidu","another@example.com","")
+            self.assertEqual(saved["savedEmail"],"another@example.com")
+            self.assertEqual(sessions.vault.load("holidu")[1],"private-test-password")
+            removed=sessions.remove_credentials("expedia")
+            self.assertFalse(removed["credentialSaved"])
+            self.assertEqual(removed["savedEmail"],"")
+
+    def test_save_refuses_unverified_windows_write(self):
+        class MisreportingVault:
+            def load(self,portal):
+                return None
+            def save(self,portal,email,password):
+                pass
+            def saved_email(self,portal):
+                return None
+        with tempfile.TemporaryDirectory() as root:
+            sessions=ManualPortalSessions(Path(root))
+            sessions.vault=MisreportingVault()
+            with self.assertRaisesRegex(RuntimeError,"Salvataggio non confermato"):
+                sessions.save_credentials("expedia","user@example.com","")
+
     def test_resume_is_not_allowed_without_pending_login(self):
         with tempfile.TemporaryDirectory() as root:
             sessions=ManualPortalSessions(Path(root))
