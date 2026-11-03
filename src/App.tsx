@@ -3606,6 +3606,8 @@ type RateQuote = {
   sourceUrl: string;
   ratePlan?: string;
   origin?: "manual" | "pilot";
+  manualListingTitle?: string;
+  manualIdentityConfirmed?: boolean;
   pilotKey?: string;
   pilotVerified?: boolean;
 };
@@ -4994,7 +4996,7 @@ export default function App() {
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
   const [manualRateSource, setManualRateSource] = useState<null | {
     otaId: string; checkin: string; checkout: string; nights: number; guests: number;
-    url: string;
+    url: string; locked?: boolean; listingName?: string; identityConfirmed?: boolean;
   }>(null);
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -6649,6 +6651,16 @@ export default function App() {
     }));
   }
 
+  function showAssistedRateForm() {
+    const details=document.getElementById("velora-pricing-details");
+    if(details instanceof HTMLDetailsElement) details.open=true;
+    // The form lives inside a collapsed <details>; expand it before scrolling.
+    window.requestAnimationFrame(()=>{
+      document.getElementById("velora-manual-rate-form")
+        ?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
+  }
+
   function prepareBlockedOtaManualQuote(observation: BrowserPilotObservation) {
     const start = Date.parse(observation.checkin + "T00:00:00Z");
     const finish = Date.parse(observation.checkout + "T00:00:00Z");
@@ -6656,22 +6668,50 @@ export default function App() {
       ? Math.max(1, Math.round((finish - start) / 86400000))
       : Math.max(1, Number(observation.nights || 1));
     const guests = Math.max(1, Number(observation.adults || 2));
-    const url = (observation.finalUrl || observation.requestedUrl || "").trim();
+    // Never automatically copy a URL from a blocked or misidentified listing:
+    // the user must supply the real page observed in their normal browser.
     setManualRateSource({
       otaId: observation.otaId, checkin: observation.checkin,
-      checkout: observation.checkout, nights, guests, url,
+      checkout: observation.checkout, nights, guests, url:"",
+      locked:true, listingName:"", identityConfirmed:false,
     });
     setRateDraft({
       ...EMPTY_RATE_DRAFT,
       otaId: observation.otaId, stayDate: observation.checkin, nights, guests,
-      roomType: "", board: "Altro / non chiaro", refund: "Non chiaro",
-      taxes: "Non chiaro", audience: "Pubblico senza login", sourceUrl: url,
+      roomType:"", unitId:"", board:"Altro / non chiaro", refund:"Non chiaro",
+      taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
-    document.getElementById("velora-manual-rate-form")?.scrollIntoView({behavior: "smooth",block: "start"});
+    showAssistedRateForm();
+  }
+
+  function prepareExpediaAssistedRate() {
+    // Prefer the most recent Expedia stay already sampled for this structure.
+    // If no past sample exists, the user can enter dates in the regular form.
+    const reference=[...(browserPilotResult?.observations||[])].reverse().find((row)=>
+      row.otaId==="expedia" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(row.checkin) &&
+      row.checkin>=todayLocalIso() &&
+      /^\d{4}-\d{2}-\d{2}$/.test(row.checkout) &&
+      row.checkout>row.checkin
+    );
+    if(reference) {
+      prepareBlockedOtaManualQuote(reference);
+      return;
+    }
+    setManualRateSource({
+      otaId:"expedia",checkin:"",checkout:"",nights:3,guests:2,url:"",
+      locked:false,listingName:"",identityConfirmed:false,
+    });
+    setRateDraft({
+      ...EMPTY_RATE_DRAFT,otaId:"expedia",stayDate:"",nights:3,guests:2,
+      roomType:"",unitId:"",board:"Altro / non chiaro",refund:"Non chiaro",
+      taxes:"Non chiaro",audience:"Pubblico senza login",sourceUrl:"",
+    });
+    showAssistedRateForm();
   }
 
   function addRateQuote() {
-    if (manualRateSource && (
+    if (manualRateSource?.locked && (
       rateDraft.otaId !== manualRateSource.otaId ||
       rateDraft.stayDate !== manualRateSource.checkin ||
       rateDraft.nights !== manualRateSource.nights ||
@@ -6684,6 +6724,24 @@ export default function App() {
       window.alert("Inserisci una data futura, prezzo positivo, camera, ospiti e URL. Se indichi un prezzo barrato, deve superare quello finale.");
       return;
     }
+    if (manualRateSource) {
+      if (!manualRateSource.listingName?.trim() || !manualRateSource.identityConfirmed) {
+        window.alert("Prima di salvare, indica il nome della struttura mostrato nel tuo browser e conferma di avere controllato identità, località e date. Non usare prezzi di schede bloccate o diverse.");
+        return;
+      }
+      if (manualRateSource.otaId==="expedia") {
+        let authorizedUrl=false;
+        try {
+          const url=new URL(rateDraft.sourceUrl.trim());
+          const host=url.hostname.toLowerCase();
+          authorizedUrl=url.protocol==="https:" && ["expedia.it","expedia.com","expedia.co.uk","expedia.de","expedia.fr","expedia.es"].some(domain=>host===domain||host.endsWith("."+domain));
+        } catch { /* invalid URL */ }
+        if (!authorizedUrl) {
+          window.alert("Per Expedia incolla l'URL https:// della scheda realmente aperta su Expedia nel Chrome normale, non un link Google o una schermata di blocco.");
+          return;
+        }
+      }
+    }
     const quote: RateQuote = {
       ...rateDraft,
       id: globalThis.crypto?.randomUUID?.() ?? `rate-${Date.now()}`,
@@ -6691,8 +6749,10 @@ export default function App() {
       roomType: rateDraft.roomType.trim(),
       sourceUrl: rateDraft.sourceUrl.trim(),
       origin: "manual",
+      manualListingTitle: manualRateSource?.listingName?.trim()||undefined,
+      manualIdentityConfirmed: Boolean(manualRateSource?.identityConfirmed),
       comparisonWarning: manualRateSource
-        ? "Tariffa trascritta manualmente da una pagina pubblica dall'operatore, non estratta dall'agente. Le condizioni e l'identità dell'unità restano da verificare per il delta."
+        ? "Fonte: lettura manuale nel browser personale; identità dichiarata dall'operatore e non verificata dall'agente. Camera, pubblico e condizioni non sono automaticamente abbinati a Booking: delta solo con unità fisica confermata."
         : rateDraft.comparisonWarning,
     };
     setRateQuotes((previous) => [...previous, quote]);
@@ -9354,7 +9414,7 @@ export default function App() {
               </div>}
             </>}
           </div>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
+          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
           <div className="mt-3 flex flex-col gap-2">
             {pricingAccordionIds.map((otaId) => {
