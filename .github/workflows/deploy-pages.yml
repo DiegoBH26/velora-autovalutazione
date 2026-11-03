@@ -29,6 +29,13 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Verify Chrome Companion syntax
+        run: |
+          node --check chrome-companion-expedia/background.js
+          node --check chrome-companion-expedia/bridge.js
+      - name: Package Chrome Companion into downloadable ZIP
+        run: |
+          python -c "import pathlib,zipfile; root=pathlib.Path('chrome-companion-expedia'); dest=pathlib.Path('dist/velora-expedia-companion.zip'); z=zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED); [z.write(p,arcname='Velora_Chrome_Companion/'+p.name) for p in sorted(root.iterdir()) if p.is_file() and p.suffix in ('.json','.js','.txt')]; z.close(); print('Prepared',dest)"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
