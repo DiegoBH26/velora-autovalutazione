@@ -4952,7 +4952,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
-type PortalSessionState = {state?: "idle" | "queued" | "open" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
+type PortalSessionState = {state?: "idle" | "queued" | "open" | "awaiting_user" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
@@ -5644,6 +5644,27 @@ export default function App() {
   }
 
 
+
+  async function resumeAgentLogin(portalId: LoginPortalId) {
+    if(portalSessionBusy) return;
+    setPortalSessionBusy(portalId);
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Agente Velora Windows non collegato.");
+      const response=await fetch(localAgentUrl("/api/portal-auth/resume"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({portalId})
+      });
+      const result=await response.json() as {error?:string;session?:PortalSessionState};
+      if(!response.ok) throw new Error(result.error||"Impossibile riprendere la scansione.");
+      setPortalSessions(old=>({...old,[portalId]:result.session||{}}));
+      setPortalSessionMessage(veloraAgentName(portalId)+": conferma ricevuta. Verifico il login nel browser, poi riprendo automaticamente la scansione.");
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Errore ripresa login.");
+    }finally{setPortalSessionBusy(null);}
+  }
+
   async function managePortalCredentials(portalId:LoginPortalId,action:"save"|"remove") {
     if(portalSessionBusy) return;
     const draft=portalCredentialDrafts[portalId]||{email:"",password:""};
@@ -5747,7 +5768,7 @@ export default function App() {
     const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
     const sessions=data.sessions||{};
     setPortalSessions(sessions);
-    const open=required.filter(id=>["open","queued"].includes(sessions[id]?.state||""));
+    const open=required.filter(id=>["open","queued","awaiting_user"].includes(sessions[id]?.state||""));
     if (open.length) throw new Error(
       "Avvio non eseguito: chiudi e conserva prima il browser dedicato di " +
       open.map(veloraAgentName).join(", ")+"."
@@ -8781,7 +8802,7 @@ export default function App() {
               </div>}
 
                 <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> configura una volta le credenziali Windows protette, oppure usa <strong>Apri accesso</strong> e <strong>Chiudi e conserva</strong> per salvare il profilo Chrome. Con <strong>▶ Account</strong> l’agente riusa autonomamente la sessione o tenta un accesso con i dati locali. Se il portale richiede un codice email, un CAPTCHA o una conferma di sicurezza, Velora si ferma e richiede il tuo intervento.
+                  <strong>Ercole, Atlante e Mercurio:</strong> salva una volta l’email nel Gestore credenziali Windows (lascia vuota la password se usi codici OTP) oppure conserva il profilo Chrome con <strong>Apri accesso</strong> e <strong>Chiudi e conserva</strong>. Con <strong>▶ Account</strong> l’agente tenta l’accesso. Se serve un codice o una verifica, Chrome rimane aperto: inseriscilo personalmente e premi <strong>Ho completato l’accesso · Riprendi</strong>. Non condividere codici con Velora.
                 </p>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -8820,7 +8841,7 @@ export default function App() {
                       const loginPortal=LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId) ? agent.id as LoginPortalId : null;
                       const loginState=loginPortal?portalSessions[loginPortal]:undefined;
                       const loginOpen=loginState?.state==="open"||loginState?.state==="queued";
-                      const stateText=state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"
+                      const stateText=loginState?.state==="awaiting_user"?"Assistenza login richiesta":state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"
                         ?"Terminato · da validare":state?.state==="failed"?"Errore avvio / scansione":state?.hasResult?"Risultato archiviato":"Non avviato";
                       const toggle=()=>{
                         if(ota){
@@ -8865,7 +8886,7 @@ export default function App() {
                         {(specialistLaunchErrors[agent.id] || (state?.state==="failed" && state.error)) && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{specialistLaunchErrors[agent.id] || state?.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo Chrome disponibile":loginState?.credentialSaved?"Credenziali Windows salvate · avvio automatico possibile":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
+                            {loginState?.state==="awaiting_user"?"Codice o verifica richiesti nel Chrome dedicato":loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo Chrome disponibile":loginState?.credentialSaved?"Credenziali Windows salvate · avvio automatico possibile":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
@@ -8880,6 +8901,19 @@ export default function App() {
                           </span>
                         </div>}
 
+                        {loginPortal && loginState?.state==="awaiting_user" && <div className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-amber-950" role="alert">
+                          <p className="text-[11px] font-black">Verifica umana richiesta</p>
+                          <p className="mt-1 text-[10px] leading-snug">
+                            {loginState.message||"Inserisci il codice nel Chrome dedicato, poi riprendi."}
+                            {" "}Non comunicare il codice a Velora o in chat. Il browser resta aperto durante la pausa.
+                          </p>
+                          <button type="button"
+                            disabled={Boolean(portalSessionBusy)}
+                            onClick={()=>void resumeAgentLogin(loginPortal)}
+                            className="mt-2 w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white disabled:opacity-40">
+                            Ho completato l'accesso · Riprendi
+                          </button>
+                        </div>}
                         {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-[10px] font-semibold opacity-80">
@@ -8924,10 +8958,10 @@ export default function App() {
                 </div>
 
                 {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
-                    ((!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved) || ["open","queued"].includes(portalSessions[id]?.state||""))) &&
+                    ((!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved) || ["open","queued","awaiting_user"].includes(portalSessions[id]?.state||""))) &&
                   <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950" role="alert">
                     Avvio Account non disponibile per: {LOGIN_PORTAL_IDS.filter(id=>localPilotSelectedChannels.includes(id) &&
-                      (!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved || ["open","queued"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
+                      (!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved || ["open","queued","awaiting_user"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
                     Puoi salvare le credenziali nel Gestore credenziali Windows usando «Configura credenziali», oppure completare manualmente il login con «Apri accesso» e «Chiudi e conserva».
                     Il timer parte soltanto se un agente locale accetta il lavoro; i codici email e i CAPTCHA richiedono comunque l’utente.
                   </p>}
