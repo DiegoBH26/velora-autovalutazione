@@ -35,6 +35,7 @@ PORTALS = {
     },
 }
 SESSION_MAX_SECONDS = 45 * 60
+HUMAN_LOGIN_MAX_SECONDS = 15 * 60
 
 class ManualPortalSessions:
     """One supervised browser per portal, a single active manual login at a time."""
@@ -48,6 +49,7 @@ class ManualPortalSessions:
             for key in PORTALS
         }
         self.stop_events: dict[str, threading.Event] = {}
+        self.auth_resume_events: dict[str, threading.Event] = {}
         self.pending_urls: dict[str, str] = {}
 
     def profile_dir(self, portal: str) -> Path:
@@ -91,12 +93,92 @@ class ManualPortalSessions:
         self.vault.remove(portal)
         return {"credentialSaved": False, "profileSaved": self.has_saved_profile(portal)}
 
+    def resume_agent_login(self, portal: str) -> dict:
+        """The signed-in user confirms that they personally completed the code step."""
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        with self.lock:
+            if self.state[portal].get("state") != "awaiting_user":
+                raise RuntimeError("Nessun codice di accesso in attesa per questo portale.")
+            event = self.auth_resume_events.get(portal)
+            if event is None:
+                raise RuntimeError("La sessione di verifica è scaduta o non è più attiva.")
+            event.set()
+            self.state[portal]["message"] = "Conferma ricevuta. Verifica la pagina e riprende la scansione."
+            return dict(self.state[portal])
+
+    async def _wait_for_human_login(self, portal: str, page, explanation: str) -> str:
+        """Keep the SAME authenticated Chrome window open while the user enters OTP."""
+        event = threading.Event()
+        with self.lock:
+            if self.state[portal].get("state") in {"open", "queued", "awaiting_user"}:
+                raise RuntimeError("È già aperta una sessione di accesso per questo portale.")
+            self.auth_resume_events[portal] = event
+            self.state[portal] = {
+                "state": "awaiting_user",
+                "message": explanation,
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        print(f"[ASSISTENZA LOGIN] {PORTALS[portal]['name']} | IN ATTESA | Codice o verifica richiesti nella finestra Chrome", flush=True)
+        try:
+            confirmed = await asyncio.to_thread(event.wait, HUMAN_LOGIN_MAX_SECONDS)
+            if not confirmed:
+                raise RuntimeError(
+                    "VERIFICA SCADUTA: non è arrivata la conferma entro 15 minuti. "
+                    "Ripeti ▶ Account per un nuovo tentativo."
+                )
+            await page.wait_for_timeout(1800)
+            if await self._needs_human_challenge(page):
+                raise RuntimeError(
+                    "ACCESSO NON COMPLETATO: il codice o la verifica di sicurezza sono "
+                    "ancora visibili nella finestra Chrome. Completa l'accesso e riprova."
+                )
+            login_fields = page.locator(
+                'input[type="email"],input[type="password"],'
+                'input[autocomplete="username"],input[autocomplete="one-time-code"]'
+            )
+            if await self._has_visible(login_fields):
+                raise RuntimeError(
+                    "ACCESSO NON COMPLETATO: la pagina mostra ancora i campi di login. "
+                    "Completa la verifica prima di riprendere."
+                )
+            login_path = urlparse(page.url).path.lower()
+            if any(term in login_path for term in ("/login", "/signin", "/sign-in", "/authentication")):
+                raise RuntimeError(
+                    "ACCESSO NON COMPLETATO: sei ancora nella schermata di autenticazione."
+                )
+            return "verifica completata manualmente; sessione riutilizzata su conferma dell'utente"
+        finally:
+            with self.lock:
+                self.auth_resume_events.pop(portal, None)
+                self.state[portal] = {
+                    "state": "closed" if event.is_set() else "error",
+                    "message": "Browser di accesso in chiusura; profilo conservato localmente."
+                }
+
+    @staticmethod
+    async def _request_one_time_code(page) -> bool:
+        """Click a visible 'send code' action once; never read/submit the OTP."""
+        pattern = re.compile(
+            r"(invia|inviami|manda|send|get|receive|ricevi|richiedi|request|resend|reinvia).{0,35}"
+            r"(codice|code|otp|verification)|"
+            r"(codice|code|otp).{0,35}(via|by|email|sms)",
+            re.IGNORECASE
+        )
+        for role in ("button", "link"):
+            candidate = page.get_by_role(role, name=pattern)
+            if await ManualPortalSessions._has_visible(candidate):
+                await candidate.first.click(timeout=9000)
+                await page.wait_for_timeout(700)
+                return True
+        return False
+
     async def prepare_account_session(self, portal: str) -> str:
         """Try one authorized login without bypassing portal security challenges.
 
         An existing persistent profile is reused. If the service has logged the
         account out, attempt one password login. OTP, CAPTCHA or an unrecognized
-        screen STOP the scan and explain why human verification is necessary.
+        screen PAUSE the scan; user enters OTP in Chrome, then explicitly resumes.
         """
         if portal not in PORTALS:
             raise ValueError("Portale non supportato")
@@ -118,9 +200,10 @@ class ManualPortalSessions:
                 await page.goto(PORTALS[portal]["home"], wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1200)
                 if await self._needs_human_challenge(page):
-                    raise RuntimeError(
-                        "VERIFICA UMANA: il portale richiede un controllo di sicurezza. "
-                        "Apri accesso e completa personalmente la verifica, poi Chiudi e conserva."
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Completa il codice temporaneo o la verifica di sicurezza nel Chrome dedicato, "
+                        "poi premi «Ho completato l'accesso · Riprendi» in Velora."
                     )
                 email_field = page.locator('input[type="email"],input[autocomplete="username"]')
                 if not await self._has_visible(email_field):
@@ -133,44 +216,63 @@ class ManualPortalSessions:
                         await signin.click(timeout=6000)
                         await page.wait_for_timeout(1250)
                     except Exception:
-                        raise RuntimeError(
-                            "LOGIN NON RICONOSCIUTO: apertura del form Expedia/Vrbo/Holidu "
-                            "non riuscita; accedi con Apri accesso e salva la sessione."
+                        return await self._wait_for_human_login(
+                            portal, page,
+                            "Apertura del login non riconosciuta: completa l'accesso nel Chrome "
+                            "dedicato e premi «Ho completato l'accesso · Riprendi»."
                         )
                 if await self._needs_human_challenge(page):
-                    raise RuntimeError("VERIFICA UMANA: completa la verifica di sicurezza nel Chrome dedicato.")
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Il portale richiede una verifica: completala nel Chrome dedicato "
+                        "e premi «Ho completato l'accesso · Riprendi»."
+                    )
                 email_field = page.locator('input[type="email"],input[autocomplete="username"]')
                 if not await self._has_visible(email_field):
                     # A previously valid session may redirect directly into the account.
                     if await self._looks_signed_out(page):
-                        raise RuntimeError("LOGIN DA VERIFICARE: il portale non presenta un form email noto.")
+                        return await self._wait_for_human_login(
+                            portal, page,
+                            "Login non riconosciuto: accedi nella finestra Chrome "
+                            "e poi premi «Ho completato l'accesso · Riprendi»."
+                        )
                     return "sessione Chrome riutilizzata, accesso effettivo da verificare"
                 self._ensure_login_host(portal, page.url)
                 await email_field.first.fill(email, timeout=9000)
                 continue_button = await self._submit_button(page)
                 if continue_button is None:
-                    raise RuntimeError("LOGIN DA VERIFICARE: pulsante di proseguimento non riconosciuto.")
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Non trovo il pulsante per inviare il codice: premilo direttamente "
+                        "nel Chrome aperto, inserisci il codice e poi premi Riprendi."
+                    )
                 await continue_button.click(timeout=9000)
                 await page.wait_for_timeout(1400)
+                # Expedia and Vrbo may show an additional "Invia codice" button.
+                # A single opt-in click is allowed; actual OTP stays with the human.
+                await self._request_one_time_code(page)
                 if await self._needs_human_challenge(page):
-                    raise RuntimeError(
-                        "VERIFICA UMANA: il portale richiede codice email, CAPTCHA o conferma "
-                        "di sicurezza. Usa Apri accesso e Chiudi e conserva."
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Codice inviato o verifica richiesta. Inseriscilo sul portale "
+                        "nella finestra Chrome; quando sei dentro premi «Ho completato l'accesso · Riprendi»."
                     )
                 password_field = page.locator('input[type="password"]')
                 if not await self._has_visible(password_field):
                     # Expedia/One Key often uses an emailed code instead of a
                     # password. We cannot infer success from submitting an email.
-                    raise RuntimeError(
-                        "VERIFICA UMANA: il portale non ha presentato una password. "
-                        "Controlla nell'account il codice email o il link di conferma; "
-                        "completa il login tramite Apri accesso e Chiudi e conserva."
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Expedia/Vrbo usa il codice ricevuto sul telefono o via email. "
+                        "Inseriscilo direttamente nel Chrome aperto, senza comunicarlo a Velora. "
+                        "Quando compare il tuo account, premi «Ho completato l'accesso · Riprendi»."
                     )
                 if await self._has_visible(password_field):
                     if not password:
-                        raise RuntimeError(
-                            "PASSWORD RICHIESTA: aggiungila in Configura credenziali "
-                            "oppure completa il login manualmente."
+                        return await self._wait_for_human_login(
+                            portal, page,
+                            "Questo portale richiede una password. Inseriscila nel Chrome dedicato "
+                            "e premi «Ho completato l'accesso · Riprendi»."
                         )
                     self._ensure_login_host(portal, page.url)
                     await password_field.first.fill(password, timeout=9000)
@@ -180,9 +282,10 @@ class ManualPortalSessions:
                     await submit.click(timeout=9000)
                     await page.wait_for_timeout(1600)
                 if await self._needs_human_challenge(page):
-                    raise RuntimeError(
-                        "VERIFICA UMANA: il portale richiede un codice temporaneo o CAPTCHA. "
-                        "Nessun codice viene aggirato. Apri accesso, verifica e Chiudi e conserva."
+                    return await self._wait_for_human_login(
+                        portal, page,
+                        "Codice temporaneo o CAPTCHA richiesto: risolvi la verifica manualmente "
+                        "nel Chrome dedicato e premi «Ho completato l'accesso · Riprendi»."
                     )
                 if await self._has_visible(page.locator('input[type="email"],input[type="password"]')):
                     raise RuntimeError(
@@ -277,7 +380,7 @@ class ManualPortalSessions:
         if portal not in PORTALS:
             raise ValueError("Portale non supportato")
         with self.lock:
-            if any(v["state"] in ("queued", "open") for v in self.state.values()):
+            if any(v["state"] in ("queued", "open", "awaiting_user") for v in self.state.values()):
                 raise RuntimeError("Completa o chiudi prima la sessione manuale già aperta.")
             stop = threading.Event()
             self.stop_events[portal] = stop
