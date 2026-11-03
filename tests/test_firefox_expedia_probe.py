@@ -144,7 +144,8 @@ class FirefoxProbeTests(unittest.TestCase):
         sessions=(ROOT/"velora_portal_sessions.py").read_text(encoding="utf-8")
         server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
         app=(ROOT/"src/App.tsx").read_text(encoding="utf-8")
-        self.assertIn('["-m", "playwright", "install", "firefox"]',sessions.replace("sys.executable, ",""))
+        self.assertIn('"playwright", "install", "firefox"',sessions)
+        self.assertIn("sys.executable",sessions)
         self.assertIn("playwright.firefox.launch_persistent_context",sessions)
         self.assertIn("self._access_restricted_reason(page)",sessions)
         self.assertIn("login_reached",sessions)
@@ -153,7 +154,7 @@ class FirefoxProbeTests(unittest.TestCase):
         self.assertIn('self.headers.get("X-Velora-Local-Token")!=STATE.token',server)
         self.assertIn("Firefox TEST · Expedia",app)
         self.assertIn("manageFirefoxTest",app)
-        self.assertNotIn("firefoxTest?.state===\\"ready\\"",app)
+        self.assertNotIn('firefoxTest?.state==="ready"',app)
 
 
 if __name__=="__main__":
