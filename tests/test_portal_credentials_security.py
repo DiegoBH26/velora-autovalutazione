@@ -47,7 +47,7 @@ class LocalAccountCredentialContract(unittest.TestCase):
         self.assertIn("codice ricevuto", self.sessions)
         self.assertIn("CAPTCHA", self.sessions)
         self.assertIn("awaiting_user", self.sessions)
-        self.assertIn("non ha presentato una password", self.sessions)
+        self.assertIn("Expedia/Vrbo usa il codice ricevuto", self.sessions)
         self.assertIn("LOGIN NON CONFERMATO", self.sessions)
         self.assertIn("raise RuntimeError", self.sessions)
         self.assertIn("def resume_agent_login", self.sessions)
