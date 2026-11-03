@@ -30,7 +30,7 @@ class ExpediaAssistedCapture(unittest.TestCase):
     def test_source_and_identity_are_required_before_saving(self):
         self.assertIn("manualListingTitle: manualRateSource?.listingName?.trim()",APP)
         self.assertIn("manualIdentityConfirmed: Boolean(manualRateSource?.identityConfirmed)",APP)
-        self.assertIn("sourceUrl:rateDraft.sourceUrl",APP.replace(" ", "") if False else APP)
+        self.assertIn("sourceUrl: rateDraft.sourceUrl.trim()",APP)
         self.assertIn('["expedia.it","expedia.com","expedia.co.uk"',APP)
         self.assertIn("url.protocol===\"https:\"",APP)
         self.assertIn("non verificata dall'agente",APP)
