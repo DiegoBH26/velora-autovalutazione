@@ -61,7 +61,7 @@ function visibleExpediaCapture() {
     const n=Number(normalized.replace(",","."));
     return Number.isFinite(n)&&n>=1&&n<=200000 ? n : null;
   }
-  const pricePattern=/(\d{1,6}(?:[.,]\d{2})?)\s*€|€\s*(\d{1,6}(?:[.,]\d{2})?)/g;
+  const pricePattern=/(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)\s*€|€\s*(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)/g;
   function quoteTotal(cardText) {
     const hits=[...cardText.matchAll(pricePattern)];
     const stayRe=/\bper\s+\d{1,2}\s+nott[ei]\b|\bfor\s+\d{1,2}\s+nights?\b/i;
