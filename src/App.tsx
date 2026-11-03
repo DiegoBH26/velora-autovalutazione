@@ -9531,9 +9531,37 @@ export default function App() {
                 <button type="button" onClick={() => setManualRateSource(null)} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
               </div>
               {manualRateSource.locked
-                ? <p className="mt-1">Date del campione già previsto: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Devi verificare le stesse date nel browser.</p>
-                : <p className="mt-1">Nessuna data campione disponibile: imposta check-in, notti e ospiti secondo ciò che hai realmente consultato.</p>}
-              <p className="mt-1 text-[#50627F]">Inserisci soltanto una tariffa realmente visibile nel tuo browser normale, per la stessa struttura e le stesse date. Il valore sarà contrassegnato come manuale e non diventerà automaticamente una tariffa verificata dall'agente.</p>
+                ? <p className="mt-1">Date del campione fissato: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Controlla che Expedia mostri esattamente le stesse date.</p>
+                : <>
+                  <p className="mt-1 font-semibold">Imposta qui <b>le stesse date visualizzate su Expedia</b>. Le date precedenti sono solo un suggerimento.</p>
+                  {manualRateSource.suggestedCheckin && <p className="mt-1 text-[#50627F]">
+                    Vecchio campione automatico: {manualRateSource.suggestedCheckin} → {manualRateSource.suggestedCheckout}.
+                    Se Expedia mostra un altro soggiorno, modificalo qui: non attribuire prezzi di giugno a settembre.
+                  </p>}
+                  <div className="mt-3 grid gap-3 rounded-lg border border-[#D9CCE8] bg-white p-3 sm:grid-cols-3">
+                    <label className="text-[11px] font-black text-[#23124A]">
+                      Check-in osservato su Expedia
+                      <input type="date" min={todayLocalIso()} value={manualRateSource.checkin}
+                        onChange={event=>updateAssistedStay(event.target.value,manualRateSource.checkout)}
+                        className="mt-1 block w-full rounded-lg border border-[#C8B9DA] bg-white p-2 text-xs" />
+                    </label>
+                    <label className="text-[11px] font-black text-[#23124A]">
+                      Check-out osservato su Expedia
+                      <input type="date" min={manualRateSource.checkin||todayLocalIso()} value={manualRateSource.checkout}
+                        onChange={event=>updateAssistedStay(manualRateSource.checkin,event.target.value)}
+                        className="mt-1 block w-full rounded-lg border border-[#C8B9DA] bg-white p-2 text-xs" />
+                    </label>
+                    <div className="rounded-lg bg-[#F3EFFA] p-2">
+                      <p className="text-[10px] font-black text-[#23124A]">Durata calcolata</p>
+                      <p className="mt-1 text-lg font-black text-[#23124A]">{manualRateSource.nights>0?manualRateSource.nights+" notti":"Date da correggere"}</p>
+                      <p className="text-[10px] text-[#50627F]">Ospiti: {rateDraft.guests}. Li puoi modificare nel campo sotto.</p>
+                    </div>
+                  </div>
+                  {(!manualRateSource.checkin || !manualRateSource.checkout || manualRateSource.nights<1) && <p className="mt-2 font-bold text-rose-700" role="alert">
+                    Inserisci check-in e check-out validi: il check-out deve essere dopo il check-in. Il salvataggio è bloccato.
+                  </p>}
+                </>}
+              <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il suo prezzo totale realmente mostrato su Expedia, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <label className="text-[11px] font-black text-[#23124A]">Nome esatto della struttura mostrato nella pagina
                   <input type="text" value={manualRateSource.listingName||""}
@@ -9552,12 +9580,20 @@ export default function App() {
             </div>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} disabled={Boolean(manualRateSource)} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
-            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno<input type="date" min={todayLocalIso()} disabled={Boolean(manualRateSource?.locked)} value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Data soggiorno{manualRateSource
+                ? <div className="mt-1 rounded-lg border border-[#E0D7EC] bg-[#F3EFFA] p-2 text-xs" aria-label="Data sincronizzata con check-in">{rateDraft.stayDate||"Imposta check-in sopra"}</div>
+                : <input type="date" min={todayLocalIso()} value={rateDraft.stayDate} onChange={(event) => setRateDraft((previous) => ({ ...previous, stayDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />}</label>
             <label className="text-[11px] font-black text-[#23124A]">Totale camera in EUR<input type="number" min="0.01" step="0.01" value={rateDraft.total || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, total: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
-            <label className="text-[11px] font-black text-[#23124A]">Notti<input type="number" min="1" disabled={Boolean(manualRateSource?.locked)} value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Notti{manualRateSource
+                ? <div className="mt-1 rounded-lg border border-[#E0D7EC] bg-[#F3EFFA] p-2 text-xs" aria-label="Notti calcolate dalle date">{rateDraft.nights>0?rateDraft.nights:"Non valide"}</div>
+                : <input type="number" min="1" value={rateDraft.nights} onChange={(event) => setRateDraft((previous) => ({ ...previous, nights: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />}</label>
             <label className="text-[11px] font-black text-[#23124A]">Tipologia camera<input value={rateDraft.roomType} onChange={(event) => setRateDraft((previous) => ({ ...previous, roomType: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">ID unità fisica verificata<input value={rateDraft.unitId || ""} onChange={(event) => setRateDraft((previous) => ({ ...previous, unitId: event.target.value }))} placeholder="Stesso ID solo se la camera è davvero identica" className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
-            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" disabled={Boolean(manualRateSource?.locked)} value={rateDraft.guests} onChange={(event) => setRateDraft((previous) => ({ ...previous, guests: Math.max(1, Number(event.target.value)) }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
+            <label className="text-[11px] font-black text-[#23124A]">Ospiti<input type="number" min="1" disabled={Boolean(manualRateSource?.locked)} value={rateDraft.guests}
+                onChange={(event) => manualRateSource
+                  ? updateAssistedGuests(Number(event.target.value))
+                  : setRateDraft(previous=>({...previous,guests:Math.max(1,Number(event.target.value))}))}
+                className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" /></label>
             <label className="text-[11px] font-black text-[#23124A]">Trattamento<select value={rateDraft.board} onChange={(event) => setRateDraft((previous) => ({ ...previous, board: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Colazione inclusa</option><option>Solo camera</option><option>Altro / non chiaro</option></select></label>
             <label className="text-[11px] font-black text-[#23124A]">Cancellazione<select value={rateDraft.refund} onChange={(event) => setRateDraft((previous) => ({ ...previous, refund: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Rimborsabile</option><option>Parzialmente rimborsabile</option><option>Non rimborsabile</option><option>Non chiaro</option></select></label>
             <label className="text-[11px] font-black text-[#23124A]">Pubblico<select value={rateDraft.audience} onChange={(event) => setRateDraft((previous) => ({ ...previous, audience: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs"><option>Pubblico senza login</option><option>Iscritto / loyalty</option><option>Solo app / mobile</option><option>Altro</option></select></label>
