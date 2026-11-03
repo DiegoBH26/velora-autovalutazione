@@ -34,6 +34,8 @@ class FakeControl:
         return 1 if self.visible else 0
     async def is_visible(self):
         return self.visible
+    def nth(self,index):
+        return self
     async def click(self,**kwargs):
         self.page.signin_clicked+=1
         self.page.email_visible=True
