@@ -55,7 +55,8 @@ class AccountLaunchGuard(unittest.TestCase):
         self.assertIn('if agent_id in {"expedia", "vrbo", "holidu"} and session_mode != "account":',server)
         self.assertIn("PORTAL_SESSIONS.has_saved_profile(agent_id)",server)
         self.assertIn("PORTAL_SESSIONS.has_credentials(agent_id)",server)
-        self.assertIn("PORTAL_SESSIONS.prepare_account_session(agent_id)",server)
+        self.assertIn('portal_state.get("state")=="ready"',server)
+        self.assertIn('"/api/portal-auth/start"',server)
         self.assertIn('state="queued"',server.replace('"state":"queued"','state="queued"'))  # queued before worker starts
 
 
