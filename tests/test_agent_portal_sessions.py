@@ -38,7 +38,7 @@ class PortalSessionTest(unittest.TestCase):
     def test_frontend_has_honest_manual_login_flow(self):
         for token in ("Apri accesso","Chiudi e conserva","▶ Account","loginOpen","portalSessionMessage","openPortalListing"):
             self.assertIn(token,self.app)
-        self.assertIn("il portale richiede un codice email",self.app)
+        self.assertIn("Ho completato l\'accesso · Riprendi",self.app)
         self.assertNotIn("▶ Pubblico",self.app)
         self.assertIn("requireSpecialistAccountProfiles",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
@@ -48,7 +48,7 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn('sessionMode: "public" | "account"',self.app)
         self.assertIn('session_mode=="account"',self.server)
         self.assertIn("PORTAL_SESSIONS.has_saved_profile(agent_id)",self.server)
-        self.assertIn('session.get("state") in {"open","queued"}',self.server)
+        self.assertIn('session.get("state") in {"open","queued","awaiting_user"}',self.server)
 
     def test_windows_updater_includes_file(self):
         self.assertIn("velora_portal_sessions.py.new",self.updater)
