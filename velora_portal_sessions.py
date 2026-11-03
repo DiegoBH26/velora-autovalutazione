@@ -148,6 +148,14 @@ class ManualPortalSessions:
                 raise RuntimeError(
                     "ACCESSO NON COMPLETATO: sei ancora nella schermata di autenticazione."
                 )
+            is_closed = getattr(page, "is_closed", None)
+            if callable(is_closed) and is_closed():
+                raise RuntimeError("ACCESSO NON COMPLETATO: hai chiuso Chrome prima della conferma.")
+            if await self._looks_signed_out(page):
+                raise RuntimeError(
+                    "ACCESSO NON COMPLETATO: il portale mostra ancora «Accedi». "
+                    "Completa la verifica nel Chrome dedicato prima di riprendere."
+                )
             success = True
             return "verifica completata manualmente; sessione riutilizzata su conferma dell'utente"
         finally:
