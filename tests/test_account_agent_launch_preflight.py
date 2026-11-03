@@ -43,7 +43,7 @@ class AccountLaunchGuard(unittest.TestCase):
         self.assertIn("Il timer non partirà",app)
         self.assertIn("setPortalSessions(sessions)",app)
         self.assertIn("Avvio non eseguito: account da configurare",app)
-        self.assertIn('role="alert">{state.error}',app)
+        self.assertIn('role="alert">{specialistLaunchErrors[agent.id] || state?.error}',app)
         # A previous login may already exist on the PC: do not block the
         # verification button based on stale UI state. The backend still preflights.
         self.assertNotIn("||!loginState?.profileSaved||loginOpen",app)
