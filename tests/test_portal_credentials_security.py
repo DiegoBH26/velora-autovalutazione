@@ -67,6 +67,24 @@ class LocalAccountCredentialContract(unittest.TestCase):
         self.assertIn("PORTAL_SESSIONS.has_credentials(agent_id)", self.server)
         self.assertNotIn('"password":', self.server)
 
+    def test_account_email_can_be_read_back_only_via_protected_local_route(self):
+        self.assertIn("def saved_email(self, portal: str)",self.vault)
+        self.assertIn("record.contents.UserName",self.vault)
+        section=self.vault.split("def saved_email(self, portal: str)",1)[1].split("def exists(",1)[0]
+        self.assertNotIn("CredentialBlobSize",section)
+        self.assertNotIn("CredentialBlob",section)
+        self.assertIn("def account_info(self, portal: str)",self.sessions)
+        self.assertIn("self.vault.saved_email(portal)",self.sessions)
+        self.assertIn("if actual!=email:",self.sessions)
+        self.assertIn('"/api/portal-account/info"',self.server)
+        self.assertIn("PORTAL_SESSIONS.account_info(portal_id)",self.server)
+        self.assertIn('self.headers.get("X-Velora-Local-Token")!=STATE.token',self.server)
+        self.assertIn('readPortalSavedAccount(portalId,token)',self.frontend)
+        self.assertIn("✓ EMAIL SALVATA SU QUESTO PC",self.frontend)
+        self.assertIn("{portalSavedAccounts[loginPortal].savedEmail}",self.frontend)
+        self.assertIn("portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail",self.frontend)
+        self.assertNotIn('localStorage.setItem("velora-credentials',self.frontend)
+
     def test_browser_form_does_not_persist_passwords_online(self):
         self.assertIn("Configura credenziali", self.frontend)
         self.assertIn("Salva accesso sul PC", self.frontend)
