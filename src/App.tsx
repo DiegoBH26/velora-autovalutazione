@@ -8768,7 +8768,7 @@ export default function App() {
                       const loginState=loginPortal?portalSessions[loginPortal]:undefined;
                       const loginOpen=loginState?.state==="open"||loginState?.state==="queued";
                       const stateText=state?.state==="queued"?"In coda":working?"In esecuzione":state?.state==="completed"
-                        ?"Terminato · da validare":state?.state==="failed"?"Errore":state?.hasResult?"Risultato archiviato":"Non avviato";
+                        ?"Terminato · da validare":state?.state==="failed"?"Errore avvio / scansione":state?.hasResult?"Risultato archiviato":"Non avviato";
                       const toggle=()=>{
                         if(ota){
                           const next=selected?localPilotSelectedChannels.filter((id)=>id!==agent.id):[...localPilotSelectedChannels,agent.id];
@@ -8809,9 +8809,10 @@ export default function App() {
                             ▶ Account
                           </button>}
                         </div>
+                        {state?.state==="failed" && state.error && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{state.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo disponibile · login da verificare":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso da configurare"}
+                            {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo disponibile · login da verificare":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso non salvato: premi Apri accesso"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
@@ -8830,10 +8831,18 @@ export default function App() {
                   </div>
                 </div>
 
+                {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
+                    (!portalSessions[id]?.profileSaved || ["open","queued"].includes(portalSessions[id]?.state||""))) &&
+                  <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950" role="alert">
+                    Avvio Account non disponibile per: {LOGIN_PORTAL_IDS.filter(id=>localPilotSelectedChannels.includes(id) &&
+                      (!portalSessions[id]?.profileSaved || ["open","queued"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
+                    Apri accesso nella scheda dell'agente, effettua il login manualmente e premi Chiudi e conserva.
+                    Il timer non partirà finché i profili richiesti non saranno pronti.
+                  </p>}
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
                   <div>
                     <p className="text-sm font-black text-[#23124A]">3 · Avvio della scansione</p>
-                    <p className="mt-1 text-[11px] text-[#64748B]">Partenza parallela, massimo due browser alla volta; gli altri agenti restano in coda. Il check di Giove è sempre manuale.</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Partenza parallela, massimo due browser alla volta. Expedia, Vrbo e Holidu richiedono il profilo Account salvato: senza accesso preparato la scansione non parte e il timer resta fermo. Giove si avvia manualmente.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
