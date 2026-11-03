@@ -203,6 +203,7 @@ class ManualPortalSessions:
 
     async def _wait_for_human_login(self, portal: str, page, explanation: str) -> str:
         """Keep the SAME authenticated Chrome window open while the user enters OTP."""
+        await self._require_access_not_blocked(page)
         event = threading.Event()
         with self.lock:
             if self.state[portal].get("state") in {"open", "queued", "awaiting_user"}:
@@ -223,6 +224,7 @@ class ManualPortalSessions:
                     "Ripeti ▶ Account per un nuovo tentativo."
                 )
             await page.wait_for_timeout(1800)
+            await self._require_access_not_blocked(page)
             if await self._needs_human_challenge(page):
                 raise RuntimeError(
                     "ACCESSO NON COMPLETATO: il codice o la verifica di sicurezza sono "
@@ -322,6 +324,7 @@ class ManualPortalSessions:
                 page = context.pages[0] if context.pages else await context.new_page()
                 await page.goto(PORTALS[portal]["home"], wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1200)
+                await self._require_access_not_blocked(page)
                 if await self._needs_human_challenge(page):
                     return await self._wait_for_human_login(
                         portal, page,
@@ -346,6 +349,10 @@ class ManualPortalSessions:
                     try:
                         await signin.click(timeout=6000)
                         await page.wait_for_timeout(1250)
+                        await self._require_access_not_blocked(page)
+                    except RuntimeError:
+                        # Preserve explicit Expedia/Vrbo restriction errors.
+                        raise
                     except Exception:
                         return await self._wait_for_human_login(
                             portal, page,
@@ -385,10 +392,12 @@ class ManualPortalSessions:
                     )
                 await continue_button.click(timeout=9000)
                 await page.wait_for_timeout(1400)
+                await self._require_access_not_blocked(page)
                 # If Continue already triggered an OTP, don't send another one.
                 # Otherwise click "Invia codice" once, when safely recognizable.
                 if not await self._needs_human_challenge(page):
                     await self._request_one_time_code(page)
+                    await self._require_access_not_blocked(page)
                 if await self._needs_human_challenge(page):
                     return await self._wait_for_human_login(
                         portal, page,
@@ -450,6 +459,45 @@ class ManualPortalSessions:
         except Exception:
             pass
         return False
+
+    @staticmethod
+    async def _access_restricted_reason(page) -> str | None:
+        """Detect a portal-imposed access denial, not an ordinary email OTP.
+
+        An Expedia bot/access block is NOT a challenge that can be resolved by
+        inserting an email code. Never repeatedly refresh or retry it.
+        """
+        try:
+            body=(await page.locator("body").inner_text(timeout=4000))[:6000].casefold()
+        except Exception:
+            body=""
+        triggers=(
+            "l'accesso è temporaneamente limitato",
+            "l’accesso è temporaneamente limitato",
+            "mostraci il tuo lato umano",
+            "non siamo sicuri se sei un essere umano o un robot",
+            "your access to this site has been temporarily limited",
+            "your access has been temporarily limited",
+            "show us your human side",
+            "we're not sure if you're a human or a robot",
+            "we are not sure if you are a human or a robot",
+        )
+        if any(item in body for item in triggers):
+            return (
+                "ACCESSO LIMITATO DAL PORTALE: Expedia/Vrbo ha mostrato una "
+                "pagina di restrizione temporanea prima del login. "
+                "Non è la richiesta del codice email e Velora non può "
+                "procedere automaticamente. Nessun tentativo ripetuto: "
+                "verifica l'accesso dal browser normale e, se il blocco "
+                "persiste, usa l'assistenza del portale."
+            )
+        return None
+
+    @classmethod
+    async def _require_access_not_blocked(cls, page) -> None:
+        reason=await cls._access_restricted_reason(page)
+        if reason:
+            raise RuntimeError(reason)
 
     @staticmethod
     async def _needs_human_challenge(page) -> bool:
