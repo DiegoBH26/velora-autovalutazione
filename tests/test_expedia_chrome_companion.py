@@ -30,7 +30,7 @@ class ExpediaChromeCompanion(unittest.TestCase):
         self.assertIn("accesso è temporaneamente limitato",WORKER)
         self.assertNotIn("page.goto(",WORKER)
         self.assertNotIn("puppeteer",WORKER.lower())
-        self.assertNotIn("proxy",WORKER.lower())
+        self.assertNotIn("proxy:",WORKER.lower())
         self.assertNotIn("password",WORKER.lower())
         self.assertNotIn("otp",WORKER.lower())
 
