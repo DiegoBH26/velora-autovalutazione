@@ -22,9 +22,15 @@ jobs:
         run: npm ci
       - name: Build frontend
         run: npm run build
+      - name: Validate Chrome Companion JavaScript
+        run: |
+          node --check chrome-companion-expedia/background.js
+          node --check chrome-companion-expedia/bridge.js
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Compile local agent
         run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py
+      - name: Check Expedia companion contracts
+        run: python -m unittest discover -s tests -p 'test_expedia_chrome_companion.py'
