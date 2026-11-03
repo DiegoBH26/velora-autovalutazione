@@ -51,6 +51,7 @@ class ManualPortalSessions:
         self.stop_events: dict[str, threading.Event] = {}
         self.auth_resume_events: dict[str, threading.Event] = {}
         self.pending_urls: dict[str, str] = {}
+        self.account_workers: dict[str, threading.Thread] = {}
 
     def profile_dir(self, portal: str) -> Path:
         if portal not in PORTALS:
@@ -92,6 +93,78 @@ class ManualPortalSessions:
             raise RuntimeError("Il Gestore credenziali Windows non è disponibile.")
         self.vault.remove(portal)
         return {"credentialSaved": False, "profileSaved": self.has_saved_profile(portal)}
+
+
+    def start_account_check(self, portal: str) -> dict:
+        """Start a separate visible login check without starting any OTA scan."""
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        if not self.has_credentials(portal):
+            raise RuntimeError(
+                "Prima salva l'email dell'account esistente in «Configura credenziali» "
+                "(password vuota se Expedia/Vrbo usa un codice)."
+            )
+        with self.lock:
+            if any(value.get("state") in {"queued", "open", "awaiting_user", "authenticating"}
+                   for value in self.state.values()):
+                raise RuntimeError(
+                    "Completa prima il login già aperto su Expedia, Vrbo o Holidu."
+                )
+            self.state[portal] = {
+                "state": "authenticating",
+                "message": "Apertura Chrome: verifica accesso prima della scansione.",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        thread = threading.Thread(
+            target=self._account_check_worker,
+            args=(portal,), daemon=True,
+            name=f"velora-account-check-{portal}",
+        )
+        with self.lock:
+            self.account_workers[portal] = thread
+        thread.start()
+        return dict(self.state[portal])
+
+    def _account_check_worker(self, portal: str) -> None:
+        try:
+            note = asyncio.run(
+                self.prepare_account_session(portal, require_confirmation=True)
+            )
+            verified = "verifica completata manualmente" in note
+            with self.lock:
+                self.state[portal] = {
+                    "state": "ready" if verified else "unverified",
+                    "message": (
+                        "Accesso confermato su Chrome e profilo conservato: "
+                        "puoi avviare l'agente Account."
+                        if verified else
+                        "Accesso non confermato: " + note
+                    ),
+                    "checkedAt": datetime.now(timezone.utc).isoformat(),
+                }
+            print(
+                f"[ACCOUNT] {PORTALS[portal]['name']} | "
+                f"{'CONFERMATO' if verified else 'DA VERIFICARE'} | "
+                "Chrome chiuso, profilo locale conservato",
+                flush=True,
+            )
+        except Exception as exc:
+            with self.lock:
+                self.state[portal] = {
+                    "state": "error",
+                    "message": (
+                        f"Login non completato ({type(exc).__name__}): "
+                        f"{str(exc)[:210]}"
+                    ),
+                }
+            print(
+                f"[ACCOUNT] {PORTALS[portal]['name']} | ERRORE | "
+                f"{type(exc).__name__}",
+                flush=True,
+            )
+        finally:
+            with self.lock:
+                self.account_workers.pop(portal, None)
 
     def resume_agent_login(self, portal: str) -> dict:
         """The signed-in user confirms that they personally completed the code step."""
@@ -202,7 +275,7 @@ class ManualPortalSessions:
                 return True
         return False
 
-    async def prepare_account_session(self, portal: str) -> str:
+    async def prepare_account_session(self, portal: str, require_confirmation: bool = False) -> str:
         """Try one authorized login without bypassing portal security challenges.
 
         An existing persistent profile is reused. If the service has logged the
@@ -238,8 +311,16 @@ class ManualPortalSessions:
                 if not await self._has_visible(email_field):
                     signin = await self._signin_button(page)
                     if signin is None:
-                        # No login form or sign-in action on the home page.
-                        # This is a heuristic, NOT proof of authentication.
+                        # An invisible sign-in control is not proof that this account
+                        # is logged in. For a standalone login check ask the user to
+                        # inspect the opened Chrome before marking it prepared.
+                        if require_confirmation:
+                            return await self._wait_for_human_login(
+                                portal, page,
+                                "Verifica sul sito Expedia/Vrbo che compaia il tuo account. "
+                                "Se compare Accedi, completa il login e inserisci il codice. "
+                                "Poi premi «Ho completato l\'accesso · Riprendi»."
+                            )
                         return "sessione Chrome riutilizzata, accesso effettivo da verificare"
                     try:
                         await signin.click(timeout=6000)
@@ -264,6 +345,12 @@ class ManualPortalSessions:
                             portal, page,
                             "Login non riconosciuto: accedi nella finestra Chrome "
                             "e poi premi «Ho completato l'accesso · Riprendi»."
+                        )
+                    if require_confirmation:
+                        return await self._wait_for_human_login(
+                            portal, page,
+                            "Controlla nella finestra Chrome che Expedia/Vrbo mostri il tuo account. "
+                            "Se serve il codice, completalo lì. Poi premi «Ho completato l\'accesso · Riprendi»."
                         )
                     return "sessione Chrome riutilizzata, accesso effettivo da verificare"
                 self._ensure_login_host(portal, page.url)
@@ -410,7 +497,7 @@ class ManualPortalSessions:
         if portal not in PORTALS:
             raise ValueError("Portale non supportato")
         with self.lock:
-            if any(v["state"] in ("queued", "open", "awaiting_user") for v in self.state.values()):
+            if any(v["state"] in ("queued", "open", "awaiting_user", "authenticating") for v in self.state.values()):
                 raise RuntimeError("Completa o chiudi prima la sessione manuale già aperta.")
             stop = threading.Event()
             self.stop_events[portal] = stop
