@@ -36,9 +36,11 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn("self.pending_urls",self.module)
 
     def test_frontend_has_honest_manual_login_flow(self):
-        for token in ("Apri accesso","Chiudi e conserva","▶ Pubblico","▶ Account","loginOpen","portalSessionMessage","openPortalListing"):
+        for token in ("Apri accesso","Chiudi e conserva","▶ Account","loginOpen","portalSessionMessage","openPortalListing"):
             self.assertIn(token,self.app)
-        self.assertIn("Il login non viene verificato automaticamente",self.app)
+        self.assertIn("L'autenticazione effettiva non viene garantita automaticamente",self.app)
+        self.assertNotIn("▶ Pubblico",self.app)
+        self.assertIn("requireSpecialistAccountProfiles",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
         self.assertIn("startSpecialistAgent(agent.id)",self.app)
         self.assertIn("SCREENSHOT_INTERVIEW_PRESET_IDS",self.app)
