@@ -99,6 +99,23 @@ class WindowsPortalVault:
         finally:
             self.free(ctypes.cast(record, ctypes.c_void_p))
 
+    def saved_email(self, portal: str) -> str | None:
+        """Read only the Windows Credential Manager username, never its password.
+
+        This endpoint is used to display the exact account saved on this PC.
+        The credential blob is deliberately not copied or decoded.
+        """
+        record = ctypes.POINTER(_CREDENTIALW)()
+        if not self.read(self.target(portal), CRED_TYPE_GENERIC, 0, ctypes.byref(record)):
+            error = ctypes.get_last_error()
+            if error == ERROR_NOT_FOUND:
+                return None
+            raise OSError(error, "Impossibile verificare l'email nel Gestore credenziali Windows.")
+        try:
+            return record.contents.UserName or ""
+        finally:
+            self.free(ctypes.cast(record, ctypes.c_void_p))
+
     def exists(self, portal: str) -> bool:
         return self.load(portal) is not None
 
