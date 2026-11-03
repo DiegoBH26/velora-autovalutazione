@@ -129,8 +129,13 @@ function visibleExpediaCapture() {
       ? "Tutte le imposte incluse" : "Non chiaro";
     rooms.push({roomType:title,total:price,board,refund,taxes,confidence:candidate.price.confidence});
   }
-  const pageTitle=(document.querySelector("h1")?.innerText||document.title||"").trim().slice(0,240);
-  const propertyName=(document.querySelector("h1")?.innerText||document.title||"").trim().replace(/\s+[|–-]\s+Expedia.*$/i,"").slice(0,180);
+  const heading=(document.querySelector("h1")?.innerText||"").trim();
+  const pageTitle=(document.title||heading||"").trim().slice(0,240);
+  // On the rate grid, h1 can be "Scegli la tua camera": prefer the actual
+  // accommodation name from the page title over this generic heading.
+  const genericHeading=/scegli la tua camera|select your room|choose your room|rooms? and rates|le tue camere/i.test(heading);
+  const propertyName=(genericHeading?document.title:heading||document.title||"")
+    .trim().replace(/\s+[|–-]\s+Expedia.*$/i,"").slice(0,180);
   return {
     schema:"velora-expedia-visible-v1",
     pageTitle,propertyName,
