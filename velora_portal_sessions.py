@@ -1,20 +1,21 @@
-"""Manual-only customer portal sessions for Velora.
+"""Authorized portal profiles and optional local Windows credential-assisted login.
 
-This module never reads, types, logs or stores passwords / one-time codes.
-A person signs in directly in a visible Chrome window. Separate persistent
-profiles keep sessions independent across portals and property analyses.
-It does NOT scrape authenticated pages or circumvent access restrictions.
+Only the Windows user controls the local account; passwords stay in Windows
+Credential Manager and are never written to source, results or logs. CAPTCHA,
+OTP, identity checks and account restrictions require direct human action.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 import threading
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.async_api import async_playwright
+from velora_portal_credentials import WindowsPortalVault
 
 PORTALS = {
     "expedia": {
@@ -40,6 +41,7 @@ class ManualPortalSessions:
     def __init__(self, state_root: Path):
         self.base = state_root / "portal-sessions"
         self.base.mkdir(parents=True, exist_ok=True)
+        self.vault = WindowsPortalVault() if os.name == "nt" else None
         self.lock = threading.Lock()
         self.state = {
             key: {"state": "idle", "message": "Accesso non ancora preparato."}
@@ -63,7 +65,199 @@ class ManualPortalSessions:
             entries={key: dict(value) for key,value in self.state.items()}
         for portal,state in entries.items():
             state["profileSaved"]=self.has_saved_profile(portal)
+            state["credentialSaved"]=self.has_credentials(portal)
         return entries
+
+
+    def has_credentials(self, portal: str) -> bool:
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        return bool(self.vault and self.vault.exists(portal))
+
+    def save_credentials(self, portal: str, email: str, password: str) -> dict:
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        if self.vault is None:
+            raise RuntimeError("Le credenziali protette sono disponibili soltanto sul PC Windows.")
+        # The email and secret are never echoed back to the web app.
+        self.vault.save(portal, email, password)
+        return {"credentialSaved": True, "profileSaved": self.has_saved_profile(portal)}
+
+    def remove_credentials(self, portal: str) -> dict:
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        if self.vault is None:
+            raise RuntimeError("Il Gestore credenziali Windows non è disponibile.")
+        self.vault.remove(portal)
+        return {"credentialSaved": False, "profileSaved": self.has_saved_profile(portal)}
+
+    async def prepare_account_session(self, portal: str) -> str:
+        """Try one authorized login without bypassing portal security challenges.
+
+        An existing persistent profile is reused. If the service has logged the
+        account out, attempt one password login. OTP, CAPTCHA or an unrecognized
+        screen STOP the scan and explain why human verification is necessary.
+        """
+        if portal not in PORTALS:
+            raise ValueError("Portale non supportato")
+        saved = self.vault.load(portal) if self.vault is not None else None
+        if saved is None:
+            return "profilo Chrome esistente; credenziali non memorizzate"
+        email, password = saved
+        profile = self.profile_dir(portal)
+        profile.mkdir(parents=True, exist_ok=True)
+        async with async_playwright() as playwright:
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile), channel="chrome", headless=False,
+                chromium_sandbox=True, locale="it-IT", timezone_id="Europe/Rome",
+                viewport={"width": 1280, "height": 850},
+                args=["--window-position=80,80", "--window-size=1300,900"],
+            )
+            try:
+                page = context.pages[0] if context.pages else await context.new_page()
+                await page.goto(PORTALS[portal]["home"], wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(1200)
+                if await self._needs_human_challenge(page):
+                    raise RuntimeError(
+                        "VERIFICA UMANA: il portale richiede un controllo di sicurezza. "
+                        "Apri accesso e completa personalmente la verifica, poi Chiudi e conserva."
+                    )
+                email_field = page.locator('input[type="email"],input[autocomplete="username"]')
+                if not await self._has_visible(email_field):
+                    signin = await self._signin_button(page)
+                    if signin is None:
+                        # No login form or sign-in action on the home page.
+                        # This is a heuristic, NOT proof of authentication.
+                        return "sessione Chrome riutilizzata, accesso effettivo da verificare"
+                    try:
+                        await signin.click(timeout=6000)
+                        await page.wait_for_timeout(1250)
+                    except Exception:
+                        raise RuntimeError(
+                            "LOGIN NON RICONOSCIUTO: apertura del form Expedia/Vrbo/Holidu "
+                            "non riuscita; accedi con Apri accesso e salva la sessione."
+                        )
+                if await self._needs_human_challenge(page):
+                    raise RuntimeError("VERIFICA UMANA: completa la verifica di sicurezza nel Chrome dedicato.")
+                email_field = page.locator('input[type="email"],input[autocomplete="username"]')
+                if not await self._has_visible(email_field):
+                    # A previously valid session may redirect directly into the account.
+                    if await self._looks_signed_out(page):
+                        raise RuntimeError("LOGIN DA VERIFICARE: il portale non presenta un form email noto.")
+                    return "sessione Chrome riutilizzata, accesso effettivo da verificare"
+                self._ensure_login_host(portal, page.url)
+                await email_field.first.fill(email, timeout=9000)
+                continue_button = await self._submit_button(page)
+                if continue_button is None:
+                    raise RuntimeError("LOGIN DA VERIFICARE: pulsante di proseguimento non riconosciuto.")
+                await continue_button.click(timeout=9000)
+                await page.wait_for_timeout(1400)
+                if await self._needs_human_challenge(page):
+                    raise RuntimeError(
+                        "VERIFICA UMANA: il portale richiede codice email, CAPTCHA o conferma "
+                        "di sicurezza. Usa Apri accesso e Chiudi e conserva."
+                    )
+                password_field = page.locator('input[type="password"]')
+                if await self._has_visible(password_field):
+                    if not password:
+                        raise RuntimeError(
+                            "PASSWORD RICHIESTA: aggiungila in Configura credenziali "
+                            "oppure completa il login manualmente."
+                        )
+                    self._ensure_login_host(portal, page.url)
+                    await password_field.first.fill(password, timeout=9000)
+                    submit = await self._submit_button(page)
+                    if submit is None:
+                        raise RuntimeError("LOGIN DA VERIFICARE: conferma password non riconosciuta.")
+                    await submit.click(timeout=9000)
+                    await page.wait_for_timeout(1600)
+                if await self._needs_human_challenge(page):
+                    raise RuntimeError(
+                        "VERIFICA UMANA: il portale richiede un codice temporaneo o CAPTCHA. "
+                        "Nessun codice viene aggirato. Apri accesso, verifica e Chiudi e conserva."
+                    )
+                if await self._has_visible(page.locator('input[type="email"],input[type="password"]')):
+                    raise RuntimeError(
+                        "LOGIN NON CONFERMATO: il form di accesso è ancora visibile. "
+                        "Controlla credenziali e messaggi del portale nel Chrome dedicato."
+                    )
+                return "tentativo di login automatico completato; autenticazione da verificare sul sito"
+            finally:
+                await context.close()
+
+    @staticmethod
+    async def _has_visible(locator) -> bool:
+        try:
+            count = min(await locator.count(), 5)
+            for index in range(count):
+                if await locator.nth(index).is_visible():
+                    return True
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    async def _needs_human_challenge(page) -> bool:
+        selectors = (
+            'input[autocomplete="one-time-code"],'
+            'input[name*="otp" i],input[id*="otp" i],'
+            'iframe[src*="captcha" i],iframe[title*="captcha" i],'
+            'input[name*="verificationCode" i]'
+        )
+        if await ManualPortalSessions._has_visible(page.locator(selectors)):
+            return True
+        try:
+            text = (await page.locator("body").inner_text(timeout=4000))[:2800].lower()
+            # Only use high-specificity challenge terms; do not flag banners.
+            return any(term in text for term in (
+                "inserisci il codice di verifica",
+                "enter the verification code",
+                "verify that you're human",
+                "verifica che tu sia una persona",
+                "codice temporaneo inviato",
+            ))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ensure_login_host(portal: str, url: str) -> None:
+        host = (urlparse(url).hostname or "").lower()
+        allowed = {
+            "expedia": ("expedia.it", "expedia.com", "expediagroup.com"),
+            "vrbo": ("vrbo.com", "expedia.com", "expediagroup.com"),
+            "holidu": ("holidu.it", "holidu.com"),
+        }[portal]
+        if not any(host == domain or host.endswith("." + domain) for domain in allowed):
+            raise RuntimeError("LOGIN INTERROTTO: dominio inatteso, credenziali non inserite.")
+
+    @staticmethod
+    async def _looks_signed_out(page) -> bool:
+        signin = await ManualPortalSessions._signin_button(page)
+        return signin is not None
+
+    @staticmethod
+    async def _signin_button(page):
+        pattern = re.compile(r"^(accedi|sign in|log in|login)$", re.IGNORECASE)
+        for role in ("button", "link"):
+            loc = page.get_by_role(role, name=pattern)
+            if await ManualPortalSessions._has_visible(loc):
+                return loc.first
+        return None
+
+    @staticmethod
+    async def _submit_button(page):
+        pattern = re.compile(
+            r"^(continua|continue|avanti|next|accedi|sign in|log in|login|conferma)$",
+            re.IGNORECASE,
+        )
+        for role in ("button",):
+            loc = page.get_by_role(role, name=pattern)
+            if await ManualPortalSessions._has_visible(loc):
+                return loc.first
+        submit = page.locator('button[type="submit"],input[type="submit"]')
+        if await ManualPortalSessions._has_visible(submit):
+            return submit.first
+        return None
 
     def begin(self, portal: str) -> dict:
         if portal not in PORTALS:
@@ -150,6 +344,7 @@ class ManualPortalSessions:
                 user_data_dir=str(user_data_dir),
                 channel="chrome",
                 headless=False,
+                chromium_sandbox=True,
                 locale="it-IT",
                 timezone_id="Europe/Rome",
                 viewport={"width": 1280, "height": 850},
