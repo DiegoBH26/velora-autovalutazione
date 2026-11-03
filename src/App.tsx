@@ -5000,6 +5000,7 @@ export default function App() {
     url: string; locked?: boolean; listingName?: string; identityConfirmed?: boolean;
     suggestedCheckin?: string; suggestedCheckout?: string;
   }>(null);
+  const [assistedRateConfirmation,setAssistedRateConfirmation] = useState("");
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
   const [browserPilotResult, setBrowserPilotResult] = useState<BrowserPilotResult | null>(null);
@@ -6664,6 +6665,7 @@ export default function App() {
   }
 
   function prepareBlockedOtaManualQuote(observation: BrowserPilotObservation) {
+    setAssistedRateConfirmation("");
     const start = Date.parse(observation.checkin + "T00:00:00Z");
     const finish = Date.parse(observation.checkout + "T00:00:00Z");
     const nights = Number.isFinite(start) && Number.isFinite(finish)
@@ -6687,6 +6689,7 @@ export default function App() {
   }
 
   function prepareExpediaAssistedRate() {
+    setAssistedRateConfirmation("");
     // Prefer the most recent Expedia stay already sampled for this structure.
     // If no past sample exists, the user can enter dates in the regular form.
     const reference=[...(browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult.observations:[])].reverse().find((row)=>
@@ -6719,6 +6722,7 @@ export default function App() {
 
   function updateAssistedStay(checkin:string,checkout:string) {
     if(!manualRateSource || manualRateSource.locked) return;
+    setAssistedRateConfirmation("");
     const start=Date.parse(checkin+"T00:00:00Z");
     const end=Date.parse(checkout+"T00:00:00Z");
     const nights=/^\d{4}-\d{2}-\d{2}$/.test(checkin)&&/^\d{4}-\d{2}-\d{2}$/.test(checkout)&&Number.isFinite(start)&&Number.isFinite(end)
@@ -6734,6 +6738,7 @@ export default function App() {
   }
 
   function updateAssistedGuests(guests:number) {
+    setAssistedRateConfirmation("");
     const count=Math.max(1,Math.round(guests));
     setManualRateSource(previous=>previous?{
       ...previous,guests:count,identityConfirmed:false
@@ -6795,8 +6800,23 @@ export default function App() {
     };
     setRateQuotes((previous) => [...previous, quote]);
     setSelectedRateCohort(rateCohortKey(quote));
-    setManualRateSource(null);
-    setRateDraft((previous) => ({ ...previous, stayDate: "", total: 0, originalTotal: 0, promotion: "", eventTag: "", sourceUrl: "" }));
+    if (manualRateSource) {
+      setAssistedRateConfirmation(
+        "Salvata la camera «"+quote.roomType+"» a € "+quote.total.toFixed(2)+
+        " per "+manualRateSource.checkin+" → "+manualRateSource.checkout+
+        ". Puoi inserire un’altra camera per le stesse date oppure cambiare le date qui sopra."
+      );
+      // Preserve property, checked dates and listing URL, but never reuse the
+      // previous room price, type or booking conditions.
+      setRateDraft(previous=>({
+        ...previous,total:0,roomType:"",unitId:"",referenceRoomKey:undefined,
+        originalTotal:0,promotion:"",promotionKind:"Non verificata",
+        eventTag:"",refund:"Non chiaro",board:"Altro / non chiaro",
+        taxes:"Non chiaro",
+      }));
+    } else {
+      setRateDraft(previous=>({...previous,stayDate:"",total:0,originalTotal:0,promotion:"",eventTag:"",sourceUrl:""}));
+    }
   }
 
   function addAvailabilityProbe() {
@@ -9528,7 +9548,7 @@ export default function App() {
             {manualRateSource && <div role="status" className="mb-3 rounded-xl border border-[#C8B9DA] bg-[#FBF8FE] p-3 text-xs text-[#23124A]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <b>Acquisizione assistita · {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}</b>
-                <button type="button" onClick={() => setManualRateSource(null)} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
+                <button type="button" onClick={() => {setManualRateSource(null);setAssistedRateConfirmation("");}} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
               </div>
               {manualRateSource.locked
                 ? <p className="mt-1">Date del campione fissato: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Controlla che Expedia mostri esattamente le stesse date.</p>
@@ -9562,6 +9582,9 @@ export default function App() {
                   </p>}
                 </>}
               <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il suo prezzo totale realmente mostrato su Expedia, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente.</p>
+              {assistedRateConfirmation && <p className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-[11px] font-black text-emerald-900" role="status">
+                ✓ {assistedRateConfirmation}
+              </p>}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <label className="text-[11px] font-black text-[#23124A]">Nome esatto della struttura mostrato nella pagina
                   <input type="text" value={manualRateSource.listingName||""}
