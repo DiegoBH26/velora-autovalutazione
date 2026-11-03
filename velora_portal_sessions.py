@@ -158,6 +158,14 @@ class ManualPortalSessions:
                         "di sicurezza. Usa Apri accesso e Chiudi e conserva."
                     )
                 password_field = page.locator('input[type="password"]')
+                if not await self._has_visible(password_field):
+                    # Expedia/One Key often uses an emailed code instead of a
+                    # password. We cannot infer success from submitting an email.
+                    raise RuntimeError(
+                        "VERIFICA UMANA: il portale non ha presentato una password. "
+                        "Controlla nell'account il codice email o il link di conferma; "
+                        "completa il login tramite Apri accesso e Chiudi e conserva."
+                    )
                 if await self._has_visible(password_field):
                     if not password:
                         raise RuntimeError(
@@ -180,6 +188,12 @@ class ManualPortalSessions:
                     raise RuntimeError(
                         "LOGIN NON CONFERMATO: il form di accesso è ancora visibile. "
                         "Controlla credenziali e messaggi del portale nel Chrome dedicato."
+                    )
+                login_path = urlparse(page.url).path.lower()
+                if any(segment in login_path for segment in ("/login","/signin","/sign-in","/authentication")):
+                    raise RuntimeError(
+                        "LOGIN NON CONFERMATO: la pagina di autenticazione è ancora aperta. "
+                        "Verifica il portale tramite Apri accesso e Chiudi e conserva."
                     )
                 return "tentativo di login automatico completato; autenticazione da verificare sul sito"
             finally:
