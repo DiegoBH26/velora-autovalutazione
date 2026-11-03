@@ -17,54 +17,63 @@ pause
 
 set "BASE=https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main"
 
-for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py velora_portal_sessions.py ota_public_source_hints.json) do (
+for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py velora_portal_sessions.py velora_portal_credentials.py ota_public_source_hints.json) do (
   if exist "%%F" copy /Y "%%F" "%%F.bak" >nul 2>nul
 )
 
-echo [1/8] Scarico local_audit_server.py...
+echo [1/9] Scarico local_audit_server.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/local_audit_server.py?nocache=%RANDOM%' -OutFile 'local_audit_server.py.new'"
 if errorlevel 1 goto :errore
 
-echo [2/8] Scarico browser_audit_pilot.py...
+echo [2/9] Scarico browser_audit_pilot.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/browser_audit_pilot.py?nocache=%RANDOM%' -OutFile 'browser_audit_pilot.py.new'"
 if errorlevel 1 goto :errore
 
-echo [3/8] Scarico site_audit_builder.py...
+echo [3/9] Scarico site_audit_builder.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/site_audit_builder.py?nocache=%RANDOM%' -OutFile 'site_audit_builder.py.new'"
 if errorlevel 1 goto :errore
 
-echo [4/8] Scarico booking_engine.py...
+echo [4/9] Scarico booking_engine.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/booking_engine.py?nocache=%RANDOM%' -OutFile 'booking_engine.py.new'"
 if errorlevel 1 goto :errore
 
-echo [5/8] Scarico velora_quote_history.py...
+echo [5/9] Scarico velora_quote_history.py...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_quote_history.py?nocache=%RANDOM%' -OutFile 'velora_quote_history.py.new'"
 if errorlevel 1 goto :errore
 
-echo [6/8] Scarico rete agenti specialisti...
+echo [6/9] Scarico rete agenti specialisti...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_agent_network.py?nocache=%RANDOM%' -OutFile 'velora_agent_network.py.new'"
 if errorlevel 1 goto :errore
 
-echo [7/8] Scarico il modulo di sessioni OTA autorizzate...
+echo [7/9] Scarico il modulo di sessioni OTA autorizzate...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_portal_sessions.py?nocache=%RANDOM%' -OutFile 'velora_portal_sessions.py.new'"
 if errorlevel 1 goto :errore
 
-echo [8/8] Scarico riferimenti pubblici OTA forniti dall'utente...
+echo [8/9] Scarico riferimenti pubblici OTA forniti dall'utente...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/ota_public_source_hints.json?nocache=%RANDOM%' -OutFile 'ota_public_source_hints.json.new'"
 if errorlevel 1 goto :errore
+
+echo [9/9] Scarico Gestore credenziali Windows per OTA...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_portal_credentials.py?nocache=%RANDOM%' -OutFile 'velora_portal_credentials.py.new'"
+if errorlevel 1 goto :errore
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "try{$c=Get-Content 'velora_portal_credentials.py.new' -Raw; if($c -notmatch 'class WindowsPortalVault'){exit 2}}catch{exit 2}"
+if errorlevel 1 goto :errore
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try{$h=Get-Content 'ota_public_source_hints.json.new' -Raw | ConvertFrom-Json; if($h.schema -ne 'velora-public-ota-source-hints-v1'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
 
-for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new velora_agent_network.py.new velora_portal_sessions.py.new) do (
+for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new velora_agent_network.py.new velora_portal_sessions.py.new velora_portal_credentials.py.new) do (
   for %%S in ("%%F") do if %%~zS LSS 1000 goto :errore
 )
 
@@ -79,6 +88,7 @@ move /Y "booking_engine.py.new" "booking_engine.py" >nul
 move /Y "velora_quote_history.py.new" "velora_quote_history.py" >nul
 move /Y "velora_agent_network.py.new" "velora_agent_network.py" >nul
 move /Y "velora_portal_sessions.py.new" "velora_portal_sessions.py" >nul
+move /Y "velora_portal_credentials.py.new" "velora_portal_credentials.py" >nul
 move /Y "ota_public_source_hints.json.new" "ota_public_source_hints.json" >nul
 
 if exist "__pycache__" (
@@ -86,6 +96,7 @@ if exist "__pycache__" (
   del /Q "__pycache__\local_audit_server*.pyc" 2>nul
   del /Q "__pycache__\velora_agent_network*.pyc" 2>nul
   del /Q "__pycache__\velora_portal_sessions*.pyc" 2>nul
+  del /Q "__pycache__\velora_portal_credentials*.pyc" 2>nul
 )
 
 rem Verifica reale: file scaricati non significa agenti importabili.
@@ -101,7 +112,7 @@ if not errorlevel 1 set "VELORA_PY=python"
 if not defined VELORA_PY goto :errore_import
 echo.
 echo Verifico import e registrazione dei 12 agenti e di Giove...
-%VELORA_PY% -c "import velora_agent_network as n; import velora_portal_sessions as p; assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
+%VELORA_PY% -c "import velora_agent_network as n; import velora_portal_sessions as p; import velora_portal_credentials as c; assert hasattr(c,'WindowsPortalVault'); assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
 if errorlevel 1 goto :errore_import
 
 echo.
