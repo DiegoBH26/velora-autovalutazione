@@ -336,6 +336,10 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
             with AGENT_RUN_LOCK:
                 AGENT_RUNS[key]["state"]="running"
             data=json.loads(Path(property_file).read_text(encoding="utf-8"))
+            if account_profile and agent_id in {"expedia","vrbo","holidu"} and PORTAL_SESSIONS is not None and PORTAL_SESSIONS.has_credentials(agent_id):
+                print_agent_status(agent_id,"Login automatico","IN CORSO","Verifica sessione protetta Windows")
+                login_note=asyncio.run(PORTAL_SESSIONS.prepare_account_session(agent_id))
+                print_agent_status(agent_id,"Login automatico","VERIFICA",login_note)
             asyncio.run(agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
@@ -1160,7 +1164,8 @@ class Handler(SimpleHTTPRequestHandler):
                                 "authentication":value["authentication"],"scraping":value["scraping"]}
                            for key,value in LOGIN_PORTALS.items()},
                 "sessions":PORTAL_SESSIONS.statuses(),"manualOnly":True,
-                "message":"Login sempre manuale. Il tasto Account tenta il riuso del profilo Chrome conservato; l'autenticazione effettiva non è garantita, prezzi privati non validati per il confronto."
+                "automatedLoginSupported":True,
+                "message":"Credenziali opzionali conservate solo nel Gestore credenziali Windows. La sessione Chrome viene riusata autonomamente; se richiesto codice email o CAPTCHA serve conferma manuale. Login e tariffe non sono automaticamente certificati."
             })
             return
         if route=="/api/agents/config":
@@ -1225,7 +1230,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1239,6 +1244,22 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route in {"/api/portal-account/save","/api/portal-account/remove"}:
+                if PORTAL_SESSIONS is None:
+                    self._json(503,{"error":"Aggiorna il servizio Windows per memorizzare gli accessi."}); return
+                portal_id=str(payload.get("portalId") or "").strip().lower()
+                if portal_id not in LOGIN_PORTALS:
+                    self._json(400,{"error":"Portale non supportato"}); return
+                try:
+                    if route.endswith("/save"):
+                        status=PORTAL_SESSIONS.save_credentials(portal_id,str(payload.get("email") or ""),str(payload.get("password") or ""))
+                    else:
+                        status=PORTAL_SESSIONS.remove_credentials(portal_id)
+                    self._json(200,{"ok":True,"portalId":portal_id,"status":status})
+                except (RuntimeError,OSError,ValueError) as exc:
+                    self._json(400,{"error":str(exc)[:200]})
+                return
 
             if route in {"/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate"}:
                 if PORTAL_SESSIONS is None:
@@ -1311,8 +1332,8 @@ class Handler(SimpleHTTPRequestHandler):
                     session=PORTAL_SESSIONS.statuses().get(agent_id) or {}
                     if session.get("state") in {"open","queued"}:
                         self._json(409,{"error":"Prima chiudi e conserva la sessione manuale di questo portale. Chrome non può usare lo stesso profilo due volte."}); return
-                    if not PORTAL_SESSIONS.has_saved_profile(agent_id):
-                        self._json(409,{"error":"Nessun profilo Chrome salvato per "+agent_id+". Premi Apri accesso, effettua il login e poi Chiudi e conserva."}); return
+                    if not PORTAL_SESSIONS.has_saved_profile(agent_id) and not PORTAL_SESSIONS.has_credentials(agent_id):
+                        self._json(409,{"error":"Nessuna sessione o credenziale disponibile per "+agent_id+". Configura credenziali Windows oppure premi Apri accesso e Chiudi e conserva."}); return
                     account_profile=str(PORTAL_SESSIONS.profile_dir(agent_id))
                 property_id=safe_property_id(payload.get("propertyId"))
                 with STATE.lock,AUTO_STATE.lock:
