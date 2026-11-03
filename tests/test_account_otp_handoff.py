@@ -69,6 +69,39 @@ class OtpHandoffTests(unittest.TestCase):
                 self.assertEqual(sessions.auth_resume_events,{})
         asyncio.run(run())
 
+
+    def test_standalone_expedia_login_has_its_own_ready_state(self):
+        class FakeVault:
+            def exists(self, portal):
+                return portal == "expedia"
+        async def run():
+            with tempfile.TemporaryDirectory() as root:
+                sessions=ManualPortalSessions(Path(root))
+                sessions.vault=FakeVault()
+                async def prepared(portal, require_confirmation=False):
+                    self.assertEqual(portal,"expedia")
+                    self.assertTrue(require_confirmation)
+                    return "verifica completata manualmente; sessione riutilizzata su conferma dell'utente"
+                sessions.prepare_account_session=prepared
+                started=sessions.start_account_check("expedia")
+                self.assertIn(started["state"],{"authenticating","ready"})
+                for _ in range(150):
+                    if sessions.statuses()["expedia"]["state"] == "ready":
+                        break
+                    await asyncio.sleep(.005)
+                entry=sessions.statuses()["expedia"]
+                self.assertEqual(entry["state"],"ready")
+                self.assertIn("puoi avviare",entry["message"])
+                self.assertFalse(bool(sessions.account_workers))
+        asyncio.run(run())
+
+    def test_standalone_login_requires_saved_local_email(self):
+        with tempfile.TemporaryDirectory() as root:
+            sessions=ManualPortalSessions(Path(root))
+            sessions.vault=None
+            with self.assertRaisesRegex(RuntimeError,"salva l'email"):
+                sessions.start_account_check("vrbo")
+
     def test_incomplete_verification_fails_closed(self):
         class PageWithOtp(FakeVerifiedPage):
             url = "https://www.expedia.it/login"
