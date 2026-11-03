@@ -166,11 +166,26 @@ class ManualPortalSessions:
     async def _request_one_time_code(page) -> bool:
         """Click a visible 'send code' action once; never read/submit the OTP."""
         pattern = re.compile(
-            r"(invia|inviami|manda|send|get|receive|ricevi|richiedi|request|resend|reinvia).{0,35}"
-            r"(codice|code|otp|verification)|"
-            r"(codice|code|otp).{0,35}(via|by|email|sms)",
+            r"\b(invia|inviami|manda|send|get|receive|ricevi|richiedi|request)\b.{0,35}"
+            r"\b(codice|code|otp|verification)\b",
             re.IGNORECASE
         )
+        # The first Continue button often sends a code already. Never click
+        # "resend" and invalidate the OTP that the user just received.
+        if await ManualPortalSessions._has_visible(page.locator(
+            'input[autocomplete="one-time-code"],input[name*="otp" i],'
+            'input[id*="otp" i],input[name*="verificationCode" i]'
+        )):
+            return False
+        try:
+            body = (await page.locator("body").inner_text(timeout=3000))[:3500].lower()
+            if any(x in body for x in (
+                "codice inviato", "codice è stato inviato", "abbiamo inviato un codice",
+                "code sent", "code was sent", "we sent a code", "we've sent a code",
+            )):
+                return False
+        except Exception:
+            pass
         for role in ("button", "link"):
             candidate = page.get_by_role(role, name=pattern)
             if await ManualPortalSessions._has_visible(candidate):
@@ -254,9 +269,10 @@ class ManualPortalSessions:
                     )
                 await continue_button.click(timeout=9000)
                 await page.wait_for_timeout(1400)
-                # Expedia and Vrbo may show an additional "Invia codice" button.
-                # A single opt-in click is allowed; actual OTP stays with the human.
-                await self._request_one_time_code(page)
+                # If Continue already triggered an OTP, don't send another one.
+                # Otherwise click "Invia codice" once, when safely recognizable.
+                if not await self._needs_human_challenge(page):
+                    await self._request_one_time_code(page)
                 if await self._needs_human_challenge(page):
                     return await self._wait_for_human_login(
                         portal, page,
