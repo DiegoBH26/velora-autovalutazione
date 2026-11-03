@@ -100,7 +100,8 @@ function visibleExpediaCapture() {
       if(!isVisible(current)) continue;
       const content=(current.innerText||"").trim();
       if(content.length<65||content.length>3500) continue;
-      const actions=[...current.querySelectorAll("button")].filter(isVisible).filter(x=>/^(prenota|book|reserve|seleziona|choose)$/i.test((x.innerText||"").trim()));
+      const actions=[...current.querySelectorAll("button,[role=button]")].filter(isVisible)
+        .filter(x=>roomAction.test((x.innerText||"").trim().replace(/\s+/g," ")));
       if(actions.length>2) continue;
       const title=roomTitle(current);
       const price=quoteTotal(content);
@@ -108,8 +109,11 @@ function visibleExpediaCapture() {
     }
     return null;
   }
+  // Expedia localizes room CTAs and may append "ora"/"now" to the label.
+  // Keep this restricted to explicit room/rate actions: do not click anything.
+  const roomAction=/^(?:prenota(?: ora)?|book(?: now)?|reserve(?: now)?|seleziona(?: (?:camera|tariffa))?|choose(?: (?:room|rate))?|select(?: (?:a )?(?:room|rate))?)\s*[›»→]?$/i;
   const bookingButtons=[...document.querySelectorAll("button,[role=button]")].filter(isVisible)
-    .filter(x=>/^(prenota|book|reserve|seleziona|choose)$/i.test((x.innerText||"").trim()));
+    .filter(x=>roomAction.test((x.innerText||"").trim().replace(/\s+/g," ")));
   const candidates=bookingButtons.map(cardFromButton).filter(Boolean);
   const seen=new Set();
   const rooms=[];
@@ -144,7 +148,9 @@ function visibleExpediaCapture() {
     rooms,capturedAt:new Date().toISOString(),
     warning:rooms.length
       ? "Camere lette dal contenuto visibile. Identità e condizioni devono essere confermate prima di un confronto tariffario."
-      : "Non ho trovato tariffe totali attribuibili in modo affidabile alle singole camere. Nessun prezzo inventato."
+      : "Nessuna tariffa totale affidabile per camera: "+bookingButtons.length+
+        " pulsanti camera riconosciuti, "+candidates.length+" schede con titolo e totale. "+
+        "Verifica che la pagina mostri le camere e il totale per soggiorno. Nessun prezzo inventato."
   };
 }
 
