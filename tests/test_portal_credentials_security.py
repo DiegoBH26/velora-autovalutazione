@@ -31,13 +31,13 @@ class LocalAccountCredentialContract(unittest.TestCase):
         self.assertNotIn("json.dump(", self.vault)
         self.assertNotIn("subprocess", self.vault)
 
-    def test_only_boolean_credential_status_is_exposed(self):
+    def test_account_email_only_and_boolean_status_are_exposed(self):
         ast.parse(self.sessions)
         self.assertIn('state["credentialSaved"]=self.has_credentials(portal)', self.sessions)
         self.assertIn("self.vault.save(portal, email, password)", self.sessions)
         self.assertIn("self.vault.remove(portal)", self.sessions)
-        self.assertIn('{"credentialSaved": True, "profileSaved":', self.sessions)
-        self.assertIn('{"credentialSaved": False, "profileSaved":', self.sessions)
+        self.assertIn('return {**self.account_info(portal), "profileSaved":', self.sessions)
+        self.assertIn('return {"credentialSaved":email is not None, "savedEmail":email or ""}', self.sessions)
         self.assertIn("chromium_sandbox=True", self.sessions)
         self.assertIn("def _ensure_login_host", self.sessions)
         self.assertIn("self._ensure_login_host(portal, page.url)", self.sessions)
@@ -91,7 +91,7 @@ class LocalAccountCredentialContract(unittest.TestCase):
         self.assertIn("Elimina accesso", self.frontend)
         self.assertIn('autoComplete="new-password"', self.frontend)
         self.assertIn('"/api/portal-account/"+action', self.frontend)
-        self.assertIn('setPortalCredentialDrafts(old=>({...old,[portalId]:{email:"",password:""}}))', self.frontend)
+        self.assertIn('setPortalCredentialDrafts(old=>({...old,[portalId]:{email:actual.savedEmail,password:""}}))', self.frontend)
         self.assertNotIn('localStorage.setItem("velora-credentials', self.frontend)
         self.assertIn("velora_portal_credentials.py.new", self.updater)
 
