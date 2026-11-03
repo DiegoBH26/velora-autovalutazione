@@ -10912,6 +10912,45 @@ async def observe(
                 f"HTTP {soft_http_status} iniziale, ma la scheda completa è stata renderizzata nel browser "
                 f"con date confermate. {str(record.get('evidence') or '')}"
             )[:900]
+        # Validate Agoda against the actual already-open listing, AFTER the
+        # frontend date/price flow. Do not perform a second discovery, trust
+        # a search snippet, or approve based on prices and photographs alone.
+        if channel=="agoda":
+            url=str(page.url or "")
+            if (_plausible_ota_listing_url("agoda",url)
+                    and record.get("status") not in {"login_required","rate_limited",
+                        "access_blocked","http_error","robots_denied"}):
+                try:
+                    heading=(await page.locator("h1").first.inner_text(timeout=1300)).strip()[:220]
+                except Exception:
+                    heading=""
+                browser_title=str(record.get("title") or "")[:220]
+                # Prefer the heading only when it actually identifies the
+                # property, not when Agoda uses a generic h1 for ratings.
+                heading_score=_name_similarity(property_name,heading)
+                title_score=_name_similarity(property_name,browser_title)
+                visible_title=heading if heading_score>=title_score else browser_title
+                identity=_strict_ota_identity_match(
+                    property_name,city,"",visible_title,body,url
+                )
+                record["identityCheck"]={
+                    "verified":bool(identity.get("ok")),
+                    "score":identity.get("score",0.0),
+                    "evidence":str(identity.get("evidence") or "")[:550],
+                    "method":"Agoda live listing after dates and rates",
+                }
+                record["identityHeading"]=heading[:160]
+                if identity.get("ok"):
+                    record["sourceIdentityVerified"]=True
+                    record["identityVerificationMethod"]="live_agoda_listing"
+                elif record.get("quotes"):
+                    record["sourceIdentityVerified"]=False
+                    record["identityVerificationWarning"]=(
+                        "Tariffe lette, ma nome e località della scheda non "
+                        "confermati sul frontend; non entra nel confronto."
+                    )
+            elif record.get("quotes"):
+                record["sourceIdentityVerified"]=False
         # Solo una breve traccia testuale: evita di salvare intere pagine e dati ospite.
         record["visibleExcerpt"] = re.sub(r"\s+", " ", body)[:350]
         # Evidence from this SAME OTA page: no additional searches or navigation.
@@ -14162,9 +14201,26 @@ async def run(args: argparse.Namespace) -> dict:
                     # becomes verified only after observe() reads the LIVE page
                     # and the strict identity check succeeds. Do not keep the
                     # quotes artificially excluded from the Booking comparison.
-                    if channel in {"vrbo","holidu"} and (record.get("identityCheck") or {}).get("verified"):
+                    if channel in {"vrbo","holidu","agoda"} and (record.get("identityCheck") or {}).get("verified"):
                         record["sourceIdentityVerified"]=True
                         unverified_source_ids.discard(channel)
+                        if channel=="agoda":
+                            verified_url=normalize_ota_listing_url(
+                                "agoda",str(record.get("finalUrl") or source)
+                            )
+                            if _plausible_ota_listing_url("agoda",verified_url):
+                                sources["agoda"]={"label":OTA_META["agoda"]["label"],"url":verified_url}
+                                result.setdefault("discoveredSources",{})["agoda"]={
+                                    "status":"found",
+                                    "url":verified_url,
+                                    "title":str(record.get("identityHeading") or record.get("title") or "")[:220],
+                                    "score":record["identityCheck"].get("score",0.0),
+                                    "identityVerified":True,
+                                    "verification":"page_identity_lock",
+                                    "discoveryMode":"Agoda same-page frontend identity check",
+                                    "evidence":"Scheda Agoda verificata con nome e località sul frontend reale, dopo la lettura delle date e dei prezzi. "
+                                               +str(record["identityCheck"].get("evidence") or ""),
+                                }
                         print(f"{channel}: identità scheda verificata sul frontend reale",flush=True)
                     if channel in unverified_source_ids:
                         record["sourceIdentityVerified"]=False
