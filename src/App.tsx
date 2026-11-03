@@ -8749,7 +8749,7 @@ export default function App() {
               </div>}
 
                 <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> per avviare la scansione occorre prima preparare il rispettivo account. Premi <strong>Apri accesso</strong>, effettua il login nella finestra Chrome dedicata, poi <strong>Chiudi e conserva</strong>. Solo allora si abilita <strong>▶ Account</strong>. Velora riutilizza il profilo salvato; il login effettivo e la possibilità di leggere prezzi restano da verificare.
+                  <strong>Ercole, Atlante e Mercurio:</strong> se hai già creato l’account Expedia, Vrbo o Holidu non devi crearne un altro. Premi <strong>▶ Account</strong> per verificare sul momento il profilo Chrome salvato: se non è disponibile, Velora indica esattamente cosa manca e non fa partire il timer. Per collegare il tuo account esistente al Chrome dedicato premi <strong>Apri accesso</strong>, entra con le credenziali già in uso e poi <strong>Chiudi e conserva</strong>. Il login effettivo e la possibilità di leggere prezzi restano da verificare.
                 </p>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -8758,6 +8758,7 @@ export default function App() {
                       <p className="mt-1 text-[11px] text-[#64748B]">Un solo pannello: spunta il colore per includere l'agente, oppure premi ▶ per avviarlo da solo.</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
+                      <button type="button" disabled={Boolean(portalSessionBusy)} onClick={()=>void refreshPortalSessions()} className="text-[11px] font-black text-[#23124A] underline underline-offset-4 disabled:opacity-40">Rileggi accessi</button>
                       <button type="button" disabled={launchingBatch||localPilotRunning} onClick={()=>{
                         const all=LOCAL_PILOT_OTA_OPTIONS.map((item)=>item.id);
                         setLocalPilotSelectedChannels(all);
@@ -8821,9 +8822,9 @@ export default function App() {
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
                           </button> : <button type="button"
-                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||!loginState?.profileSaved||loginOpen}
+                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
-                            title={loginState?.profileSaved?"Avvia con il profilo Chrome locale salvato; login effettivo da verificare":"Prima premi Apri accesso, poi Chiudi e conserva"}
+                            title="Verifica ora il profilo Chrome sul PC. Se non è pronto, Velora mostra il motivo senza avviare il timer."
                             aria-label={"Avvia "+agent.name+" con account registrato"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white disabled:opacity-40">
                             ▶ Account
@@ -8856,7 +8857,7 @@ export default function App() {
                   <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950" role="alert">
                     Avvio Account non disponibile per: {LOGIN_PORTAL_IDS.filter(id=>localPilotSelectedChannels.includes(id) &&
                       (!portalSessions[id]?.profileSaved || ["open","queued"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
-                    Apri accesso nella scheda dell'agente, effettua il login manualmente e premi Chiudi e conserva.
+                    Se gli account sui portali esistono già, non registrarli di nuovo: apri il Chrome dedicato con «Apri accesso», accedi con l’account esistente e premi «Chiudi e conserva».
                     Il timer non partirà finché i profili richiesti non saranno pronti.
                   </p>}
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
