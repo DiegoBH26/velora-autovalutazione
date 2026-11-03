@@ -9019,9 +9019,17 @@ export default function App() {
                           </div>
                           {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
                             {firefoxTest.state==="login_reached"?"✓ ":
-                            firefoxTest.state==="blocked"?"Accesso limitato · ":
+                            firefoxTest.result==="blocked"?"Accesso Expedia negato · ":
+                            firefoxTest.state==="human_check"?"Verifica umana in corso · ":
                             firefoxTest.state==="installing"?"Installazione · ":""}
                             {firefoxTest.message}
+                          </p>}
+                          {firefoxTest?.result==="blocked" && <p className="mt-2 text-[10px] leading-relaxed text-[#8A2834]" role="alert">
+                            Expedia ha negato l'accesso al Firefox automatizzato. Anche una verifica umana completata non garantisce l'autorizzazione del portale.
+                            Non ripetere questa prova per cercare di aggirare il blocco: per tariffe e disponibilità automatiche valuta
+                            {" "}<a href="https://developers.expediagroup.com/rapid/lodging/shopping/about-shopping-api"
+                              target="_blank" rel="noreferrer" className="font-black underline">Expedia Rapid Shopping API</a>
+                            {" "}(richiede accordo e credenziali partner; non basta l'account Expedia personale).
                           </p>}
                           <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
                         </div>}
