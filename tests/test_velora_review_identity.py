@@ -78,7 +78,7 @@ class VeloraReviewIdentityTests(unittest.TestCase):
         self.assertIn('quote["verified"]=False',pilot)
         server=src("local_audit_server.py")
         self.assertIn('PORTAL_SESSIONS.has_saved_profile(agent_id)',server)
-        self.assertIn('session.get("state") in {"open","queued"}',server)
+        self.assertIn('session.get("state") in {"open","queued","awaiting_user"}',server)
 
     def test_ipazia_dashboard_merge_and_explicit_sample_limits(self):
         app=src("src/App.tsx")
