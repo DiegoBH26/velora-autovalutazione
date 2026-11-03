@@ -141,6 +141,50 @@ class ManualPortalSessions:
             with self.lock:
                 self.firefox_thread = None
 
+    async def _observe_firefox_human_check(self, page) -> str:
+        """Observe one human check. Never solve, submit or retry the challenge.
+
+        The green confirmation is not proof of portal authorization. We must
+        inspect the next page before attributing a positive Firefox result.
+        """
+        if not await self._expedia_robot_challenge(page):
+            return "none"
+        self._set_firefox_test(
+            "human_check",
+            "Expedia richiede una verifica umana. Se scegli di completarla nel "
+            "Firefox già aperto, Velora osserva solo il risultato finale: "
+            "non preme né aggira la verifica.",
+            "human_check",
+        )
+        for _ in range(75):
+            if self.firefox_stop.is_set():
+                return "cancelled"
+            await page.wait_for_timeout(2000)
+            reason = await self._access_restricted_reason(page)
+            if reason:
+                self._set_firefox_test(
+                    "blocked",
+                    "VERIFICA UMANA SEGUITA DA ACCESSO LIMITATO: Expedia "
+                    "ha negato la sessione anche dopo la verifica. "
+                    "Firefox non risolve il problema; non ripetere il test.",
+                    "blocked",
+                )
+                return "blocked"
+            if not await self._expedia_robot_challenge(page):
+                self._set_firefox_test(
+                    "navigating",
+                    "La schermata di verifica non è più visibile. "
+                    "Controllo se Expedia consente di raggiungere il login.",
+                )
+                return "passed"
+        self._set_firefox_test(
+            "inconclusive",
+            "Verifica rimasta aperta: nessuna autorizzazione Expedia confermata. "
+            "Chiudi il test; non è necessario ripeterlo.",
+            "inconclusive",
+        )
+        return "inconclusive"
+
     async def _run_firefox_test(self) -> None:
         async with async_playwright() as playwright:
             firefox_path = Path(playwright.firefox.executable_path)
@@ -184,12 +228,15 @@ class ManualPortalSessions:
                     wait_until="domcontentloaded", timeout=45000,
                 )
                 await page.wait_for_timeout(1200)
+                human_check = await self._observe_firefox_human_check(page)
                 reason = await self._access_restricted_reason(page)
-                if reason:
+                if human_check in {"blocked", "cancelled", "inconclusive"}:
+                    pass
+                elif reason:
                     self._set_firefox_test(
                         "blocked",
-                        "Expedia limita anche Firefox automatizzato. Nessun altro tentativo "
-                        "e nessun login eseguito: puoi chiudere il test.",
+                        "ACCESSO LIMITATO: Expedia ha negato il browser Firefox "
+                        "prima del login. Nessun altro tentativo.",
                         "blocked",
                     )
                 else:
@@ -221,8 +268,11 @@ class ManualPortalSessions:
                                 "Verifica eventuale popup privacy nella finestra.",
                                 "manual_check",
                             )
+                    second_check = await self._observe_firefox_human_check(page)
                     reason = await self._access_restricted_reason(page)
-                    if reason:
+                    if second_check in {"blocked", "cancelled", "inconclusive"}:
+                        pass
+                    elif reason:
                         self._set_firefox_test(
                             "blocked",
                             "Expedia ha limitato Firefox dopo l'apertura di Accedi. "
