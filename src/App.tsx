@@ -5801,7 +5801,7 @@ export default function App() {
       ". Salva l’email in «Configura credenziali» (password vuota per i codici), " +
       "poi premi «Accedi e verifica». Nessun timer avviato."
     );
-    const unchecked=required.filter(id=>sessions[id]?.credentialSaved && sessions[id]?.state!=="ready");
+    const unchecked=required.filter(id=>sessions[id]?.state!=="ready");
     if(unchecked.length) throw new Error(
       "Login non ancora verificato per "+unchecked.map(veloraAgentName).join(", ")+
       ". Premi «Accedi e verifica», completa l’eventuale codice sul sito e premi «Riprendi»."
@@ -8997,11 +8997,11 @@ export default function App() {
                 </div>
 
                 {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
-                    ((!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved) || ["open","queued","awaiting_user","authenticating"].includes(portalSessions[id]?.state||""))) &&
+                    portalSessions[id]?.state!=="ready") &&
                   <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950" role="alert">
                     Avvio Account non disponibile per: {LOGIN_PORTAL_IDS.filter(id=>localPilotSelectedChannels.includes(id) &&
-                      (!portalSessions[id]?.profileSaved && !portalSessions[id]?.credentialSaved || ["open","queued","awaiting_user","authenticating"].includes(portalSessions[id]?.state||""))).map(veloraAgentName).join(", ")}.
-                    Puoi salvare le credenziali nel Gestore credenziali Windows usando «Configura credenziali», oppure completare manualmente il login con «Apri accesso» e «Chiudi e conserva».
+                      (portalSessions[id]?.state!=="ready")).map(veloraAgentName).join(", ")}.
+                    Salva l’email dell’account in «Configura credenziali» (password vuota per Expedia/Vrbo), quindi premi «Accedi e verifica». Quando l’accesso è confermato, puoi avviare ▶ Account.
                     Il timer parte soltanto se un agente locale accetta il lavoro; i codici email e i CAPTCHA richiedono comunque l’utente.
                   </p>}
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
