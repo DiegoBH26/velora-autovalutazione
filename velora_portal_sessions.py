@@ -120,6 +120,7 @@ class ManualPortalSessions:
                 "startedAt": datetime.now(timezone.utc).isoformat(),
             }
         print(f"[ASSISTENZA LOGIN] {PORTALS[portal]['name']} | IN ATTESA | Codice o verifica richiesti nella finestra Chrome", flush=True)
+        success = False
         try:
             confirmed = await asyncio.to_thread(event.wait, HUMAN_LOGIN_MAX_SECONDS)
             if not confirmed:
@@ -147,13 +148,18 @@ class ManualPortalSessions:
                 raise RuntimeError(
                     "ACCESSO NON COMPLETATO: sei ancora nella schermata di autenticazione."
                 )
+            success = True
             return "verifica completata manualmente; sessione riutilizzata su conferma dell'utente"
         finally:
             with self.lock:
                 self.auth_resume_events.pop(portal, None)
                 self.state[portal] = {
-                    "state": "closed" if event.is_set() else "error",
-                    "message": "Browser di accesso in chiusura; profilo conservato localmente."
+                    "state": "closed" if success else "error",
+                    "message": (
+                        "Accesso completato; profilo Chrome conservato."
+                        if success else
+                        "Accesso non verificato o scaduto; segui l'errore dell'agente."
+                    ),
                 }
 
     @staticmethod
