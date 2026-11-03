@@ -5041,6 +5041,7 @@ export default function App() {
   }>(null);
   const [assistedRateConfirmation,setAssistedRateConfirmation] = useState("");
   const [companionInstalled,setCompanionInstalled] = useState(false);
+  const [companionIdentityConfirmed,setCompanionIdentityConfirmed] = useState(false);
   const [companionCapture,setCompanionCapture] = useState<ExpediaCompanionCapture|null>(null);
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
@@ -5237,6 +5238,7 @@ export default function App() {
           propertyId:activeAuditData.id,
         };
         setCompanionCapture(capture);
+        setCompanionIdentityConfirmed(false);
         setCompanionStay({
           checkin:capture.checkin,checkout:capture.checkout,
           guests:capture.guests>0?capture.guests:2
@@ -6796,6 +6798,7 @@ export default function App() {
   function captureExpediaFromChrome() {
     setCompanionMessage("Richiedo al Chrome Companion di leggere le camere Expedia già visibili...");
     setCompanionCapture(null);
+    setCompanionIdentityConfirmed(false);
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_EXPEDIA"},window.location.origin);
     if(!companionInstalled)
       setCompanionMessage("Chrome Companion non rilevato. Installa l'estensione e aggiorna questa scheda Velora, poi premi di nuovo.");
@@ -6807,11 +6810,12 @@ export default function App() {
       setCompanionMessage("La rilevazione appartiene a un'altra scheda struttura. Ripeti l'acquisizione.");
       return;
     }
-    if(!matchingExpediaProperty(
+    const pageIdentityMatched=matchingExpediaProperty(
       captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
-    )) {
-      setCompanionMessage("Identità non confermata: il nome della scheda Expedia non coincide con "+
-        activeAuditData.name+". Nessun prezzo importato; apri la struttura corretta.");
+    );
+    if(!pageIdentityMatched&&!companionIdentityConfirmed) {
+      setCompanionMessage("Identità della struttura non leggibile o non coincidente. "+
+        "Verifica la pagina Expedia e conferma esplicitamente sotto il nome prima di importare.");
       return;
     }
     const checkin=companionStay.checkin,checkout=companionStay.checkout;
@@ -6843,7 +6847,7 @@ export default function App() {
       roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
       board:room.board,refund:room.refund,taxes:room.taxes,
       audience:"Non verificato",promotion:"",
-      manualListingTitle:captured.propertyName,manualIdentityConfirmed:false,
+      manualListingTitle:captured.propertyName,manualIdentityConfirmed:companionIdentityConfirmed,
       pilotVerified:false,roomMatchStatus:"da verificare",
       comparisonWarning:"Prezzo letto dal contenuto visibile nel Chrome personale su comando dell'operatore. "+
         "Non è una scansione autenticata dell'agente. Identità della camera e condizioni Booking non confermate; delta non validato."
@@ -9343,9 +9347,14 @@ export default function App() {
                             {!matchingExpediaProperty(
                               companionCapture.propertyName+" "+companionCapture.pageTitle,
                               activeAuditData.name,activeAuditData.city
-                            ) && <p className="mt-2 font-bold text-rose-700 text-[10px]" role="alert">
-                              Attenzione: identità della struttura non confermata. Non importerò prezzi di una scheda diversa.
-                            </p>}
+                            ) && <label className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[10px] font-semibold text-amber-900">
+                              <input type="checkbox" checked={companionIdentityConfirmed}
+                                onChange={event=>setCompanionIdentityConfirmed(event.target.checked)}
+                                className="mt-0.5"/>
+                              Il titolo Expedia non permette di confermare automaticamente la struttura.
+                              Ho verificato personalmente nome, località e foto e confermo che questa pagina riguarda
+                              {activeAuditData.name}. La corrispondenza resta dichiarata dall'operatore, non validata dall'agente.
+                            </label>}
                             <div className="mt-2 grid grid-cols-3 gap-2">
                               <label className="text-[10px] font-bold text-[#23124A]">
                                 Check-in
@@ -9395,7 +9404,7 @@ export default function App() {
                             </div>
                             <button type="button" onClick={importCompanionExpediaRates}
                               disabled={!companionCapture.rooms.length ||
-                                !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)}
+                                !(matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)||companionIdentityConfirmed)}
                               className="mt-2 w-full rounded-lg bg-[#23124A] p-2 text-[11px] font-black text-white disabled:opacity-40">
                               Importa tutte le {companionCapture.rooms.length} tariffe nel report
                             </button>
