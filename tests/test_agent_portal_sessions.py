@@ -38,7 +38,7 @@ class PortalSessionTest(unittest.TestCase):
     def test_frontend_has_honest_manual_login_flow(self):
         for token in ("Apri accesso","Chiudi e conserva","▶ Account","loginOpen","portalSessionMessage","openPortalListing"):
             self.assertIn(token,self.app)
-        self.assertIn("L'autenticazione effettiva non viene garantita automaticamente",self.app)
+        self.assertIn("il portale richiede un codice email",self.app)
         self.assertNotIn("▶ Pubblico",self.app)
         self.assertIn("requireSpecialistAccountProfiles",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
@@ -54,6 +54,7 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn("velora_portal_sessions.py.new",self.updater)
         self.assertIn('move /Y "velora_portal_sessions.py.new"',self.updater)
         self.assertIn("velora_agent_network.py.new",self.updater)
+        self.assertIn("velora_portal_credentials.py.new",self.updater)
 
 if __name__=="__main__":
     unittest.main()
