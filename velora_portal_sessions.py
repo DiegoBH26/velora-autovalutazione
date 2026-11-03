@@ -170,16 +170,19 @@ class ManualPortalSessions:
                 flush=True,
             )
         except Exception as exc:
+            is_portal_block="ACCESSO LIMITATO DAL PORTALE" in str(exc)
             with self.lock:
                 self.state[portal] = {
-                    "state": "error",
+                    "state": "access_limited" if is_portal_block else "error",
                     "message": (
+                        str(exc)[:440] if is_portal_block else
                         f"Login non completato ({type(exc).__name__}): "
                         f"{str(exc)[:210]}"
                     ),
                 }
             print(
-                f"[ACCOUNT] {PORTALS[portal]['name']} | ERRORE | "
+                f"[ACCOUNT] {PORTALS[portal]['name']} | "
+                f"{'ACCESSO LIMITATO DAL PORTALE' if is_portal_block else 'ERRORE'} | "
                 f"{type(exc).__name__}",
                 flush=True,
             )
