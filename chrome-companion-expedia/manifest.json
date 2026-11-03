@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Velora · Expedia Chrome Companion",
+  "version": "0.1.0",
+  "description": "Legge su richiesta le camere e i prezzi visibili in una pagina Expedia aperta nel Chrome personale. Non effettua login o navigazioni automatiche.",
+  "permissions": [
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.expedia.it/*",
+    "https://*.expedia.com/*",
+    "https://*.expedia.de/*",
+    "https://*.expedia.fr/*",
+    "https://*.expedia.es/*",
+    "https://*.expedia.co.uk/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://diegobh26.github.io/velora-autovalutazione/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Velora Expedia Companion: utilizza il pulsante nella scheda Ercole"
+  }
+}
