@@ -1167,7 +1167,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "portals":{key:{"name":value["name"],"label":value["label"],
                                 "authentication":value["authentication"],"scraping":value["scraping"]}
                            for key,value in LOGIN_PORTALS.items()},
-                "sessions":PORTAL_SESSIONS.statuses(),"manualOnly":True,
+                "sessions":PORTAL_SESSIONS.statuses(),"firefoxTest":PORTAL_SESSIONS.firefox_test_status(),"manualOnly":True,
                 "automatedLoginSupported":True,
                 "message":"Credenziali opzionali conservate solo nel Gestore credenziali Windows. La sessione Chrome viene riusata autonomamente; se richiesto codice email o CAPTCHA serve conferma manuale. Login e tariffe non sono automaticamente certificati."
             })
@@ -1234,7 +1234,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1248,6 +1248,25 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route in {"/api/portal-firefox/start","/api/portal-firefox/finish"}:
+                if PORTAL_SESSIONS is None:
+                    self._json(503,{"error":"Aggiorna l'agente Windows per il test Firefox."}); return
+                if route.endswith("/start"):
+                    with AGENT_RUN_LOCK:
+                        active=any(row.get("state") in {"running","queued"} for row in AGENT_RUNS.values())
+                    with STATE.lock,AUTO_STATE.lock:
+                        active=active or STATE.running or AUTO_STATE.running
+                    if active:
+                        self._json(409,{"error":"Termina le scansioni prima del test Firefox."}); return
+                try:
+                    state=(PORTAL_SESSIONS.start_firefox_test()
+                           if route.endswith("/start")
+                           else PORTAL_SESSIONS.close_firefox_test())
+                    self._json(202 if route.endswith("/start") else 200,{"ok":True,"firefoxTest":state})
+                except RuntimeError as exc:
+                    self._json(409,{"error":str(exc)[:240]})
+                return
 
             if route=="/api/portal-auth/start":
                 if PORTAL_SESSIONS is None:
