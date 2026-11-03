@@ -17,6 +17,7 @@ for node in TREE.body:
     ):
         exec(compile(ast.Module(body=[node],type_ignores=[]),"agoda-consts","exec"),ns)
 for name in ("_norm_name","_name_similarity","_identity_match_score",
+             "specialist_booking_name_matches",
              "_agoda_unit_listing_conflict","_classify_ota_url",
              "_plausible_ota_listing_url","_strict_ota_identity_match"):
     fn=next(node for node in TREE.body
