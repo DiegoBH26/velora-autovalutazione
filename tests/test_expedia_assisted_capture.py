@@ -9,12 +9,12 @@ APP=(ROOT/"src/App.tsx").read_text(encoding="utf-8")
 class ExpediaAssistedCapture(unittest.TestCase):
     def test_one_click_path_reuses_existing_rate_quote_archive(self):
         self.assertIn("function prepareExpediaAssistedRate()",APP)
-        self.assertIn("prepareExpediaAssistedRate}",APP)
+        self.assertIn("captureExpediaFromChrome}",APP)
         self.assertIn("function showAssistedRateForm()",APP)
         self.assertIn('id="velora-pricing-details"',APP)
         self.assertIn('id="velora-manual-rate-form"',APP)
         self.assertIn("details.open=true",APP)
-        self.assertIn("Registra tariffa che vedo",APP)
+        self.assertIn("Acquisisci camere da Chrome",APP)
         self.assertIn('href="https://www.expedia.it/"',APP)
         self.assertIn("setRateQuotes((previous) => [...previous, quote]);",APP)
         self.assertIn('origin: "manual"',APP)
@@ -61,8 +61,8 @@ class ExpediaAssistedCapture(unittest.TestCase):
         self.assertIn('quote.origin === "pilot" && quote.pilotVerified === true',APP)
         self.assertIn("validate automaticamente",APP)
         self.assertIn("quote.manualListingTitle",APP)
-        self.assertIn("richiedi valutazione Rapid API",APP)
-        self.assertIn("soggetto ad approvazione partner",APP)
+        self.assertIn("Expedia Group Rapid API",APP)
+        self.assertIn("soggetta ad approvazione",APP)
 
 
 if __name__=="__main__":
