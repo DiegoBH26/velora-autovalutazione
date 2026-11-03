@@ -41,6 +41,8 @@ class AccountLaunchGuard(unittest.TestCase):
         self.assertIn("Chiudi e conserva",app)
         self.assertIn("Accesso non salvato: premi Apri accesso",app)
         self.assertIn("Il timer non partirà",app)
+        self.assertIn("setPortalSessions(sessions)",app)
+        self.assertIn("Avvio non eseguito: account da configurare",app)
         self.assertIn('role="alert">{state.error}',app)
 
     def test_backend_requires_saved_profile_and_never_uses_credentials(self):
