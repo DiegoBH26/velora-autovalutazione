@@ -62,7 +62,8 @@ class LocalAccountCredentialContract(unittest.TestCase):
         self.assertIn('"/api/portal-account/remove"', self.server)
         self.assertIn('self.headers.get("X-Velora-Local-Token")!=STATE.token', self.server)
         self.assertIn("not self._allowed_origin()", self.server)
-        self.assertIn("PORTAL_SESSIONS.prepare_account_session(agent_id)", self.server)
+        self.assertIn("PORTAL_SESSIONS.start_account_check(portal_id)", self.server)
+        self.assertIn('"/api/portal-auth/start"',self.server)
         self.assertIn("PORTAL_SESSIONS.has_credentials(agent_id)", self.server)
         self.assertNotIn('"password":', self.server)
 
