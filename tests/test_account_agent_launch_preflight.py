@@ -44,6 +44,11 @@ class AccountLaunchGuard(unittest.TestCase):
         self.assertIn("setPortalSessions(sessions)",app)
         self.assertIn("Avvio non eseguito: account da configurare",app)
         self.assertIn('role="alert">{state.error}',app)
+        # A previous login may already exist on the PC: do not block the
+        # verification button based on stale UI state. The backend still preflights.
+        self.assertNotIn("||!loginState?.profileSaved||loginOpen",app)
+        self.assertIn("Rileggi accessi",app)
+        self.assertIn("non devi crearne un altro",app)
 
     def test_backend_requires_saved_profile_and_never_uses_credentials(self):
         server=self.server
