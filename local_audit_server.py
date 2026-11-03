@@ -336,10 +336,14 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
             with AGENT_RUN_LOCK:
                 AGENT_RUNS[key]["state"]="running"
             data=json.loads(Path(property_file).read_text(encoding="utf-8"))
-            if account_profile and agent_id in {"expedia","vrbo","holidu"} and PORTAL_SESSIONS is not None and PORTAL_SESSIONS.has_credentials(agent_id):
-                print_agent_status(agent_id,"Login automatico","IN CORSO","Verifica sessione protetta Windows")
-                login_note=asyncio.run(PORTAL_SESSIONS.prepare_account_session(agent_id))
-                print_agent_status(agent_id,"Login automatico","VERIFICA",login_note)
+            if account_profile and agent_id in {"expedia","vrbo","holidu"} and PORTAL_SESSIONS is not None:
+                portal_state=PORTAL_SESSIONS.statuses().get(agent_id,{})
+                if portal_state.get("state")=="ready":
+                    print_agent_status(agent_id,"Login Account","CONFERMATO","Riuso profilo Chrome appena verificato")
+                elif PORTAL_SESSIONS.has_credentials(agent_id):
+                    raise RuntimeError("Prima effettua «Accedi e verifica» nella scheda dell\'agente e completa la verifica con codice; scansione non avviata.")
+                else:
+                    print_agent_status(agent_id,"Profilo Chrome","DA VERIFICARE","Profilo locale presente; login non confermato")
             asyncio.run(agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
@@ -1230,7 +1234,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-auth/resume"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-auth/resume","/api/portal-auth/start"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1244,6 +1248,25 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/portal-auth/start":
+                if PORTAL_SESSIONS is None:
+                    self._json(503,{"error":"Aggiorna l'agente Windows per verificare l'accesso."}); return
+                portal_id=str(payload.get("portalId") or "").strip().lower()
+                if portal_id not in LOGIN_PORTALS:
+                    self._json(400,{"error":"Portale non supportato"}); return
+                with AGENT_RUN_LOCK:
+                    active=any(row.get("state") in {"running","queued"} for row in AGENT_RUNS.values())
+                with STATE.lock,AUTO_STATE.lock:
+                    active=active or STATE.running or AUTO_STATE.running
+                if active:
+                    self._json(409,{"error":"Prima termina le scansioni in corso, poi verifica il login."}); return
+                try:
+                    state=PORTAL_SESSIONS.start_account_check(portal_id)
+                    self._json(202,{"ok":True,"portalId":portal_id,"session":state})
+                except RuntimeError as exc:
+                    self._json(409,{"error":str(exc)[:240]})
+                return
 
             if route=="/api/portal-auth/resume":
                 if PORTAL_SESSIONS is None:
@@ -1343,10 +1366,12 @@ class Handler(SimpleHTTPRequestHandler):
                     if PORTAL_SESSIONS is None or agent_id not in LOGIN_PORTALS:
                         self._json(409,{"error":"La modalità Account è disponibile solo per Expedia, Vrbo e Holidu con profilo Chrome locale."}); return
                     session=PORTAL_SESSIONS.statuses().get(agent_id) or {}
-                    if session.get("state") in {"open","queued","awaiting_user"}:
+                    if session.get("state") in {"open","queued","awaiting_user","authenticating"}:
                         self._json(409,{"error":"Prima chiudi e conserva la sessione manuale di questo portale. Chrome non può usare lo stesso profilo due volte."}); return
                     if not PORTAL_SESSIONS.has_saved_profile(agent_id) and not PORTAL_SESSIONS.has_credentials(agent_id):
                         self._json(409,{"error":"Nessuna sessione o credenziale disponibile per "+agent_id+". Configura credenziali Windows oppure premi Apri accesso e Chiudi e conserva."}); return
+                    if PORTAL_SESSIONS.has_credentials(agent_id) and session.get("state")!="ready":
+                        self._json(409,{"error":"Accesso non verificato: prima premi «Accedi e verifica» nella scheda dell'agente, inserisci il codice sul sito se richiesto e conferma «Riprendi». Nessun timer avviato."}); return
                     account_profile=str(PORTAL_SESSIONS.profile_dir(agent_id))
                 property_id=safe_property_id(payload.get("propertyId"))
                 with STATE.lock,AUTO_STATE.lock:
