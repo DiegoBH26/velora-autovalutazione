@@ -48,7 +48,7 @@ class PortalSessionTest(unittest.TestCase):
         self.assertIn('sessionMode: "public" | "account"',self.app)
         self.assertIn('session_mode=="account"',self.server)
         self.assertIn("PORTAL_SESSIONS.has_saved_profile(agent_id)",self.server)
-        self.assertIn('session.get("state") in {"open","queued","awaiting_user"}',self.server)
+        self.assertIn('session.get("state") in {"open","queued","awaiting_user","authenticating"}',self.server)
 
     def test_windows_updater_includes_file(self):
         self.assertIn("velora_portal_sessions.py.new",self.updater)
