@@ -5006,6 +5006,7 @@ export default function App() {
   const [resetScrapingMessage,setResetScrapingMessage]=useState("");
   const [specialistExpanded, setSpecialistExpanded] = useState(true);
   const [specialistMessage, setSpecialistMessage] = useState("");
+  const [specialistLaunchErrors,setSpecialistLaunchErrors]=useState<Record<string,string>>({});
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
   const [frontendComparisons,setFrontendComparisons]=useState<Array<{
@@ -5783,6 +5784,11 @@ export default function App() {
         throw new Error(detail.error || "Impossibile avviare lo specialista.");
       }
       accepted = true;
+      setSpecialistLaunchErrors(previous=>{
+        const next={...previous};
+        delete next[agentId];
+        return next;
+      });
       onAccepted?.();
       setSpecialistStatuses((old)=>({...old,[agentId]:{state:"running"}}));
       if (trackProgress) {
@@ -5860,6 +5866,7 @@ export default function App() {
         setAgentRunFinishedAt(null);
       }
       if (!accepted) {
+        setSpecialistLaunchErrors(previous=>({...previous,[agentId]:message}));
         setSpecialistStatuses(old=>({...old,[agentId]:{
           state:"failed",error:message,phase:"Avvio rifiutato",
           progressDetail:"Nessuna navigazione avviata."
@@ -6011,6 +6018,7 @@ export default function App() {
       setBrowserPilotResult(null);
       window.localStorage.removeItem("velora-browser-pilot:"+propertyId);
       setSpecialistStatuses({});
+      setSpecialistLaunchErrors({});
       setSpecialistChecks(null);
       setFrontendComparisons([]);
       setAgentRunIds([]);
@@ -8821,7 +8829,7 @@ export default function App() {
                             ▶ Account
                           </button>}
                         </div>
-                        {state?.state==="failed" && state.error && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{state.error}</p>}
+                        {(specialistLaunchErrors[agent.id] || (state?.state==="failed" && state.error)) && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{specialistLaunchErrors[agent.id] || state?.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
                             {loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.profileSaved?"Profilo disponibile · login da verificare":loginState?.state==="closed"?"Profilo conservato":loginState?.state==="error"?"Errore Chrome":"Accesso non salvato: premi Apri accesso"}
