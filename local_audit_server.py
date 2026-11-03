@@ -1230,7 +1230,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-auth/resume"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1244,6 +1244,19 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/portal-auth/resume":
+                if PORTAL_SESSIONS is None:
+                    self._json(503,{"error":"Aggiorna l'agente locale per la verifica assistita."}); return
+                portal_id=str(payload.get("portalId") or "").strip().lower()
+                if portal_id not in LOGIN_PORTALS:
+                    self._json(400,{"error":"Portale non supportato"}); return
+                try:
+                    state=PORTAL_SESSIONS.resume_agent_login(portal_id)
+                    self._json(200,{"ok":True,"portalId":portal_id,"session":state})
+                except RuntimeError as exc:
+                    self._json(409,{"error":str(exc)[:200]})
+                return
 
             if route in {"/api/portal-account/save","/api/portal-account/remove"}:
                 if PORTAL_SESSIONS is None:
@@ -1330,7 +1343,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if PORTAL_SESSIONS is None or agent_id not in LOGIN_PORTALS:
                         self._json(409,{"error":"La modalità Account è disponibile solo per Expedia, Vrbo e Holidu con profilo Chrome locale."}); return
                     session=PORTAL_SESSIONS.statuses().get(agent_id) or {}
-                    if session.get("state") in {"open","queued"}:
+                    if session.get("state") in {"open","queued","awaiting_user"}:
                         self._json(409,{"error":"Prima chiudi e conserva la sessione manuale di questo portale. Chrome non può usare lo stesso profilo due volte."}); return
                     if not PORTAL_SESSIONS.has_saved_profile(agent_id) and not PORTAL_SESSIONS.has_credentials(agent_id):
                         self._json(409,{"error":"Nessuna sessione o credenziale disponibile per "+agent_id+". Configura credenziali Windows oppure premi Apri accesso e Chiudi e conserva."}); return
