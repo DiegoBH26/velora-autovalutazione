@@ -1,0 +1,32 @@
+VELORA · EXPEDIA CHROME COMPANION
+=================================
+VERSIONE DI TEST — acquisizione delle camere Expedia VISIBILI nel Chrome normale.
+
+COSA FA:
+- Legge i titoli delle camere e i prezzi totali gia mostrati nella pagina Expedia
+  che hai aperto personalmente nel tuo Chrome normale.
+- Invia i dati solo alla tua scheda Velora online, su tua richiesta.
+- Velora mostra il risultato prima dell'importazione e conserva la fonte.
+- Non gestisce credenziali, codici OTP, CAPTCHA, VPN o navigazione automatica.
+- Non rende automaticamente verificate le corrispondenze tra camere Booking/Expedia.
+
+INSTALLAZIONE UNA SOLA VOLTA:
+1. Estrai il file ZIP in una cartella sul PC (non aprire i file singoli).
+2. In Chrome normale digita chrome://extensions/
+3. Attiva "Modalità sviluppatore" in alto a destra.
+4. Premi "Carica estensione non pacchettizzata".
+5. Seleziona la cartella Velora_Chrome_Companion estratta (quella con manifest.json).
+6. Aggiorna Velora online con Ctrl+F5.
+
+USO:
+1. Apri in Chrome la scheda della tua struttura su Expedia, inserendo date/ospiti.
+2. Apri anche Velora online nella stessa sessione di Chrome.
+3. Scheda Ercole -> "Acquisisci camere da Chrome".
+4. Verifica i risultati mostrati, soprattutto struttura e date.
+5. Premi "Importa tutte le tariffe" per inserirle nel report Velora.
+
+ATTENZIONE:
+La lettura e limitata ai dati esposti visibilmente nella pagina.
+Non cambia la disponibilita di Expedia a consentire accessi automatizzati.
+Se il portale nega accesso o blocca la pagina, il componente non lo aggira.
+Gli abbinamenti fisici delle camere con Booking richiedono riscontri certi.
