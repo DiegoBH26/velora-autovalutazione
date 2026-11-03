@@ -1179,6 +1179,22 @@ def _strict_ota_identity_match(
     url: str,
 ) -> dict:
     """Blocco identità conservativo per impedire prezzi di strutture omonime/simili."""
+    # A high fuzzy similarity is insufficient for Agoda properties sharing
+    # "villa", "agriturismo", a municipality, or a generic hotel descriptor.
+    # Require the distinctive name words in the ACTUAL listing heading/title.
+    # For example "Agriturismo Villa Luisa" must not match "Villa Casale".
+    if (_classify_ota_url(url)=="agoda"
+            and not specialist_booking_name_matches(property_name,title,city)):
+        return {
+            "ok":False, "score":0.0, "nameScore":0.0,
+            "cityMatch":False, "addressRatio":0.0,
+            "evidence":(
+                "AGODA NOME DISTINTIVO NON CORRISPONDENTE: "
+                f"richiesta «{property_name[:90]}», "
+                f"titolo scheda «{title[:110]}». "
+                "Fotografie e prezzi non sostituiscono la conferma della struttura."
+            ),
+        }
     if _agoda_unit_listing_conflict(property_name,url,title):
         return {
             "ok":False,"score":0.0,"nameScore":0.0,"cityMatch":False,
