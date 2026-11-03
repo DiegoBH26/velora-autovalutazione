@@ -10,8 +10,12 @@ if (location.origin === ORIGIN &&
   emit("READY", { installed: true });
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN ||
-        event.data?.source !== "velora-online-v1" ||
-        event.data?.type !== "CAPTURE_EXPEDIA") return;
+        event.data?.source !== "velora-online-v1") return;
+    if(event.data?.type === "COMPANION_PING") {
+      emit("READY", {installed: true});
+      return;
+    }
+    if(event.data?.type !== "CAPTURE_EXPEDIA") return;
     chrome.runtime.sendMessage({type: "CAPTURE_VISIBLE_EXPEDIA"}, (reply) => {
       const error = chrome.runtime.lastError;
       if (error || !reply?.ok) {
