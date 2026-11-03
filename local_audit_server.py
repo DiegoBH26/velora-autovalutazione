@@ -1370,8 +1370,8 @@ class Handler(SimpleHTTPRequestHandler):
                         self._json(409,{"error":"Prima chiudi e conserva la sessione manuale di questo portale. Chrome non può usare lo stesso profilo due volte."}); return
                     if not PORTAL_SESSIONS.has_saved_profile(agent_id) and not PORTAL_SESSIONS.has_credentials(agent_id):
                         self._json(409,{"error":"Nessuna sessione o credenziale disponibile per "+agent_id+". Configura credenziali Windows oppure premi Apri accesso e Chiudi e conserva."}); return
-                    if PORTAL_SESSIONS.has_credentials(agent_id) and session.get("state")!="ready":
-                        self._json(409,{"error":"Accesso non verificato: prima premi «Accedi e verifica» nella scheda dell'agente, inserisci il codice sul sito se richiesto e conferma «Riprendi». Nessun timer avviato."}); return
+                    if session.get("state")!="ready":
+                        self._json(409,{"error":"Accesso non verificato: prima salva l'email in «Configura credenziali», poi premi «Accedi e verifica». Inserisci l'eventuale codice nel Chrome dedicato e conferma «Riprendi». Nessun timer avviato."}); return
                     account_profile=str(PORTAL_SESSIONS.profile_dir(agent_id))
                 property_id=safe_property_id(payload.get("propertyId"))
                 with STATE.lock,AUTO_STATE.lock:
