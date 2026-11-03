@@ -8944,7 +8944,7 @@ export default function App() {
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
-                <p className="text-[10px] text-[#64748B]">Gli agenti utilizzano i parser esistenti. ▶ Pubblico opera senza account; ▶ Account (Expedia, Vrbo e Holidu) tenta la navigazione con il profilo Chrome registrato salvato, soltanto se lo selezioni esplicitamente. Il login non viene verificato automaticamente e gli eventuali prezzi osservati con account restano diagnostici finché pubblico, condizioni, stanza e identità non siano confermati. Nessuna modalità aggira i blocchi o le restrizioni del portale.</p>
+                <p className="text-[10px] text-[#64748B]">Gli specialisti Booking, Airbnb e Agoda lavorano sulle pagine pubbliche. Expedia, Vrbo e Holidu richiedono il profilo Chrome locale preparato con «Apri accesso» e «Chiudi e conserva», quindi partono soltanto in modalità Account. L'autenticazione effettiva non viene garantita automaticamente e le tariffe account restano diagnostiche finché identità, camera e condizioni non siano confermate. Il login non elimina necessariamente le restrizioni del portale.</p>
 
               </div>}
             </section>
