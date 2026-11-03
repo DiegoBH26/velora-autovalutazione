@@ -48,7 +48,7 @@ class AccountLaunchGuard(unittest.TestCase):
         # verification button based on stale UI state. The backend still preflights.
         self.assertNotIn("||!loginState?.profileSaved||loginOpen",app)
         self.assertIn("Rileggi accessi",app)
-        self.assertIn("le credenziali Windows protette",app)
+        self.assertIn("Gestore credenziali Windows",app)
 
     def test_backend_requires_existing_profile_or_windows_credentials(self):
         server=self.server
