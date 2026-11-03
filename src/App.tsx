@@ -3580,6 +3580,45 @@ type AnalyzedStructure = {
   updatedAt: string;
 };
 
+type ExpediaCompanionRoom = {
+  roomType:string;total:number;board:string;refund:string;taxes:string;confidence:string;
+};
+type ExpediaCompanionCapture = {
+  schema:"velora-expedia-visible-v1";pageTitle:string;propertyName:string;
+  sourceUrl:string;checkin:string;checkout:string;nights:number;guests:number;
+  rooms:ExpediaCompanionRoom[];capturedAt:string;warning:string;propertyId:string;
+};
+function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
+  const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9]+/g," ").trim();
+  const found=normalize(observed);
+  const reference=normalize(expected);
+  if(!found||!reference) return false;
+  const special=normalize(city)==="salve" &&
+    reference.includes("tenuta speculizzi") &&
+    found.includes("tenuta specolizzi");
+  if(special)return true;
+  const insignificant=new Set(["hotel","masseria","tenuta","agriturismo","boutique","resort","spa","b","b","villa","rooms","suites"]);
+  const tokens=reference.split(" ").filter(w=>w.length>3&&!insignificant.has(w));
+  return tokens.length>0 && tokens.every(word=>found.split(" ").includes(word));
+}
+function nearbyBookingRoom(room:string,bookingRooms:string[]):{room:string;score:number}|null {
+  const clean=(value:string)=>value.toLocaleLowerCase("it-IT")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9]+/g," ")
+    .split(" ").filter(word=>word.length>3&&!["camera","room","suite","vista","bagno","private","privato","letto","queen","king","piano"].includes(word));
+  const wanted=new Set(clean(room));
+  if(!wanted.size)return null;
+  const ranked=bookingRooms.map(item=>{
+    const actual=new Set(clean(item));
+    const intersection=[...wanted].filter(word=>actual.has(word)).length;
+    const score=2*intersection/(wanted.size+actual.size||1);
+    return {room:item,score};
+  }).sort((a,b)=>b.score-a.score);
+  return ranked[0]?.score>=0.67 ? ranked[0] : null;
+}
+
 type RateQuote = {
   id: string;
   otaId: string;
@@ -3605,7 +3644,7 @@ type RateQuote = {
   eventTag: string;
   sourceUrl: string;
   ratePlan?: string;
-  origin?: "manual" | "pilot";
+  origin?: "manual" | "pilot" | "browser-assisted";
   manualListingTitle?: string;
   manualIdentityConfirmed?: boolean;
   pilotKey?: string;
@@ -5001,6 +5040,11 @@ export default function App() {
     suggestedCheckin?: string; suggestedCheckout?: string;
   }>(null);
   const [assistedRateConfirmation,setAssistedRateConfirmation] = useState("");
+  const [companionInstalled,setCompanionInstalled] = useState(false);
+  const [companionCapture,setCompanionCapture] = useState<ExpediaCompanionCapture|null>(null);
+  const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
+  const [companionMessage,setCompanionMessage] = useState("");
+
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
   const [browserPilotResult, setBrowserPilotResult] = useState<BrowserPilotResult | null>(null);
@@ -5146,6 +5190,66 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    const receive=(event:MessageEvent)=>{
+      if(event.source!==window || event.origin!==window.location.origin ||
+         !event.data || event.data.source!=="velora-expedia-companion-v1") return;
+      const type=event.data.type;
+      if(type==="READY") {
+        setCompanionInstalled(true);
+      } else if(type==="ERROR") {
+        setCompanionMessage(String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300));
+      } else if(type==="RESULT") {
+        const payload=event.data.payload;
+        if(payload?.schema!=="velora-expedia-visible-v1" || !Array.isArray(payload.rooms) || payload.rooms.length>40) {
+          setCompanionMessage("Risultato estensione non valido. Nessuna tariffa importata.");
+          return;
+        }
+        try {
+          const url=new URL(String(payload.sourceUrl||""));
+          if(url.protocol!=="https:"||!/(^|\.)expedia\.(it|com|de|fr|es|co\.uk)$/.test(url.hostname)){
+            setCompanionMessage("La pagina acquisita non appartiene a Expedia.");return;
+          }
+        }catch {setCompanionMessage("URL Expedia non valido.");return;}
+        const safeRooms=payload.rooms.filter((room:unknown):room is ExpediaCompanionRoom=>{
+          if(!room || typeof room!=="object") return false;
+          const item=room as ExpediaCompanionRoom;
+          return typeof item.roomType==="string" && item.roomType.trim().length>=6 &&
+            item.roomType.length<=180 && Number.isFinite(item.total) &&
+            item.total>=1 && item.total<=200000 &&
+            item.confidence==="total-for-stay";
+        });
+        const capture:ExpediaCompanionCapture={
+          schema:"velora-expedia-visible-v1",
+          pageTitle:String(payload.pageTitle||"").slice(0,240),
+          propertyName:String(payload.propertyName||"").slice(0,180),
+          sourceUrl:String(payload.sourceUrl||"").slice(0,1600),
+          checkin:String(payload.checkin||""),checkout:String(payload.checkout||""),
+          nights:Number(payload.nights||0),guests:Number(payload.guests||0),
+          rooms:safeRooms.slice(0,40).map(item=>({
+            roomType:item.roomType.trim(),total:item.total,
+            board:String(item.board||"Non chiaro").slice(0,80),
+            refund:String(item.refund||"Non chiaro").slice(0,80),
+            taxes:String(item.taxes||"Non chiaro").slice(0,80),
+            confidence:item.confidence
+          })),
+          capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,320),
+          propertyId:activeAuditData.id,
+        };
+        setCompanionCapture(capture);
+        setCompanionStay({
+          checkin:capture.checkin,checkout:capture.checkout,
+          guests:capture.guests>0?capture.guests:2
+        });
+        setCompanionMessage(
+          capture.rooms.length+" camere lette dal Chrome normale. "+
+          "Controlla struttura e date, poi importa le tariffe in un unico passaggio."
+        );
+      }
+    };
+    window.addEventListener("message",receive);
+    return ()=>window.removeEventListener("message",receive);
+  },[activeAuditData.id]);
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
@@ -6686,6 +6790,78 @@ export default function App() {
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  function captureExpediaFromChrome() {
+    setCompanionMessage("Richiedo al Chrome Companion di leggere le camere Expedia già visibili...");
+    setCompanionCapture(null);
+    window.postMessage({source:"velora-online-v1",type:"CAPTURE_EXPEDIA"},window.location.origin);
+    if(!companionInstalled)
+      setCompanionMessage("Chrome Companion non rilevato. Installa l'estensione e aggiorna questa scheda Velora, poi premi di nuovo.");
+  }
+
+  function importCompanionExpediaRates() {
+    const captured=companionCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id) {
+      setCompanionMessage("La rilevazione appartiene a un'altra scheda struttura. Ripeti l'acquisizione.");
+      return;
+    }
+    if(!matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    )) {
+      setCompanionMessage("Identità non confermata: il nome della scheda Expedia non coincide con "+
+        activeAuditData.name+". Nessun prezzo importato; apri la struttura corretta.");
+      return;
+    }
+    const checkin=companionStay.checkin,checkout=companionStay.checkout;
+    const start=Date.parse(checkin+"T00:00:00Z"),end=Date.parse(checkout+"T00:00:00Z");
+    const nights=Number.isFinite(start)&&Number.isFinite(end)?Math.round((end-start)/86400000):0;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(checkin) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(checkout) ||
+       checkin<todayLocalIso()||nights<1||nights>60||
+       !Number.isInteger(companionStay.guests)||companionStay.guests<1) {
+      setCompanionMessage("Inserisci check-in e check-out validi e gli ospiti. Le date devono corrispondere a quelle VISIBILI su Expedia.");
+      return;
+    }
+    if(captured.checkin && captured.checkin!==checkin ||
+       captured.checkout && captured.checkout!==checkout ||
+       captured.guests>0 && captured.guests!==companionStay.guests) {
+      setCompanionMessage("Le date o gli ospiti differiscono dai parametri letti dal link Expedia. Allinea le date nel browser e acquisisci di nuovo.");
+      return;
+    }
+    if(!captured.rooms.length) {
+      setCompanionMessage("Nessuna camera con prezzo totale affidabile letta. Non importo importi presunti.");
+      return;
+    }
+    const observedAt=new Date().toISOString();
+    const imported:RateQuote[]=captured.rooms.map((room,i)=>({
+      ...EMPTY_RATE_DRAFT,
+      id:globalThis.crypto?.randomUUID?.()??"expedia-chrome-"+Date.now()+"-"+i,
+      otaId:"expedia",origin:"browser-assisted",
+      observedAt,stayDate:checkin,nights,guests:companionStay.guests,
+      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      board:room.board,refund:room.refund,taxes:room.taxes,
+      audience:"Non verificato",promotion:"",
+      manualListingTitle:captured.propertyName,manualIdentityConfirmed:false,
+      pilotVerified:false,roomMatchStatus:"da verificare",
+      comparisonWarning:"Prezzo letto dal contenuto visibile nel Chrome personale su comando dell'operatore. "+
+        "Non è una scansione autenticata dell'agente. Identità della camera e condizioni Booking non confermate; delta non validato."
+    }));
+    const knownKeys=new Set(rateQuotes.filter(q=>q.otaId==="expedia").map(q=>
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")
+    ));
+    const fresh=imported.filter(q=>!knownKeys.has([
+      q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total
+    ].join("|")));
+    if(!fresh.length) {
+      setCompanionMessage("Queste camere e tariffe risultano già presenti nella scheda; nessun duplicato creato.");
+      return;
+    }
+    setRateQuotes(previous=>[...previous,...fresh]);
+    setCompanionMessage(
+      "Importate "+fresh.length+" camere Expedia con date e prezzi letti dal Chrome normale. "+
+      "Il report è aggiornato; l'abbinamento fisico alle camere Booking resta non verificato."
+    );
   }
 
   function prepareExpediaAssistedRate() {
