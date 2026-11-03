@@ -12673,6 +12673,21 @@ def specialist_booking_name_matches(expected: str, observed: str, city: str = ""
     tokens = [word for word in norm_expected.split()
               if len(word) >= 4 and word not in generic and word not in city_words]
     observed_words = set(norm_observed.split())
+    # Exact, externally corroborated spelling variant for the same Salve
+    # property. The property's own site identifies itself as "Tenuta Specolizzi"
+    # (specolizzi.it, S.P. 193 Presicce/Lido Marini/Salve); Expedia displays
+    # "Tenuta Specolizzi" or "Masseria Tenuta Specolizzi". Velora's existing
+    # property snapshot can instead say "Tenuta Speculizzi". This exception is
+    # NOT fuzzy matching: exact distinctive spelling + Salve + Tenuta title.
+    # The actual OTA listing still has to pass the normal URL, page locality,
+    # identity and room/date checks before any quote can be considered.
+    official_specolizzi_alias = (
+        _norm_name(city) == "salve"
+        and norm_expected == "tenuta speculizzi"
+        and norm_observed in {"tenuta specolizzi", "masseria tenuta specolizzi"}
+    )
+    if official_specolizzi_alias:
+        return True
     # Distinctive name words must be present in the observed listing title.
     if tokens:
         return all(token in observed_words for token in tokens)
