@@ -126,6 +126,40 @@ class FirefoxProbeTests(unittest.TestCase):
         self.assertEqual(result["result"],"blocked")
         self.assertEqual(page.signin_clicked,0)
 
+    def test_real_challenge_is_distinct_from_final_access_denial(self):
+        class HumanCheckThenDenied(FakePage):
+            def __init__(self, stop):
+                super().__init__(stop)
+                self.text="Mostraci il tuo lato umano. Non siamo sicuri se sei un essere umano."
+            async def title(self):
+                return "Sei un robot? — Expedia"
+            async def wait_for_timeout(self, duration):
+                self.text="L'accesso è temporaneamente limitato"
+                await asyncio.sleep(0)
+        async def run():
+            with tempfile.TemporaryDirectory() as root:
+                sessions=ManualPortalSessions(Path(root))
+                page=HumanCheckThenDenied(sessions.firefox_stop)
+                self.assertIsNone(await sessions._access_restricted_reason(page))
+                self.assertTrue(await sessions._expedia_robot_challenge(page))
+                self.assertTrue(await sessions._needs_human_challenge(page))
+                outcome=await sessions._observe_firefox_human_check(page)
+                self.assertEqual(outcome,"blocked")
+                status=sessions.firefox_test_status()
+                self.assertEqual(status["result"],"blocked")
+                self.assertIn("SEGUITA DA ACCESSO LIMITATO",status["message"])
+                self.assertEqual(sessions.state["expedia"]["state"],"idle")
+        asyncio.run(run())
+
+    def test_devtools_source_map_403_is_not_portal_access_denial(self):
+        async def run():
+            with tempfile.TemporaryDirectory() as root:
+                sessions=ManualPortalSessions(Path(root))
+                page=FakePage(sessions.firefox_stop)
+                page.text="Source map error: request failed with status 403"
+                self.assertIsNone(await sessions._access_restricted_reason(page))
+        asyncio.run(run())
+
     def test_only_one_firefox_test_and_explicit_close(self):
         with tempfile.TemporaryDirectory() as root:
             sessions=ManualPortalSessions(Path(root))
