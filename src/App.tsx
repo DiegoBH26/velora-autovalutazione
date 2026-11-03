@@ -4998,6 +4998,7 @@ export default function App() {
   const [manualRateSource, setManualRateSource] = useState<null | {
     otaId: string; checkin: string; checkout: string; nights: number; guests: number;
     url: string; locked?: boolean; listingName?: string; identityConfirmed?: boolean;
+    suggestedCheckin?: string; suggestedCheckout?: string;
   }>(null);
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -6695,20 +6696,51 @@ export default function App() {
       /^\d{4}-\d{2}-\d{2}$/.test(row.checkout) &&
       row.checkout>row.checkin
     );
-    if(reference) {
-      prepareBlockedOtaManualQuote(reference);
-      return;
-    }
+    // Previous scan dates are suggestions only. The real browser's dates
+    // always take precedence; no quote may be assigned to different dates.
+    const checkin=reference?.checkin||"";
+    const checkout=reference?.checkout||"";
+    const nights=reference ? Math.round(
+      (Date.parse(checkout+"T00:00:00Z")-Date.parse(checkin+"T00:00:00Z"))/86400000
+    ) : 0;
+    const guests=reference?Math.max(1,Number(reference.adults||2)):2;
     setManualRateSource({
-      otaId:"expedia",checkin:"",checkout:"",nights:3,guests:2,url:"",
+      otaId:"expedia",checkin,checkout,nights,guests,url:"",
       locked:false,listingName:"",identityConfirmed:false,
+      suggestedCheckin:checkin,suggestedCheckout:checkout,
     });
     setRateDraft({
-      ...EMPTY_RATE_DRAFT,otaId:"expedia",stayDate:"",nights:3,guests:2,
+      ...EMPTY_RATE_DRAFT,otaId:"expedia",stayDate:checkin,nights,guests,
       roomType:"",unitId:"",board:"Altro / non chiaro",refund:"Non chiaro",
       taxes:"Non chiaro",audience:"Pubblico senza login",sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  function updateAssistedStay(checkin:string,checkout:string) {
+    if(!manualRateSource || manualRateSource.locked) return;
+    const start=Date.parse(checkin+"T00:00:00Z");
+    const end=Date.parse(checkout+"T00:00:00Z");
+    const nights=/^\d{4}-\d{2}-\d{2}$/.test(checkin)&&/^\d{4}-\d{2}-\d{2}$/.test(checkout)&&Number.isFinite(start)&&Number.isFinite(end)
+      ? Math.max(0,Math.round((end-start)/86400000)) : 0;
+    setManualRateSource(previous=>previous?{
+      ...previous,checkin,checkout,nights,identityConfirmed:false
+    }:previous);
+    // Evidence and totals for other dates must not be reused.
+    setRateDraft(previous=>({
+      ...previous,stayDate:checkin,nights,total:0,originalTotal:0,
+      sourceUrl:"",promotion:"",roomType:"",
+    }));
+  }
+
+  function updateAssistedGuests(guests:number) {
+    const count=Math.max(1,Math.round(guests));
+    setManualRateSource(previous=>previous?{
+      ...previous,guests:count,identityConfirmed:false
+    }:previous);
+    setRateDraft(previous=>({
+      ...previous,guests:count,total:0,originalTotal:0,sourceUrl:"",
+    }));
   }
 
   function addRateQuote() {
@@ -6716,13 +6748,14 @@ export default function App() {
       window.alert("La rilevazione assistita deve restare sul portale selezionato.");
       return;
     }
-    if (manualRateSource?.locked && (
-      rateDraft.otaId !== manualRateSource.otaId ||
-      rateDraft.stayDate !== manualRateSource.checkin ||
-      rateDraft.nights !== manualRateSource.nights ||
-      rateDraft.guests !== manualRateSource.guests
+    if (manualRateSource && (
+      rateDraft.stayDate!==manualRateSource.checkin ||
+      rateDraft.nights!==manualRateSource.nights ||
+      rateDraft.guests!==manualRateSource.guests ||
+      !(manualRateSource.checkout>manualRateSource.checkin) ||
+      manualRateSource.nights<1
     )) {
-      window.alert("Il prezzo va registrato per la stessa OTA, le date e gli ospiti fissati da Booking. Per registrare un soggiorno diverso, esci prima dall'acquisizione assistita.");
+      window.alert("Date non coerenti: check-out dopo check-in, notti calcolate automaticamente. Allinea la ricerca Expedia con il modulo prima di salvare.");
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || rateDraft.stayDate < todayLocalIso() || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim()) || (Number(rateDraft.originalTotal) > 0 && Number(rateDraft.originalTotal) <= rateDraft.total)) {
