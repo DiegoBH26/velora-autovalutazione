@@ -1,8 +1,23 @@
 """Live-in-memory regression for assisted One Key OTP handoff (no network/browser)."""
 import asyncio
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+
+# CI deliberately does not install browser dependencies: the handoff tests use
+# a fake page, so provide only the import-time symbol, never a fake browser.
+try:
+    import playwright.async_api
+except ModuleNotFoundError:
+    package=types.ModuleType("playwright")
+    package.__path__=[]
+    async_api=types.ModuleType("playwright.async_api")
+    async_api.async_playwright=None
+    sys.modules.setdefault("playwright", package)
+    sys.modules.setdefault("playwright.async_api", async_api)
+
 from velora_portal_sessions import ManualPortalSessions
 
 
