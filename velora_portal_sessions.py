@@ -661,13 +661,8 @@ class ManualPortalSessions:
         triggers=(
             "l'accesso è temporaneamente limitato",
             "l’accesso è temporaneamente limitato",
-            "mostraci il tuo lato umano",
-            "non siamo sicuri se sei un essere umano o un robot",
             "your access to this site has been temporarily limited",
             "your access has been temporarily limited",
-            "show us your human side",
-            "we're not sure if you're a human or a robot",
-            "we are not sure if you are a human or a robot",
         )
         if any(item in body for item in triggers):
             return (
@@ -679,6 +674,22 @@ class ManualPortalSessions:
                 "persiste, usa l'assistenza del portale."
             )
         return None
+
+    @staticmethod
+    async def _expedia_robot_challenge(page) -> bool:
+        """Detect the separate human-check page without solving or bypassing it."""
+        try:
+            title = (await page.title()).casefold()
+            if "sei un robot" in title or "are you a robot" in title:
+                return True
+        except Exception:
+            pass
+        try:
+            return await ManualPortalSessions._has_visible(
+                page.locator("#app-captcha-pwa")
+            )
+        except Exception:
+            return False
 
     @classmethod
     async def _require_access_not_blocked(cls, page) -> None:
@@ -692,9 +703,12 @@ class ManualPortalSessions:
             'input[autocomplete="one-time-code"],'
             'input[name*="otp" i],input[id*="otp" i],'
             'iframe[src*="captcha" i],iframe[title*="captcha" i],'
-            'input[name*="verificationCode" i]'
+            'input[name*="verificationCode" i],'
+            '#app-captcha-pwa'
         )
         if await ManualPortalSessions._has_visible(page.locator(selectors)):
+            return True
+        if await ManualPortalSessions._expedia_robot_challenge(page):
             return True
         try:
             text = (await page.locator("body").inner_text(timeout=4000))[:2800].lower()
@@ -705,6 +719,9 @@ class ManualPortalSessions:
                 "verify that you're human",
                 "verifica che tu sia una persona",
                 "codice temporaneo inviato",
+                "mostraci il tuo lato umano",
+                "non siamo sicuri se sei un essere umano o un robot",
+                "show us your human side",
             ))
         except Exception:
             return False
