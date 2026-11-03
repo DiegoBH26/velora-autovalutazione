@@ -5016,6 +5016,8 @@ export default function App() {
   const [specialistBusy, setSpecialistBusy] = useState<Record<string, boolean>>({});
   const [specialistCheckRunning, setSpecialistCheckRunning] = useState(false);
   const [portalSessions, setPortalSessions] = useState<Record<string,PortalSessionState>>({});
+  const [firefoxTest,setFirefoxTest] = useState<{state:string;result?:string;message:string}|null>(null);
+  const [firefoxTestBusy,setFirefoxTestBusy] = useState(false);
   const [portalSessionMessage, setPortalSessionMessage] = useState("");
   const [portalSessionBusy, setPortalSessionBusy] = useState<string | null>(null);
   const [portalCredentialEditing,setPortalCredentialEditing] = useState<LoginPortalId | null>(null);
@@ -5172,8 +5174,11 @@ export default function App() {
       try {
         const response=await fetch(localAgentUrl("/api/portal-session/status"),{mode:"cors",cache:"no-store"});
         if(!response.ok || disposed) return;
-        const data=await response.json() as {sessions?:Record<string,PortalSessionState>};
-        if(!disposed) setPortalSessions(data.sessions||{});
+        const data=await response.json() as {sessions?:Record<string,PortalSessionState>;firefoxTest?:{state:string;result?:string;message:string}};
+        if(!disposed) {
+          setPortalSessions(data.sessions||{});
+          setFirefoxTest(data.firefoxTest||null);
+        }
       }catch { /* login module may not yet be installed on the Windows agent */ }
     };
     void update();
@@ -5651,6 +5656,30 @@ export default function App() {
 
 
 
+
+  async function manageFirefoxTest(action:"start"|"finish") {
+    if(firefoxTestBusy) return;
+    setFirefoxTestBusy(true);
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Avvia prima l'agente Velora Windows.");
+      const response=await fetch(localAgentUrl("/api/portal-firefox/"+action),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({})
+      });
+      const result=await response.json() as {error?:string;firefoxTest?:{state:string;result?:string;message:string}};
+      if(!response.ok) throw new Error(result.error||"Impossibile eseguire il test Firefox.");
+      setFirefoxTest(result.firefoxTest||null);
+      setPortalSessionMessage(action==="start"
+        ?"Firefox TEST avviato: si aprirà una finestra dedicata. Il test non esegue scraping e non modifica il profilo Chrome."
+        :"Chiusura del test Firefox richiesta. Il risultato resta indicato nella scheda Ercole.");
+    }catch(error){
+      setPortalSessionMessage(error instanceof Error?error.message:"Errore durante il test Firefox.");
+    }finally{
+      setFirefoxTestBusy(false);
+    }
+  }
 
   async function startPortalAccountCheck(portalId:LoginPortalId) {
     if(portalSessionBusy) return;
@@ -8972,6 +9001,30 @@ export default function App() {
                           </span>
                         </div>}
 
+                        {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-black text-[#23124A]">Firefox TEST · Expedia</p>
+                              <p className="text-[10px] text-[#50627F]">Prova separata: non avvia scansioni, non cambia Chrome e non aggira restrizioni Expedia.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {!["starting","installing","navigating","opening_login","login_reached","blocked","manual_check"].includes(firefoxTest?.state||"")
+                                ? <button type="button" disabled={firefoxTestBusy||working||localPilotRunning||loginProcessing}
+                                    onClick={()=>void manageFirefoxTest("start")}
+                                    className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white disabled:opacity-40">Prova Firefox</button>
+                                : <button type="button" disabled={firefoxTestBusy||["starting","installing"].includes(firefoxTest?.state||"")}
+                                    onClick={()=>void manageFirefoxTest("finish")}
+                                    className="rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">Chiudi test</button>}
+                            </div>
+                          </div>
+                          {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
+                            {firefoxTest.state==="login_reached"?"✓ ":
+                            firefoxTest.state==="blocked"?"Accesso limitato · ":
+                            firefoxTest.state==="installing"?"Installazione · ":""}
+                            {firefoxTest.message}
+                          </p>}
+                          <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
+                        </div>}
                         {loginPortal && <div className="mt-2 flex flex-col gap-1">
                           {loginState?.credentialSaved && <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing||loginOpen||loginState?.state==="ready"}
