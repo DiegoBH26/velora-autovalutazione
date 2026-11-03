@@ -1234,7 +1234,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-auth/resume","/api/portal-auth/start"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1281,7 +1281,7 @@ class Handler(SimpleHTTPRequestHandler):
                     self._json(409,{"error":str(exc)[:200]})
                 return
 
-            if route in {"/api/portal-account/save","/api/portal-account/remove"}:
+            if route in {"/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info"}:
                 if PORTAL_SESSIONS is None:
                     self._json(503,{"error":"Aggiorna il servizio Windows per memorizzare gli accessi."}); return
                 portal_id=str(payload.get("portalId") or "").strip().lower()
@@ -1290,6 +1290,8 @@ class Handler(SimpleHTTPRequestHandler):
                 try:
                     if route.endswith("/save"):
                         status=PORTAL_SESSIONS.save_credentials(portal_id,str(payload.get("email") or ""),str(payload.get("password") or ""))
+                    elif route.endswith("/info"):
+                        status=PORTAL_SESSIONS.account_info(portal_id)
                     else:
                         status=PORTAL_SESSIONS.remove_credentials(portal_id)
                     self._json(200,{"ok":True,"portalId":portal_id,"status":status})
