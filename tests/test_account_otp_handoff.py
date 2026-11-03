@@ -84,6 +84,54 @@ class OtpHandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"Salvataggio non confermato"):
                 sessions.save_credentials("expedia","user@example.com","")
 
+    def test_expedia_access_denial_is_not_an_otp_request(self):
+        class BlockLocator(FakeLocator):
+            async def inner_text(self, timeout=None):
+                return (
+                    "Mostraci il tuo lato umano... "
+                    "Non siamo sicuri se sei un essere umano o un robot. "
+                    "L'accesso è temporaneamente limitato."
+                )
+        class BlockedExpediaPage(FakeVerifiedPage):
+            def locator(self, selector):
+                return BlockLocator()
+        async def run():
+            with tempfile.TemporaryDirectory() as root:
+                sessions=ManualPortalSessions(Path(root))
+                page=BlockedExpediaPage()
+                reason=await sessions._access_restricted_reason(page)
+                self.assertIn("ACCESSO LIMITATO DAL PORTALE",reason)
+                self.assertIn("Non è la richiesta del codice email",reason)
+                with self.assertRaisesRegex(RuntimeError,"ACCESSO LIMITATO DAL PORTALE"):
+                    await sessions._wait_for_human_login("expedia",page,"Inserisci codice")
+                self.assertEqual(sessions.auth_resume_events,{})
+                self.assertEqual(sessions.statuses()["expedia"]["state"],"idle")
+        asyncio.run(run())
+
+    def test_access_denial_status_is_visible_and_never_ready(self):
+        class FakeVault:
+            def exists(self,portal):
+                return portal=="expedia"
+        async def run():
+            with tempfile.TemporaryDirectory() as root:
+                sessions=ManualPortalSessions(Path(root))
+                sessions.vault=FakeVault()
+                async def denied(portal,require_confirmation=False):
+                    raise RuntimeError(
+                        "ACCESSO LIMITATO DAL PORTALE: blocco temporaneo prima del login"
+                    )
+                sessions.prepare_account_session=denied
+                sessions.start_account_check("expedia")
+                for _ in range(150):
+                    if sessions.statuses()["expedia"]["state"]=="access_limited":
+                        break
+                    await asyncio.sleep(.005)
+                state=sessions.statuses()["expedia"]
+                self.assertEqual(state["state"],"access_limited")
+                self.assertIn("blocco temporaneo",state["message"])
+                self.assertNotEqual(state["state"],"ready")
+        asyncio.run(run())
+
     def test_resume_is_not_allowed_without_pending_login(self):
         with tempfile.TemporaryDirectory() as root:
             sessions=ManualPortalSessions(Path(root))
