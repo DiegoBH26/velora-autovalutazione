@@ -34,6 +34,9 @@ class FakeVerifiedPage:
     def locator(self, selector):
         return FakeLocator()
 
+    def get_by_role(self, role, name=None):
+        return FakeLocator()
+
     async def wait_for_timeout(self, duration):
         await asyncio.sleep(0)
 
