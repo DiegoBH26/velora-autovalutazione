@@ -39,8 +39,8 @@ class AccountLaunchGuard(unittest.TestCase):
         self.assertNotIn('▶ Pubblico',app)
         self.assertIn("Apri accesso",app)
         self.assertIn("Chiudi e conserva",app)
-        self.assertIn("Accesso non salvato: premi Apri accesso",app)
-        self.assertIn("Il timer non partirà",app)
+        self.assertIn("Configura credenziali",app)
+        self.assertIn("Il timer parte soltanto",app)
         self.assertIn("setPortalSessions(sessions)",app)
         self.assertIn("Avvio non eseguito: account da configurare",app)
         self.assertIn('role="alert">{specialistLaunchErrors[agent.id] || state?.error}',app)
@@ -48,12 +48,14 @@ class AccountLaunchGuard(unittest.TestCase):
         # verification button based on stale UI state. The backend still preflights.
         self.assertNotIn("||!loginState?.profileSaved||loginOpen",app)
         self.assertIn("Rileggi accessi",app)
-        self.assertIn("non devi crearne un altro",app)
+        self.assertIn("le credenziali Windows protette",app)
 
-    def test_backend_requires_saved_profile_and_never_uses_credentials(self):
+    def test_backend_requires_existing_profile_or_windows_credentials(self):
         server=self.server
         self.assertIn('if agent_id in {"expedia", "vrbo", "holidu"} and session_mode != "account":',server)
         self.assertIn("PORTAL_SESSIONS.has_saved_profile(agent_id)",server)
+        self.assertIn("PORTAL_SESSIONS.has_credentials(agent_id)",server)
+        self.assertIn("PORTAL_SESSIONS.prepare_account_session(agent_id)",server)
         self.assertIn('state="queued"',server.replace('"state":"queued"','state="queued"'))  # queued before worker starts
 
 
