@@ -4952,7 +4952,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
 type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
-type PortalSessionState = {state?: "idle" | "queued" | "open" | "awaiting_user" | "authenticating" | "ready" | "unverified" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
+type PortalSessionState = {state?: "idle" | "queued" | "open" | "awaiting_user" | "authenticating" | "ready" | "unverified" | "access_limited" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
@@ -8957,7 +8957,7 @@ export default function App() {
                         {(specialistLaunchErrors[agent.id] || (state?.state==="failed" && state.error)) && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{specialistLaunchErrors[agent.id] || state?.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="awaiting_user"?"Codice richiesto · completa nel Chrome":loginState?.state==="authenticating"?"Verifica login in esecuzione…":loginState?.state==="ready"?"Accesso confermato · pronto per la scansione":loginState?.state==="unverified"?"Accesso da verificare":loginState?.state==="error"?"Errore login · vedi dettaglio":loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.credentialSaved?"Email salvata · premi Accedi e verifica":loginState?.profileSaved?"Profilo Chrome presente · login non verificato":"Accesso da configurare"}
+                            {loginState?.state==="awaiting_user"?"Codice richiesto · completa nel Chrome":loginState?.state==="authenticating"?"Verifica login in esecuzione…":loginState?.state==="ready"?"Accesso confermato · pronto per la scansione":loginState?.state==="unverified"?"Accesso da verificare":loginState?.state==="access_limited"?"Accesso limitato da Expedia/Vrbo · login non iniziato":loginState?.state==="error"?"Errore login · vedi dettaglio":loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.credentialSaved?"Email salvata · premi Accedi e verifica":loginState?.profileSaved?"Profilo Chrome presente · login non verificato":"Accesso da configurare"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
@@ -8980,7 +8980,7 @@ export default function App() {
                             className="w-full rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-40">
                             {loginState?.state==="ready"?"Accesso verificato":"Accedi e verifica"}
                           </button>}
-                          {["ready","unverified","error"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
+                          {["ready","unverified","error","access_limited"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
                             {loginState.message}
                           </p>}
                         </div>}
