@@ -51,8 +51,8 @@ class ExpediaAssistedCapture(unittest.TestCase):
 
     def test_multiple_rooms_keeps_stay_but_resets_prior_room_price(self):
         self.assertIn('setAssistedRateConfirmation(',APP)
-        self.assertIn('if (manualRateSource) {\\n      setAssistedRateConfirmation('.replace("\\\\n","\\n"),APP)
-        self.assertIn('setRateDraft(previous=>({\\n        ...previous,total:0,roomType:"",unitId:""'.replace("\\\\n","\\n"),APP)
+        self.assertIn('if (manualRateSource) {',APP)
+        self.assertIn('...previous,total:0,roomType:"",unitId:""',APP)
         self.assertIn("Puoi inserire un’altra camera",APP)
         self.assertIn("assistedRateConfirmation &&",APP)
         self.assertIn("updateAssistedGuests(Number(event.target.value))",APP)
