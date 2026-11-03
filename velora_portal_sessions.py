@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import subprocess
+import sys
 import threading
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -52,6 +54,9 @@ class ManualPortalSessions:
         self.auth_resume_events: dict[str, threading.Event] = {}
         self.pending_urls: dict[str, str] = {}
         self.account_workers: dict[str, threading.Thread] = {}
+        self.firefox_test = {"state": "idle", "result": "", "message": "Test Firefox non ancora avviato."}
+        self.firefox_stop = threading.Event()
+        self.firefox_thread: threading.Thread | None = None
 
     def profile_dir(self, portal: str) -> Path:
         if portal not in PORTALS:
@@ -76,6 +81,185 @@ class ManualPortalSessions:
         if portal not in PORTALS:
             raise ValueError("Portale non supportato")
         return bool(self.vault and self.vault.exists(portal))
+
+
+    def firefox_test_status(self) -> dict:
+        """Diagnostic-only Firefox state; never reused as Chrome auth readiness."""
+        with self.lock:
+            return dict(self.firefox_test)
+
+    def start_firefox_test(self) -> dict:
+        """One explicit Expedia compatibility check, not a CAPTCHA bypass."""
+        with self.lock:
+            if self.firefox_thread and self.firefox_thread.is_alive():
+                raise RuntimeError("Un test Firefox è già aperto. Chiudilo prima di riprovare.")
+            if any(row.get("state") in {"queued", "open", "awaiting_user", "authenticating"}
+                   for row in self.state.values()):
+                raise RuntimeError("Completa prima l'accesso Chrome già aperto.")
+            self.firefox_stop = threading.Event()
+            self.firefox_test = {
+                "state": "starting", "result": "",
+                "message": "Preparo Firefox Playwright separato da Chrome. Nessuna scansione o login eseguito.",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            self.firefox_thread = threading.Thread(
+                target=self._firefox_test_worker, daemon=True,
+                name="velora-firefox-expedia-test",
+            )
+            self.firefox_thread.start()
+            return dict(self.firefox_test)
+
+    def close_firefox_test(self) -> dict:
+        with self.lock:
+            if not self.firefox_thread or not self.firefox_thread.is_alive():
+                raise RuntimeError("Non c'è un test Firefox attivo.")
+            self.firefox_stop.set()
+            self.firefox_test["message"] = (
+                "Chiusura richiesta: conserverò il risultato diagnostico e il profilo Firefox separato."
+            )
+            return dict(self.firefox_test)
+
+    def _set_firefox_test(self, state: str, message: str, result: str | None = None) -> None:
+        with self.lock:
+            self.firefox_test["state"] = state
+            self.firefox_test["message"] = message
+            if result is not None:
+                self.firefox_test["result"] = result
+        print(f"[FIREFOX TEST] Expedia | {state.upper()} | {message[:240]}", flush=True)
+
+    def _firefox_test_worker(self) -> None:
+        try:
+            asyncio.run(self._run_firefox_test())
+        except Exception as exc:
+            self._set_firefox_test(
+                "error",
+                f"Firefox non utilizzabile: {type(exc).__name__}: {str(exc)[:230]}. "
+                "Chrome e i risultati esistenti non sono stati modificati.",
+                "error",
+            )
+        finally:
+            with self.lock:
+                self.firefox_thread = None
+
+    async def _run_firefox_test(self) -> None:
+        async with async_playwright() as playwright:
+            firefox_path = Path(playwright.firefox.executable_path)
+            if not firefox_path.is_file():
+                self._set_firefox_test(
+                    "installing", "Installo Firefox di Playwright sul PC (solo al primo test)."
+                )
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    [sys.executable, "-m", "playwright", "install", "firefox"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=240,
+                    check=False,
+                )
+                if result.returncode != 0 or not firefox_path.is_file():
+                    raise RuntimeError(
+                        "Installazione Firefox Playwright non riuscita. "
+                        "Controlla connessione internet e permessi del PC."
+                    )
+            if self.firefox_stop.is_set():
+                self._set_firefox_test("closed", "Test annullato prima dell'apertura.")
+                return
+            self._set_firefox_test(
+                "navigating",
+                "Avvio Firefox dedicato e apro Expedia una sola volta, senza aggirare controlli.",
+            )
+            profile = self.base / "expedia" / "firefox-test-profile"
+            profile.mkdir(parents=True, exist_ok=True)
+            context = await playwright.firefox.launch_persistent_context(
+                user_data_dir=str(profile), headless=False,
+                locale="it-IT", timezone_id="Europe/Rome",
+                viewport={"width": 1280, "height": 850},
+            )
+            try:
+                page = context.pages[0] if context.pages else await context.new_page()
+                await page.goto(
+                    PORTALS["expedia"]["home"],
+                    wait_until="domcontentloaded", timeout=45000,
+                )
+                await page.wait_for_timeout(1200)
+                reason = await self._access_restricted_reason(page)
+                if reason:
+                    self._set_firefox_test(
+                        "blocked",
+                        "Expedia limita anche Firefox automatizzato. Nessun altro tentativo "
+                        "e nessun login eseguito: puoi chiudere il test.",
+                        "blocked",
+                    )
+                else:
+                    email = page.locator(
+                        'input[type="email"],input[autocomplete="username"]'
+                    )
+                    if not await self._has_visible(email):
+                        signin = await self._signin_button(page)
+                        if signin is not None:
+                            self._set_firefox_test(
+                                "opening_login",
+                                "Pagina Expedia aperta; provo una sola volta il pulsante Accedi.",
+                            )
+                            try:
+                                await signin.click(timeout=10000)
+                                await page.wait_for_timeout(1200)
+                            except Exception:
+                                self._set_firefox_test(
+                                    "manual_check",
+                                    "Expedia si apre con Firefox, ma il pulsante Accedi "
+                                    "non è cliccabile automaticamente. Controlla "
+                                    "cookie o avvisi nella finestra Firefox.",
+                                    "manual_check",
+                                )
+                        else:
+                            self._set_firefox_test(
+                                "manual_check",
+                                "Expedia si apre con Firefox ma non riconosco Accedi. "
+                                "Verifica eventuale popup privacy nella finestra.",
+                                "manual_check",
+                            )
+                    reason = await self._access_restricted_reason(page)
+                    if reason:
+                        self._set_firefox_test(
+                            "blocked",
+                            "Expedia ha limitato Firefox dopo l'apertura di Accedi. "
+                            "Non verranno effettuati altri tentativi.",
+                            "blocked",
+                        )
+                    elif await self._has_visible(
+                        page.locator('input[type="email"],input[autocomplete="username"]')
+                    ):
+                        self._set_firefox_test(
+                            "login_reached",
+                            "RISULTATO POSITIVO: Firefox Playwright è arrivato "
+                            "alla schermata email di Expedia. Non significa che "
+                            "la sessione sia autenticata o che lo scraping funzioni.",
+                            "login_reached",
+                        )
+                    elif self.firefox_test_status()["state"] not in {
+                        "manual_check", "blocked"
+                    }:
+                        self._set_firefox_test(
+                            "manual_check",
+                            "Expedia è aperto su Firefox ma il campo email "
+                            "non è comparso: verifica la finestra e segnala "
+                            "che cosa mostra.",
+                            "manual_check",
+                        )
+                # Leave the actual test browser visible so the user can inspect
+                # or screenshot it. The browser/profile is isolated from Ercole.
+                await asyncio.to_thread(self.firefox_stop.wait, 300)
+                previous = self.firefox_test_status()
+                self._set_firefox_test(
+                    "closed",
+                    previous["message"] + " Browser Firefox di prova chiuso.",
+                    previous.get("result") or "inconclusive",
+                )
+            finally:
+                await context.close()
 
     def account_info(self, portal: str) -> dict:
         """Exact saved email, only for the local token-protected account route."""
