@@ -6327,12 +6327,16 @@ export default function App() {
             rooms:item.rooms,website:item.website || item.auditData?.website || "",
           }),
           answers:keepOtherAnswers(item.answers),
-          rateQuotes:[],availabilityProbes:[],
+          rateQuotes:[],otaContentSnapshots:[],availabilityProbes:[],
           updatedAt:new Date().toISOString(),
         };
       }));
       setAnswers(previous=>keepOtherAnswers(previous));
       setRateQuotes([]);
+      setOtaContentSnapshots([]);
+      setCompanionCapture(null);
+      setExpediaReviewOpen(false);
+      setCompanionMessage("");
       setAvailabilityProbes([]);
       setSelectedRateCohort("");
       setBrowserPilotResult(null);
@@ -8933,6 +8937,25 @@ export default function App() {
       (row.leftAgent==="expedia"&&row.rightAgent==="booking"));
     const expediaNameDifferent=Boolean(expediaPresentation &&
       !matchingExpediaProperty(expediaPresentation.propertyName,activeAuditData.name,activeAuditData.city));
+    // Positioning ranges are not same-room Booking vs OTA price deltas.
+    const priceRangesByStay=new Map<string,{
+      otaId:string;stayDate:string;nights:number;guests:number;
+      prices:number[];rooms:Set<string>;unverified:boolean;
+    }>();
+    for(const quote of rateQuotes.filter(q=>q.stayDate>=todayLocalIso()&&q.total>0&&q.nights>0)){
+      const key=[quote.stayDate,quote.nights,quote.guests,quote.otaId].join("|");
+      let group=priceRangesByStay.get(key);
+      if(!group){
+        group={otaId:quote.otaId,stayDate:quote.stayDate,nights:quote.nights,
+          guests:quote.guests,prices:[],rooms:new Set<string>(),unverified:false};
+        priceRangesByStay.set(key,group);
+      }
+      const unitKey=[quote.roomType.toLowerCase(),quote.total].join("|");
+      if(!group.rooms.has(unitKey)){group.prices.push(quote.total);group.rooms.add(unitKey);}
+      if(quote.otaId!=="booking"&&quote.roomMatchStatus!=="same-room")group.unverified=true;
+    }
+    const priceRangeRows=[...priceRangesByStay.values()].sort((a,b)=>
+      a.stayDate.localeCompare(b.stayDate)||a.otaId.localeCompare(b.otaId)).slice(0,32);
     // L'elenco resta compatto anche con centinaia di tariffe: espansione per OTA,
     // nello stesso ordine stabile per ogni struttura e per ogni campione di date.
     const pricingAccordionIds = [...new Set([
@@ -9935,8 +9958,24 @@ export default function App() {
               </div>}
             </>}
           </div>
-          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
+          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · {rateQuotes.length} rilevazioni salvate · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
+          {priceRangeRows.length>0 && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
+            <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi per OTA e soggiorno</p>
+            <p className="mb-2 text-[10px] text-[#50627F]">Range dei totali effettivamente letti: non equivale a una differenza tariffaria sulla stessa camera.</p>
+            <table className="w-full min-w-[660px] text-left text-[11px]">
+              <thead><tr><th className="p-2">Soggiorno</th><th className="p-2">OTA</th><th className="p-2">Tipologie</th><th className="p-2">Totale min–max</th><th className="p-2">Affidabilità confronto</th></tr></thead>
+              <tbody>{priceRangeRows.map((row,index)=>(
+                <tr key={row.otaId+"-"+row.stayDate+"-"+row.nights+"-"+index} className="border-t border-[#E5DDF1]">
+                  <td className="p-2">{row.stayDate} · {row.nights} notti · {row.guests} ospiti</td>
+                  <td className="p-2 font-bold">{activeAuditData.otaPresence.find(ch=>ch.id===row.otaId)?.platform||PILOT_OTA_LABELS[row.otaId]||row.otaId}</td>
+                  <td className="p-2">{row.rooms.size}</td>
+                  <td className="p-2 font-bold">€{Math.min(...row.prices).toFixed(2)}–€{Math.max(...row.prices).toFixed(2)}</td>
+                  <td className="p-2">{row.unverified?"Unità e condizioni da verificare":"Prezzi rilevati · verificare condizioni"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
           <div className="mt-3 flex flex-col gap-2">
             {pricingAccordionIds.map((otaId) => {
               const published = publishedPricingFor(otaId);
