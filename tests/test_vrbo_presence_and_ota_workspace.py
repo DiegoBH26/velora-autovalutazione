@@ -47,6 +47,8 @@ class VrboPresenceTest(unittest.TestCase):
         self.assertIn("run_vrbo_presence_job",SERVER)
         self.assertIn("Apri Expedia + Vrbo + Holidu",APP)
         self.assertIn("function openThreeOtaPortals()",APP)
+        self.assertIn('type:"OPEN_THREE_OTA_TABS"',APP)
+        self.assertIn('setOtaTabLauncherSupported',APP)
         self.assertIn("function captureHoliduFromChrome()",APP)
         self.assertIn("function captureVrboFromChrome()",APP)
         self.assertIn("function captureExpediaFromChrome()",APP)
