@@ -55,6 +55,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_expedia_chrome_companion.py'
       - name: Check corrected structure identity and specialist protection
         run: python -m unittest discover -s tests -p 'test_specialist_identity_lock_v125.py'
+      - name: Verify Booking identity regression
+        run: python -m unittest discover -s tests -p 'test_booking_exact_identity.py'
       - name: Validate Specolizzi / Airbnb brand boundary
         run: python -m unittest discover -s tests -p 'test_specolizzi_name_alias.py'
       - name: Verify OTA dashboard and evidence flow
