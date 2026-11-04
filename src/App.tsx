@@ -9611,6 +9611,10 @@ export default function App() {
                             aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
+                          </button> : agent.id==="vrbo" ? <button type="button"
+                            onClick={captureVrboFromChrome}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white">
+                            ▶ Chrome
                           </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
@@ -9640,10 +9644,7 @@ export default function App() {
 
 
                         {agent.id==="vrbo" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
-                          <button type="button" onClick={captureVrboFromChrome}
-                            className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
-                            Acquisisci da Chrome
-                          </button>
+                          <span className="text-[10px] font-bold">Modalità pubblica · senza login</span>
                           <button type="button" onClick={()=>setVrboReviewOpen(open=>!open)}
                             className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
                             {vrboReviewOpen?"Chiudi dettaglio":"Dettaglio Vrbo"}
