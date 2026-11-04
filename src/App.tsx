@@ -5043,6 +5043,7 @@ export default function App() {
   const [companionCapture,setCompanionCapture] = useState<ExpediaCompanionCapture|null>(null);
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
+  const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
 
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -5236,6 +5237,7 @@ export default function App() {
           propertyId:activeAuditData.id,
         };
         setCompanionCapture(capture);
+        setExpediaReviewOpen(true);
         setCompanionIdentityConfirmed(false);
         setCompanionStay({
           checkin:capture.checkin,checkout:capture.checkout,
@@ -6796,6 +6798,7 @@ export default function App() {
   }
 
   function captureExpediaFromChrome() {
+    setExpediaReviewOpen(true);
     setCompanionMessage("Richiedo al Chrome Companion di leggere le camere Expedia già visibili...");
     setCompanionCapture(null);
     setCompanionIdentityConfirmed(false);
@@ -9224,7 +9227,7 @@ export default function App() {
                       }} className="text-[11px] font-black text-[#64748B] underline underline-offset-4 disabled:opacity-40">Deseleziona</button>
                     </div>
                   </div>
-                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {SPECIALIST_AGENTS.map((agent)=>{
                       const ota=LOCAL_PILOT_OTA_OPTIONS.find((item)=>item.id===agent.id);
                       const selected=ota?localPilotSelectedChannels.includes(agent.id):selectedSupportAgents.includes(agent.id);
@@ -9300,12 +9303,148 @@ export default function App() {
                           </span>
                         </div>}
 
-                        {agent.id==="expedia" && <div className="mt-2 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-2.5">
-                          <p className="text-[12px] font-black text-[#23124A]">Expedia · lettura camere dal Chrome normale</p>
+                        {agent.id==="expedia" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
+                          <button type="button" onClick={captureExpediaFromChrome}
+                            className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
+                            Acquisisci da Chrome
+                          </button>
+                          <button type="button" onClick={()=>setExpediaReviewOpen(open=>!open)}
+                            className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
+                            {expediaReviewOpen?"Chiudi dettaglio":"Dettaglio Expedia"}
+                          </button>
+                          <span className="text-[10px] font-semibold">
+                            {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} tariffe registrate
+                          </span>
+                        </div>}
+                        {loginPortal && <details className="mt-2 rounded-lg border border-current/20 bg-white/70 p-2">
+                          <summary className="cursor-pointer text-[10px] font-black text-[#23124A]">Accessi, credenziali e test avanzati</summary>
+                        {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-black text-[#23124A]">Firefox TEST · Expedia</p>
+                              <p className="text-[10px] text-[#50627F]">Prova separata: non avvia scansioni, non cambia Chrome e non aggira restrizioni Expedia.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {!["starting","installing","navigating","opening_login","login_reached","blocked","manual_check"].includes(firefoxTest?.state||"")
+                                ? <button type="button" disabled={firefoxTestBusy||working||localPilotRunning||loginProcessing}
+                                    onClick={()=>void manageFirefoxTest("start")}
+                                    className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white disabled:opacity-40">Prova Firefox</button>
+                                : <button type="button" disabled={firefoxTestBusy||["starting","installing"].includes(firefoxTest?.state||"")}
+                                    onClick={()=>void manageFirefoxTest("finish")}
+                                    className="rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">Chiudi test</button>}
+                            </div>
+                          </div>
+                          {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
+                            {firefoxTest.state==="login_reached"?"✓ ":
+                            firefoxTest.result==="blocked"?"Accesso Expedia negato · ":
+                            firefoxTest.state==="human_check"?"Verifica umana in corso · ":
+                            firefoxTest.state==="installing"?"Installazione · ":""}
+                            {firefoxTest.message}
+                          </p>}
+                          {firefoxTest?.result==="blocked" && <p className="mt-2 text-[10px] leading-relaxed text-[#8A2834]" role="alert">
+                            Expedia ha negato l'accesso al Firefox automatizzato. Anche una verifica umana completata non garantisce l'autorizzazione del portale.
+                            Non ripetere questa prova per cercare di aggirare il blocco: per tariffe e disponibilità automatiche valuta
+                            {" "}<a href="https://developers.expediagroup.com/rapid/lodging/shopping/about-shopping-api"
+                              target="_blank" rel="noreferrer" className="font-black underline">Expedia Rapid Shopping API</a>
+                            {" "}(richiede accordo e credenziali partner; non basta l'account Expedia personale).
+                          </p>}
+                          <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
+                        </div>}
+                        {loginPortal && <div className="mt-2 flex flex-col gap-1">
+                          {loginState?.credentialSaved && <button type="button"
+                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing||loginOpen||loginState?.state==="ready"}
+                            onClick={()=>void startPortalAccountCheck(loginPortal)}
+                            title="Accedi al portale prima di avviare la scansione; inserisci personalmente l'eventuale codice temporaneo."
+                            className="w-full rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-40">
+                            {loginState?.state==="ready"?"Accesso verificato":"Accedi e verifica"}
+                          </button>}
+                          {["ready","unverified","error","access_limited"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
+                            {loginState.message}
+                          </p>}
+                        </div>}
+                        {loginPortal && loginState?.state==="awaiting_user" && <div className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-amber-950" role="alert">
+                          <p className="text-[11px] font-black">Verifica umana richiesta</p>
+                          <p className="mt-1 text-[10px] leading-snug">
+                            {loginState.message||"Inserisci il codice nel Chrome dedicato, poi riprendi."}
+                            {" "}Non comunicare il codice a Velora o in chat. Il browser resta aperto durante la pausa.
+                          </p>
+                          <button type="button"
+                            disabled={Boolean(portalSessionBusy)}
+                            onClick={()=>void resumeAgentLogin(loginPortal)}
+                            className="mt-2 w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white disabled:opacity-40">
+                            Ho completato l'accesso · Riprendi
+                          </button>
+                        </div>}
+                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
+                          {portalSavedAccounts[loginPortal]?.credentialSaved && portalSavedAccounts[loginPortal]?.savedEmail
+                            ? <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2" role="status">
+                                <p className="text-[10px] font-black text-emerald-800">✓ EMAIL SALVATA SU QUESTO PC</p>
+                                <p className="mt-1 break-all text-[12px] font-black text-emerald-950">{portalSavedAccounts[loginPortal].savedEmail}</p>
+                                <p className="mt-1 text-[10px] text-emerald-800">Verificata nel Gestore credenziali Windows. Il login su Expedia/Vrbo è un passaggio separato.</p>
+                              </div>
+                            : <p className="mb-2 text-[10px] font-semibold opacity-80" role="status">
+                                {portalSavedAccounts[loginPortal]?.error
+                                  ? "Email non verificabile: "+portalSavedAccounts[loginPortal].error
+                                  : loginState?.credentialSaved
+                                    ? "Email registrata in Windows · rilettura non ancora confermata"
+                                    : "Nessuna email salvata su questo PC"}
+                              </p>}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold opacity-80">
+                              {portalSavedAccounts[loginPortal]?.credentialSaved?"Email memorizzata in Windows":loginState?.credentialSaved?"Email da verificare":"Credenziali non memorizzate"}
+                            </span>
+                            <div className="flex gap-2">
+                              {loginState?.credentialSaved && <button type="button"
+                                disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>void managePortalCredentials(loginPortal,"remove")}
+                                className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
+                              <button type="button" disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>{
+                                  const isOpening=portalCredentialEditing!==loginPortal;
+                                  if(isOpening) setPortalCredentialDrafts(old=>({...old,[loginPortal]:{
+                                    email:portalSavedAccounts[loginPortal]?.savedEmail||old[loginPortal]?.email||"",password:""
+                                  }}));
+                                  setPortalCredentialEditing(isOpening?loginPortal:null);
+                                }}
+                                className="text-[10px] font-black underline disabled:opacity-40">
+                                {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
+                              </button>
+                            </div>
+                          </div>
+                          {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
+                            <label className="text-[10px] font-bold">Email account esistente
+                              <input type="email" autoComplete="off"
+                                value={portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail??""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <label className="text-[10px] font-bold">Password (lascia vuoto se Expedia o Vrbo usano soltanto un codice email)
+                              <input type="password" autoComplete="new-password"
+                                value={portalCredentialDrafts[loginPortal]?.password||""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <p className="text-[10px] opacity-80">Dopo «Salva» l'email verrà riletta dal PC e mostrata sopra anche quando riapri Velora. La password non viene mai mostrata né salvata nel browser. Non inserire codici OTP qui.</p>
+                            <button type="button" disabled={Boolean(portalSessionBusy)}
+                              onClick={()=>void managePortalCredentials(loginPortal,"save")}
+                              className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
+                              Salva accesso sul PC
+                            </button>
+                          </div>}
+                        </div>}
+                        </details>}
+                      </div>;
+                    })}
+                  </div>
+                  {expediaReviewOpen && <section className="mt-3 rounded-2xl border border-[#C8A96B] bg-white p-4 shadow-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-black text-[#23124A]">Expedia · risultati acquisiti</h4>
+                      <button type="button" onClick={()=>setExpediaReviewOpen(false)} className="text-xs font-bold underline">Riduci dettagli</button>
+                    </div>
+                                            {expediaReviewOpen && <div className="mt-3 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-4">
+                          <p className="text-[12px] font-black text-[#23124A]">Acquisizione Expedia · verifica rapida</p>
                           <p className="mt-1 text-[10px] leading-relaxed text-[#50627F]">
-                            Non compilare prezzi o camere a mano. Apri la struttura Expedia nel Chrome che usi normalmente,
-                            seleziona le date e premi «Acquisisci camere da Chrome» qui sotto.
-                            Velora leggerà le tariffe già visibili sulla pagina, senza automatizzare il login o superare i controlli del portale.
+                            Le tariffe acquisite confluiscono nella sezione «Tariffe puntuali per OTA» dell’audit. L’identità va confermata soltanto quando il titolo della struttura è diverso.
                           </p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer"
@@ -9424,123 +9563,8 @@ export default function App() {
                             </a> (soggetta ad approvazione e verifica del caso d'uso).
                           </p>
                         </div>}
-                        {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] font-black text-[#23124A]">Firefox TEST · Expedia</p>
-                              <p className="text-[10px] text-[#50627F]">Prova separata: non avvia scansioni, non cambia Chrome e non aggira restrizioni Expedia.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              {!["starting","installing","navigating","opening_login","login_reached","blocked","manual_check"].includes(firefoxTest?.state||"")
-                                ? <button type="button" disabled={firefoxTestBusy||working||localPilotRunning||loginProcessing}
-                                    onClick={()=>void manageFirefoxTest("start")}
-                                    className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white disabled:opacity-40">Prova Firefox</button>
-                                : <button type="button" disabled={firefoxTestBusy||["starting","installing"].includes(firefoxTest?.state||"")}
-                                    onClick={()=>void manageFirefoxTest("finish")}
-                                    className="rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">Chiudi test</button>}
-                            </div>
-                          </div>
-                          {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
-                            {firefoxTest.state==="login_reached"?"✓ ":
-                            firefoxTest.result==="blocked"?"Accesso Expedia negato · ":
-                            firefoxTest.state==="human_check"?"Verifica umana in corso · ":
-                            firefoxTest.state==="installing"?"Installazione · ":""}
-                            {firefoxTest.message}
-                          </p>}
-                          {firefoxTest?.result==="blocked" && <p className="mt-2 text-[10px] leading-relaxed text-[#8A2834]" role="alert">
-                            Expedia ha negato l'accesso al Firefox automatizzato. Anche una verifica umana completata non garantisce l'autorizzazione del portale.
-                            Non ripetere questa prova per cercare di aggirare il blocco: per tariffe e disponibilità automatiche valuta
-                            {" "}<a href="https://developers.expediagroup.com/rapid/lodging/shopping/about-shopping-api"
-                              target="_blank" rel="noreferrer" className="font-black underline">Expedia Rapid Shopping API</a>
-                            {" "}(richiede accordo e credenziali partner; non basta l'account Expedia personale).
-                          </p>}
-                          <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
-                        </div>}
-                        {loginPortal && <div className="mt-2 flex flex-col gap-1">
-                          {loginState?.credentialSaved && <button type="button"
-                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing||loginOpen||loginState?.state==="ready"}
-                            onClick={()=>void startPortalAccountCheck(loginPortal)}
-                            title="Accedi al portale prima di avviare la scansione; inserisci personalmente l'eventuale codice temporaneo."
-                            className="w-full rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-40">
-                            {loginState?.state==="ready"?"Accesso verificato":"Accedi e verifica"}
-                          </button>}
-                          {["ready","unverified","error","access_limited"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
-                            {loginState.message}
-                          </p>}
-                        </div>}
-                        {loginPortal && loginState?.state==="awaiting_user" && <div className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-amber-950" role="alert">
-                          <p className="text-[11px] font-black">Verifica umana richiesta</p>
-                          <p className="mt-1 text-[10px] leading-snug">
-                            {loginState.message||"Inserisci il codice nel Chrome dedicato, poi riprendi."}
-                            {" "}Non comunicare il codice a Velora o in chat. Il browser resta aperto durante la pausa.
-                          </p>
-                          <button type="button"
-                            disabled={Boolean(portalSessionBusy)}
-                            onClick={()=>void resumeAgentLogin(loginPortal)}
-                            className="mt-2 w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white disabled:opacity-40">
-                            Ho completato l'accesso · Riprendi
-                          </button>
-                        </div>}
-                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
-                          {portalSavedAccounts[loginPortal]?.credentialSaved && portalSavedAccounts[loginPortal]?.savedEmail
-                            ? <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2" role="status">
-                                <p className="text-[10px] font-black text-emerald-800">✓ EMAIL SALVATA SU QUESTO PC</p>
-                                <p className="mt-1 break-all text-[12px] font-black text-emerald-950">{portalSavedAccounts[loginPortal].savedEmail}</p>
-                                <p className="mt-1 text-[10px] text-emerald-800">Verificata nel Gestore credenziali Windows. Il login su Expedia/Vrbo è un passaggio separato.</p>
-                              </div>
-                            : <p className="mb-2 text-[10px] font-semibold opacity-80" role="status">
-                                {portalSavedAccounts[loginPortal]?.error
-                                  ? "Email non verificabile: "+portalSavedAccounts[loginPortal].error
-                                  : loginState?.credentialSaved
-                                    ? "Email registrata in Windows · rilettura non ancora confermata"
-                                    : "Nessuna email salvata su questo PC"}
-                              </p>}
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-[10px] font-semibold opacity-80">
-                              {portalSavedAccounts[loginPortal]?.credentialSaved?"Email memorizzata in Windows":loginState?.credentialSaved?"Email da verificare":"Credenziali non memorizzate"}
-                            </span>
-                            <div className="flex gap-2">
-                              {loginState?.credentialSaved && <button type="button"
-                                disabled={Boolean(portalSessionBusy)||working}
-                                onClick={()=>void managePortalCredentials(loginPortal,"remove")}
-                                className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
-                              <button type="button" disabled={Boolean(portalSessionBusy)||working}
-                                onClick={()=>{
-                                  const isOpening=portalCredentialEditing!==loginPortal;
-                                  if(isOpening) setPortalCredentialDrafts(old=>({...old,[loginPortal]:{
-                                    email:portalSavedAccounts[loginPortal]?.savedEmail||old[loginPortal]?.email||"",password:""
-                                  }}));
-                                  setPortalCredentialEditing(isOpening?loginPortal:null);
-                                }}
-                                className="text-[10px] font-black underline disabled:opacity-40">
-                                {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
-                              </button>
-                            </div>
-                          </div>
-                          {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
-                            <label className="text-[10px] font-bold">Email account esistente
-                              <input type="email" autoComplete="off"
-                                value={portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail??""}
-                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
-                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
-                            </label>
-                            <label className="text-[10px] font-bold">Password (lascia vuoto se Expedia o Vrbo usano soltanto un codice email)
-                              <input type="password" autoComplete="new-password"
-                                value={portalCredentialDrafts[loginPortal]?.password||""}
-                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
-                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
-                            </label>
-                            <p className="text-[10px] opacity-80">Dopo «Salva» l'email verrà riletta dal PC e mostrata sopra anche quando riapri Velora. La password non viene mai mostrata né salvata nel browser. Non inserire codici OTP qui.</p>
-                            <button type="button" disabled={Boolean(portalSessionBusy)}
-                              onClick={()=>void managePortalCredentials(loginPortal,"save")}
-                              className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
-                              Salva accesso sul PC
-                            </button>
-                          </div>}
-                        </div>}
-                      </div>;
-                    })}
-                  </div>
+
+                  </section>}
                 </div>
 
                 {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
