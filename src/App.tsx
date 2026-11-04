@@ -9638,6 +9638,20 @@ export default function App() {
                           </span>
                         </div>}
 
+
+                        {agent.id==="vrbo" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
+                          <button type="button" onClick={captureVrboFromChrome}
+                            className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
+                            Acquisisci da Chrome
+                          </button>
+                          <button type="button" onClick={()=>setVrboReviewOpen(open=>!open)}
+                            className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
+                            {vrboReviewOpen?"Chiudi dettaglio":"Dettaglio Vrbo"}
+                          </button>
+                          <span className="text-[10px] font-semibold">
+                            {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} rilevazioni
+                          </span>
+                        </div>}
                         {agent.id==="expedia" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
                           <button type="button" onClick={captureExpediaFromChrome}
                             className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
@@ -9781,6 +9795,40 @@ export default function App() {
                       </section>
                     ))}
                   </div>
+                  {vrboReviewOpen && <section className="mt-3 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-black text-[#23124A]">Vrbo · acquisizione dal Chrome normale</h4>
+                      <button type="button" onClick={()=>setVrboReviewOpen(false)} className="text-xs font-bold underline">Riduci dettagli</button>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-5 text-[#50627F]">
+                      Non serve effettuare il login nell'agente Windows. Apri una scheda alloggio Vrbo accessibile nel Chrome normale, imposta date e ospiti, poi premi il pulsante di acquisizione. L'estensione non supera gli accessi limitati.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <a href="https://www.vrbo.com/it-it/" target="_blank" rel="noopener noreferrer"
+                        className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-[#23124A]">Apri Vrbo</a>
+                      <button type="button" onClick={captureVrboFromChrome}
+                        className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white">
+                        Acquisisci da Chrome
+                      </button>
+                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.3 collegato":"Serve Chrome Companion 0.3.0"}</span>
+                    </div>
+                    {!vrboSupported && <p className="mt-2 text-xs text-amber-800">Scarica il Companion aggiornato, rimuovi la vecchia estensione Expedia da Chrome e carica la cartella estratta. <a className="font-black underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip">Scarica ZIP</a></p>}
+                    {vrboMessage && <p className="mt-3 rounded-lg bg-[#F5F2FA] p-3 text-xs font-semibold text-[#23124A]" role="status">{vrboMessage}</p>}
+                    {vrboCapture?.propertyId===activeAuditData.id && <div className="mt-3 space-y-2 rounded-xl border border-blue-100 p-3">
+                      <p className="text-sm font-black text-[#23124A]">{vrboCapture.propertyName || vrboCapture.pageTitle || "Titolo non acquisito"}</p>
+                      <p className="text-xs text-[#50627F]">Check-in: {vrboCapture.checkin||"da verificare"} · Check-out: {vrboCapture.checkout||"da verificare"} · Ospiti: {vrboCapture.guests||"da verificare"}</p>
+                      <p className="text-xs text-[#50627F]">Fotografie caricate nel campione: {vrboCapture.presentation?.visibleImageCount??"non rilevate"} · Servizi citati: {vrboCapture.presentation?.visibleServices.join(", ")||"non rilevati"}</p>
+                      {vrboCapture.rooms.map((room,i)=><p key={i} className="rounded-lg bg-[#F8F6FB] p-3 text-xs text-[#23124A]">Alloggio Vrbo · <b>€ {room.total.toFixed(2)} per {vrboCapture.nights} notti</b> · condizioni da verificare</p>)}
+                      {!matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,
+                        activeAuditData.name,activeAuditData.city) &&
+                        <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                          <input type="checkbox" checked={vrboIdentityConfirmed}
+                            onChange={e=>setVrboIdentityConfirmed(e.target.checked)} className="mt-0.5"/>
+                          Ho verificato sulla pagina Vrbo il nome, la località e le foto: confermo che si tratta della struttura {activeAuditData.name}.
+                        </label>}
+                      <p className="text-[11px] text-[#50627F]">La tariffa viene importata nell'area Vrbo soltanto se identità, date, ospiti e totale sono verificabili. Non viene considerata una corrispondenza certa con Booking.</p>
+                    </div>}
+                  </section>}
                   {expediaReviewOpen && <section className="mt-3 rounded-2xl border border-[#C8A96B] bg-white p-4 shadow-sm">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <h4 className="text-sm font-black text-[#23124A]">Expedia · risultati acquisiti</h4>
