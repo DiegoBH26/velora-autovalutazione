@@ -8298,7 +8298,18 @@ export default function App() {
           <tr><td>Servizi</td><td>${safe(vrboReportListing.visibleServices.join(" · ")||"Non rilevati")}</td></tr>
           <tr><td>Descrizione</td><td>${safe(vrboReportListing.descriptionExcerpt||"Non rilevata")}</td></tr>
         </tbody></table>` : "";
-    const numericPricingHtml = otaDistributionHtml + presentationReport + vrboPresentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
+    const holiduReportListing=otaContentSnapshots.find(item=>item.otaId==="holidu");
+    const holiduPresentationReport=holiduReportListing
+      ? `<h2>Presentazione Holidu · campione osservato</h2>
+        <p>Risultati della pagina Holidu già visibile nel browser. Un redirect a un'altra OTA non è considerato tariffa Holidu.</p>
+        <table><tbody>
+          <tr><td>Nome Holidu</td><td>${safe(holiduReportListing.propertyName)} · ${holiduReportListing.identityVerified?"identità dichiarata verificata":"identità da verificare"}</td></tr>
+          <tr><td>Totale alloggio</td><td>${holiduReportListing.roomCount?"1 preventivo esplicito letto":"Nessun preventivo verificabile"}</td></tr>
+          <tr><td>Fotografie</td><td>${holiduReportListing.visibleImageCount===null?"non campionate":holiduReportListing.visibleImageCount+" foto caricate nel campione"}</td></tr>
+          <tr><td>Servizi</td><td>${safe(holiduReportListing.visibleServices.join(" · ")||"Non rilevati")}</td></tr>
+          <tr><td>Descrizione</td><td>${safe(holiduReportListing.descriptionExcerpt||"Non rilevata")}</td></tr>
+        </tbody></table>` : "";
+    const numericPricingHtml = otaDistributionHtml + presentationReport + vrboPresentationReport + holiduPresentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
@@ -10105,6 +10116,13 @@ export default function App() {
                         </div>
                         <p className="my-2 text-[11px] text-[#50627F]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
                         <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Vrbo</button>
+                        <button type="button" disabled={vrboPresenceBusy||vrboPresence.state==="running"||vrboPresence.state==="queued"}
+                          onClick={()=>void startVrboPresenceCheck()}
+                          className="mt-2 w-full rounded-lg border border-blue-300 bg-white px-2 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-50">
+                          {vrboPresenceBusy||vrboPresence.state==="running"||vrboPresence.state==="queued"?"Ricerca scheda in corso…":"Cerca presenza automaticamente"}
+                        </button>
+                        {vrboPresence.state==="completed"&&vrboPresence.result?.propertyId===activeAuditData.id&&
+                          <p className="mt-1 text-[10px] font-bold text-[#50627F]">{vrboPresence.result.label}</p>}
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{vrboMessage||"La pagina di ricerca non basta: serve una scheda alloggio."}</p>
                         {vrboCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
