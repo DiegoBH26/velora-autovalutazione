@@ -10800,6 +10800,16 @@ export default function App() {
               const published = publishedPricingFor(otaId);
               const rows = detailedPricingFor(otaId);
               const count = published.length + rows.length;
+              // Preliminary observations are displayed even if an identity or
+              // attribution safeguard has excluded them from rateQuotes.
+              // Never advertise zero observed rates just because none was saved.
+              const observed = (browserPilotResult?.propertyId===activeAuditData.id
+                ? browserPilotResult.observations : [])
+                .filter(observation=>observation.otaId===otaId)
+                .flatMap(observation=>(observation.quotes||[])
+                  .filter(quote=>Number.isFinite(Number(quote.total))&&Number(quote.total)>0)
+                  .map(quote=>({observation,quote})));
+              const pending = observed.length>0 && count===0;
               const otaName = activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform
                 || PILOT_OTA_LABELS[otaId] || otaId;
               return <details key={`ota-pricing-${otaId}`} id={`velora-pricing-ota-${otaId}`} className="group scroll-mt-24 rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
@@ -10809,11 +10819,15 @@ export default function App() {
                     <span>{otaName}</span>
                   </span>
                   <span className="rounded-full bg-[#F3EEF8] px-3 py-1 text-[10px] font-semibold text-[#5D4878]">
-                    {count ? `${count} tariff${count === 1 ? "a" : "e"}` : "Nessuna tariffa rilevata"}
+                    {count
+                      ? `${count} tariff${count === 1 ? "a" : "e"} registrat${count === 1 ? "a" : "e"}${observed.length ? " · "+observed.length+" osservate nel pilota" : ""}`
+                      : pending
+                        ? `${observed.length} prezz${observed.length === 1 ? "o osservato" : "i osservati"} · da verificare`
+                        : "Nessun prezzo osservato"}
                   </span>
                 </summary>
                 <div className="border-t border-[#E5DDF1] p-2 sm:p-3">
-                  {count ? <div className="overflow-x-auto">
+                  {count>0 && <div className="overflow-x-auto">
                     <table className="min-w-[1000px] w-full border-collapse text-[11px]">
                       <thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / unità</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Booking base</th><th className="p-2 text-right">Δ</th><th className="p-2 text-left">Condizioni / limite</th></tr></thead>
                       <tbody>
@@ -10828,7 +10842,47 @@ export default function App() {
                         </tr>)}
                       </tbody>
                     </table>
-                  </div> : <p className="p-2 text-xs text-[#50627F]">Nessuna tariffa pubblica registrata per questa OTA nelle date testate. Consulta la diagnostica per capire se il portale non ha mostrato disponibilità oppure se la navigazione non è stata completata.</p>}
+                  </div>}
+                  {observed.length>0 && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-[11px] font-black text-amber-950">
+                      {observed.length} prezz{observed.length===1?"o osservato":"i osservati"} nel risultato dell'agente · {count>0?"dati grezzi, potrebbero includere tariffe già registrate":"non ancora registrati nell'archivio tariffe"}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-amber-950">
+                      I prezzi restano visibili ma non sono automaticamente validati: identità della scheda,
+                      attribuzione alla camera o condizioni possono impedire l'importazione e il calcolo del delta.
+                      Il numero di prezzi letti non equivale a quello delle tariffe comparabili.
+                    </p>
+                    <div className="mt-2 max-h-64 overflow-auto rounded-lg bg-white">
+                      <table className="w-full min-w-[730px] border-collapse text-[10px]">
+                        <thead className="bg-[#F4F0F8] text-[#23124A]"><tr>
+                          <th className="p-2 text-left">Soggiorno</th>
+                          <th className="p-2 text-left">Camera / piano osservato</th>
+                          <th className="p-2 text-right">Totale soggiorno</th>
+                          <th className="p-2 text-left">Stato / motivo della verifica</th>
+                        </tr></thead>
+                        <tbody>{observed.map(({observation,quote},index)=>{
+                          const mismatch=browserPilotResult
+                            ? pilotListingIdentityWarning(browserPilotResult,observation):"";
+                          const warning=mismatch||quote.comparisonWarning||
+                            (quote.comparisonSelected===false?"Tariffa esclusa dal confronto":
+                              !quote.verified?"Attribuzione del prezzo da verificare":"Parser verificato; abbinamento e condizioni da controllare");
+                          return <tr key={`raw-${otaId}-${index}`} className="border-t border-[#E5DDF1] align-top">
+                            <td className="p-2">{observation.checkin} → {observation.checkout}</td>
+                            <td className="p-2">{quote.roomType||"Camera da identificare"}
+                              {quote.ratePlan && <span className="block text-[9px] text-[#50627F]">{quote.ratePlan}</span>}
+                            </td>
+                            <td className="p-2 text-right font-black">€{Number(quote.total).toFixed(2)}</td>
+                            <td className="p-2 text-amber-900">{warning}</td>
+                          </tr>;
+                        })}</tbody>
+                      </table>
+                    </div>
+                  </div>}
+                  {!count && !observed.length && <p className="p-2 text-xs text-[#50627F]">
+                    Nessun prezzo osservato né registrato per questa OTA nel campione disponibile.
+                    La scheda potrebbe non essere stata trovata, il portale aver impedito la lettura
+                    oppure non esserci disponibilità sulle date testate. Controlla gli esiti della scansione.
+                  </p>}
                 </div>
               </details>;
             })}
