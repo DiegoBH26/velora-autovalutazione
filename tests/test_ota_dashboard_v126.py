@@ -35,7 +35,7 @@ class OtaDashboardContracts(unittest.TestCase):
         self.assertIn('OtaContentSnapshot',APP)
         self.assertIn('setOtaContentSnapshots(previous=>[',APP)
         self.assertIn('otaContentSnapshots:[]',APP)
-        self.assertIn('Asimmetrie di presentazione OTA',APP)
+        self.assertIn('Barra delle asimmetrie · Booking come riferimento',APP)
         self.assertIn('Campione di Giove:',APP)
         self.assertIn('non equivale a una differenza tariffaria',APP)
         self.assertIn('images-and-page-text',APP)
