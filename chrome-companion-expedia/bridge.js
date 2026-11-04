@@ -7,12 +7,12 @@ if (location.origin === ORIGIN &&
   const emit = (type, payload) => window.postMessage({
     source: "velora-expedia-companion-v1", type, payload
   }, ORIGIN);
-  emit("READY", { installed: true });
+  emit("READY", { installed: true,vrbo:true,version:"0.3.0" });
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN ||
         event.data?.source !== "velora-online-v1") return;
     if(event.data?.type === "COMPANION_PING") {
-      emit("READY", {installed: true});
+      emit("READY", {installed: true,vrbo:true,version:"0.3.0"});
       return;
     }
     if(!["CAPTURE_EXPEDIA","CAPTURE_VRBO"].includes(event.data?.type)) return;
