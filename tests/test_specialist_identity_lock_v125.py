@@ -19,7 +19,29 @@ for name in ("_listing_key","enforce_known_listing_identity",
             if isinstance(node,ast.FunctionDef) and node.name==name)
     exec(compile(ast.Module(body=[fn],type_ignores=[]),"specialist-contract","exec"),ns)
 
+
+# Identity guard on the locally saved property ID: a corrected display name
+# must not change its stable ID or allow scans for unrelated properties.
+guard_node=next(node for node in TREE.body if isinstance(node,ast.FunctionDef)
+                and node.name=="specialist_input_matches_property_id")
+exec(compile(ast.Module(body=[guard_node],type_ignores=[]),"specialist-name-guard","exec"),ns)
+
 class AgentIdentityContracts(unittest.TestCase):
+    def test_corrected_salve_tenuta_keeps_original_archive_id(self):
+        guard=ns["specialist_input_matches_property_id"]
+        self.assertTrue(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Tenuta Specolizzi","city":"Salve"}))
+        self.assertTrue(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Tenuta Speculizzi","city":"Salve"}))
+        self.assertFalse(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Tenuta Specolizzi","city":"Ostuni"}))
+        self.assertFalse(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Villa Specolizzi","city":"Salve"}))
+        self.assertFalse(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Agriturismo Villa Luisa","city":"Salve"}))
+        self.assertFalse(guard({"id":"tenuta-speculizzi-salve",
+            "name":"Tenuta Specolizzi Appartamento 3","city":"Salve"}))
+
     def test_airbnb_wrong_listing_is_quarantined(self):
         data={"sources":{"airbnb":{"identityVerified":True,
               "url":"https://www.airbnb.com/rooms/1234567"}}}
