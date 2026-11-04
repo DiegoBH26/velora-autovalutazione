@@ -6717,6 +6717,11 @@ export default function App() {
       }]);
     }
     setActiveStructureId(structure.id);
+    setFrontendComparisons([]);
+    setSpecialistChecks(null);
+    setCompanionCapture(null);
+    setExpediaReviewOpen(false);
+    setCompanionMessage("");
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
