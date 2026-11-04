@@ -64,31 +64,40 @@ function visibleExpediaCapture() {
   const pricePattern=/(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)\s*€|€\s*(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)/g;
   function quoteTotal(cardText) {
     const hits=[...cardText.matchAll(pricePattern)];
-    const stayRe=/\bper\s+\d{1,2}\s+nott[ei]\b|\bfor\s+\d{1,2}\s+nights?\b/i;
+    const stayRe=/\bper\s+\d{1,2}\s+nott[ei]\b|\bfor\s+\d{1,2}\s+nights?\b|\b(?:prezzo totale|totale soggiorno|in totale|total price|total for (?:the )?stay)\b/i;
     const results=[];
     for (const match of hits) {
       const amount=parseMoney(match[1]||match[2]);
       if (amount===null) continue;
-      const before=cardText.slice(Math.max(0,match.index-35),match.index);
-      const after=cardText.slice(match.index+match[0].length,match.index+match[0].length+85);
+      const before=cardText.slice(Math.max(0,match.index-65),match.index);
+      const after=cardText.slice(match.index+match[0].length,match.index+match[0].length+110);
       const stay=stayRe.test(after)||stayRe.test(before);
-      const nightly=/^(?:\s|[,;:])*a\s+notte|\bper\s+night\b/i.test(after);
+      const nightly=/^(?:\s|[,;:])*(?:a|per)\s+notte\b|\bper\s+night\b/i.test(after.slice(0,38)) ||
+        /\b(?:a|per)\s+notte\s*$/i.test(before);
       const crossed=/prezzo\s+(?:originale|barrato)/i.test(before);
       if (stay && !nightly && !crossed) results.push({amount,confidence:"total-for-stay",idx:match.index});
     }
     // Never guess a total from a single nightly figure or a crossed-out rate.
     if (results.length===0) return null;
+    // Multiple different stay totals in the same card may refer to different rate
+    // plans or a struck-through price. Never arbitrarily choose the first amount.
+    if(new Set(results.map(result=>result.amount)).size>1) return null;
     return results[0];
   }
-  const invalidTitles=/^(?:prenota|book|scegli la tua camera|effettua un upgrade|il nostro prezzo più basso|questo è un prezzo standard|colazione inclusa|vista giardino|parcheggio incluso|scopri di più|wifi gratuito|paga più tardi)$/i;
+  const invalidTitles=/^(?:prenota|book|scegli la tua camera|effettua un upgrade|il nostro prezzo più basso|questo è un prezzo standard|colazione inclusa|vista giardino|parcheggio incluso|scopri di più|wifi gratuito|paga più tardi|dettagli della camera|room details)$/i;
+  const headingSelector='[data-stid*="room-name" i],[data-testid*="room-name" i],h2,h3,h4,h5,[role="heading"]';
+  const roomHint=/(?:\bcamera\b|\bdoppia\b|\btripla\b|\bsuite\b|\btrullo\b|\bclassic\b|\bdeluxe\b|\bsuperior\b|\bjunior\b|\bfamiliare\b|\bking\b|\bapartment\b|\bdouble\b|\btwin\b|\broom\b|\bappartamento\b|\bstudio\b)/i;
+  function headingText(node) {
+    return (node.innerText||"").trim().replace(/\s+/g," ");
+  }
+  function looksLikeRoomHeading(node) {
+    const value=headingText(node);
+    return isVisible(node)&&value.length>=8&&value.length<=170&&roomHint.test(value)&&
+      !invalidTitles.test(value)&&!/\bprezzo|\bprice|per \d+ nott|€|\b(?:scegli|choose|select|visualizza|show)\b/i.test(value);
+  }
   function roomTitle(node) {
-    const nodes=[...node.querySelectorAll(
-      '[data-stid*="room-name" i],[data-testid*="room-name" i],h2,h3,h4,h5,[role="heading"]'
-    )].filter(isVisible);
-    for (const element of nodes) {
-      const value=(element.innerText||"").trim().replace(/\s+/g," ");
-      if (value.length>=8&&value.length<=170&&!invalidTitles.test(value)&&!/\bprezzo|per \d+ nott|€/.test(value.toLowerCase())) return value;
-    }
+    const nodes=[...node.querySelectorAll(headingSelector)].filter(looksLikeRoomHeading);
+    for (const element of nodes) return headingText(element);
     const lines=(node.innerText||"").split("\n").map(x=>x.trim());
     return lines.find(value=>value.length>=10&&value.length<=150 &&
       /(?:camera|doppia|tripla|suite|trullo|classic|deluxe|superior|junior|familiare|king|apartment|double|twin|room)/i.test(value) &&
@@ -114,7 +123,29 @@ function visibleExpediaCapture() {
   const roomAction=/^(?:prenota(?: ora)?|book(?: now)?|reserve(?: now)?|seleziona(?: (?:camera|tariffa))?|choose(?: (?:room|rate))?|select(?: (?:a )?(?:room|rate))?)\s*[›»→]?$/i;
   const bookingButtons=[...document.querySelectorAll("button,[role=button]")].filter(isVisible)
     .filter(x=>roomAction.test((x.innerText||"").trim().replace(/\s+/g," ")));
-  const candidates=bookingButtons.map(cardFromButton).filter(Boolean);
+  const buttonCandidates=bookingButtons.map(cardFromButton).filter(Boolean);
+  // Expedia can display room cards without a "Book" button, or show a button
+  // only after selecting a rate. Read room headings and explicit stay totals
+  // from their own card instead of relying on one specific CTA.
+  const roomHeadings=[...document.querySelectorAll(headingSelector)].filter(looksLikeRoomHeading);
+  function cardFromHeading(heading) {
+    let current=heading.parentElement;
+    for(let level=0;level<12&&current;level++,current=current.parentElement) {
+      if(!isVisible(current)) continue;
+      const content=(current.innerText||"").trim();
+      if(content.length<45) continue;
+      if(content.length>3500) break;
+      const titles=[...current.querySelectorAll(headingSelector)].filter(looksLikeRoomHeading)
+        .map(headingText);
+      // Do not borrow a price from a neighboring room card.
+      if(new Set(titles).size>1) break;
+      const price=quoteTotal(content);
+      if(price) return {node:current,title:headingText(heading),price,text:content};
+    }
+    return null;
+  }
+  const headingCandidates=roomHeadings.map(cardFromHeading).filter(Boolean);
+  const candidates=[...buttonCandidates,...headingCandidates];
   const seen=new Set();
   const rooms=[];
   for (const candidate of candidates) {
@@ -149,8 +180,13 @@ function visibleExpediaCapture() {
     warning:rooms.length
       ? "Camere lette dal contenuto visibile. Identità e condizioni devono essere confermate prima di un confronto tariffario."
       : "Nessuna tariffa totale affidabile per camera: "+bookingButtons.length+
-        " pulsanti camera riconosciuti, "+candidates.length+" schede con titolo e totale. "+
-        "Verifica che la pagina mostri le camere e il totale per soggiorno. Nessun prezzo inventato."
+        " pulsanti camera riconosciuti, "+roomHeadings.length+" titoli di camera visibili, "+
+        candidates.length+" schede con titolo e totale. "+
+        (roomHeadings.length
+          ? "Camere individuate, ma il prezzo totale per soggiorno non è leggibile o è ambiguo. "+
+            "Scorri fino alle tariffe esposte sotto ciascuna camera e ripeti l'acquisizione. "
+          : "La pagina potrebbe usare un layout diverso o non avere ancora caricato i nomi delle camere. ")+
+        "Nessun prezzo inventato."
   };
 }
 

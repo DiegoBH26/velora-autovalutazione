@@ -3595,10 +3595,8 @@ function matchingExpediaProperty(observed:string,expected:string,city:string):bo
   const found=normalize(observed);
   const reference=normalize(expected);
   if(!found||!reference) return false;
-  const special=normalize(city)==="salve" &&
-    reference.includes("tenuta speculizzi") &&
-    found.includes("tenuta specolizzi");
-  if(special)return true;
+  // Similar spellings such as Speculizzi/Specolizzi are NOT identity proof.
+  // Do not silently whitelist a previously ambiguous Expedia listing.
   const insignificant=new Set(["hotel","masseria","tenuta","agriturismo","boutique","resort","spa","b","b","villa","rooms","suites"]);
   const tokens=reference.split(" ").filter(w=>w.length>3&&!insignificant.has(w));
   return tokens.length>0 && tokens.every(word=>found.split(" ").includes(word));
