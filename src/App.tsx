@@ -3582,7 +3582,7 @@ type AnalyzedStructure = {
 };
 
 type OtaContentSnapshot = {
-  otaId:"expedia";propertyName:string;sourceUrl:string;observedAt:string;
+  otaId:"expedia"|"vrbo";propertyName:string;sourceUrl:string;observedAt:string;
   roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
   visibleServices:string[];descriptionExcerpt:string;
   evidenceScope:string;identityVerified:boolean;
@@ -3599,6 +3599,7 @@ type ExpediaCompanionCapture = {
   sourceUrl:string;checkin:string;checkout:string;nights:number;guests:number;
   rooms:ExpediaCompanionRoom[];presentation?:ExpediaPresentation;capturedAt:string;warning:string;propertyId:string;
 };
+type VrboCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-vrbo-visible-v1"};
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
     .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
@@ -5056,6 +5057,10 @@ export default function App() {
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
   const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
+  const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
+  const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
+  const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
+  const [vrboMessage,setVrboMessage] = useState("");
 
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -5210,9 +5215,70 @@ export default function App() {
       if(type==="READY") {
         setCompanionInstalled(true);
       } else if(type==="ERROR") {
-        setCompanionMessage(String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300));
+        const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
+        if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
+        else setCompanionMessage(message);
       } else if(type==="RESULT") {
         const payload=event.data.payload;
+        if(payload?.schema==="velora-vrbo-visible-v1"){
+          let url:URL;
+          try {url=new URL(String(payload.sourceUrl||""));}catch{setVrboMessage("Link Vrbo non valido.");return;}
+          if(url.protocol!=="https:" || !/(^|\\.)vrbo\\.(com|co\\.uk|de|fr|es|it)$/.test(url.hostname)){
+            setVrboMessage("La pagina acquisita non appartiene a Vrbo.");return;
+          }
+          if(!Array.isArray(payload.rooms)||payload.rooms.length>1){
+            setVrboMessage("Risultato Vrbo non valido: il lettore deve rilevare al massimo un alloggio.");return;
+          }
+          const safeRooms=payload.rooms.filter((room:unknown):room is ExpediaCompanionRoom=>{
+            if(!room || typeof room!=="object")return false;
+            const item=room as ExpediaCompanionRoom;
+            return typeof item.roomType==="string"&&item.roomType.length>=6&&item.roomType.length<=180&&
+              Number.isFinite(item.total)&&item.total>=1&&item.total<=200000&&item.confidence==="total-for-stay";
+          });
+          const capture:VrboCompanionCapture={
+            schema:"velora-vrbo-visible-v1",
+            pageTitle:String(payload.pageTitle||"").slice(0,240),
+            propertyName:String(payload.propertyName||"").slice(0,180),
+            sourceUrl:url.toString().slice(0,1600),
+            checkin:String(payload.checkin||""),checkout:String(payload.checkout||""),
+            nights:Number(payload.nights||0),guests:Number(payload.guests||0),
+            rooms:safeRooms.map(room=>({
+              roomType:room.roomType,total:room.total,confidence:room.confidence,
+              board:String(room.board||"Non chiaro").slice(0,80),
+              refund:String(room.refund||"Non chiaro").slice(0,80),
+              taxes:String(room.taxes||"Non chiaro").slice(0,80)
+            })),
+            presentation:{
+              visibleImageCount:typeof payload.presentation?.visibleImageCount==="number"&&Number.isFinite(payload.presentation.visibleImageCount)
+                ? Math.max(0,Math.min(500,payload.presentation.visibleImageCount)):null,
+              photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
+                ? payload.presentation.photoAltSamples.filter((item:unknown)=>typeof item==="string").slice(0,15).map((item:string)=>item.slice(0,140)):[],
+              visibleServices:Array.isArray(payload.presentation?.visibleServices)
+                ? payload.presentation.visibleServices.filter((item:unknown)=>typeof item==="string").slice(0,18).map((item:string)=>item.slice(0,60)):[],
+              descriptionExcerpt:String(payload.presentation?.descriptionExcerpt||"").slice(0,450),
+              roomCount:safeRooms.length,evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+            },
+            capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,400),
+            propertyId:activeAuditData.id
+          };
+          setVrboCapture(capture);
+          setVrboIdentityConfirmed(false);
+          setVrboReviewOpen(true);
+          setVrboMessage(capture.rooms.length
+            ? "Un totale soggiorno Vrbo letto. Controlla nome struttura, date e ospiti; il confronto con Booking resta da verificare."
+            : capture.warning);
+          setOtaContentSnapshots(previous=>[
+            ...previous.filter(item=>item.otaId!=="vrbo"),
+            {otaId:"vrbo",propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
+              observedAt:capture.capturedAt,roomCount:capture.rooms.length,
+              visibleImageCount:capture.presentation?.visibleImageCount??null,
+              photoAltSamples:capture.presentation?.photoAltSamples||[],
+              visibleServices:capture.presentation?.visibleServices||[],
+              descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
+              evidenceScope:"sample-of-visible-loaded-images-and-page-text",identityVerified:false}
+          ]);
+          return;
+        }
         if(payload?.schema!=="velora-expedia-visible-v1" || !Array.isArray(payload.rooms) || payload.rooms.length>40) {
           setCompanionMessage("Risultato estensione non valido. Nessuna tariffa importata.");
           return;
@@ -6338,6 +6404,10 @@ export default function App() {
       setCompanionCapture(null);
       setExpediaReviewOpen(false);
       setCompanionMessage("");
+      setVrboCapture(null);
+      setVrboReviewOpen(false);
+      setVrboMessage("");
+      setVrboIdentityConfirmed(false);
       setAvailabilityProbes([]);
       setSelectedRateCohort("");
       setBrowserPilotResult(null);
@@ -6722,6 +6792,10 @@ export default function App() {
     setCompanionCapture(null);
     setExpediaReviewOpen(false);
     setCompanionMessage("");
+    setVrboCapture(null);
+    setVrboReviewOpen(false);
+    setVrboMessage("");
+    setVrboIdentityConfirmed(false);
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
