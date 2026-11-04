@@ -6490,16 +6490,37 @@ export default function App() {
       const acceptedIds:SpecialistAgentId[]=[];
       setSpecialistMessage("Verifica dei profili completata. Invio richieste al servizio locale...");
       // The timer starts only after Windows confirms acceptance of an agent.
-      await Promise.all(ids.map(id=>startSpecialistAgent(id,false,"public",()=>{
+      const onAccepted=(id:SpecialistAgentId)=>{
         acceptedIds.push(id);
         setAgentRunIds([...acceptedIds]);
-        if (acceptedIds.length===1) {
+        if(acceptedIds.length===1){
           const startedAt=Date.now();
           setAgentRunStartedAt(startedAt);
           setAgentRunFinishedAt(null);
           setAgentRunClock(startedAt);
         }
-      })));
+      };
+      // Booking is the date authority, not just another parallel agent.
+      // Finish its availability search before launching any other pricing OTA.
+      const needsBooking=ids.some(id=>id!=="booking" && id!=="reviews" && id!=="official_site");
+      if(needsBooking || ids.includes("booking")){
+        setSpecialistMessage("Fase 1/2: Booking determina le date disponibili per tutte le OTA.");
+        await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
+        const bookingCheck=await fetch(
+          localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
+          {mode:"cors",cache:"no-store"}
+        );
+        if(!bookingCheck.ok) throw new Error("Impossibile verificare la conclusione di Booking.");
+        const bookingState=await bookingCheck.json() as {agents?:Record<string,SpecialistAgentState>};
+        if(bookingState.agents?.booking?.state!=="completed"){
+          throw new Error("Booking non ha concluso la ricerca: le altre OTA non possono partire con date diverse.");
+        }
+      }
+      const remaining=ids.filter(id=>id!=="booking");
+      if(remaining.length){
+        setSpecialistMessage("Fase 2/2: avvio agenti OTA sulle date Booking già confermate.");
+        await Promise.all(remaining.map(id=>startSpecialistAgent(id,false,"public",()=>onAccepted(id))));
+      }
       if (acceptedIds.length===0) {
         setAgentRunIds([]);
         setAgentRunStartedAt(null);
