@@ -3593,7 +3593,7 @@ type VrboPresenceState = {
   message?:string;error?:string;result?:VrboPresenceResult;
 };
 type OtaContentSnapshot = {
-  otaId:"expedia"|"vrbo";propertyName:string;sourceUrl:string;observedAt:string;
+  otaId:"expedia"|"vrbo"|"holidu";propertyName:string;sourceUrl:string;observedAt:string;
   roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
   visibleServices:string[];descriptionExcerpt:string;
   evidenceScope:string;identityVerified:boolean;
@@ -3611,6 +3611,7 @@ type ExpediaCompanionCapture = {
   rooms:ExpediaCompanionRoom[];presentation?:ExpediaPresentation;capturedAt:string;warning:string;propertyId:string;
 };
 type VrboCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-vrbo-visible-v1"};
+type HoliduCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-holidu-visible-v1"};
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
     .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
@@ -5069,6 +5070,13 @@ export default function App() {
   const [companionMessage,setCompanionMessage] = useState("");
   const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
   const [vrboSupported,setVrboSupported] = useState(false);
+  const [holiduSupported,setHoliduSupported] = useState(false);
+  const [otaWorkspaceOpen,setOtaWorkspaceOpen] = useState(false);
+  const [otaWorkspaceMessage,setOtaWorkspaceMessage] = useState("");
+  const [holiduCapture,setHoliduCapture] = useState<HoliduCompanionCapture|null>(null);
+  const [holiduReviewOpen,setHoliduReviewOpen] = useState(false);
+  const [holiduIdentityConfirmed,setHoliduIdentityConfirmed] = useState(false);
+  const [holiduMessage,setHoliduMessage] = useState("");
   const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
   const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
   const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
@@ -5230,9 +5238,11 @@ export default function App() {
       if(type==="READY") {
         setCompanionInstalled(true);
         setVrboSupported(Boolean(event.data.payload?.vrbo));
+        setHoliduSupported(Boolean(event.data.payload?.holidu));
       } else if(type==="ERROR") {
         const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
         if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
+        else if(event.data.payload?.otaId==="holidu")setHoliduMessage(message);
         else setCompanionMessage(message);
       } else if(type==="RESULT") {
         const payload=event.data.payload;
@@ -5286,6 +5296,65 @@ export default function App() {
           setOtaContentSnapshots(previous=>[
             ...previous.filter(item=>item.otaId!=="vrbo"),
             {otaId:"vrbo",propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
+              observedAt:capture.capturedAt,roomCount:capture.rooms.length,
+              visibleImageCount:capture.presentation?.visibleImageCount??null,
+              photoAltSamples:capture.presentation?.photoAltSamples||[],
+              visibleServices:capture.presentation?.visibleServices||[],
+              descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
+              evidenceScope:"sample-of-visible-loaded-images-and-page-text",identityVerified:false}
+          ]);
+          return;
+        }
+        if(payload?.schema==="velora-holidu-visible-v1"){
+          let url:URL;
+          try {url=new URL(String(payload.sourceUrl||""));}catch{setHoliduMessage("Link Holidu non valido.");return;}
+          if(url.protocol!=="https:" || !/(^|\.)holidu\.(com|it|de|fr|es)$/.test(url.hostname)){
+            setHoliduMessage("La pagina acquisita non appartiene a Holidu.");return;
+          }
+          if(!Array.isArray(payload.rooms)||payload.rooms.length>1){
+            setHoliduMessage("Risultato Holidu non valido: il lettore deve rilevare al massimo un alloggio.");return;
+          }
+          const safeRooms=payload.rooms.filter((room:unknown):room is ExpediaCompanionRoom=>{
+            if(!room || typeof room!=="object")return false;
+            const item=room as ExpediaCompanionRoom;
+            return typeof item.roomType==="string"&&item.roomType.length>=6&&item.roomType.length<=180&&
+              Number.isFinite(item.total)&&item.total>=1&&item.total<=200000&&item.confidence==="total-for-stay";
+          });
+          const capture:HoliduCompanionCapture={
+            schema:"velora-holidu-visible-v1",
+            pageTitle:String(payload.pageTitle||"").slice(0,240),
+            propertyName:String(payload.propertyName||"").slice(0,180),
+            sourceUrl:url.toString().slice(0,1600),
+            checkin:String(payload.checkin||""),checkout:String(payload.checkout||""),
+            nights:Number(payload.nights||0),guests:Number(payload.guests||0),
+            rooms:safeRooms.map(room=>({
+              roomType:room.roomType,total:room.total,confidence:room.confidence,
+              board:String(room.board||"Non chiaro").slice(0,80),
+              refund:String(room.refund||"Non chiaro").slice(0,80),
+              taxes:String(room.taxes||"Non chiaro").slice(0,80)
+            })),
+            presentation:{
+              visibleImageCount:typeof payload.presentation?.visibleImageCount==="number"&&Number.isFinite(payload.presentation.visibleImageCount)
+                ? Math.max(0,Math.min(500,payload.presentation.visibleImageCount)):null,
+              photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
+                ? payload.presentation.photoAltSamples.filter((item:unknown)=>typeof item==="string").slice(0,15).map((item:string)=>item.slice(0,140)):[],
+              visibleServices:Array.isArray(payload.presentation?.visibleServices)
+                ? payload.presentation.visibleServices.filter((item:unknown)=>typeof item==="string").slice(0,18).map((item:string)=>item.slice(0,60)):[],
+              descriptionExcerpt:String(payload.presentation?.descriptionExcerpt||"").slice(0,450),
+              roomCount:safeRooms.length,evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+            },
+            capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,400),
+            propertyId:activeAuditData.id
+          };
+          setHoliduCapture(capture);
+          setHoliduIdentityConfirmed(false);
+          setHoliduReviewOpen(true);
+          setHoliduMessage(capture.rooms.length
+            ? "Un totale soggiorno Holidu letto. Controlla nome struttura, date e ospiti; il confronto con Booking resta da verificare."
+            : capture.warning);
+          setOtaContentSnapshots(previous=>[
+            ...previous.filter(item=>item.otaId!=="holidu"),
+            {otaId:"holidu",propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
               observedAt:capture.capturedAt,roomCount:capture.rooms.length,
               visibleImageCount:capture.presentation?.visibleImageCount??null,
               photoAltSamples:capture.presentation?.photoAltSamples||[],
@@ -5397,6 +5466,13 @@ export default function App() {
       activeAuditData.name,activeAuditData.city) && !vrboIdentityConfirmed)return;
     importVrboCompanionRates();
   },[vrboCapture,vrboIdentityConfirmed,activeAuditData.id]);
+
+  useEffect(()=>{
+    if(!holiduCapture || holiduCapture.propertyId!==activeAuditData.id || !holiduCapture.rooms.length)return;
+    if(!matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,
+      activeAuditData.name,activeAuditData.city) && !holiduIdentityConfirmed)return;
+    importHoliduCompanionRates();
+  },[holiduCapture,holiduIdentityConfirmed,activeAuditData.id]);
 
   useEffect(() => {
     void connectLocalAgent(true);
@@ -6450,6 +6526,11 @@ export default function App() {
       setVrboReviewOpen(false);
       setVrboMessage("");
       setVrboIdentityConfirmed(false);
+      setHoliduCapture(null);
+      setHoliduMessage("");
+      setHoliduReviewOpen(false);
+      setHoliduIdentityConfirmed(false);
+      setOtaWorkspaceOpen(false);
       setVrboPresence({state:"not_started"});
       setVrboPresenceMessage("");
       setAvailabilityProbes([]);
@@ -6840,6 +6921,11 @@ export default function App() {
     setVrboReviewOpen(false);
     setVrboMessage("");
     setVrboIdentityConfirmed(false);
+    setHoliduCapture(null);
+    setHoliduMessage("");
+    setHoliduReviewOpen(false);
+    setHoliduIdentityConfirmed(false);
+    setOtaWorkspaceOpen(false);
     setVrboPresence({state:"not_started"});
     setVrboPresenceMessage("");
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
@@ -7013,6 +7099,71 @@ export default function App() {
     }catch(error){
       setVrboPresenceMessage(error instanceof Error?error.message:"Impossibile avviare la verifica Vrbo.");
     }finally{setVrboPresenceBusy(false);}
+  }
+
+  function captureHoliduFromChrome() {
+    setHoliduReviewOpen(true);
+    setHoliduCapture(null);
+    setHoliduIdentityConfirmed(false);
+    setHoliduMessage("Richiedo le informazioni già visibili nella scheda Holidu del Chrome normale...");
+    window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
+    if(!holiduSupported)
+      setHoliduMessage("Per Holidu serve Chrome Companion 0.4.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+  }
+
+  function importHoliduCompanionRates() {
+    const captured=holiduCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id || !captured.rooms.length)return;
+    const identityMatched=matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    );
+    if(!identityMatched&&!holiduIdentityConfirmed)return;
+    const start=Date.parse(captured.checkin+"T00:00:00Z");
+    const end=Date.parse(captured.checkout+"T00:00:00Z");
+    const nights=Number.isFinite(start)&&Number.isFinite(end)
+      ? Math.round((end-start)/86400000):0;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(captured.checkin) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(captured.checkout) ||
+       captured.checkin<todayLocalIso() || nights<1 || nights>60 ||
+       nights!==captured.nights || !Number.isInteger(captured.guests) || captured.guests<1){
+      setHoliduMessage("Date e ospiti non verificati sulla pagina Holidu. Imposta date e ospiti su Holidu e acquisisci nuovamente; non invento prezzi.");
+      return;
+    }
+    const existing=new Set(rateQuotes.filter(q=>q.otaId==="holidu").map(q=>
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")));
+    const fresh:RateQuote[]=captured.rooms.filter(room=>!existing.has(
+      [captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total].join("|")
+    )).map((room,index)=>({
+      ...EMPTY_RATE_DRAFT,
+      id:globalThis.crypto?.randomUUID?.()??"holidu-companion-"+Date.now()+"-"+index,
+      otaId:"holidu",origin:"browser-assisted",
+      observedAt:new Date().toISOString(),stayDate:captured.checkin,nights,guests:captured.guests,
+      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      board:room.board,refund:room.refund,taxes:room.taxes,
+      audience:"Non verificato",promotion:"",
+      manualListingTitle:captured.propertyName,
+      manualIdentityConfirmed:holiduIdentityConfirmed,
+      pilotVerified:false,roomMatchStatus:"da verificare",
+      comparisonWarning:"Totale soggiorno letto da una scheda Holidu visibile nel Chrome personale. "+
+        "La struttura e l'unità Booking devono essere verificate; imposte, condizioni e delta OTA non validati."
+    }));
+    if(!fresh.length){
+      setHoliduMessage("Rilevazione già registrata: nessun duplicato creato.");
+      return;
+    }
+    setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(item=>
+      item.otaId==="holidu"&&item.sourceUrl===captured.sourceUrl
+        ? {...item,identityVerified:true}:item));
+    setHoliduMessage("Tariffa Holidu salvata nella sezione tariffaria dedicata. Il delta con Booking rimane da verificare.");
+    setHoliduReviewOpen(false);
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const holidu=document.getElementById("velora-pricing-ota-holidu");
+      if(holidu instanceof HTMLDetailsElement)holidu.open=true;
+      holidu?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
   }
 
   function captureVrboFromChrome() {
