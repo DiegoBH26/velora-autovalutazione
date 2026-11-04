@@ -26,6 +26,7 @@ jobs:
         run: |
           node --check chrome-companion-expedia/background.js
           node --check chrome-companion-expedia/bridge.js
+          node tests/test_expedia_companion_grid.cjs
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
