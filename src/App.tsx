@@ -8925,6 +8925,14 @@ export default function App() {
     const publishedComparisonSamples = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
+    const expediaPresentation=otaContentSnapshots.find(item=>item.otaId==="expedia");
+    const bookingPresentation=browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.otaProfiles?.booking : undefined;
+    const bookingExpediaComparison=frontendComparisons.find(row=>
+      (row.leftAgent==="booking"&&row.rightAgent==="expedia")||
+      (row.leftAgent==="expedia"&&row.rightAgent==="booking"));
+    const expediaNameDifferent=Boolean(expediaPresentation &&
+      !matchingExpediaProperty(expediaPresentation.propertyName,activeAuditData.name,activeAuditData.city));
     // L'elenco resta compatto anche con centinaia di tariffe: espansione per OTA,
     // nello stesso ordine stabile per ogni struttura e per ogni campione di date.
     const pricingAccordionIds = [...new Set([
@@ -9109,7 +9117,52 @@ export default function App() {
             </label>)}
           </div>
 
-          </div></details><h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
+          </div></details>
+          <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
+            <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
+              Asimmetrie di presentazione OTA · nome, camere, foto, servizi e testi
+              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Acquisizione Expedia non presente"}</span>
+            </summary>
+            <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Identità e nome commerciale</p>
+                <p className="mt-2 text-[11px] text-[#50627F]"><b>Struttura Velora:</b> {activeAuditData.name}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]"><b>Expedia:</b> {expediaPresentation?.propertyName||"Non rilevato"}</p>
+                {expediaNameDifferent && <p className="mt-2 text-[11px] font-bold text-amber-800">Nome differente: verificare se è una variante commerciale o una scheda non pertinente. Non è conferma automatica d'identità.</p>}
+                {expediaPresentation && <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{expediaPresentation.identityVerified?"Identità dichiarata verificata per questa acquisizione":"Identità ancora da confermare"} · <a href={expediaPresentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">Apri fonte Expedia</a></p>}
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Camere e inventario visibile</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation?expediaPresentation.roomCount+" tipologie rilevate":"non acquisito"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Booking: {browserPilotResult?.propertyId===activeAuditData.id
+                  ? (browserPilotResult.roomReferences?.length||0) > 0
+                    ? browserPilotResult.roomReferences?.length+" riferimenti campionati"
+                    : "riferimenti camera non disponibili nel campione"
+                  : "scansione comparabile non caricata"}</p>
+                <p className="mt-2 text-[10px] text-[#50627F]">Confrontare soltanto stesse date, ospiti e reale unità; le tipologie pubblicate non equivalgono al numero di camere fisiche.</p>
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Copertura fotografica</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
+                {bookingExpediaComparison
+                  ? <p className="mt-1 text-[11px] font-semibold text-[#50627F]">Campione di Giove: {bookingExpediaComparison.photoCountLeft} / {bookingExpediaComparison.photoCountRight} foto ({veloraAgentName(bookingExpediaComparison.leftAgent)} / {veloraAgentName(bookingExpediaComparison.rightAgent)})</p>
+                  : <p className="mt-1 text-[11px] text-[#50627F]">Confronto con la galleria Booking non ancora rilevato da Giove.</p>}
+                <p className="mt-2 text-[10px] text-[#50627F]">Il conteggio Chrome considera solo le immagini già caricate e visibili nel DOM. Non dimostra che una foto manchi davvero sull'altra OTA né che sia diversa.</p>
+                {Boolean(expediaPresentation?.photoAltSamples.length) && <p className="mt-2 text-[10px] text-[#50627F]">Didascalie nel campione: {expediaPresentation?.photoAltSamples.slice(0,5).join(" · ")}</p>}
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Servizi e descrizione</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: {expediaPresentation?.visibleServices.length ? expediaPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
+                {bookingExpediaComparison?.differentServiceMentions.length
+                  ? <p className="mt-2 text-[11px] font-semibold text-amber-800">Differenze testuali rilevate da Giove: {bookingExpediaComparison.differentServiceMentions.join(" · ")}</p>
+                  : <p className="mt-2 text-[11px] text-[#50627F]">Nessuna differenza fra servizi verificata su entrambe le OTA.</p>}
+                {expediaPresentation?.descriptionExcerpt && <p className="mt-2 text-[10px] text-[#50627F]"><b>Snippet Expedia:</b> {expediaPresentation.descriptionExcerpt}</p>}
+                {bookingPresentation?.visibleExcerpt && <p className="mt-2 text-[10px] text-[#50627F]"><b>Estratto Booking:</b> {bookingPresentation.visibleExcerpt.slice(0,280)}</p>}
+                <p className="mt-2 text-[10px] text-[#50627F]">Un servizio non citato nell'estratto non è necessariamente assente. La corrispondenza delle foto e dei testi integrali richiede acquisizioni complete su entrambi i portali.</p>
+              </div>
+            </div>
+          </details>
+          <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <h4 className="text-sm font-black text-[#23124A]">Copertura OTA e asimmetrie distributive</h4>
