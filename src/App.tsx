@@ -5375,6 +5375,13 @@ export default function App() {
     importCompanionExpediaRates();
   },[companionCapture,companionIdentityConfirmed,companionStay,activeAuditData.id]);
 
+  useEffect(()=>{
+    if(!vrboCapture || vrboCapture.propertyId!==activeAuditData.id || !vrboCapture.rooms.length)return;
+    if(!matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,
+      activeAuditData.name,activeAuditData.city) && !vrboIdentityConfirmed)return;
+    importVrboCompanionRates();
+  },[vrboCapture,vrboIdentityConfirmed,activeAuditData.id]);
+
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
@@ -6939,6 +6946,71 @@ export default function App() {
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  function captureVrboFromChrome() {
+    setVrboReviewOpen(true);
+    setVrboCapture(null);
+    setVrboIdentityConfirmed(false);
+    setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
+    window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
+    if(!companionInstalled)
+      setVrboMessage("Chrome Companion non rilevato. Installa la versione Expedia + Vrbo e premi Ctrl+F5.");
+  }
+
+  function importVrboCompanionRates() {
+    const captured=vrboCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id || !captured.rooms.length)return;
+    const identityMatched=matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    );
+    if(!identityMatched&&!vrboIdentityConfirmed)return;
+    const start=Date.parse(captured.checkin+"T00:00:00Z");
+    const end=Date.parse(captured.checkout+"T00:00:00Z");
+    const nights=Number.isFinite(start)&&Number.isFinite(end)
+      ? Math.round((end-start)/86400000):0;
+    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(captured.checkin) ||
+       !/^\\d{4}-\\d{2}-\\d{2}$/.test(captured.checkout) ||
+       captured.checkin<todayLocalIso() || nights<1 || nights>60 ||
+       nights!==captured.nights || !Number.isInteger(captured.guests) || captured.guests<1){
+      setVrboMessage("Date e ospiti non verificati sulla pagina Vrbo. Imposta date e ospiti su Vrbo e acquisisci nuovamente; non invento prezzi.");
+      return;
+    }
+    const existing=new Set(rateQuotes.filter(q=>q.otaId==="vrbo").map(q=>
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")));
+    const fresh:RateQuote[]=captured.rooms.filter(room=>!existing.has(
+      [captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total].join("|")
+    )).map((room,index)=>({
+      ...EMPTY_RATE_DRAFT,
+      id:globalThis.crypto?.randomUUID?.()??"vrbo-companion-"+Date.now()+"-"+index,
+      otaId:"vrbo",origin:"browser-assisted",
+      observedAt:new Date().toISOString(),stayDate:captured.checkin,nights,guests:captured.guests,
+      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      board:room.board,refund:room.refund,taxes:room.taxes,
+      audience:"Non verificato",promotion:"",
+      manualListingTitle:captured.propertyName,
+      manualIdentityConfirmed:vrboIdentityConfirmed,
+      pilotVerified:false,roomMatchStatus:"da verificare",
+      comparisonWarning:"Totale soggiorno letto da una scheda Vrbo visibile nel Chrome personale. "+
+        "La struttura e l'unità Booking devono essere verificate; imposte, condizioni e delta OTA non validati."
+    }));
+    if(!fresh.length){
+      setVrboMessage("Rilevazione già registrata: nessun duplicato creato.");
+      return;
+    }
+    setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(item=>
+      item.otaId==="vrbo"&&item.sourceUrl===captured.sourceUrl
+        ? {...item,identityVerified:true}:item));
+    setVrboMessage("Tariffa Vrbo salvata nella sezione tariffaria dedicata. Il delta con Booking rimane da verificare.");
+    setVrboReviewOpen(false);
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const vrbo=document.getElementById("velora-pricing-ota-vrbo");
+      if(vrbo instanceof HTMLDetailsElement)vrbo.open=true;
+      vrbo?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
   }
 
   function captureExpediaFromChrome() {
