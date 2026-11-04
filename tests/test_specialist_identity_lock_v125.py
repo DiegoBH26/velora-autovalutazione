@@ -42,6 +42,35 @@ class AgentIdentityContracts(unittest.TestCase):
         self.assertFalse(guard({"id":"tenuta-speculizzi-salve",
             "name":"Tenuta Specolizzi Appartamento 3","city":"Salve"}))
 
+    def test_booking_unverified_is_not_called_another_hotel(self):
+        record={"observations":[{"otaId":"booking","status":"quote_candidates_unverified",
+            "sourceIdentityVerified":False,
+            "quotes":[{"roomType":"Camera Classic","total":585,"verified":True}]}]}
+        ns["quarantine_identity_mismatches"](record,"booking")
+        observed=record["observations"][0]
+        self.assertFalse(observed.get("identityQuarantined",False))
+        self.assertTrue(observed["identityUnverified"])
+        self.assertFalse(observed["quotes"][0]["verified"])
+        self.assertFalse(observed["quotes"][0].get("identityRejected",False))
+
+    def test_wrong_airbnb_still_quarantined(self):
+        record={"observations":[{"otaId":"airbnb","status":"wrong_property_listing",
+            "sourceIdentityVerified":False,
+            "quotes":[{"roomType":"Masseria Tenuta Deserto","total":990,"verified":True}]}]}
+        ns["quarantine_identity_mismatches"](record,"airbnb")
+        observed=record["observations"][0]
+        self.assertTrue(observed["identityQuarantined"])
+        self.assertTrue(observed["quotes"][0]["identityRejected"])
+
+    def test_saved_wrong_listing_lock_cannot_be_cleared(self):
+        record={"observations":[{"otaId":"airbnb","status":"quote_candidates",
+            "identityQuarantined":True,
+            "identityQuarantineReason":"ERRORE IDENTITÀ: annuncio diverso dalle schede OTA precedentemente validate",
+            "sourceIdentityVerified":False,"quotes":[{"verified":True}]}]}
+        ns["quarantine_identity_mismatches"](record,"airbnb")
+        self.assertTrue(record["observations"][0]["identityQuarantined"])
+        self.assertFalse(record["observations"][0]["quotes"][0]["verified"])
+
     def test_airbnb_wrong_listing_is_quarantined(self):
         data={"sources":{"airbnb":{"identityVerified":True,
               "url":"https://www.airbnb.com/rooms/1234567"}}}
