@@ -5895,6 +5895,10 @@ export default function App() {
 
     Object.entries(result.otaProfiles || {}).forEach(([otaId, profile]) => {
       if (!otaLabels[otaId] || !profile || profile.status !== "sampled") return;
+      const observations=(result.observations||[]).filter(obs=>obs.otaId===otaId);
+      if(observations.some(obs=>pilotWrongListingReason(result,obs)) &&
+         !observations.some(obs=>!pilotWrongListingReason(result,obs) &&
+           (obs.quotes||[]).some(quote=>quote.verified)))return;
       const rating = Number.isFinite(profile.rating) && Number.isFinite(profile.ratingScale)
         ? `${Number(profile.rating).toFixed(1)}/${Number(profile.ratingScale).toFixed(0)}`
         : "n.d.";
@@ -9484,6 +9488,10 @@ export default function App() {
       const profile=pilot?.otaProfiles?.[otaId];
       const validPilotQuote=observations.some(row=>!pilotWrongListingReason(pilot,row) &&
         (row.quotes||[]).some(q=>q.verified));
+      const wrongOnly=Boolean(pilot &&
+        observations.some(row=>pilotWrongListingReason(pilot,row)) &&
+        !observations.some(row=>!pilotWrongListingReason(pilot,row) &&
+          (row.quotes||[]).some(q=>q.verified)));
       const vrboPublic=otaId==="vrbo"&&vrboPresence.propertyId===activeAuditData.id
         &&vrboPresence.state==="completed" ? vrboPresence.result : undefined;
       const hasCandidate=Boolean(snapshot?.sourceUrl||discovery?.candidateUrl||discovery?.presenceDetected||
@@ -9500,11 +9508,13 @@ export default function App() {
         manual?.auditStatus==="present" && /https?:\/\//i.test(manual.note||"") ||
         discovery?.identityVerified || validPilotQuote);
       const presence: "present"|"missing"|"candidate"|"blocked"|"unverified"=
-        identityConfirmed ? "present"
+        wrongOnly ? "unverified"
+        : identityConfirmed ? "present"
         : explicitlyNotFound ? "missing"
         : hasCandidate ? "candidate"
         : anyBlocked ? "blocked" : "unverified";
-      const presenceLabel=presence==="present"?"Scheda confermata"
+      const presenceLabel=wrongOnly?"Annuncio estraneo scartato · presenza da verificare"
+        : presence==="present"?"Scheda confermata"
         : presence==="missing"?"Non individuata nella ricerca"
         : presence==="candidate"?"Scheda candidata · identità da confermare"
         : presence==="blocked"?"Accesso bloccato · presenza incerta":"Non verificata";
