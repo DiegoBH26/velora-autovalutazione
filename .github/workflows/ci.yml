@@ -32,6 +32,7 @@ jobs:
           node tests/test_holidu_companion.cjs
           node tests/test_three_ota_tabs.cjs
           node tests/test_ota_asymmetry_matrix.cjs
+          node tests/test_wrong_ota_listing_quarantine.cjs
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
