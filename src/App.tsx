@@ -4158,14 +4158,15 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   for (const observation of result.observations || []) {
     if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
     if(pilotListingIdentityWarning(result,observation)) continue;
-    const key=[observation.checkin,observation.checkout].join("|");
+    if(!observation.checkin||!observation.checkout)continue;
+    const key=[observation.checkin,observation.checkout,Number(observation.adults||2)].join("|");
     if (!stayMap.has(key)) stayMap.set(key,new Map());
     const byOta=stayMap.get(key)!;
     if (!byOta.has(observation.otaId)) byOta.set(observation.otaId,{units:new Set(),labels:new Map(),explicitNoRate:false});
     const slot=byOta.get(observation.otaId)!;
     if (observation.status==="no_public_rate") slot.explicitNoRate=true;
     for (const quote of observation.quotes || []) {
-      if (!quote.verified) continue;
+      if (!quote.verified || quote.comparisonSelected===false) continue;
       const room=String(quote.roomType || "").trim();
       if (!room || /tipologia camera da verificare/i.test(room)) continue;
       const normalized=normalizedRateToken(room);
@@ -4175,7 +4176,7 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   }
   const out: OtaDistributionAsymmetry[]=[];
   for (const [stayKey,byOta] of stayMap) {
-    const [checkin,checkout]=stayKey.split("|");
+    const [checkin,checkout,guests]=stayKey.split("|");
     // Booking is the mandatory baseline; the channel with most rooms is
     // not automatically the reference. Only compare verified priced units.
     const booking=byOta.get("booking");
@@ -4189,12 +4190,12 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
         const units=[...slot.labels.values()];
         out.push({
           checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:count,maxUnitCount,referenceChannels,units,
-          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" ha "+count+" tipologia/e con preventivo validato nel campione, contro "+maxUnitCount+" su Booking nelle stesse date. La differenza riguarda i preventivi visibili, non dimostra da sola che le altre tipologie non siano pubblicate. Verificare mapping, restrizioni, allotment e disponibilità.",
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" ha "+count+" tipologia/e con preventivo validato nel campione, contro "+maxUnitCount+" su Booking nelle stesse date e per "+guests+" ospiti. La differenza riguarda i preventivi visibili, non dimostra da sola che le altre tipologie non siano pubblicate. Verificare mapping, restrizioni, allotment e disponibilità.",
         });
       } else if(count===0 && slot.explicitNoRate) {
         out.push({
           checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:0,maxUnitCount,referenceChannels,units:[],
-          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" non mostra un preventivo pubblico sulle date testate, mentre Booking mostra "+maxUnitCount+" tipologie con prezzo validato. Questo non prova l'assenza della scheda né una mancata pubblicazione: verificare disponibilità e restrizioni.",
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" non mostra un preventivo pubblico sulle date e per "+guests+" ospiti testati, mentre Booking mostra "+maxUnitCount+" tipologie con prezzo validato. Questo non prova l'assenza della scheda né una mancata pubblicazione: verificare disponibilità e restrizioni.",
         });
       }
     }
@@ -9523,7 +9524,8 @@ export default function App() {
         photosState,photosLabel,roomState,roomLabel,priceState,priceLabel,
         roomCount:otaRoomCount,bookingRoomCount,sharedStay,
         photoSource:photoPair?"Confronto Giove (foto caricate, non equivalenza immagini)":snapshot?.sourceUrl||"",
-        url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||"",
+        url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||
+          (manual?.note||"").match(/https?:\/\/[^\s)]+/)?.[0]||"",
         matchedPrices,differentPrices
       };
     });
