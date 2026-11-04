@@ -5246,9 +5246,33 @@ export default function App() {
             confidence:item.confidence
           })),
           capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,320),
+          presentation:{
+            visibleImageCount:Math.max(0,Math.min(500,Number(payload.presentation?.visibleImageCount)||0)),
+            photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
+              ? payload.presentation.photoAltSamples.filter((x:unknown)=>typeof x==="string").slice(0,15).map((x:string)=>x.slice(0,140)):[],
+            visibleServices:Array.isArray(payload.presentation?.visibleServices)
+              ? payload.presentation.visibleServices.filter((x:unknown)=>typeof x==="string").slice(0,18).map((x:string)=>x.slice(0,60)):[],
+            descriptionExcerpt:String(payload.presentation?.descriptionExcerpt||"").slice(0,450),
+            roomCount:safeRooms.length,
+            evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+          },
           propertyId:activeAuditData.id,
         };
         setCompanionCapture(capture);
+        setOtaContentSnapshots(previous=>[
+          ...previous.filter(item=>item.otaId!=="expedia"),
+          {
+            otaId:"expedia",propertyName:capture.propertyName,
+            sourceUrl:capture.sourceUrl,observedAt:capture.capturedAt,
+            roomCount:capture.rooms.length,
+            visibleImageCount:capture.presentation?.visibleImageCount||0,
+            photoAltSamples:capture.presentation?.photoAltSamples||[],
+            visibleServices:capture.presentation?.visibleServices||[],
+            descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
+            evidenceScope:"sample-of-visible-loaded-images-and-page-text",
+            identityVerified:false
+          }
+        ]);
         setExpediaReviewOpen(true);
         setCompanionIdentityConfirmed(false);
         setCompanionStay({
@@ -6885,6 +6909,10 @@ export default function App() {
       return;
     }
     setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(item=>
+      item.otaId==="expedia"&&item.sourceUrl===captured.sourceUrl
+        ? {...item,identityVerified:true}:item));
+    setExpediaReviewOpen(false);
     setCompanionMessage(
       "Importate "+fresh.length+" camere Expedia con date e prezzi letti dal Chrome normale. "+
       "Il report è aggiornato; l'abbinamento fisico alle camere Booking resta non verificato."
