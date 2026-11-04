@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Velora · Expedia Chrome Companion",
-  "version": "0.2.0",
-  "description": "Legge su richiesta le camere e i prezzi visibili in una pagina Expedia aperta nel Chrome personale. Non effettua login o navigazioni automatiche.",
+  "name": "Velora · Expedia + Vrbo Chrome Companion",
+  "version": "0.3.0",
+  "description": "Legge su richiesta camere e tariffe soggiorno già visibili nelle pagine Expedia e Vrbo aperte nel Chrome personale; non esegue login.",
   "permissions": [
     "tabs",
     "scripting"
@@ -13,7 +13,13 @@
     "https://*.expedia.de/*",
     "https://*.expedia.fr/*",
     "https://*.expedia.es/*",
-    "https://*.expedia.co.uk/*"
+    "https://*.expedia.co.uk/*",
+    "https://*.vrbo.com/*",
+    "https://*.vrbo.co.uk/*",
+    "https://*.vrbo.de/*",
+    "https://*.vrbo.fr/*",
+    "https://*.vrbo.es/*",
+    "https://*.vrbo.it/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -30,6 +36,6 @@
     }
   ],
   "action": {
-    "default_title": "Velora Expedia Companion: utilizza il pulsante nella scheda Ercole"
+    "default_title": "Velora Chrome Companion: usa i pulsanti di Ercole o Atlante"
   }
 }
