@@ -201,7 +201,13 @@ def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
         # There are TWO distinct states: a proven mismatch (different hotel)
         # and a still-unverified identity (Booking found, name/city evidence
         # incomplete). The latter must NOT be labelled "other property".
-        explicit_wrong = observation.get("status") in bad_statuses
+        quarantine_reason=str(observation.get("identityQuarantineReason") or "").lower()
+        prior_explicit_mismatch=bool(observation.get("identityQuarantined") and
+            ("annuncio diverso" in quarantine_reason
+             or "altra struttura" in quarantine_reason))
+        explicit_wrong = (observation.get("status") in bad_statuses
+                          or prior_explicit_mismatch
+                          or bool(observation.get("portalScopeViolation")))
         unverified = (observation.get("sourceIdentityVerified") is False
                       or (isinstance(check, dict) and (check.get("verified") is False
                           or check.get("ok") is False)))
