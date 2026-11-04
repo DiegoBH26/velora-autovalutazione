@@ -36,7 +36,7 @@ class OtaDashboardContracts(unittest.TestCase):
         # quarantined because their listing identity is unverified.
         self.assertIn('const observed = (browserPilotResult?.propertyId===activeAuditData.id',APP)
         self.assertIn('const pending = observed.length>0 && count===0;',APP)
-        self.assertIn('prezzi osservati',APP)
+        self.assertIn('prezz${observed.length === 1 ? "o osservato" : "i osservati"}',APP)
         self.assertIn('non ancora registrati nell\'archivio tariffe',APP)
         self.assertIn('pilotListingIdentityWarning(browserPilotResult,observation)',APP)
         self.assertIn('Nessun prezzo osservato né registrato',APP)
