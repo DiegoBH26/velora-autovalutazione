@@ -5192,6 +5192,14 @@ export default function App() {
     });
   const activeAuditData = useMemo(() => {
     const data=JSON.parse(JSON.stringify(activeAuditDataBase)) as any;
+    // IMPORTANT: the editable structure profile is the canonical identity
+    // used by all agents. The archived audit template may contain an older
+    // misspelling; never silently send that frozen name back to Minerva.
+    if (ownerInfo.propertyName.trim()) data.name=ownerInfo.propertyName.trim();
+    if (ownerInfo.city.trim()) data.city=ownerInfo.city.trim();
+    if (ownerInfo.province.trim()) data.province=ownerInfo.province.trim();
+    if (ownerInfo.rooms.trim() && Number.isFinite(Number.parseInt(ownerInfo.rooms,10)))
+      data.rooms=Number.parseInt(ownerInfo.rooms,10);
     if (!Array.isArray(data.otaPresence)) data.otaPresence=[];
     if (!data.otaPresence.some((item:any)=>item?.id==="holidu")) {
       data.otaPresence.push({
@@ -5206,7 +5214,7 @@ export default function App() {
       });
     }
     return data as AuditData;
-  }, [activeAuditDataBase]);
+  }, [activeAuditDataBase,ownerInfo.propertyName,ownerInfo.city,ownerInfo.province,ownerInfo.rooms]);
 
   async function connectLocalAgent(silent = false): Promise<string> {
     try {
@@ -6882,6 +6890,14 @@ export default function App() {
       city: ownerInfo.city || item.city,
       province: ownerInfo.province || item.province,
       rooms: ownerInfo.rooms || item.rooms,
+      // Keep the stored audit metadata aligned without altering its
+      // stable property ID, sources, observations, quotes or results.
+      auditData:item.auditData?{
+        ...item.auditData,
+        name:ownerInfo.propertyName.trim()||item.auditData.name,
+        city:ownerInfo.city.trim()||item.auditData.city,
+        province:ownerInfo.province.trim()||item.auditData.province,
+      }:item.auditData,
       ownerInfo,
       answers,
       rateQuotes,
@@ -11694,6 +11710,11 @@ export default function App() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {activeStructureId && <button type="button"
+              onClick={()=>document.getElementById("velora-structure-profile")?.scrollIntoView({behavior:"smooth",block:"start"})}
+              className="rounded-xl border border-[#C8A96B] bg-[#FFF9EC] px-4 py-2 text-xs font-black text-[#23124A]">
+              Modifica anagrafica struttura
+            </button>}
             {activeStructureId && structures.find((item) => item.id === activeStructureId)?.reportPath && (
               <button type="button" onClick={() => openStoredReport(structures.find((item) => item.id === activeStructureId)!)} className="rounded-xl border border-[#C8A96B] bg-[#FFF8E8] px-5 py-3 text-sm font-black hover:bg-[#FFF1CF]">
                 Apri report PDF originale
@@ -11967,7 +11988,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
+        <section id="velora-structure-profile" className="scroll-mt-8 rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[12px] font-black uppercase tracking-[0.28em] text-[#C8A96B]">
@@ -11982,6 +12003,11 @@ export default function App() {
               sintesi consulenziale e futuro collegamento con Floppy.
             </p>
           </div>
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+            Nome operativo trasmesso agli agenti: <b>{activeAuditData.name}</b>.
+            Le correzioni sono salvate automaticamente nella struttura aperta, senza cambiarne l'ID e senza cancellare i prezzi.
+            Un risultato già acquisito con il vecchio nome conserva il proprio stato di validazione; per convalidarlo serve una nuova verifica dell'identità.
+          </p>
 
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {[
