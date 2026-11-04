@@ -3572,6 +3572,7 @@ type AnalyzedStructure = {
   ownerInfo: OwnerInfo;
   answers: Record<string, Answer>;
   rateQuotes?: RateQuote[];
+  otaContentSnapshots?: OtaContentSnapshot[];
   availabilityProbes?: AvailabilityProbe[];
   auditData?: AuditData;
   assessmentMode: AssessmentMode;
@@ -3580,13 +3581,23 @@ type AnalyzedStructure = {
   updatedAt: string;
 };
 
+type OtaContentSnapshot = {
+  otaId:"expedia";propertyName:string;sourceUrl:string;observedAt:string;
+  roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
+  visibleServices:string[];descriptionExcerpt:string;
+  evidenceScope:string;identityVerified:boolean;
+};
+type ExpediaPresentation = {
+  visibleImageCount:number|null;photoAltSamples:string[];visibleServices:string[];
+  descriptionExcerpt:string;roomCount:number;evidenceScope:string;
+};
 type ExpediaCompanionRoom = {
   roomType:string;total:number;board:string;refund:string;taxes:string;confidence:string;
 };
 type ExpediaCompanionCapture = {
   schema:"velora-expedia-visible-v1";pageTitle:string;propertyName:string;
   sourceUrl:string;checkin:string;checkout:string;nights:number;guests:number;
-  rooms:ExpediaCompanionRoom[];capturedAt:string;warning:string;propertyId:string;
+  rooms:ExpediaCompanionRoom[];presentation?:ExpediaPresentation;capturedAt:string;warning:string;propertyId:string;
 };
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
@@ -5031,6 +5042,7 @@ export default function App() {
 
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [rateQuotes, setRateQuotes] = useState<RateQuote[]>([]);
+  const [otaContentSnapshots,setOtaContentSnapshots] = useState<OtaContentSnapshot[]>([]);
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
   const [manualRateSource, setManualRateSource] = useState<null | {
     otaId: string; checkin: string; checkout: string; nights: number; guests: number;
@@ -5043,6 +5055,7 @@ export default function App() {
   const [companionCapture,setCompanionCapture] = useState<ExpediaCompanionCapture|null>(null);
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
+  const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
 
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -5233,9 +5246,35 @@ export default function App() {
             confidence:item.confidence
           })),
           capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,320),
+          presentation:{
+            visibleImageCount:typeof payload.presentation?.visibleImageCount==="number"&&Number.isFinite(payload.presentation.visibleImageCount)
+              ? Math.max(0,Math.min(500,payload.presentation.visibleImageCount)) : null,
+            photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
+              ? payload.presentation.photoAltSamples.filter((x:unknown)=>typeof x==="string").slice(0,15).map((x:string)=>x.slice(0,140)):[],
+            visibleServices:Array.isArray(payload.presentation?.visibleServices)
+              ? payload.presentation.visibleServices.filter((x:unknown)=>typeof x==="string").slice(0,18).map((x:string)=>x.slice(0,60)):[],
+            descriptionExcerpt:String(payload.presentation?.descriptionExcerpt||"").slice(0,450),
+            roomCount:safeRooms.length,
+            evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+          },
           propertyId:activeAuditData.id,
         };
         setCompanionCapture(capture);
+        setOtaContentSnapshots(previous=>[
+          ...previous.filter(item=>item.otaId!=="expedia"),
+          {
+            otaId:"expedia",propertyName:capture.propertyName,
+            sourceUrl:capture.sourceUrl,observedAt:capture.capturedAt,
+            roomCount:capture.rooms.length,
+            visibleImageCount:capture.presentation?.visibleImageCount??null,
+            photoAltSamples:capture.presentation?.photoAltSamples||[],
+            visibleServices:capture.presentation?.visibleServices||[],
+            descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
+            evidenceScope:"sample-of-visible-loaded-images-and-page-text",
+            identityVerified:false
+          }
+        ]);
+        setExpediaReviewOpen(true);
         setCompanionIdentityConfirmed(false);
         setCompanionStay({
           checkin:capture.checkin,checkout:capture.checkout,
@@ -5253,6 +5292,23 @@ export default function App() {
     window.postMessage({source:"velora-online-v1",type:"COMPANION_PING"},window.location.origin);
     return ()=>window.removeEventListener("message",receive);
   },[activeAuditData.id]);
+  // A verified exact-name capture with full dates is imported directly.
+  // When the listing name differs (e.g. Specolizzi/Speculizzi), one explicit
+  // identity confirmation is required; no rates enter the audit before it.
+  useEffect(() => {
+    const captured=companionCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id || !captured.rooms.length) return;
+    const identityConfirmed=matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    ) || companionIdentityConfirmed;
+    if(!identityConfirmed)return;
+    if(!captured.checkin||!captured.checkout||captured.guests<1)return;
+    if(companionStay.checkin!==captured.checkin||
+       companionStay.checkout!==captured.checkout||
+       companionStay.guests!==captured.guests)return;
+    importCompanionExpediaRates();
+  },[companionCapture,companionIdentityConfirmed,companionStay,activeAuditData.id]);
+
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
@@ -5410,6 +5466,7 @@ export default function App() {
     setOwnerInfo(seeded.ownerInfo);
     setAnswers(seeded.answers);
     setRateQuotes([]);
+    setOtaContentSnapshots([]);
     setAvailabilityProbes([]);
     setSelectedRateCohort("");
     setAssessmentMode("web-audit");
@@ -6271,12 +6328,16 @@ export default function App() {
             rooms:item.rooms,website:item.website || item.auditData?.website || "",
           }),
           answers:keepOtherAnswers(item.answers),
-          rateQuotes:[],availabilityProbes:[],
+          rateQuotes:[],otaContentSnapshots:[],availabilityProbes:[],
           updatedAt:new Date().toISOString(),
         };
       }));
       setAnswers(previous=>keepOtherAnswers(previous));
       setRateQuotes([]);
+      setOtaContentSnapshots([]);
+      setCompanionCapture(null);
+      setExpediaReviewOpen(false);
+      setCompanionMessage("");
       setAvailabilityProbes([]);
       setSelectedRateCohort("");
       setBrowserPilotResult(null);
@@ -6530,6 +6591,7 @@ export default function App() {
       setOwnerInfo({ ...EMPTY_OWNER_INFO, ...selected.ownerInfo });
       setAnswers(selected.answers);
       setRateQuotes(Array.isArray(selected.rateQuotes) ? selected.rateQuotes : []);
+      setOtaContentSnapshots(Array.isArray(selected.otaContentSnapshots) ? selected.otaContentSnapshots : []);
       setAvailabilityProbes(Array.isArray(selected.availabilityProbes) ? selected.availabilityProbes : []);
       setAssessmentMode(selected.assessmentMode);
       const ids = selected.customQuickItemIds?.length ? selected.customQuickItemIds : savedInterviewTemplate();
@@ -6551,6 +6613,7 @@ export default function App() {
       if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
       if (Array.isArray(parsed.rateQuotes)) setRateQuotes(parsed.rateQuotes);
+      if (Array.isArray(parsed.otaContentSnapshots)) setOtaContentSnapshots(parsed.otaContentSnapshots);
       if (Array.isArray(parsed.availabilityProbes)) setAvailabilityProbes(parsed.availabilityProbes);
       if (
         parsed.assessmentMode === "full" ||
@@ -6583,6 +6646,7 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        otaContentSnapshots,
         availabilityProbes,
         assessmentMode,
         customQuickItemIds,
@@ -6590,7 +6654,7 @@ export default function App() {
         guideEnabled,
       })
     );
-  }, [hydrated, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+  }, [hydrated, ownerInfo, answers, rateQuotes, otaContentSnapshots, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -6608,13 +6672,14 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
       assessmentMode,
       customQuickItemIds,
       useCustomQuickSelection,
       updatedAt: new Date().toISOString(),
     } : item));
-  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
+  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, otaContentSnapshots, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -6645,16 +6710,23 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        otaContentSnapshots,
         availabilityProbes,
         assessmentMode,
         updatedAt: new Date().toISOString(),
       }]);
     }
     setActiveStructureId(structure.id);
+    setFrontendComparisons([]);
+    setSpecialistChecks(null);
+    setCompanionCapture(null);
+    setExpediaReviewOpen(false);
+    setCompanionMessage("");
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
     setRateQuotes(Array.isArray(structure.rateQuotes) ? structure.rateQuotes : []);
+    setOtaContentSnapshots(Array.isArray(structure.otaContentSnapshots) ? structure.otaContentSnapshots : []);
     setAvailabilityProbes(Array.isArray(structure.availabilityProbes) ? structure.availabilityProbes : []);
     setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
@@ -6796,6 +6868,7 @@ export default function App() {
   }
 
   function captureExpediaFromChrome() {
+    setExpediaReviewOpen(true);
     setCompanionMessage("Richiedo al Chrome Companion di leggere le camere Expedia già visibili...");
     setCompanionCapture(null);
     setCompanionIdentityConfirmed(false);
@@ -6863,6 +6936,17 @@ export default function App() {
       return;
     }
     setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(item=>
+      item.otaId==="expedia"&&item.sourceUrl===captured.sourceUrl
+        ? {...item,identityVerified:true}:item));
+    setExpediaReviewOpen(false);
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const expedia=document.getElementById("velora-pricing-ota-expedia");
+      if(expedia instanceof HTMLDetailsElement)expedia.open=true;
+      expedia?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
     setCompanionMessage(
       "Importate "+fresh.length+" camere Expedia con date e prezzi letti dal Chrome normale. "+
       "Il report è aggiornato; l'abbinamento fisico alle camere Booking resta non verificato."
@@ -7134,6 +7218,7 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
       assessmentMode,
       customQuickItemIds,
@@ -7172,6 +7257,7 @@ export default function App() {
 
     setAnswers({});
     setRateQuotes([]);
+    setOtaContentSnapshots([]);
     setAvailabilityProbes([]);
     window.localStorage.removeItem(STORAGE_KEY);
   }
@@ -7200,6 +7286,7 @@ export default function App() {
       })),
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
     };
 
@@ -7813,7 +7900,17 @@ export default function App() {
       ...seededComparisons.map((sample) => `<tr><td>${safe(sample.stay)}</td><td><b>${safe(reportChannels.find((channel) => channel.id === sample.otaId)?.platform || (sample.otaId === "sito" ? "Sito diretto" : sample.otaId))}</b></td><td>${safe(sample.roomType)}</td><td class="center"><b>€ ${sample.nightly.toFixed(2)}</b></td><td class="center">—</td><td class="center">${safe(sample.delta)}</td><td>${safe(sample.conditions)}</td></tr>`),
       ...manualComparisons.map(({ quote, nightly, bookingNightly, deltaPct }) => `<tr><td>${safe(quote.stayDate)}</td><td><b>${safe(reportChannels.find((channel) => channel.id === quote.otaId)?.platform || quote.otaId)}</b></td><td>${safe(quote.roomType)}${quote.unitId ? `<small>Unità verificata: ${safe(quote.unitId)}</small>` : "<small>Unità non verificata</small>"}</td><td class="center"><b>€ ${nightly.toFixed(2)}</b></td><td class="center">${bookingNightly === null ? "—" : `€ ${bookingNightly.toFixed(2)}`}</td><td class="center">${deltaPct === null ? "n.d." : quote.otaId === "booking" ? "Base" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}</td><td>${safe(`${quote.ratePlan ? quote.ratePlan + "; " : ""}${quote.refund}; ${quote.board}; ${quote.audience}; ${quote.taxes}`)}${quote.origin === "browser-assisted" ? `<small>Letta dal Chrome normale su comando · ${safe(quote.manualListingTitle || "identità da verificare")} · URL: ${safe(quote.sourceUrl)}</small>` : quote.origin === "manual" ? `<small>Rilevazione manuale · ${safe(quote.manualListingTitle || "identità dichiarata dall’operatore")} · URL: ${safe(quote.sourceUrl)}</small>` : ""}${quote.comparisonWarning ? `<small>${safe(quote.comparisonWarning)}</small>` : ""}</td></tr>`),
     ];
-    const numericPricingHtml = otaDistributionHtml + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
+    const reportListing=otaContentSnapshots.find(item=>item.otaId==="expedia");
+    const presentationReport=reportListing ? `<h2>Presentazione e contenuti OTA</h2>
+      <p>Campione Expedia acquisito nel browser: i conteggi non coprono necessariamente tutta la galleria. Identità e corrispondenza con Booking non si presumono.</p>
+      <table><thead><tr><th>Area</th><th>Rilevazione</th></tr></thead><tbody>
+      <tr><td>Nome</td><td>${safe(activeAuditData.name)} / ${safe(reportListing.propertyName)} · ${reportListing.identityVerified?"identità dichiarata verificata":"verifica identità richiesta"}</td></tr>
+      <tr><td>Camere</td><td>${reportListing.roomCount} tipologie Expedia nel campione; abbinamento alle unità Booking da validare</td></tr>
+      <tr><td>Foto</td><td>${reportListing.visibleImageCount===null?"Non campionate":reportListing.visibleImageCount+" immagini caricate nella pagina"} · confronto integrale non disponibile</td></tr>
+      <tr><td>Servizi</td><td>${safe(reportListing.visibleServices.join(" · ")||"Non rilevati nel campione")}</td></tr>
+      <tr><td>Descrizione</td><td>${safe(reportListing.descriptionExcerpt||"Snippet non disponibile")}</td></tr>
+      </tbody></table>` : "";
+    const numericPricingHtml = otaDistributionHtml + presentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
@@ -8848,6 +8945,33 @@ export default function App() {
     const publishedComparisonSamples = "comparisonSamples" in activeAuditData.pricingAudit
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
+    const expediaPresentation=otaContentSnapshots.find(item=>item.otaId==="expedia");
+    const bookingPresentation=browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.otaProfiles?.booking : undefined;
+    const bookingExpediaComparison=frontendComparisons.find(row=>
+      (row.leftAgent==="booking"&&row.rightAgent==="expedia")||
+      (row.leftAgent==="expedia"&&row.rightAgent==="booking"));
+    const expediaNameDifferent=Boolean(expediaPresentation &&
+      !matchingExpediaProperty(expediaPresentation.propertyName,activeAuditData.name,activeAuditData.city));
+    // Positioning ranges are not same-room Booking vs OTA price deltas.
+    const priceRangesByStay=new Map<string,{
+      otaId:string;stayDate:string;nights:number;guests:number;
+      prices:number[];rooms:Set<string>;unverified:boolean;
+    }>();
+    for(const quote of rateQuotes.filter(q=>q.stayDate>=todayLocalIso()&&q.total>0&&q.nights>0)){
+      const key=[quote.stayDate,quote.nights,quote.guests,quote.otaId].join("|");
+      let group=priceRangesByStay.get(key);
+      if(!group){
+        group={otaId:quote.otaId,stayDate:quote.stayDate,nights:quote.nights,
+          guests:quote.guests,prices:[],rooms:new Set<string>(),unverified:false};
+        priceRangesByStay.set(key,group);
+      }
+      const unitKey=[quote.roomType.toLowerCase(),quote.total].join("|");
+      if(!group.rooms.has(unitKey)){group.prices.push(quote.total);group.rooms.add(unitKey);}
+      if(quote.otaId!=="booking"&&quote.roomMatchStatus!=="same-room")group.unverified=true;
+    }
+    const priceRangeRows=[...priceRangesByStay.values()].sort((a,b)=>
+      a.stayDate.localeCompare(b.stayDate)||a.otaId.localeCompare(b.otaId)).slice(0,32);
     // L'elenco resta compatto anche con centinaia di tariffe: espansione per OTA,
     // nello stesso ordine stabile per ogni struttura e per ogni campione di date.
     const pricingAccordionIds = [...new Set([
@@ -9032,7 +9156,52 @@ export default function App() {
             </label>)}
           </div>
 
-          </div></details><h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
+          </div></details>
+          <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
+            <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
+              Asimmetrie di presentazione OTA · nome, camere, foto, servizi e testi
+              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Acquisizione Expedia non presente"}</span>
+            </summary>
+            <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Identità e nome commerciale</p>
+                <p className="mt-2 text-[11px] text-[#50627F]"><b>Struttura Velora:</b> {activeAuditData.name}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]"><b>Expedia:</b> {expediaPresentation?.propertyName||"Non rilevato"}</p>
+                {expediaNameDifferent && <p className="mt-2 text-[11px] font-bold text-amber-800">Nome differente: verificare se è una variante commerciale o una scheda non pertinente. Non è conferma automatica d'identità.</p>}
+                {expediaPresentation && <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{expediaPresentation.identityVerified?"Identità dichiarata verificata per questa acquisizione":"Identità ancora da confermare"} · <a href={expediaPresentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">Apri fonte Expedia</a></p>}
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Camere e inventario visibile</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation?expediaPresentation.roomCount+" tipologie rilevate":"non acquisito"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Booking: {browserPilotResult?.propertyId===activeAuditData.id
+                  ? (browserPilotResult.roomReferences?.length||0) > 0
+                    ? browserPilotResult.roomReferences?.length+" riferimenti campionati"
+                    : "riferimenti camera non disponibili nel campione"
+                  : "scansione comparabile non caricata"}</p>
+                <p className="mt-2 text-[10px] text-[#50627F]">Confrontare soltanto stesse date, ospiti e reale unità; le tipologie pubblicate non equivalgono al numero di camere fisiche.</p>
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Copertura fotografica</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount===null ? "fotografie non campionate (aggiorna Companion)" : expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
+                {bookingExpediaComparison
+                  ? <p className="mt-1 text-[11px] font-semibold text-[#50627F]">Campione di Giove: {bookingExpediaComparison.photoCountLeft} / {bookingExpediaComparison.photoCountRight} foto ({veloraAgentName(bookingExpediaComparison.leftAgent)} / {veloraAgentName(bookingExpediaComparison.rightAgent)})</p>
+                  : <p className="mt-1 text-[11px] text-[#50627F]">Confronto con la galleria Booking non ancora rilevato da Giove.</p>}
+                <p className="mt-2 text-[10px] text-[#50627F]">Il conteggio Chrome considera solo le immagini già caricate e visibili nel DOM. Non dimostra che una foto manchi davvero sull'altra OTA né che sia diversa.</p>
+                {Boolean(expediaPresentation?.photoAltSamples.length) && <p className="mt-2 text-[10px] text-[#50627F]">Didascalie nel campione: {expediaPresentation?.photoAltSamples.slice(0,5).join(" · ")}</p>}
+              </div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <p className="text-xs font-black text-[#23124A]">Servizi e descrizione</p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: {expediaPresentation?.visibleServices.length ? expediaPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
+                {bookingExpediaComparison?.differentServiceMentions.length
+                  ? <p className="mt-2 text-[11px] font-semibold text-amber-800">Differenze testuali rilevate da Giove: {bookingExpediaComparison.differentServiceMentions.join(" · ")}</p>
+                  : <p className="mt-2 text-[11px] text-[#50627F]">Nessuna differenza fra servizi verificata su entrambe le OTA.</p>}
+                {expediaPresentation?.descriptionExcerpt && <p className="mt-2 text-[10px] text-[#50627F]"><b>Snippet Expedia:</b> {expediaPresentation.descriptionExcerpt}</p>}
+                {bookingPresentation?.visibleExcerpt && <p className="mt-2 text-[10px] text-[#50627F]"><b>Estratto Booking:</b> {bookingPresentation.visibleExcerpt.slice(0,280)}</p>}
+                <p className="mt-2 text-[10px] text-[#50627F]">Un servizio non citato nell'estratto non è necessariamente assente. La corrispondenza delle foto e dei testi integrali richiede acquisizioni complete su entrambi i portali.</p>
+              </div>
+            </div>
+          </details>
+          <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <h4 className="text-sm font-black text-[#23124A]">Copertura OTA e asimmetrie distributive</h4>
@@ -9224,7 +9393,7 @@ export default function App() {
                       }} className="text-[11px] font-black text-[#64748B] underline underline-offset-4 disabled:opacity-40">Deseleziona</button>
                     </div>
                   </div>
-                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {SPECIALIST_AGENTS.map((agent)=>{
                       const ota=LOCAL_PILOT_OTA_OPTIONS.find((item)=>item.id===agent.id);
                       const selected=ota?localPilotSelectedChannels.includes(agent.id):selectedSupportAgents.includes(agent.id);
@@ -9300,12 +9469,155 @@ export default function App() {
                           </span>
                         </div>}
 
-                        {agent.id==="expedia" && <div className="mt-2 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-2.5">
-                          <p className="text-[12px] font-black text-[#23124A]">Expedia · lettura camere dal Chrome normale</p>
+                        {agent.id==="expedia" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
+                          <button type="button" onClick={captureExpediaFromChrome}
+                            className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
+                            Acquisisci da Chrome
+                          </button>
+                          <button type="button" onClick={()=>setExpediaReviewOpen(open=>!open)}
+                            className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
+                            {expediaReviewOpen?"Chiudi dettaglio":"Dettaglio Expedia"}
+                          </button>
+                          <span className="text-[10px] font-semibold">
+                            {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} tariffe registrate
+                          </span>
+                          <button type="button" onClick={()=>{
+                            const pricing=document.getElementById("velora-pricing-details");
+                            if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+                            const expedia=document.getElementById("velora-pricing-ota-expedia");
+                            if(expedia instanceof HTMLDetailsElement)expedia.open=true;
+                            expedia?.scrollIntoView({behavior:"smooth",block:"start"});
+                          }} className="text-[10px] font-black underline">Vedi prezzi nell'audit OTA</button>
+                        </div>}
+                        {loginPortal && <details className="mt-2 rounded-lg border border-current/20 bg-white/70 p-2">
+                          <summary className="cursor-pointer text-[10px] font-black text-[#23124A]">Accessi, credenziali e test avanzati</summary>
+                        {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-black text-[#23124A]">Firefox TEST · Expedia</p>
+                              <p className="text-[10px] text-[#50627F]">Prova separata: non avvia scansioni, non cambia Chrome e non aggira restrizioni Expedia.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {!["starting","installing","navigating","opening_login","login_reached","blocked","manual_check"].includes(firefoxTest?.state||"")
+                                ? <button type="button" disabled={firefoxTestBusy||working||localPilotRunning||loginProcessing}
+                                    onClick={()=>void manageFirefoxTest("start")}
+                                    className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white disabled:opacity-40">Prova Firefox</button>
+                                : <button type="button" disabled={firefoxTestBusy||["starting","installing"].includes(firefoxTest?.state||"")}
+                                    onClick={()=>void manageFirefoxTest("finish")}
+                                    className="rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">Chiudi test</button>}
+                            </div>
+                          </div>
+                          {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
+                            {firefoxTest.state==="login_reached"?"✓ ":
+                            firefoxTest.result==="blocked"?"Accesso Expedia negato · ":
+                            firefoxTest.state==="human_check"?"Verifica umana in corso · ":
+                            firefoxTest.state==="installing"?"Installazione · ":""}
+                            {firefoxTest.message}
+                          </p>}
+                          {firefoxTest?.result==="blocked" && <p className="mt-2 text-[10px] leading-relaxed text-[#8A2834]" role="alert">
+                            Expedia ha negato l'accesso al Firefox automatizzato. Anche una verifica umana completata non garantisce l'autorizzazione del portale.
+                            Non ripetere questa prova per cercare di aggirare il blocco: per tariffe e disponibilità automatiche valuta
+                            {" "}<a href="https://developers.expediagroup.com/rapid/lodging/shopping/about-shopping-api"
+                              target="_blank" rel="noreferrer" className="font-black underline">Expedia Rapid Shopping API</a>
+                            {" "}(richiede accordo e credenziali partner; non basta l'account Expedia personale).
+                          </p>}
+                          <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
+                        </div>}
+                        {loginPortal && <div className="mt-2 flex flex-col gap-1">
+                          {loginState?.credentialSaved && <button type="button"
+                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing||loginOpen||loginState?.state==="ready"}
+                            onClick={()=>void startPortalAccountCheck(loginPortal)}
+                            title="Accedi al portale prima di avviare la scansione; inserisci personalmente l'eventuale codice temporaneo."
+                            className="w-full rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-40">
+                            {loginState?.state==="ready"?"Accesso verificato":"Accedi e verifica"}
+                          </button>}
+                          {["ready","unverified","error","access_limited"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
+                            {loginState.message}
+                          </p>}
+                        </div>}
+                        {loginPortal && loginState?.state==="awaiting_user" && <div className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-amber-950" role="alert">
+                          <p className="text-[11px] font-black">Verifica umana richiesta</p>
+                          <p className="mt-1 text-[10px] leading-snug">
+                            {loginState.message||"Inserisci il codice nel Chrome dedicato, poi riprendi."}
+                            {" "}Non comunicare il codice a Velora o in chat. Il browser resta aperto durante la pausa.
+                          </p>
+                          <button type="button"
+                            disabled={Boolean(portalSessionBusy)}
+                            onClick={()=>void resumeAgentLogin(loginPortal)}
+                            className="mt-2 w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white disabled:opacity-40">
+                            Ho completato l'accesso · Riprendi
+                          </button>
+                        </div>}
+                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
+                          {portalSavedAccounts[loginPortal]?.credentialSaved && portalSavedAccounts[loginPortal]?.savedEmail
+                            ? <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2" role="status">
+                                <p className="text-[10px] font-black text-emerald-800">✓ EMAIL SALVATA SU QUESTO PC</p>
+                                <p className="mt-1 break-all text-[12px] font-black text-emerald-950">{portalSavedAccounts[loginPortal].savedEmail}</p>
+                                <p className="mt-1 text-[10px] text-emerald-800">Verificata nel Gestore credenziali Windows. Il login su Expedia/Vrbo è un passaggio separato.</p>
+                              </div>
+                            : <p className="mb-2 text-[10px] font-semibold opacity-80" role="status">
+                                {portalSavedAccounts[loginPortal]?.error
+                                  ? "Email non verificabile: "+portalSavedAccounts[loginPortal].error
+                                  : loginState?.credentialSaved
+                                    ? "Email registrata in Windows · rilettura non ancora confermata"
+                                    : "Nessuna email salvata su questo PC"}
+                              </p>}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold opacity-80">
+                              {portalSavedAccounts[loginPortal]?.credentialSaved?"Email memorizzata in Windows":loginState?.credentialSaved?"Email da verificare":"Credenziali non memorizzate"}
+                            </span>
+                            <div className="flex gap-2">
+                              {loginState?.credentialSaved && <button type="button"
+                                disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>void managePortalCredentials(loginPortal,"remove")}
+                                className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
+                              <button type="button" disabled={Boolean(portalSessionBusy)||working}
+                                onClick={()=>{
+                                  const isOpening=portalCredentialEditing!==loginPortal;
+                                  if(isOpening) setPortalCredentialDrafts(old=>({...old,[loginPortal]:{
+                                    email:portalSavedAccounts[loginPortal]?.savedEmail||old[loginPortal]?.email||"",password:""
+                                  }}));
+                                  setPortalCredentialEditing(isOpening?loginPortal:null);
+                                }}
+                                className="text-[10px] font-black underline disabled:opacity-40">
+                                {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
+                              </button>
+                            </div>
+                          </div>
+                          {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
+                            <label className="text-[10px] font-bold">Email account esistente
+                              <input type="email" autoComplete="off"
+                                value={portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail??""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <label className="text-[10px] font-bold">Password (lascia vuoto se Expedia o Vrbo usano soltanto un codice email)
+                              <input type="password" autoComplete="new-password"
+                                value={portalCredentialDrafts[loginPortal]?.password||""}
+                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
+                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
+                            </label>
+                            <p className="text-[10px] opacity-80">Dopo «Salva» l'email verrà riletta dal PC e mostrata sopra anche quando riapri Velora. La password non viene mai mostrata né salvata nel browser. Non inserire codici OTP qui.</p>
+                            <button type="button" disabled={Boolean(portalSessionBusy)}
+                              onClick={()=>void managePortalCredentials(loginPortal,"save")}
+                              className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
+                              Salva accesso sul PC
+                            </button>
+                          </div>}
+                        </div>}
+                        </details>}
+                      </div>;
+                    })}
+                  </div>
+                  {expediaReviewOpen && <section className="mt-3 rounded-2xl border border-[#C8A96B] bg-white p-4 shadow-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-black text-[#23124A]">Expedia · risultati acquisiti</h4>
+                      <button type="button" onClick={()=>setExpediaReviewOpen(false)} className="text-xs font-bold underline">Riduci dettagli</button>
+                    </div>
+                                            {expediaReviewOpen && <div className="mt-3 rounded-xl border border-[#C8A96B] bg-[#FFF9E9] p-4">
+                          <p className="text-[12px] font-black text-[#23124A]">Acquisizione Expedia · verifica rapida</p>
                           <p className="mt-1 text-[10px] leading-relaxed text-[#50627F]">
-                            Non compilare prezzi o camere a mano. Apri la struttura Expedia nel Chrome che usi normalmente,
-                            seleziona le date e premi «Acquisisci camere da Chrome» qui sotto.
-                            Velora leggerà le tariffe già visibili sulla pagina, senza automatizzare il login o superare i controlli del portale.
+                            Le tariffe acquisite confluiscono nella sezione «Tariffe puntuali per OTA» dell’audit. L’identità va confermata soltanto quando il titolo della struttura è diverso.
                           </p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer"
@@ -9424,123 +9736,8 @@ export default function App() {
                             </a> (soggetta ad approvazione e verifica del caso d'uso).
                           </p>
                         </div>}
-                        {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] font-black text-[#23124A]">Firefox TEST · Expedia</p>
-                              <p className="text-[10px] text-[#50627F]">Prova separata: non avvia scansioni, non cambia Chrome e non aggira restrizioni Expedia.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              {!["starting","installing","navigating","opening_login","login_reached","blocked","manual_check"].includes(firefoxTest?.state||"")
-                                ? <button type="button" disabled={firefoxTestBusy||working||localPilotRunning||loginProcessing}
-                                    onClick={()=>void manageFirefoxTest("start")}
-                                    className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white disabled:opacity-40">Prova Firefox</button>
-                                : <button type="button" disabled={firefoxTestBusy||["starting","installing"].includes(firefoxTest?.state||"")}
-                                    onClick={()=>void manageFirefoxTest("finish")}
-                                    className="rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[10px] font-black text-[#23124A] disabled:opacity-40">Chiudi test</button>}
-                            </div>
-                          </div>
-                          {firefoxTest && firefoxTest.state!=="idle" && <p className="mt-2 text-[10px] font-semibold leading-relaxed text-[#23124A]" role="status" aria-live="polite">
-                            {firefoxTest.state==="login_reached"?"✓ ":
-                            firefoxTest.result==="blocked"?"Accesso Expedia negato · ":
-                            firefoxTest.state==="human_check"?"Verifica umana in corso · ":
-                            firefoxTest.state==="installing"?"Installazione · ":""}
-                            {firefoxTest.message}
-                          </p>}
-                          {firefoxTest?.result==="blocked" && <p className="mt-2 text-[10px] leading-relaxed text-[#8A2834]" role="alert">
-                            Expedia ha negato l'accesso al Firefox automatizzato. Anche una verifica umana completata non garantisce l'autorizzazione del portale.
-                            Non ripetere questa prova per cercare di aggirare il blocco: per tariffe e disponibilità automatiche valuta
-                            {" "}<a href="https://developers.expediagroup.com/rapid/lodging/shopping/about-shopping-api"
-                              target="_blank" rel="noreferrer" className="font-black underline">Expedia Rapid Shopping API</a>
-                            {" "}(richiede accordo e credenziali partner; non basta l'account Expedia personale).
-                          </p>}
-                          <p className="mt-2 text-[10px] text-[#64748B]">Al primo test Velora scarica automaticamente Firefox di Playwright. Se Expedia lo limita, si ferma senza nuovi tentativi.</p>
-                        </div>}
-                        {loginPortal && <div className="mt-2 flex flex-col gap-1">
-                          {loginState?.credentialSaved && <button type="button"
-                            disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing||loginOpen||loginState?.state==="ready"}
-                            onClick={()=>void startPortalAccountCheck(loginPortal)}
-                            title="Accedi al portale prima di avviare la scansione; inserisci personalmente l'eventuale codice temporaneo."
-                            className="w-full rounded-lg border border-[#23124A] bg-white px-2.5 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-40">
-                            {loginState?.state==="ready"?"Accesso verificato":"Accedi e verifica"}
-                          </button>}
-                          {["ready","unverified","error","access_limited"].includes(loginState?.state||"") && loginState?.message && <p className="text-[10px] font-semibold leading-snug opacity-80" role="status">
-                            {loginState.message}
-                          </p>}
-                        </div>}
-                        {loginPortal && loginState?.state==="awaiting_user" && <div className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-amber-950" role="alert">
-                          <p className="text-[11px] font-black">Verifica umana richiesta</p>
-                          <p className="mt-1 text-[10px] leading-snug">
-                            {loginState.message||"Inserisci il codice nel Chrome dedicato, poi riprendi."}
-                            {" "}Non comunicare il codice a Velora o in chat. Il browser resta aperto durante la pausa.
-                          </p>
-                          <button type="button"
-                            disabled={Boolean(portalSessionBusy)}
-                            onClick={()=>void resumeAgentLogin(loginPortal)}
-                            className="mt-2 w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white disabled:opacity-40">
-                            Ho completato l'accesso · Riprendi
-                          </button>
-                        </div>}
-                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">
-                          {portalSavedAccounts[loginPortal]?.credentialSaved && portalSavedAccounts[loginPortal]?.savedEmail
-                            ? <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2" role="status">
-                                <p className="text-[10px] font-black text-emerald-800">✓ EMAIL SALVATA SU QUESTO PC</p>
-                                <p className="mt-1 break-all text-[12px] font-black text-emerald-950">{portalSavedAccounts[loginPortal].savedEmail}</p>
-                                <p className="mt-1 text-[10px] text-emerald-800">Verificata nel Gestore credenziali Windows. Il login su Expedia/Vrbo è un passaggio separato.</p>
-                              </div>
-                            : <p className="mb-2 text-[10px] font-semibold opacity-80" role="status">
-                                {portalSavedAccounts[loginPortal]?.error
-                                  ? "Email non verificabile: "+portalSavedAccounts[loginPortal].error
-                                  : loginState?.credentialSaved
-                                    ? "Email registrata in Windows · rilettura non ancora confermata"
-                                    : "Nessuna email salvata su questo PC"}
-                              </p>}
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-[10px] font-semibold opacity-80">
-                              {portalSavedAccounts[loginPortal]?.credentialSaved?"Email memorizzata in Windows":loginState?.credentialSaved?"Email da verificare":"Credenziali non memorizzate"}
-                            </span>
-                            <div className="flex gap-2">
-                              {loginState?.credentialSaved && <button type="button"
-                                disabled={Boolean(portalSessionBusy)||working}
-                                onClick={()=>void managePortalCredentials(loginPortal,"remove")}
-                                className="text-[10px] font-bold underline disabled:opacity-40">Elimina accesso</button>}
-                              <button type="button" disabled={Boolean(portalSessionBusy)||working}
-                                onClick={()=>{
-                                  const isOpening=portalCredentialEditing!==loginPortal;
-                                  if(isOpening) setPortalCredentialDrafts(old=>({...old,[loginPortal]:{
-                                    email:portalSavedAccounts[loginPortal]?.savedEmail||old[loginPortal]?.email||"",password:""
-                                  }}));
-                                  setPortalCredentialEditing(isOpening?loginPortal:null);
-                                }}
-                                className="text-[10px] font-black underline disabled:opacity-40">
-                                {portalCredentialEditing===loginPortal?"Annulla":"Configura credenziali"}
-                              </button>
-                            </div>
-                          </div>
-                          {portalCredentialEditing===loginPortal && <div className="mt-2 flex flex-col gap-2 rounded-lg bg-white/85 p-2">
-                            <label className="text-[10px] font-bold">Email account esistente
-                              <input type="email" autoComplete="off"
-                                value={portalCredentialDrafts[loginPortal]?.email??portalSavedAccounts[loginPortal]?.savedEmail??""}
-                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:e.target.value,password:old[loginPortal]?.password||""}}))}
-                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
-                            </label>
-                            <label className="text-[10px] font-bold">Password (lascia vuoto se Expedia o Vrbo usano soltanto un codice email)
-                              <input type="password" autoComplete="new-password"
-                                value={portalCredentialDrafts[loginPortal]?.password||""}
-                                onChange={e=>setPortalCredentialDrafts(old=>({...old,[loginPortal]:{email:old[loginPortal]?.email||"",password:e.target.value}}))}
-                                className="mt-1 w-full rounded-md border border-current/25 bg-white px-2 py-1.5 text-xs" />
-                            </label>
-                            <p className="text-[10px] opacity-80">Dopo «Salva» l'email verrà riletta dal PC e mostrata sopra anche quando riapri Velora. La password non viene mai mostrata né salvata nel browser. Non inserire codici OTP qui.</p>
-                            <button type="button" disabled={Boolean(portalSessionBusy)}
-                              onClick={()=>void managePortalCredentials(loginPortal,"save")}
-                              className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white disabled:opacity-40">
-                              Salva accesso sul PC
-                            </button>
-                          </div>}
-                        </div>}
-                      </div>;
-                    })}
-                  </div>
+
+                  </section>}
                 </div>
 
                 {LOGIN_PORTAL_IDS.some(id=>localPilotSelectedChannels.includes(id) &&
@@ -9777,8 +9974,24 @@ export default function App() {
               </div>}
             </>}
           </div>
-          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
+          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · {rateQuotes.length} rilevazioni salvate · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
+          {priceRangeRows.length>0 && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
+            <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi per OTA e soggiorno</p>
+            <p className="mb-2 text-[10px] text-[#50627F]">Range dei totali effettivamente letti: non equivale a una differenza tariffaria sulla stessa camera.</p>
+            <table className="w-full min-w-[660px] text-left text-[11px]">
+              <thead><tr><th className="p-2">Soggiorno</th><th className="p-2">OTA</th><th className="p-2">Tipologie</th><th className="p-2">Totale min–max</th><th className="p-2">Affidabilità confronto</th></tr></thead>
+              <tbody>{priceRangeRows.map((row,index)=>(
+                <tr key={row.otaId+"-"+row.stayDate+"-"+row.nights+"-"+index} className="border-t border-[#E5DDF1]">
+                  <td className="p-2">{row.stayDate} · {row.nights} notti · {row.guests} ospiti</td>
+                  <td className="p-2 font-bold">{activeAuditData.otaPresence.find(ch=>ch.id===row.otaId)?.platform||PILOT_OTA_LABELS[row.otaId]||row.otaId}</td>
+                  <td className="p-2">{row.rooms.size}</td>
+                  <td className="p-2 font-bold">€{Math.min(...row.prices).toFixed(2)}–€{Math.max(...row.prices).toFixed(2)}</td>
+                  <td className="p-2">{row.unverified?"Unità e condizioni da verificare":"Prezzi rilevati · verificare condizioni"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
           <div className="mt-3 flex flex-col gap-2">
             {pricingAccordionIds.map((otaId) => {
               const published = publishedPricingFor(otaId);
@@ -9786,7 +9999,7 @@ export default function App() {
               const count = published.length + rows.length;
               const otaName = activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform
                 || PILOT_OTA_LABELS[otaId] || otaId;
-              return <details key={`ota-pricing-${otaId}`} className="group rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
+              return <details key={`ota-pricing-${otaId}`} id={`velora-pricing-ota-${otaId}`} className="group scroll-mt-24 rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs font-black text-[#23124A] hover:bg-[#F8F4FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8D74B4] [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center gap-3">
                     <span aria-hidden="true" className="inline-block text-[#73558D] transition-transform group-open:rotate-90">▸</span>

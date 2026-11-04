@@ -5,6 +5,10 @@ VERSIONE DI TEST — acquisizione delle camere Expedia VISIBILI nel Chrome norma
 COSA FA:
 - Legge i titoli delle camere e i prezzi totali gia mostrati nella pagina Expedia
   che hai aperto personalmente nel tuo Chrome normale.
+- Rileva anche un campione di foto gia caricate, servizi citati e snippet descrittivo.
+  Non e una lettura completa della galleria: le differenze con Booking vanno validate.
+- Dopo la conferma dell'identita, Velora importa le tariffe nella sezione dedicata OTA;
+  il pannello agenti resta compatto.
 - Invia i dati solo alla tua scheda Velora online, su tua richiesta.
 - Velora mostra il risultato prima dell'importazione e conserva la fonte.
 - Non gestisce credenziali, codici OTP, CAPTCHA, VPN o navigazione automatica.
@@ -23,7 +27,9 @@ USO:
 2. Apri anche Velora online nella stessa sessione di Chrome.
 3. Scheda Ercole -> "Acquisisci camere da Chrome".
 4. Verifica i risultati mostrati, soprattutto struttura e date.
-5. Premi "Importa tutte le tariffe" per inserirle nel report Velora.
+5. Se il nome coincide, Velora importa le tariffe in automatico.
+   Se il nome differisce, verifica prima l'identita e spunta la conferma;
+   Velora inserira poi le tariffe nella sezione OTA.
 
 ATTENZIONE:
 La lettura e limitata ai dati esposti visibilmente nella pagina.

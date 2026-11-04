@@ -213,6 +213,40 @@ function visibleExpediaCapture() {
       ? "Tutte le imposte incluse" : "Non chiaro";
     rooms.push({roomType:title,total:price,board,refund,taxes,confidence:candidate.price.confidence});
   }
+  // Evidence for presentation asymmetries. This is a sample of visible,
+  // loaded content, NOT an assertion about the entire OTA photo gallery.
+  const imageNodes=[...document.querySelectorAll("img")].filter(isVisible);
+  const photoKeys=new Set();
+  const photoAlts=new Set();
+  for(const img of imageNodes) {
+    const url=String(img.currentSrc||img.src||"");
+    if(!url||url.startsWith("data:")) continue;
+    const w=Number(img.naturalWidth||img.width||0),h=Number(img.naturalHeight||img.height||0);
+    if(w<180||h<120) continue;
+    try {photoKeys.add(new URL(url,location.href).pathname);}catch{continue;}
+    const alt=String(img.alt||"").trim();
+    if(alt.length>=5&&alt.length<=140) photoAlts.add(alt);
+  }
+  const featureChecks=[
+    ["Colazione",/\bcolazione inclusa\b|\bbreakfast included\b/i],
+    ["Wi-Fi",/\bwi-?fi gratuito\b|\bfree wi-?fi\b/i],
+    ["Parcheggio",/\bparcheggio incluso\b|\bfree parking\b/i],
+    ["Vista giardino",/\bvista giardino\b|\bgarden view\b/i],
+    ["Piscina",/\bpiscina\b|\bpool\b/i],
+    ["Aria condizionata",/\baria condizionata\b|\bair conditioning\b/i],
+    ["Spa",/\bspa\b|\bwellness\b/i]
+  ];
+  const features=featureChecks.filter(([,regex])=>regex.test(text)).map(([label])=>label);
+  const metaDescription=String(document.querySelector('meta[name="description"]')?.getAttribute?.("content")||"")
+    .trim().slice(0,450);
+  const presentation={
+    visibleImageCount:photoKeys.size,
+    photoAltSamples:[...photoAlts].slice(0,15),
+    visibleServices:features,
+    descriptionExcerpt:metaDescription,
+    roomCount:rooms.length,
+    evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+  };
   const heading=(document.querySelector("h1")?.innerText||"").trim();
   const pageTitle=(document.title||heading||"").trim().slice(0,240);
   // On the rate grid, h1 can be "Scegli la tua camera": prefer the actual
@@ -225,7 +259,7 @@ function visibleExpediaCapture() {
     pageTitle,propertyName,
     sourceUrl:sanitized.toString(),
     checkin,checkout,nights,guests,
-    rooms,capturedAt:new Date().toISOString(),
+    rooms,presentation,capturedAt:new Date().toISOString(),
     warning:rooms.length
       ? "Camere lette dal contenuto visibile. Identità e condizioni devono essere confermate prima di un confronto tariffario."
       : "Nessuna tariffa totale affidabile per camera: "+bookingButtons.length+
