@@ -34,7 +34,8 @@ class OtaDashboardContracts(unittest.TestCase):
     def test_price_accordion_distinguishes_observed_from_imported(self):
         # Pilot preview can contain valid-looking Booking prices that stay
         # quarantined because their listing identity is unverified.
-        self.assertIn('const observed = (browserPilotResult?.propertyId===activeAuditData.id',APP)
+        self.assertIn('const observed = pilotEligiblePriceObservations(',APP)
+        self.assertIn('ANNUNCIO ESTRANEO SCARTATO',APP)
         self.assertIn('const pending = observed.length>0 && count===0;',APP)
         self.assertIn('prezz${observed.length === 1 ? "o osservato" : "i osservati"}',APP)
         self.assertIn('non ancora registrati nell\'archivio tariffe',APP)
