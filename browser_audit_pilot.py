@@ -13365,7 +13365,7 @@ async def run(args: argparse.Namespace) -> dict:
             # become the canonical search name for Tenuta Speculizzi.
             reference_for_specialist=bool(specialist_id and specialist_id != "booking")
             shared_booking_locks={
-                str(row.get("month")): row
+                (str(row.get("requestedCheckin")),str(row.get("requestedCheckout"))): row
                 for row in (data.get("_specialistBookingLocks") or [])
                 if isinstance(row,dict) and row.get("month") and row.get("checkin")
                 and row.get("checkout") and row.get("requestedCheckin")
@@ -13488,7 +13488,7 @@ async def run(args: argparse.Namespace) -> dict:
                 booking_source=booking_reference_source or (
                     (sources.get("booking") or {}).get("url","") if isinstance(sources.get("booking"),dict) else ""
                 )
-                shared_stay=shared_booking_locks.get(str(planned_stay.get("month"))) if reference_for_specialist else None
+                shared_stay=shared_booking_locks.get((str(planned_stay.get("checkin")),str(planned_stay.get("checkout")))) if reference_for_specialist else None
                 use_shared_stay=bool(
                     shared_stay
                     and shared_stay.get("requestedCheckin")==planned_stay.get("checkin")
@@ -13503,6 +13503,14 @@ async def run(args: argparse.Namespace) -> dict:
                         "adults":shared_stay["adults"],
                     })
                     booking_source=""
+                # A specialist must never improvise its own window when Booking has
+                # not finished establishing the shared, exact-date reference.
+                if reference_for_specialist and not use_shared_stay:
+                    raise RuntimeError(
+                        "SINCRONIZZAZIONE DATE: riferimento Booking non disponibile "
+                        f"per {planned_stay.get('checkin')} → {planned_stay.get('checkout')}. "
+                        "Completa prima l'agente Booking; nessuna OTA può cercare date differenti."
+                    )
                 if booking_source:
                     search_page=await context.new_page()
                     try:
