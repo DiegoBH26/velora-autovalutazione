@@ -5491,7 +5491,10 @@ export default function App() {
   }, []);
 
   useEffect(()=>{
-    if(!localPilotToken||!specialistExpanded)return;
+    // Presence checks are started by the three-OTA workspace as well as the
+    // specialist panel. Keep the result observable in the asymmetry matrix
+    // even when the specialist panel is closed or the page is reloaded.
+    if(!localPilotToken||!activeAuditData.id)return;
     const propertyId=activeAuditData.id;
     let cancelled=false;
     const read=async()=>{
@@ -5507,7 +5510,7 @@ export default function App() {
     void read();
     const interval=window.setInterval(()=>void read(),3500);
     return ()=>{cancelled=true;window.clearInterval(interval);};
-  },[localPilotToken,specialistExpanded,activeAuditData.id]);
+  },[localPilotToken,activeAuditData.id]);
 
   useEffect(() => {
     if (!specialistExpanded || !localPilotToken) return;
@@ -9786,7 +9789,7 @@ export default function App() {
                       </select>
                       {row.url && <label className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-[#50627F]">
                         <input type="checkbox" className="mt-0.5"
-                          checked={row.presence==="present"}
+                          checked={Boolean(answers["audit-ota-"+row.otaId]?.note?.includes("Identità confermata dall\u0027operatore"))}
                           onChange={event=>{
                             const verified=event.target.checked;
                             if(verified && !window.confirm("Hai aperto la scheda OTA e verificato nome, località e fotografie della struttura corretta?"))return;
