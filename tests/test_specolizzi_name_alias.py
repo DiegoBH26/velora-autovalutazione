@@ -21,10 +21,11 @@ scope={
         "ristorante","boutique","spa","hotels","restaurants",
     },
 }
-for name in ("_norm_name", "specialist_booking_name_matches"):
+for name in ("_norm_name", "specialist_booking_name_matches", "airbnb_explicit_different_tenuta"):
     fn=next(n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name==name)
     exec(compile(ast.Module(body=[fn],type_ignores=[]),"identity-alias-test","exec"),scope)
 matches=scope["specialist_booking_name_matches"]
+airbnb_other=scope["airbnb_explicit_different_tenuta"]
 
 
 class ExactSpecolizziAliasTests(unittest.TestCase):
@@ -40,6 +41,21 @@ class ExactSpecolizziAliasTests(unittest.TestCase):
         self.assertFalse(matches("Agriturismo Villa Casale","Agriturismo Villa Luisa","Salve"))
         self.assertFalse(matches("Tenuta Speculizzi","Tenuta Specola","Salve"))
         self.assertFalse(matches("Tenuta Speculizzi","Tenuta Specolizzi",""))
+
+    def test_airbnb_unrelated_named_tenuta_is_rejected_early(self):
+        self.assertTrue(airbnb_other(
+            "Masseria Tenuta Specolizzi",
+            'Masseria TENUTA DESERTO "LA ROVERELLA"', "Salve"))
+        self.assertTrue(airbnb_other(
+            "Tenuta Specolizzi","Masseria Tenuta Deserto - La Roverella","Salve"))
+        self.assertFalse(airbnb_other(
+            "Tenuta Specolizzi","Masseria Tenuta Specolizzi","Salve"))
+        self.assertFalse(airbnb_other(
+            "Tenuta Specolizzi","Trullo La Pajara","Salve"))
+        self.assertFalse(airbnb_other(
+            "Tenuta Specolizzi","Casa per due nel Salento","Salve"))
+        self.assertFalse(airbnb_other(
+            "Masseria Tenuta Specolizzi","Tenuta Specolizzi suite deluxe","Salve"))
 
     def test_no_price_shortcuts_or_generic_fuzzy_allowlist(self):
         self.assertIn('official_specolizzi_alias',SOURCE)
