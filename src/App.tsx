@@ -7105,12 +7105,17 @@ export default function App() {
 
   function openThreeOtaPortals() {
     setOtaWorkspaceOpen(true);
-    setOtaWorkspaceMessage("Sono state richieste tre schede Chrome separate. Se il browser blocca alcune aperture, usa i link presenti nel pannello.");
-    // All three opens are inside the real click gesture. No automated site
-    // navigation, login, captcha or tariff entry is attempted.
+    // Keep all three opens in the click gesture so Chrome can permit them.
+    // The extension only reads user-visible data and never bypasses site access controls.
+    let opened=0;
     for(const url of ["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"]){
-      window.open(url,"_blank");
+      if(window.open(url,"_blank","noopener,noreferrer"))opened+=1;
     }
+    setOtaWorkspaceMessage(opened===3
+      ? "Tre siti aperti. Cerca la stessa struttura, imposta date e ospiti e acquisisci ciascuna OTA dal proprio riquadro."
+      : "Chrome potrebbe aver bloccato una o più schede. Usa i link Apri sito dei singoli riquadri; puoi comunque acquisire ogni OTA separatamente.");
+    // Atlante checks public Vrbo presence independently while the operator navigates.
+    if(vrboPresence.state!=="running"&&vrboPresence.state!=="queued")void startVrboPresenceCheck();
   }
 
   function captureHoliduFromChrome() {
@@ -7186,7 +7191,7 @@ export default function App() {
     setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
     if(!vrboSupported)
-      setVrboMessage("Per Vrbo serve Chrome Companion 0.3.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+      setVrboMessage("Per Vrbo serve Chrome Companion 0.4.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importVrboCompanionRates() {
@@ -10101,6 +10106,14 @@ export default function App() {
                         </div>
                         <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
                         <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
+                        <button type="button" onClick={importCompanionExpediaRates}
+                          disabled={!companionCapture || companionCapture.propertyId!==activeAuditData.id ||
+                            !companionCapture.rooms.length ||
+                            !(matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)||companionIdentityConfirmed)}
+                          className="mt-2 w-full rounded-lg border border-yellow-500 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          {companionCapture?.propertyId===activeAuditData.id
+                            ? "Importa "+companionCapture.rooms.length+" tariffe Expedia" : "Importa tariffe Expedia"}
+                        </button>
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{companionMessage||"Camere, prezzi e contenuti dalla pagina visibile."}</p>
                         {companionCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
@@ -10116,6 +10129,14 @@ export default function App() {
                         </div>
                         <p className="my-2 text-[11px] text-[#50627F]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
                         <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Vrbo</button>
+                        <button type="button" onClick={importVrboCompanionRates}
+                          disabled={!vrboCapture || vrboCapture.propertyId!==activeAuditData.id ||
+                            !vrboCapture.rooms.length ||
+                            !(matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city)||vrboIdentityConfirmed)}
+                          className="mt-2 w-full rounded-lg border border-blue-400 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          {vrboCapture?.propertyId===activeAuditData.id
+                            ? "Importa "+vrboCapture.rooms.length+" tariffe Vrbo" : "Importa tariffe Vrbo"}
+                        </button>
                         <button type="button" disabled={vrboPresenceBusy||vrboPresence.state==="running"||vrboPresence.state==="queued"}
                           onClick={()=>void startVrboPresenceCheck()}
                           className="mt-2 w-full rounded-lg border border-blue-300 bg-white px-2 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-50">
@@ -10138,6 +10159,14 @@ export default function App() {
                         </div>
                         <p className="my-2 text-[11px] text-[#50627F]">{holiduCapture?.propertyId===activeAuditData.id?holiduCapture.rooms.length+" totali letti":"Da acquisire"}</p>
                         <button type="button" onClick={captureHoliduFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Holidu</button>
+                        <button type="button" onClick={importHoliduCompanionRates}
+                          disabled={!holiduCapture || holiduCapture.propertyId!==activeAuditData.id ||
+                            !holiduCapture.rooms.length ||
+                            !(matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city)||holiduIdentityConfirmed)}
+                          className="mt-2 w-full rounded-lg border border-teal-400 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          {holiduCapture?.propertyId===activeAuditData.id
+                            ? "Importa "+holiduCapture.rooms.length+" tariffe Holidu" : "Importa tariffe Holidu"}
+                        </button>
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{holiduMessage||"Legge solo un annuncio Holidu autentico, non un rinvio a un'altra OTA."}</p>
                         {holiduCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
@@ -10194,7 +10223,7 @@ export default function App() {
                         className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white">
                         Acquisisci da Chrome
                       </button>
-                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.3 collegato":"Serve Chrome Companion 0.3.0"}</span>
+                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.4 collegato":"Serve Chrome Companion 0.4.0"}</span>
                     </div>
                     {!vrboSupported && <p className="mt-2 text-xs text-amber-800">Scarica il Companion aggiornato, rimuovi la vecchia estensione Expedia da Chrome e carica la cartella estratta. <a className="font-black underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip">Scarica ZIP</a></p>}
                     {vrboMessage && <p className="mt-3 rounded-lg bg-[#F5F2FA] p-3 text-xs font-semibold text-[#23124A]" role="status">{vrboMessage}</p>}
