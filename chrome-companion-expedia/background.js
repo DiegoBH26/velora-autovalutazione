@@ -145,7 +145,56 @@ function visibleExpediaCapture() {
     return null;
   }
   const headingCandidates=roomHeadings.map(cardFromHeading).filter(Boolean);
-  const candidates=[...buttonCandidates,...headingCandidates];
+  // Expedia's three-column room grid can put the rate/footer in a sibling
+  // subtree. In that layout, walking heading ancestors never reaches the
+  // price without also reaching several other rooms. Match rendered price
+  // panels to the heading directly above in the SAME visual column instead.
+  // This is a read-only fallback, not browser navigation.
+  const renderedHeadings=roomHeadings.map(node=>({
+    node,title:headingText(node),rect:node.getBoundingClientRect?.()
+  })).filter(item=>item.rect&&item.rect.width>0&&item.rect.height>0);
+  const pricePanelSelector="div,span,p,strong,b,section,article";
+  const possiblePricePanels=[...document.querySelectorAll(pricePanelSelector)].slice(0,7000);
+  const pricePanels=possiblePricePanels.map(node=>{
+    if(!isVisible(node)) return null;
+    const content=(node.innerText||"").trim();
+    if(content.length<10||content.length>260) return null;
+    if(!/\b(?:per\s+\d{1,2}\s+nott[ei]|for\s+\d{1,2}\s+nights?)\b/i.test(content)) return null;
+    const price=quoteTotal(content);
+    if(!price||price.idx>65) return null;
+    // The text must itself label the displayed price as a stay total,
+    // and when known it must agree with the selected number of nights.
+    const after=content.slice(price.idx+1,price.idx+145);
+    if(nights>0&&!new RegExp("\\b(?:per|for)\\s+"+nights+"\\s+(?:nott[ei]|nights?)\\b","i").test(after)) return null;
+    const rect=node.getBoundingClientRect?.();
+    if(!rect||rect.width<20||rect.height<8) return null;
+    return {node,rect,price,text:content};
+  }).filter(Boolean);
+  const spatialCandidates=[];
+  const usedPricePositions=new Set();
+  for (const panel of pricePanels) {
+    const rect=panel.rect;
+    const panelCenter=(rect.left+rect.right)/2;
+    const matches=renderedHeadings.map(h=>{
+      const hCenter=(h.rect.left+h.rect.right)/2;
+      const columnDistance=Math.abs(hCenter-panelCenter);
+      const verticalDistance=rect.top-h.rect.top;
+      if(verticalDistance<35||verticalDistance>780||columnDistance>190) return null;
+      return {heading:h,score:verticalDistance+columnDistance*.25,columnDistance};
+    }).filter(Boolean).sort((a,b)=>a.score-b.score);
+    if(!matches.length) continue;
+    const winner=matches[0];
+    // A price must be attributable to exactly one room in a column.
+    if(matches.length>1&&Math.abs(matches[1].score-winner.score)<12&&
+       matches[1].heading.title!==winner.heading.title) continue;
+    const title=winner.heading.title;
+    const locationKey=title.toLocaleLowerCase("it-IT")+"|"+panel.price.amount+"|"+
+      Math.round(rect.top/10)+"|"+Math.round(panelCenter/15);
+    if(usedPricePositions.has(locationKey)) continue;
+    usedPricePositions.add(locationKey);
+    spatialCandidates.push({node:panel.node,title,price:panel.price,text:panel.text});
+  }
+  const candidates=[...buttonCandidates,...headingCandidates,...spatialCandidates];
   const seen=new Set();
   const rooms=[];
   for (const candidate of candidates) {
@@ -181,7 +230,7 @@ function visibleExpediaCapture() {
       ? "Camere lette dal contenuto visibile. Identità e condizioni devono essere confermate prima di un confronto tariffario."
       : "Nessuna tariffa totale affidabile per camera: "+bookingButtons.length+
         " pulsanti camera riconosciuti, "+roomHeadings.length+" titoli di camera visibili, "+
-        candidates.length+" schede con titolo e totale. "+
+        pricePanels.length+" pannelli prezzo, "+candidates.length+" schede con titolo e totale. "+
         (roomHeadings.length
           ? "Camere individuate, ma il prezzo totale per soggiorno non è leggibile o è ambiguo. "+
             "Scorri fino alle tariffe esposte sotto ciascuna camera e ripeti l'acquisizione. "
