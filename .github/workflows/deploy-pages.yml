@@ -38,6 +38,7 @@ jobs:
           node tests/test_vrbo_companion.cjs
           node tests/test_holidu_companion.cjs
           node tests/test_three_ota_tabs.cjs
+          node tests/test_ota_asymmetry_matrix.cjs
       - name: Package Chrome Companion into downloadable ZIP
         run: |
           python -c "import pathlib,zipfile; root=pathlib.Path('chrome-companion-expedia'); dest=pathlib.Path('dist/velora-expedia-companion.zip'); z=zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED); [z.write(p,arcname='Velora_Chrome_Companion/'+p.name) for p in sorted(root.iterdir()) if p.is_file() and p.suffix in ('.json','.js','.txt')]; z.close(); print('Prepared',dest)"
