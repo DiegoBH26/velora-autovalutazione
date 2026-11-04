@@ -79,7 +79,7 @@ def classify_vrbo_presence(discovery: dict, property_id: str, property_name: str
         if parsed.scheme != "https" or not (
             host == "vrbo.com" or host.endswith(".vrbo.com")
             or host == "vrbo.it" or host.endswith(".vrbo.it")
-        ) or not ("/pdp/" in path or re.search(r"/\\d+(ha|vb|vr)?/?$",path)):
+        ) or not ("/pdp/" in path or re.search(r"/\d+(ha|vb|vr)?/?$",path)):
             continue
         if url not in candidates:
             candidates.append(url)
@@ -87,7 +87,7 @@ def classify_vrbo_presence(discovery: dict, property_id: str, property_name: str
     evidence = str(discovery.get("evidence") or "")[:600]
     engines = []
     for engine in ("Google","Bing","Brave"):
-        match = re.search(r"(?:^|;\\s*)"+engine+r": (\\d+) risultati", evidence)
+        match = re.search(r"(?:^|;\s*)"+engine+r": (\d+) risultati", evidence)
         engines.append({"engine":engine, "searched":bool(match), "results":int(match.group(1)) if match else None})
 
     usable_engines = sum(int(item["searched"]) for item in engines)
