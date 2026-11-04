@@ -20,7 +20,8 @@ if (location.origin === ORIGIN &&
     chrome.runtime.sendMessage({type: requestType}, (reply) => {
       const error = chrome.runtime.lastError;
       if (error || !reply?.ok) {
-        emit("ERROR", {message: error?.message || reply?.error || "Acquisizione non riuscita"});
+        emit("ERROR", {otaId:requestType==="CAPTURE_VISIBLE_VRBO"?"vrbo":"expedia",
+          message: error?.message || reply?.error || "Acquisizione non riuscita"});
       } else {
         emit("RESULT", reply.payload);
       }
