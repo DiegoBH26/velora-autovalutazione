@@ -14,6 +14,7 @@ const context={
   PILOT_TARIFF_OTA_IDS:["booking","airbnb","agoda","expedia","vrbo"],
   PILOT_OTA_LABELS:{booking:"Booking.com",airbnb:"Airbnb",agoda:"Agoda",expedia:"Expedia",vrbo:"Vrbo"},
   pilotListingIdentityWarning:()=>"",
+  pilotWrongListingReason:()=>"",
   normalizedRateToken:name=>name.toLowerCase().trim(),
   Set,Map,Number,String
 };
