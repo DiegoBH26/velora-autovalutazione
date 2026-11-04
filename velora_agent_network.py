@@ -57,6 +57,73 @@ def validation_rows(report: dict) -> list[dict]:
         })
     return rows
 
+def classify_vrbo_presence(discovery: dict, property_id: str, property_name: str) -> dict:
+    """Summarise search evidence without turning lack of indexing into absence.
+
+    This is a discovery-only result, deliberately independent from dates, pricing
+    and account login. Search engine errors or anti-bot blocks are inconclusive.
+    """
+    import re
+    from urllib.parse import urlparse
+
+    raw_candidates = discovery.get("listingUrls") or []
+    candidates = []
+    for raw_url in raw_candidates[:20]:
+        url = str(raw_url or "").strip()
+        try:
+            parsed = urlparse(url)
+        except (ValueError,TypeError):
+            continue
+        host = (parsed.hostname or "").lower()
+        path = parsed.path.lower()
+        if parsed.scheme != "https" or not (
+            host == "vrbo.com" or host.endswith(".vrbo.com")
+            or host == "vrbo.it" or host.endswith(".vrbo.it")
+        ) or not ("/pdp/" in path or re.search(r"/\d+(ha|vb|vr)?/?$",path)):
+            continue
+        if url not in candidates:
+            candidates.append(url)
+
+    evidence = str(discovery.get("evidence") or "")[:600]
+    engines = []
+    for engine in ("Google","Bing","Brave"):
+        match = re.search(r"(?:^|;\s*)"+engine+r": (\d+) risultati", evidence)
+        engines.append({"engine":engine, "searched":bool(match), "results":int(match.group(1)) if match else None})
+
+    usable_engines = sum(int(item["searched"]) for item in engines)
+    if candidates:
+        status = "candidates_found"
+        label = "Possibili schede Vrbo individuate · identità da verificare"
+        explanation = ("Sono stati trovati link a possibili annunci Vrbo, non ancora attribuiti con certezza "
+                       "alla struttura. Nessun prezzo viene importato automaticamente.")
+    elif usable_engines >= 2:
+        status = "not_identified"
+        label = "Nessuna scheda Vrbo individuata"
+        explanation = ("La ricerca pubblica non ha trovato una scheda attribuibile alla struttura. "
+                       "La presenza su Vrbo resta non confermata: un annuncio non indicizzato "
+                       "o pubblicato con un altro nome potrebbe esistere.")
+    else:
+        status = "inconclusive"
+        label = "Verifica Vrbo inconcludente"
+        explanation = ("Le fonti di ricerca consultate non hanno fornito riscontri sufficienti. "
+                       "Non si può concludere né che l'annuncio esista né che sia assente.")
+    return {
+        "schema":"velora-vrbo-presence-v1",
+        "propertyId":property_id,
+        "propertyName":property_name,
+        "checkedAt":_now(),
+        "status":status,
+        "label":label,
+        "explanation":explanation,
+        "candidateUrls":candidates,
+        "engines":engines,
+        "evidence":evidence,
+        "identityVerified":False,
+        "pricingChecked":False,
+        "absenceConfirmed":False,
+    }
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 

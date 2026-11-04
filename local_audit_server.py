@@ -145,6 +145,8 @@ AGENT_RESULTS=STATE_ROOT/"specialist-agents"
 AGENT_RUN_LOCK=threading.Lock()
 AGENT_WORK_SLOTS=threading.BoundedSemaphore(2)  # evita saturazione Chrome su PC
 AGENT_RUNS={}
+VRBO_PRESENCE_LOCK=threading.Lock()
+VRBO_PRESENCE_RUNS={}
 PORTAL_SESSIONS=ManualPortalSessions(STATE_ROOT) if ManualPortalSessions is not None else None
 OTA_SOURCE_CACHE=STATE_ROOT/"ota-source-cache.json"
 CATALOG_PATHS=(ROOT/"database_strutture.xlsx",ROOT/"database_alberghi_familiari_con_320_integrazioni.xlsx")
@@ -255,6 +257,68 @@ def agent_workspace(property_id,agent_id):
 
 def agent_output(property_id,agent_id):
     return agent_workspace(property_id,agent_id) / "result.json"
+
+
+
+def vrbo_presence_path(property_id):
+    return AGENT_RESULTS / safe_property_id(property_id) / "vrbo-presence.json"
+
+
+def classify_stored_vrbo_presence(property_id):
+    with VRBO_PRESENCE_LOCK:
+        item=dict(VRBO_PRESENCE_RUNS.get(property_id) or {})
+    if item:
+        return item
+    target=vrbo_presence_path(property_id)
+    try:
+        value=json.loads(target.read_text(encoding="utf-8"))
+    except (OSError,ValueError):
+        return {"propertyId":property_id,"state":"not_started"}
+    if value.get("propertyId")!=property_id:
+        return {"propertyId":property_id,"state":"not_started"}
+    return {"propertyId":property_id,"state":"completed","result":value}
+
+
+async def _discover_vrbo_presence(data, property_id):
+    profile_dir=AGENT_RESULTS/property_id/"vrbo-presence-public-chrome"
+    profile_dir.mkdir(parents=True,exist_ok=True)
+    async with async_playwright() as playwright:
+        # Separate browser profile; no saved accounts or Vrbo credentials.
+        context=await browser_pilot._launch_velora_context(
+            playwright,profile_dir,data,"Ricerca presenza pubblica Vrbo",True)
+        try:
+            discovery=await browser_pilot.discover_vrbo_property_listings(context,data,{})
+        finally:
+            await context.close()
+    if agent_network is None:
+        raise RuntimeError(specialist_unavailable_message())
+    return agent_network.classify_vrbo_presence(discovery,property_id,data["name"])
+
+
+def run_vrbo_presence_job(data, property_id):
+    try:
+        with AGENT_WORK_SLOTS:
+            with VRBO_PRESENCE_LOCK:
+                VRBO_PRESENCE_RUNS[property_id]={
+                    "propertyId":property_id,"state":"running",
+                    "message":"Atlante sta cercando schede Vrbo per nome e località."
+                }
+            result=asyncio.run(_discover_vrbo_presence(data,property_id))
+            target=vrbo_presence_path(property_id)
+            target.parent.mkdir(parents=True,exist_ok=True)
+            tmp=target.with_suffix(".tmp")
+            tmp.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+            tmp.replace(target)
+            with VRBO_PRESENCE_LOCK:
+                VRBO_PRESENCE_RUNS[property_id]={
+                    "propertyId":property_id,"state":"completed","result":result
+                }
+    except Exception as exc:
+        with VRBO_PRESENCE_LOCK:
+            VRBO_PRESENCE_RUNS[property_id]={
+                "propertyId":property_id,"state":"failed",
+                "error":("La ricerca pubblica non è riuscita: "+type(exc).__name__)[:240]
+            }
 
 
 def agent_validation_output(property_id):
@@ -812,6 +876,10 @@ def reset_property_runtime(payload):
 
     # A reset must never race with any specialist writing into its folder.
     # Lock order matches agent start: classic states, then the agent registry.
+    with VRBO_PRESENCE_LOCK:
+        presence_active=VRBO_PRESENCE_RUNS.get(property_id,{}).get("state") in {"queued","running"}
+    if presence_active:
+        raise RuntimeError("Attendi la verifica presenza Vrbo prima del reset.")
     with STATE.lock,AUTO_STATE.lock,AGENT_RUN_LOCK:
         active_agents=[
             agent for (pid,agent),status in AGENT_RUNS.items()
@@ -872,6 +940,8 @@ def reset_property_runtime(payload):
         for key in list(AGENT_RUNS):
             if key[0]==property_id:
                 AGENT_RUNS.pop(key,None)
+    with VRBO_PRESENCE_LOCK:
+        VRBO_PRESENCE_RUNS.pop(property_id,None)
 
     with STATE.lock:
         if STATE.property_id==property_id:
@@ -1215,6 +1285,16 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(404,{"error":"Nessun esito salvato"}); return
             self._json(200,value)
             return
+        if route=="/api/vrbo-presence/status":
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                property_id=safe_property_id((query.get("propertyId") or [""])[0])
+            except ValueError:
+                self._json(400,{"error":"Struttura non valida"}); return
+            self._json(200,classify_stored_vrbo_presence(property_id))
+            return
         if route=="/api/audit/status":
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
@@ -1234,7 +1314,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1344,6 +1424,37 @@ class Handler(SimpleHTTPRequestHandler):
 
             if route in {"/api/agents/validate","/api/agents/start"} and agent_network is None:
                 self._json(503,{"error":specialist_unavailable_message()}); return
+
+            if route=="/api/vrbo-presence/start":
+                if agent_network is None:
+                    self._json(503,{"error":specialist_unavailable_message()}); return
+                property_id=safe_property_id(payload.get("propertyId"))
+                data=payload.get("propertyData")
+                if not isinstance(data,dict) or data.get("id")!=property_id:
+                    raise ValueError("Dati struttura mancanti o non coerenti")
+                name=str(data.get("name") or "").strip()[:180]
+                city=str(data.get("city") or "").strip()[:100]
+                if not name or not city:
+                    raise ValueError("Per cercare su Vrbo sono necessari nome e località")
+                data={
+                    "id":property_id,"name":name,"city":city,
+                    "province":str(data.get("province") or "")[:80],
+                    "address":str(data.get("address") or "")[:180],
+                    "website":str(data.get("website") or "")[:500],
+                    "sources":{}
+                }
+                with VRBO_PRESENCE_LOCK:
+                    current=VRBO_PRESENCE_RUNS.get(property_id,{})
+                    if current.get("state") in {"queued","running"}:
+                        self._json(409,{"error":"Atlante sta già verificando la presenza Vrbo."}); return
+                    VRBO_PRESENCE_RUNS[property_id]={
+                        "propertyId":property_id,"state":"queued",
+                        "message":"Ricerca pubblica Vrbo in coda, senza login."
+                    }
+                threading.Thread(target=run_vrbo_presence_job,
+                    args=(data,property_id),daemon=True).start()
+                self._json(202,{"propertyId":property_id,"state":"queued"})
+                return
 
             if route=="/api/agents/validate":
                 property_id=safe_property_id(payload.get("propertyId"))
