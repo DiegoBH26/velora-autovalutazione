@@ -536,10 +536,27 @@ function visibleHoliduCapture() {
 
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO","CAPTURE_VISIBLE_HOLIDU"].includes(request?.type)) return false;
+  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO","CAPTURE_VISIBLE_HOLIDU","OPEN_THREE_OTA_TABS"].includes(request?.type)) return false;
   if(!sender.tab?.url?.startsWith("https://diegobh26.github.io/velora-autovalutazione/")) {
     sendResponse({ok:false,error:"Richiesta consentita solo da Velora online."});
     return false;
+  }
+  if(request.type==="OPEN_THREE_OTA_TABS") {
+    // Fixed, trusted homepages only. No caller-supplied URL, credentials or
+    // automated browsing. chrome.tabs.create is not subject to popup blocking.
+    (async()=>{
+      const urls=["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"];
+      let count=0;
+      for(const url of urls){
+        const options={url,active:false};
+        if(Number.isInteger(sender.tab?.windowId))options.windowId=sender.tab.windowId;
+        const tab=await chrome.tabs.create(options);
+        if(!tab?.id)throw Error("Chrome non ha confermato l'apertura della scheda.");
+        count+=1;
+      }
+      sendResponse({ok:true,count});
+    })().catch(error=>sendResponse({ok:false,error:String(error?.message||error).slice(0,240)}));
+    return true;
   }
   (async()=>{
     const vrbo=request.type==="CAPTURE_VISIBLE_VRBO";
