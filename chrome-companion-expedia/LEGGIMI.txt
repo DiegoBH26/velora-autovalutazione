@@ -1,6 +1,6 @@
-VELORA · EXPEDIA + VRBO CHROME COMPANION
+VELORA · EXPEDIA + VRBO + HOLIDU CHROME COMPANION
 =================================
-VERSIONE 0.3.0 DI TEST — lettura passiva di Expedia e Vrbo nel Chrome normale.
+VERSIONE 0.4.0 DI TEST — lettura passiva di Expedia, Vrbo e Holidu nel Chrome normale.
 
 COSA FA:
 - Legge i titoli delle camere e i prezzi totali gia mostrati nella pagina Expedia
@@ -25,9 +25,9 @@ INSTALLAZIONE UNA SOLA VOLTA:
 6. Aggiorna Velora online con Ctrl+F5.
 
 USO:
-1. Apri in Chrome la scheda della struttura su Expedia O Vrbo, inserendo date/ospiti.
+1. Apri in Chrome la scheda della struttura su Expedia, Vrbo O Holidu, inserendo date/ospiti.
 2. Apri anche Velora online nella stessa sessione di Chrome.
-3. Scheda Ercole (Expedia) oppure Atlante (Vrbo) -> "Acquisisci da Chrome".
+3. Scheda Ercole (Expedia), Atlante (Vrbo) o Mercurio (Holidu) -> "Acquisisci da Chrome".
 4. Verifica i risultati mostrati, soprattutto struttura e date.
 5. Se il nome coincide, Velora importa il totale soggiorno verificato in automatico.
    Se il nome differisce, verifica prima l'identita e spunta la conferma;
@@ -43,3 +43,12 @@ VRBO:
 - Non e necessario configurare un account Vrbo per questa lettura pubblica.
 - Non riutilizzare la procedura di login dell'agente Windows se il portale limita l'accesso.
 - Se Vrbo limita anche la pagina nel tuo Chrome normale, l'estensione non puo leggere ne aggirare tale limitazione.
+
+DASHBOARD UNICA:
+- In Velora usa «Apri Expedia + Vrbo + Holidu»; Chrome puo bloccare aperture multiple,
+  nel qual caso usa i singoli link presenti nella dashboard.
+- Su ciascun sito cerca la struttura, imposta date e ospiti e apri una scheda alloggio.
+- Torna nella dashboard Velora e premi «Acquisisci» soltanto per il portale da leggere.
+- Identita e tariffe rimangono indipendenti per Expedia, Vrbo e Holidu.
+- Per Holidu deve essere una pagina alloggio /d/...; se rimanda a Booking
+  non viene creato un preventivo Holidu.
