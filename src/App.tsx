@@ -5057,6 +5057,7 @@ export default function App() {
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
   const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
+  const [vrboSupported,setVrboSupported] = useState(false);
   const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
   const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
   const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
@@ -5214,6 +5215,7 @@ export default function App() {
       const type=event.data.type;
       if(type==="READY") {
         setCompanionInstalled(true);
+        setVrboSupported(Boolean(event.data.payload?.vrbo));
       } else if(type==="ERROR") {
         const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
         if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
@@ -6954,8 +6956,8 @@ export default function App() {
     setVrboIdentityConfirmed(false);
     setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
-    if(!companionInstalled)
-      setVrboMessage("Chrome Companion non rilevato. Installa la versione Expedia + Vrbo e premi Ctrl+F5.");
+    if(!vrboSupported)
+      setVrboMessage("Per Vrbo serve Chrome Companion 0.3.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importVrboCompanionRates() {
