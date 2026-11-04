@@ -7109,7 +7109,7 @@ export default function App() {
     // The extension only reads user-visible data and never bypasses site access controls.
     let opened=0;
     for(const url of ["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"]){
-      if(window.open(url,"_blank","noopener,noreferrer"))opened+=1;
+      if(window.open(url,"_blank"))opened+=1;
     }
     setOtaWorkspaceMessage(opened===3
       ? "Tre siti aperti. Cerca la stessa struttura, imposta date e ospiti e acquisisci ciascuna OTA dal proprio riquadro."
