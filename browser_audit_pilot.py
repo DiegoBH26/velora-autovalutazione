@@ -1228,6 +1228,34 @@ def _strict_ota_identity_match(
     name_ok=name_score>=0.54
     strict_ok=bool(geo_ok and name_ok and score>=0.66)
 
+    # Booking's canonical /hotel/it/<listing>.html path and the VISIBLE title
+    # can corroborate an exact distinctive property brand even when the
+    # long Booking SEO title lowers the fuzzy score. This is NOT a name-only
+    # or same-city shortcut: require correct booking.com hostname, locality
+    # shown on the page, and matching distinctive terms in BOTH title and URL.
+    booking_exact_identity=False
+    parsed_booking=urlparse(url)
+    booking_host=(parsed_booking.hostname or "").lower()
+    if (booking_host=="booking.com" or booking_host.endswith(".booking.com")) and (
+        parsed_booking.path.lower().startswith("/hotel/") and city_match
+    ):
+        generic_terms={
+            "masseria","tenuta","hotel","resort","villa","relais","suite",
+            "suites","agriturismo","dimora","appartamento","spa","luxury",
+            "boutique","rooms","room","di","del","della","salve",
+        }
+        distinctive=[
+            word for word in _norm_name(property_name).split()
+            if len(word)>=5 and word not in generic_terms and word not in _norm_name(city).split()
+        ]
+        slug_words=set(_norm_name(parsed_booking.path).split())
+        heading_words=set(_norm_name(title).split())
+        if distinctive and all(
+            word in slug_words and word in heading_words for word in distinctive
+        ):
+            booking_exact_identity=True
+            strict_ok=True
+
     # Vrbo multi-unit pages frequently use a commercial name variant:
     # "Perla Saracena Luxury Hotel & Restaurant" versus
     # "Perla Saracena Luxury Suites". Search engines may append SEO copy
@@ -1283,6 +1311,10 @@ def _strict_ota_identity_match(
         f"indirizzo {address_ratio:.0%}" if address_norm else "indirizzo n.d.",
         f"score complessivo {score:.0%}",
     ]
+    if booking_exact_identity:
+        evidence_parts.append(
+            "Booking: titolo, nome distintivo, URL /hotel/ e località coincidono"
+        )
     if vrbo_group_alias:
         evidence_parts.append(
             "Vrbo: denominazione commerciale alternativa confermata nella testata; "
