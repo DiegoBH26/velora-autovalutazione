@@ -4284,6 +4284,12 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
       if (!Number.isFinite(quote.total) || quote.total <= 0 || quote.nights < 1) continue;
       const roomType = String(quote.roomType || "").trim();
       if (!roomType) continue;
+      // A raw quote from an OLD agent may still carry verified=true even
+      // though its parent listing was only a candidate. Never promote it.
+      const verifiedIdentity=Boolean(quote.verified &&
+        !observation.identityQuarantined &&
+        !observation.identityUnverified &&
+        observation.sourceIdentityVerified!==false);
       const ratePlan = String(quote.ratePlan || "").trim();
       const pilotKey = [
         observation.otaId,
@@ -4304,11 +4310,11 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
         total: Number(quote.total),
         nights: Number(quote.nights),
         roomType,
-        referenceRoomKey: quote.verified ? (quote.referenceRoomKey || undefined) : undefined,
+        referenceRoomKey: verifiedIdentity ? (quote.referenceRoomKey || undefined) : undefined,
         bookingReferenceRoom: quote.bookingReferenceRoom || undefined,
-        roomMatchStatus: quote.verified ? (quote.roomMatchStatus || undefined) : "not-selected",
-        roomMatchScore: quote.verified && Number.isFinite(quote.roomMatchScore) ? Number(quote.roomMatchScore) : undefined,
-        comparisonWarning: quote.comparisonWarning || (quote.verified ? undefined : "Prezzo rilevato automaticamente ma non ancora validato: mostrato, escluso dal delta OTA."),
+        roomMatchStatus: verifiedIdentity ? (quote.roomMatchStatus || undefined) : "not-selected",
+        roomMatchScore: verifiedIdentity && Number.isFinite(quote.roomMatchScore) ? Number(quote.roomMatchScore) : undefined,
+        comparisonWarning: quote.comparisonWarning || (verifiedIdentity ? undefined : "Prezzo osservato sulla pagina OTA: identità o condizioni ancora da verificare; escluso dal delta."),
         guests: Number(quote.guests || 2),
         board: quote.board || "Trattamento da verificare",
         refund: quote.refund || "Cancellazione da verificare",
@@ -4322,7 +4328,7 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
         ratePlan,
         origin: "pilot",
         pilotKey,
-        pilotVerified: Boolean(quote.verified),
+        pilotVerified: verifiedIdentity,
       });
     }
   }
