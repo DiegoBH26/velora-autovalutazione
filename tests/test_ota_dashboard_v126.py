@@ -42,6 +42,16 @@ class OtaDashboardContracts(unittest.TestCase):
         self.assertIn('Nessun prezzo osservato né registrato',APP)
         self.assertNotIn('"Nessuna tariffa rilevata"',APP)
 
+    def test_edited_structure_name_is_canonical_for_agent_requests(self):
+        self.assertIn('data.name=ownerInfo.propertyName.trim()',APP)
+        self.assertIn('[activeAuditDataBase,ownerInfo.propertyName,ownerInfo.city',APP)
+        self.assertIn('name:activeAuditData.name,city:activeAuditData.city',APP)
+        self.assertIn('name: ownerInfo.propertyName || item.name',APP)
+        self.assertIn('auditData:item.auditData?',APP)
+        self.assertIn('id="velora-structure-profile"',APP)
+        self.assertIn('Modifica anagrafica struttura',APP)
+        self.assertIn('Le correzioni sono salvate automaticamente',APP)
+
     def test_audit_comparison_does_not_invent_photo_deltas(self):
         self.assertIn('OtaContentSnapshot',APP)
         self.assertIn('setOtaContentSnapshots(previous=>[',APP)
