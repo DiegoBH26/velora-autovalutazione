@@ -7101,12 +7101,22 @@ export default function App() {
     }finally{setVrboPresenceBusy(false);}
   }
 
+  function openThreeOtaPortals() {
+    setOtaWorkspaceOpen(true);
+    setOtaWorkspaceMessage("Sono state richieste tre schede Chrome separate. Se il browser blocca alcune aperture, usa i link presenti nel pannello.");
+    // All three opens are inside the real click gesture. No automated site
+    // navigation, login, captcha or tariff entry is attempted.
+    for(const url of ["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"]){
+      window.open(url,"_blank");
+    }
+  }
+
   function captureHoliduFromChrome() {
     setHoliduReviewOpen(true);
     setHoliduCapture(null);
     setHoliduIdentityConfirmed(false);
     setHoliduMessage("Richiedo le informazioni già visibili nella scheda Holidu del Chrome normale...");
-    window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
+    window.postMessage({source:"velora-online-v1",type:"CAPTURE_HOLIDU"},window.location.origin);
     if(!holiduSupported)
       setHoliduMessage("Per Holidu serve Chrome Companion 0.4.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
@@ -9782,9 +9792,15 @@ export default function App() {
                       {id:"standard",title:"Altri agenti",subtitle:"OTA, sito diretto e recensioni · schede compatte"}
                     ] as const).map(group=>(
                       <section key={group.id} className="space-y-2">
-                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <h4 className="text-xs font-black text-[#23124A]">{group.title}</h4>
-                          <p className="text-[10px] font-semibold text-[#64748B]">{group.subtitle}</p>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <h4 className="text-xs font-black text-[#23124A]">{group.title}</h4>
+                            <p className="text-[10px] font-semibold text-[#64748B]">{group.subtitle}</p>
+                          </div>
+                          {group.id==="access" && <button type="button" onClick={openThreeOtaPortals}
+                            className="rounded-lg bg-[#23124A] px-4 py-2 text-[11px] font-black text-white shadow-sm">
+                            Apri Expedia + Vrbo + Holidu
+                          </button>}
                         </div>
                         <div className={group.id==="access"
                           ? "grid items-stretch gap-3 md:grid-cols-3"
@@ -9877,6 +9893,11 @@ export default function App() {
                         </div>}
 
 
+                        {agent.id==="holidu" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
+                          <button type="button" onClick={captureHoliduFromChrome}
+                            className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">Acquisisci da Chrome</button>
+                          <span className="text-[10px] font-bold">Lettura pubblica, senza login</span>
+                        </div>}
                         {agent.id==="vrbo" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-bold">Ricerca automatica · senza login</span>
                           <button type="button" onClick={()=>setVrboReviewOpen(open=>!open)}
@@ -10035,6 +10056,78 @@ export default function App() {
                       </section>
                     ))}
                   </div>
+                  {otaWorkspaceOpen && <aside className="fixed bottom-4 right-4 z-50 max-h-[85vh] w-[min(94vw,880px)] overflow-y-auto rounded-2xl border-2 border-[#D6C9EA] bg-white p-4 shadow-2xl" aria-label="Dashboard tre portali">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-black text-[#23124A]">Acquisizione assistita · 3 OTA</h3>
+                        <p className="text-[11px] text-[#50627F]">Struttura: <b>{activeAuditData.name}</b> · imposta la stessa struttura, data e ospiti su ogni sito, poi acquisisci qui.</p>
+                      </div>
+                      <button type="button" onClick={()=>setOtaWorkspaceOpen(false)}
+                        className="rounded-lg border px-3 py-1 text-xs font-black">Chiudi</button>
+                    </div>
+                    <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
+                    <p className="mt-1 text-[11px] font-bold text-[#50627F]">
+                      {holiduSupported?"Companion 0.4 collegato a Expedia, Vrbo e Holidu":"Per usare tutti e tre i lettori installa Chrome Companion 0.4.0"}
+                      {!holiduSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica versione aggiornata</a></>}
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <b className="text-sm">Ercole · Expedia</b>
+                          <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
+                        </div>
+                        <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
+                        <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{companionMessage||"Camere, prezzi e contenuti dalla pagina visibile."}</p>
+                        {companionCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                            <input type="checkbox" checked={companionIdentityConfirmed} onChange={e=>setCompanionIdentityConfirmed(e.target.checked)}/>
+                            Confermo identità dopo aver verificato nome, località e foto
+                          </label>}
+                        {companionCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{companionCapture.checkin} → {companionCapture.checkout} · {companionCapture.guests} ospiti</p>}
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-blue-300 bg-blue-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <b className="text-sm">Atlante · Vrbo</b>
+                          <a href="https://www.vrbo.com/it-it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
+                        </div>
+                        <p className="my-2 text-[11px] text-[#50627F]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
+                        <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Vrbo</button>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{vrboMessage||"La pagina di ricerca non basta: serve una scheda alloggio."}</p>
+                        {vrboCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                            <input type="checkbox" checked={vrboIdentityConfirmed} onChange={e=>setVrboIdentityConfirmed(e.target.checked)}/>
+                            Confermo identità dopo aver verificato nome, località e foto
+                          </label>}
+                        {vrboCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{vrboCapture.checkin} → {vrboCapture.checkout} · {vrboCapture.guests} ospiti</p>}
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-teal-300 bg-teal-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <b className="text-sm">Mercurio · Holidu</b>
+                          <a href="https://www.holidu.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
+                        </div>
+                        <p className="my-2 text-[11px] text-[#50627F]">{holiduCapture?.propertyId===activeAuditData.id?holiduCapture.rooms.length+" totali letti":"Da acquisire"}</p>
+                        <button type="button" onClick={captureHoliduFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Holidu</button>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{holiduMessage||"Legge solo un annuncio Holidu autentico, non un rinvio a un'altra OTA."}</p>
+                        {holiduCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                            <input type="checkbox" checked={holiduIdentityConfirmed} onChange={e=>setHoliduIdentityConfirmed(e.target.checked)}/>
+                            Confermo identità dopo aver verificato nome, località e foto
+                          </label>}
+                        {holiduCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{holiduCapture.checkin} → {holiduCapture.checkout} · {holiduCapture.guests} ospiti</p>}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] text-[#50627F]">Tariffe importate: Expedia {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} · Vrbo {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} · Holidu {rateQuotes.filter(q=>q.otaId==="holidu"&&q.origin==="browser-assisted").length}</p>
+                      <button type="button" onClick={()=>{
+                        setOtaWorkspaceOpen(false);
+                        const pricing=document.getElementById("velora-pricing-details");
+                        if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+                        pricing?.scrollIntoView({behavior:"smooth",block:"start"});
+                      }} className="rounded-lg border px-3 py-2 text-xs font-black">Vai ai risultati OTA</button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-[#64748B]">Le tre schede lavorano in modo indipendente. Il browser può bloccare l'apertura simultanea: usa i link nei riquadri. Nessun login o navigazione automatica nei portali.</p>
+                  </aside>}
                   {vrboPresence.state!=="not_started" && vrboPresence.propertyId===activeAuditData.id &&
                     <section className="mt-3 rounded-xl border border-blue-200 bg-white p-4 text-xs text-[#23124A]">
                       <div className="flex flex-wrap items-center justify-between gap-3">
