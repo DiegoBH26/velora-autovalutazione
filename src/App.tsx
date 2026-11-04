@@ -3761,6 +3761,8 @@ type BrowserPilotObservation = {
   requestedUrl?: string;
   finalUrl?: string;
   title?: string;
+  identityQuarantined?: boolean;
+  identityQuarantineReason?: string;
   quotes?: BrowserPilotQuoteCandidate[];
 };
 
@@ -5841,6 +5843,20 @@ export default function App() {
     Object.entries(result.discoveredSources || {}).forEach(([otaId, discovery]) => {
       if (!otaLabels[otaId] || !discovery) return;
       const answerId = `audit-ota-${otaId}`;
+      const rejected=(result.observations||[]).filter(obs=>obs.otaId===otaId)
+        .map(obs=>pilotWrongListingReason(result,obs)).filter(Boolean);
+      const hasMatchingObservation=(result.observations||[]).some(obs=>obs.otaId===otaId &&
+        !pilotWrongListingReason(result,obs) &&
+        (obs.quotes||[]).some(q=>q.verified));
+      if(rejected.length&&!hasMatchingObservation){
+        updateAnswer(answerId,{
+          auditStatus:"unverified",
+          note:"ANNUNCIO ESTRANEO SCARTATO · non appartiene a "+result.propertyName+"\n"+
+            rejected.slice(0,3).join("\n")+"\n"+
+            "Prezzi e identità esclusi dal confronto. La presenza reale della struttura su "+otaLabels[otaId]+" resta da verificare."
+        });
+        return;
+      }
       if ((discovery.presenceDetected || discovery.candidateUrl || discovery.status === "existing_unverified") && !(discovery.status === "found" && discovery.url)) {
         updateAnswer(answerId, {
           auditStatus: "partial",
