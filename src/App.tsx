@@ -5291,6 +5291,23 @@ export default function App() {
     window.postMessage({source:"velora-online-v1",type:"COMPANION_PING"},window.location.origin);
     return ()=>window.removeEventListener("message",receive);
   },[activeAuditData.id]);
+  // A verified exact-name capture with full dates is imported directly.
+  // When the listing name differs (e.g. Specolizzi/Speculizzi), one explicit
+  // identity confirmation is required; no rates enter the audit before it.
+  useEffect(() => {
+    const captured=companionCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id || !captured.rooms.length) return;
+    const identityConfirmed=matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    ) || companionIdentityConfirmed;
+    if(!identityConfirmed)return;
+    if(!captured.checkin||!captured.checkout||captured.guests<1)return;
+    if(companionStay.checkin!==captured.checkin||
+       companionStay.checkout!==captured.checkout||
+       companionStay.guests!==captured.guests)return;
+    importCompanionExpediaRates();
+  },[companionCapture,companionIdentityConfirmed,companionStay,activeAuditData.id]);
+
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
@@ -6913,6 +6930,13 @@ export default function App() {
       item.otaId==="expedia"&&item.sourceUrl===captured.sourceUrl
         ? {...item,identityVerified:true}:item));
     setExpediaReviewOpen(false);
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const expedia=document.getElementById("velora-pricing-ota-expedia");
+      if(expedia instanceof HTMLDetailsElement)expedia.open=true;
+      expedia?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
     setCompanionMessage(
       "Importate "+fresh.length+" camere Expedia con date e prezzi letti dal Chrome normale. "+
       "Il report è aggiornato; l'abbinamento fisico alle camere Booking resta non verificato."
@@ -9365,6 +9389,13 @@ export default function App() {
                           <span className="text-[10px] font-semibold">
                             {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} tariffe registrate
                           </span>
+                          <button type="button" onClick={()=>{
+                            const pricing=document.getElementById("velora-pricing-details");
+                            if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+                            const expedia=document.getElementById("velora-pricing-ota-expedia");
+                            if(expedia instanceof HTMLDetailsElement)expedia.open=true;
+                            expedia?.scrollIntoView({behavior:"smooth",block:"start"});
+                          }} className="text-[10px] font-black underline">Vedi prezzi nell'audit OTA</button>
                         </div>}
                         {loginPortal && <details className="mt-2 rounded-lg border border-current/20 bg-white/70 p-2">
                           <summary className="cursor-pointer text-[10px] font-black text-[#23124A]">Accessi, credenziali e test avanzati</summary>
@@ -9860,7 +9891,7 @@ export default function App() {
               const count = published.length + rows.length;
               const otaName = activeAuditData.otaPresence.find((channel) => channel.id === otaId)?.platform
                 || PILOT_OTA_LABELS[otaId] || otaId;
-              return <details key={`ota-pricing-${otaId}`} className="group rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
+              return <details key={`ota-pricing-${otaId}`} id={`velora-pricing-ota-${otaId}`} className="group scroll-mt-24 rounded-xl border border-[#E5DDF1] bg-white open:border-[#BAA6D3] open:shadow-[0_8px_20px_rgba(35,18,74,0.05)]">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs font-black text-[#23124A] hover:bg-[#F8F4FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8D74B4] [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center gap-3">
                     <span aria-hidden="true" className="inline-block text-[#73558D] transition-transform group-open:rotate-90">▸</span>
