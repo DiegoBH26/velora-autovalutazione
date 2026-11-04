@@ -3581,6 +3581,17 @@ type AnalyzedStructure = {
   updatedAt: string;
 };
 
+type VrboPresenceResult = {
+  schema:"velora-vrbo-presence-v1";propertyId:string;propertyName:string;
+  checkedAt:string;status:"candidates_found"|"not_identified"|"inconclusive";
+  label:string;explanation:string;candidateUrls:string[];
+  engines:{engine:string;searched:boolean;results:number|null}[];
+  evidence:string;identityVerified:boolean;pricingChecked:boolean;absenceConfirmed:boolean;
+};
+type VrboPresenceState = {
+  propertyId?:string;state:"not_started"|"queued"|"running"|"completed"|"failed";
+  message?:string;error?:string;result?:VrboPresenceResult;
+};
 type OtaContentSnapshot = {
   otaId:"expedia"|"vrbo";propertyName:string;sourceUrl:string;observedAt:string;
   roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
@@ -5062,6 +5073,9 @@ export default function App() {
   const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
   const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
   const [vrboMessage,setVrboMessage] = useState("");
+  const [vrboPresence,setVrboPresence] = useState<VrboPresenceState>({state:"not_started"});
+  const [vrboPresenceBusy,setVrboPresenceBusy] = useState(false);
+  const [vrboPresenceMessage,setVrboPresenceMessage] = useState("");
 
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -5387,6 +5401,25 @@ export default function App() {
   useEffect(() => {
     void connectLocalAgent(true);
   }, []);
+
+  useEffect(()=>{
+    if(!localPilotToken||!specialistExpanded)return;
+    const propertyId=activeAuditData.id;
+    let cancelled=false;
+    const read=async()=>{
+      try{
+        const response=await fetch(localAgentUrl("/api/vrbo-presence/status?propertyId="+
+          encodeURIComponent(propertyId)),{mode:"cors",cache:"no-store"});
+        if(!response.ok||cancelled)return;
+        const state=await response.json() as VrboPresenceState;
+        if(!cancelled&&propertyId===state.propertyId)
+          setVrboPresence(state);
+      }catch{/* Older agent may not yet implement presence discovery. */}
+    };
+    void read();
+    const interval=window.setInterval(()=>void read(),3500);
+    return ()=>{cancelled=true;window.clearInterval(interval);};
+  },[localPilotToken,specialistExpanded,activeAuditData.id]);
 
   useEffect(() => {
     if (!specialistExpanded || !localPilotToken) return;
@@ -6417,6 +6450,8 @@ export default function App() {
       setVrboReviewOpen(false);
       setVrboMessage("");
       setVrboIdentityConfirmed(false);
+      setVrboPresence({state:"not_started"});
+      setVrboPresenceMessage("");
       setAvailabilityProbes([]);
       setSelectedRateCohort("");
       setBrowserPilotResult(null);
@@ -6805,6 +6840,8 @@ export default function App() {
     setVrboReviewOpen(false);
     setVrboMessage("");
     setVrboIdentityConfirmed(false);
+    setVrboPresence({state:"not_started"});
+    setVrboPresenceMessage("");
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
@@ -6948,6 +6985,34 @@ export default function App() {
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  async function startVrboPresenceCheck() {
+    if(vrboPresenceBusy||vrboPresence.state==="queued"||vrboPresence.state==="running")return;
+    const propertyId=activeAuditData.id;
+    setVrboPresenceBusy(true);
+    setVrboPresenceMessage("Atlante avvia una ricerca indipendente sulle fonti pubbliche, senza account Vrbo.");
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token)throw new Error("Collega prima l'agente Windows.");
+      const response=await fetch(localAgentUrl("/api/vrbo-presence/start"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({
+          propertyId,propertyData:{
+            id:propertyId,name:activeAuditData.name,city:activeAuditData.city,
+            province:activeAuditData.province,website:activeAuditData.website
+          }
+        })
+      });
+      const body=await response.json().catch(()=>({})) as {error?:string;state?:string};
+      if(!response.ok)throw new Error(body.error||
+        (response.status===404?"Aggiorna l'agente Windows: manca la funzione di verifica Vrbo.":"Ricerca Vrbo non avviata."));
+      setVrboPresence({propertyId,state:"queued",message:"Verifica presenza Vrbo avviata"});
+      setVrboPresenceMessage("Ricerca attiva: Atlante controlla le fonti pubbliche e restituirà un esito documentato.");
+    }catch(error){
+      setVrboPresenceMessage(error instanceof Error?error.message:"Impossibile avviare la verifica Vrbo.");
+    }finally{setVrboPresenceBusy(false);}
   }
 
   function captureVrboFromChrome() {
@@ -9628,9 +9693,11 @@ export default function App() {
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
                           </button> : agent.id==="vrbo" ? <button type="button"
-                            onClick={captureVrboFromChrome}
-                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white">
-                            ▶ Chrome
+                            disabled={vrboPresenceBusy||vrboPresence.state==="queued"||vrboPresence.state==="running"}
+                            onClick={()=>void startVrboPresenceCheck()}
+                            title="Cerca autonomamente la scheda Vrbo senza login, poi mostra un esito verificabile."
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white disabled:opacity-50">
+                            {vrboPresenceBusy||vrboPresence.state==="queued"||vrboPresence.state==="running"?"Ricerca…":"▶ Verifica presenza"}
                           </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
@@ -9660,14 +9727,19 @@ export default function App() {
 
 
                         {agent.id==="vrbo" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
-                          <span className="text-[10px] font-bold">Modalità pubblica · senza login</span>
+                          <span className="text-[10px] font-bold">Ricerca automatica · senza login</span>
                           <button type="button" onClick={()=>setVrboReviewOpen(open=>!open)}
                             className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
                             {vrboReviewOpen?"Chiudi dettaglio":"Dettaglio Vrbo"}
                           </button>
                           <span className="text-[10px] font-semibold">
-                            {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} rilevazioni
+                            {vrboPresence.state==="completed"&&vrboPresence.result?.propertyId===activeAuditData.id
+                              ? vrboPresence.result.label
+                              : vrboPresence.state==="running"?"Verifica in corso"
+                              : "Presenza Vrbo da verificare"}
                           </span>
+                          <button type="button" onClick={captureVrboFromChrome}
+                            className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">Acquisisci prezzo da Chrome</button>
                         </div>}
                         {agent.id==="expedia" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
                           <button type="button" onClick={captureExpediaFromChrome}
@@ -9812,6 +9884,27 @@ export default function App() {
                       </section>
                     ))}
                   </div>
+                  {vrboPresence.state!=="not_started" && vrboPresence.propertyId===activeAuditData.id &&
+                    <section className="mt-3 rounded-xl border border-blue-200 bg-white p-4 text-xs text-[#23124A]">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h4 className="font-black">Atlante · verifica autonoma presenza Vrbo</h4>
+                        <span className="font-bold">{vrboPresence.state==="completed"
+                          ? vrboPresence.result?.label
+                          : vrboPresence.state==="failed"?"Verifica non riuscita"
+                          : "Ricerca pubblica in corso"}</span>
+                      </div>
+                      {vrboPresence.result?.propertyId===activeAuditData.id
+                        ? <div className="mt-2 space-y-2">
+                            <p>{vrboPresence.result.explanation}</p>
+                            <p className="text-[10px] text-[#50627F]">Fonte: {vrboPresence.result.evidence}</p>
+                            {vrboPresence.result.candidateUrls.slice(0,5).map((url,i)=>
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block font-bold underline">
+                                Possibile scheda Vrbo {i+1} · da verificare
+                              </a>)}
+                          </div>
+                        : <p className="mt-2 text-[#50627F]">{vrboPresence.error||vrboPresence.message||"Atlante sta verificando le fonti pubbliche."}</p>}
+                    </section>}
+                  {vrboPresenceMessage && <p className="mt-2 text-xs font-bold text-[#50627F]" role="status">{vrboPresenceMessage}</p>}
                   {vrboReviewOpen && <section className="mt-3 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h4 className="text-sm font-black text-[#23124A]">Vrbo · acquisizione dal Chrome normale</h4>
