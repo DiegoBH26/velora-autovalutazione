@@ -5071,6 +5071,7 @@ export default function App() {
   const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
   const [vrboSupported,setVrboSupported] = useState(false);
   const [holiduSupported,setHoliduSupported] = useState(false);
+  const [otaTabLauncherSupported,setOtaTabLauncherSupported] = useState(false);
   const [otaWorkspaceOpen,setOtaWorkspaceOpen] = useState(false);
   const [otaWorkspaceMessage,setOtaWorkspaceMessage] = useState("");
   const [holiduCapture,setHoliduCapture] = useState<HoliduCompanionCapture|null>(null);
@@ -5239,6 +5240,16 @@ export default function App() {
         setCompanionInstalled(true);
         setVrboSupported(Boolean(event.data.payload?.vrbo));
         setHoliduSupported(Boolean(event.data.payload?.holidu));
+        setOtaTabLauncherSupported(Boolean(event.data.payload?.tabsLauncher));
+      } else if(type==="PORTALS_OPENED") {
+        const count=Number(event.data.payload?.count||0);
+        setOtaWorkspaceMessage(count===3
+          ? "Expedia, Vrbo e Holidu sono stati aperti in tre schede Chrome indipendenti. Puoi cercare la struttura e impostare date e ospiti."
+          : "Sono state aperte "+count+" schede. Controlla i siti e usa i link diretti per quelli mancanti.");
+      } else if(type==="PORTALS_ERROR") {
+        setOtaWorkspaceMessage("Apertura schede incompleta: "+
+          String(event.data.payload?.message||"Chrome non ha aperto tutti e tre i siti.").slice(0,240)+
+          " Usa i link Apri sito presenti nel pannello.");
       } else if(type==="ERROR") {
         const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
         if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
@@ -7105,16 +7116,15 @@ export default function App() {
 
   function openThreeOtaPortals() {
     setOtaWorkspaceOpen(true);
-    // Keep all three opens in the click gesture so Chrome can permit them.
-    // The extension only reads user-visible data and never bypasses site access controls.
-    let opened=0;
-    for(const url of ["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"]){
-      if(window.open(url,"_blank"))opened+=1;
+    // Chrome only permits some popup openings per click. Use the user-installed
+    // Companion's tab permission instead of creating three webpage popups.
+    if(otaTabLauncherSupported) {
+      setOtaWorkspaceMessage("Richiesta apertura delle tre schede Chrome in corso...");
+      window.postMessage({source:"velora-online-v1",type:"OPEN_THREE_OTA_TABS"},window.location.origin);
+    } else {
+      setOtaWorkspaceMessage("Per aprire tre schede con un solo clic, aggiorna Chrome Companion alla versione 0.4.1 e premi Ctrl+F5. In alternativa usa i tre link Apri sito nel pannello.");
     }
-    setOtaWorkspaceMessage(opened===3
-      ? "Tre siti aperti. Cerca la stessa struttura, imposta date e ospiti e acquisisci ciascuna OTA dal proprio riquadro."
-      : "Chrome potrebbe aver bloccato una o più schede. Usa i link Apri sito dei singoli riquadri; puoi comunque acquisire ogni OTA separatamente.");
-    // Atlante checks public Vrbo presence independently while the operator navigates.
+    // Independent public Vrbo discovery does not depend on the Chrome tab launcher.
     if(vrboPresence.state!=="running"&&vrboPresence.state!=="queued")void startVrboPresenceCheck();
   }
 
@@ -7126,7 +7136,7 @@ export default function App() {
     setHoliduMessage("Richiedo le informazioni già visibili nella scheda Holidu del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_HOLIDU"},window.location.origin);
     if(!holiduSupported)
-      setHoliduMessage("Per Holidu serve Chrome Companion 0.4.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+      setHoliduMessage("Per Holidu serve Chrome Companion 0.4.1. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importHoliduCompanionRates() {
@@ -7191,7 +7201,7 @@ export default function App() {
     setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
     if(!vrboSupported)
-      setVrboMessage("Per Vrbo serve Chrome Companion 0.4.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+      setVrboMessage("Per Vrbo serve Chrome Companion 0.4.1. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importVrboCompanionRates() {
@@ -10095,8 +10105,10 @@ export default function App() {
                     </div>
                     <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
                     <p className="mt-1 text-[11px] font-bold text-[#50627F]">
-                      {holiduSupported?"Companion 0.4 collegato a Expedia, Vrbo e Holidu":"Per usare tutti e tre i lettori installa Chrome Companion 0.4.0"}
-                      {!holiduSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica versione aggiornata</a></>}
+                      {otaTabLauncherSupported?"Chrome Companion 0.4.1 collegato: apertura simultanea disponibile"
+                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.1 per aprire tre siti con un clic"
+                        : "Installa Chrome Companion 0.4.1 per acquisire e aprire tutte e tre le OTA"}
+                      {!otaTabLauncherSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica versione aggiornata</a></>}
                     </p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
@@ -10223,7 +10235,7 @@ export default function App() {
                         className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white">
                         Acquisisci da Chrome
                       </button>
-                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.4 collegato":"Serve Chrome Companion 0.4.0"}</span>
+                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.4 collegato":"Serve Chrome Companion 0.4.1"}</span>
                     </div>
                     {!vrboSupported && <p className="mt-2 text-xs text-amber-800">Scarica il Companion aggiornato, rimuovi la vecchia estensione Expedia da Chrome e carica la cartella estratta. <a className="font-black underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip">Scarica ZIP</a></p>}
                     {vrboMessage && <p className="mt-3 rounded-lg bg-[#F5F2FA] p-3 text-xs font-semibold text-[#23124A]" role="status">{vrboMessage}</p>}
