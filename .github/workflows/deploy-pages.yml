@@ -34,6 +34,7 @@ jobs:
           node --check chrome-companion-expedia/background.js
           node --check chrome-companion-expedia/bridge.js
           node tests/test_expedia_companion_grid.cjs
+          node tests/test_expedia_companion_geometry.cjs
       - name: Package Chrome Companion into downloadable ZIP
         run: |
           python -c "import pathlib,zipfile; root=pathlib.Path('chrome-companion-expedia'); dest=pathlib.Path('dist/velora-expedia-companion.zip'); z=zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED); [z.write(p,arcname='Velora_Chrome_Companion/'+p.name) for p in sorted(root.iterdir()) if p.is_file() and p.suffix in ('.json','.js','.txt')]; z.close(); print('Prepared',dest)"
