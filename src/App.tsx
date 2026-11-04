@@ -8058,7 +8058,18 @@ export default function App() {
       <tr><td>Servizi</td><td>${safe(reportListing.visibleServices.join(" · ")||"Non rilevati nel campione")}</td></tr>
       <tr><td>Descrizione</td><td>${safe(reportListing.descriptionExcerpt||"Snippet non disponibile")}</td></tr>
       </tbody></table>` : "";
-    const numericPricingHtml = otaDistributionHtml + presentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
+    const vrboReportListing=otaContentSnapshots.find(item=>item.otaId==="vrbo");
+    const vrboPresentationReport=vrboReportListing
+      ? `<h2>Presentazione Vrbo · campione osservato</h2>
+        <p>Identità e contenuti osservati nella scheda Vrbo visibile nel browser, non confronto integrale con Booking.</p>
+        <table><tbody>
+          <tr><td>Nome Vrbo</td><td>${safe(vrboReportListing.propertyName)} · ${vrboReportListing.identityVerified?"identità dichiarata verificata":"identità da verificare"}</td></tr>
+          <tr><td>Totale alloggio</td><td>${vrboReportListing.roomCount?"1 preventivo esplicito letto":"Nessun preventivo verificabile"}</td></tr>
+          <tr><td>Fotografie</td><td>${vrboReportListing.visibleImageCount===null?"non campionate":vrboReportListing.visibleImageCount+" foto caricate nel campione"}</td></tr>
+          <tr><td>Servizi</td><td>${safe(vrboReportListing.visibleServices.join(" · ")||"Non rilevati")}</td></tr>
+          <tr><td>Descrizione</td><td>${safe(vrboReportListing.descriptionExcerpt||"Non rilevata")}</td></tr>
+        </tbody></table>` : "";
+    const numericPricingHtml = otaDistributionHtml + presentationReport + vrboPresentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
@@ -9094,6 +9105,7 @@ export default function App() {
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const expediaPresentation=otaContentSnapshots.find(item=>item.otaId==="expedia");
+    const vrboPresentation=otaContentSnapshots.find(item=>item.otaId==="vrbo");
     const bookingPresentation=browserPilotResult?.propertyId===activeAuditData.id
       ? browserPilotResult.otaProfiles?.booking : undefined;
     const bookingExpediaComparison=frontendComparisons.find(row=>
@@ -9308,19 +9320,21 @@ export default function App() {
           <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
               Asimmetrie di presentazione OTA · nome, camere, foto, servizi e testi
-              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Acquisizione Expedia non presente"}</span>
+              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Expedia non acquisita"} · {vrboPresentation?"Vrbo acquisita":"Vrbo non acquisita"}</span>
             </summary>
             <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Identità e nome commerciale</p>
                 <p className="mt-2 text-[11px] text-[#50627F]"><b>Struttura Velora:</b> {activeAuditData.name}</p>
                 <p className="mt-1 text-[11px] text-[#50627F]"><b>Expedia:</b> {expediaPresentation?.propertyName||"Non rilevato"}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]"><b>Vrbo:</b> {vrboPresentation?.propertyName||"Non rilevato"}</p>
                 {expediaNameDifferent && <p className="mt-2 text-[11px] font-bold text-amber-800">Nome differente: verificare se è una variante commerciale o una scheda non pertinente. Non è conferma automatica d'identità.</p>}
                 {expediaPresentation && <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{expediaPresentation.identityVerified?"Identità dichiarata verificata per questa acquisizione":"Identità ancora da confermare"} · <a href={expediaPresentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">Apri fonte Expedia</a></p>}
               </div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Camere e inventario visibile</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation?expediaPresentation.roomCount+" tipologie rilevate":"non acquisito"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: <b>{vrboPresentation?vrboPresentation.roomCount+" alloggi con preventivo verificabile nel campione":"non acquisito"}</b></p>
                 <p className="mt-1 text-[11px] text-[#50627F]">Booking: {browserPilotResult?.propertyId===activeAuditData.id
                   ? (browserPilotResult.roomReferences?.length||0) > 0
                     ? browserPilotResult.roomReferences?.length+" riferimenti campionati"
@@ -9331,6 +9345,7 @@ export default function App() {
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Copertura fotografica</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount===null ? "fotografie non campionate (aggiorna Companion)" : expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: <b>{vrboPresentation ? vrboPresentation.visibleImageCount===null ? "non campionate" : vrboPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
                 {bookingExpediaComparison
                   ? <p className="mt-1 text-[11px] font-semibold text-[#50627F]">Campione di Giove: {bookingExpediaComparison.photoCountLeft} / {bookingExpediaComparison.photoCountRight} foto ({veloraAgentName(bookingExpediaComparison.leftAgent)} / {veloraAgentName(bookingExpediaComparison.rightAgent)})</p>
                   : <p className="mt-1 text-[11px] text-[#50627F]">Confronto con la galleria Booking non ancora rilevato da Giove.</p>}
@@ -9340,6 +9355,7 @@ export default function App() {
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Servizi e descrizione</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: {expediaPresentation?.visibleServices.length ? expediaPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: {vrboPresentation?.visibleServices.length ? vrboPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
                 {bookingExpediaComparison?.differentServiceMentions.length
                   ? <p className="mt-2 text-[11px] font-semibold text-amber-800">Differenze testuali rilevate da Giove: {bookingExpediaComparison.differentServiceMentions.join(" · ")}</p>
                   : <p className="mt-2 text-[11px] text-[#50627F]">Nessuna differenza fra servizi verificata su entrambe le OTA.</p>}
