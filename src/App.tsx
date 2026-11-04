@@ -9368,9 +9368,12 @@ export default function App() {
                 <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
               </div>}
 
-                <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> salva l’email dell’account in «Configura credenziali» (password vuota per Expedia/Vrbo con codice), quindi premi <strong>Accedi e verifica</strong> per entrare sul portale prima della scansione. Se serve un codice, inseriscilo personalmente nel Chrome dedicato e premi <strong>Ho completato l’accesso · Riprendi</strong>. Dopo la conferma potrai premere <strong>▶ Account</strong>. Non comunicare codici a Velora.
-                </p>
+                <details className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] text-[11px] text-[#50627F]">
+                  <summary className="cursor-pointer px-3 py-2 font-bold text-[#23124A]">Come funzionano gli accessi Expedia, Vrbo e Holidu · apri guida</summary>
+                  <p className="px-3 pb-3 leading-5">
+                    Salva l’email dell’account in «Configura credenziali» (password vuota per Expedia/Vrbo con codice), quindi premi <strong>Accedi e verifica</strong> per entrare sul portale prima della scansione. Se serve un codice, inseriscilo personalmente nel Chrome dedicato e premi <strong>Ho completato l’accesso · Riprendi</strong>. Dopo la conferma potrai premere <strong>▶ Account</strong>. Non comunicare codici a Velora.
+                  </p>
+                </details>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
