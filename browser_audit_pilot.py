@@ -12695,6 +12695,22 @@ def specialist_booking_name_matches(expected: str, observed: str, city: str = ""
     return norm_expected == norm_observed
 
 
+def airbnb_explicit_different_tenuta(expected: str, observed: str, city: str) -> bool:
+    """Reject a self-named OTHER 'Masseria Tenuta' without rejecting generic unit titles.
+
+    Airbnb rooms often have their own title (e.g. "Trullo La Pajara"), which
+    must NOT be treated as a different property. The clear multi-word lodging
+    brand "Masseria Tenuta DESERTO" is different from Tenuta Specolizzi.
+    """
+    expected_words=set(_norm_name(expected).split())
+    observed_words=set(_norm_name(observed).split())
+    return bool(
+        "tenuta" in expected_words
+        and {"masseria","tenuta"}.issubset(observed_words)
+        and not specialist_booking_name_matches(expected, observed, city)
+    )
+
+
 async def run(args: argparse.Namespace) -> dict:
     data = json.loads(Path(args.property).read_text(encoding="utf-8-sig"))
     today = date.fromisoformat(args.today) if args.today else date.today()
@@ -13900,9 +13916,37 @@ async def run(args: argparse.Namespace) -> dict:
                                     except Exception:
                                         pass
 
+                            # When a page explicitly names a different lodging
+                            # brand ("Masseria Tenuta Deserto" vs "Tenuta Specolizzi"),
+                            # quarantine it BEFORE crawling up to 16 sister pages.
+                            # A generic apartment/unit title is never rejected here.
+                            if channel=="airbnb":
+                                observed_names=[
+                                    str(record.get("title") or ""),
+                                    *(str(q.get("roomType") or "") for q in (record.get("quotes") or [])[:4]),
+                                ]
+                                wrong_brand=next((title for title in observed_names
+                                    if airbnb_explicit_different_tenuta(
+                                        str(data.get("name") or ""),title,str(data.get("city") or ""))),"")
+                                if wrong_brand:
+                                    record["status"]="wrong_property_listing"
+                                    record["quotes"]=[]
+                                    record["evidence"]=(
+                                        "ANNUNCIO ESTRANEO SCARTATO: pagina Airbnb di «"+
+                                        wrong_brand[:150]+"», non della struttura richiesta «"+
+                                        str(data.get("name") or "")[:140]+"». "
+                                        "Nessuna tariffa attribuita e nessuna ricerca di unità sorelle."
+                                    )
+                                    record["sourceIdentityVerified"]=False
+                                    result.setdefault("discoveredSources",{}).setdefault("airbnb",{})["identityMismatch"]=True
+                                    print(
+                                        f"{effective_stay['month']} airbnb: WRONG PROPERTY SKIPPED "
+                                        f"· expected={data.get('name')} · observed={wrong_brand[:130]}",
+                                        flush=True,
+                                    )
                             # Per hotel/complessi Airbnb, ogni /rooms/<id> è una distinta
                             # camera/unità. Non fermarsi alla prima scheda come le altre OTA.
-                            if channel=="airbnb":
+                            if channel=="airbnb" and record.get("status")!="wrong_property_listing":
                                 airbnb_meta=result.get("discoveredSources",{}).get("airbnb") or {}
                                 found_urls=list(dict.fromkeys(
                                     list((sources.get("airbnb") or {}).get("listingUrls") or [])
@@ -13948,6 +13992,21 @@ async def run(args: argparse.Namespace) -> dict:
                                             timeout=AUTO_OTA_OBSERVE_TIMEOUT,
                                         )
                                         extra_quotes=list(sibling.get("quotes") or [])
+                                        sibling_names=[
+                                            str(sibling.get("title") or ""),
+                                            *(str(q.get("roomType") or "") for q in extra_quotes[:4]),
+                                        ]
+                                        sibling_other=next((title for title in sibling_names
+                                            if airbnb_explicit_different_tenuta(
+                                                str(data.get("name") or ""),title,str(data.get("city") or ""))),"")
+                                        if sibling_other:
+                                            extra_quotes=[]
+                                            sibling["status"]="wrong_property_listing"
+                                            print(
+                                                f"{effective_stay['month']} airbnb sister SKIPPED: "
+                                                f"{sibling_other[:130]} non appartiene a {data.get('name')}",
+                                                flush=True,
+                                            )
                                         for quote in extra_quotes:
                                             quote["sourceUrl"]=sibling.get("finalUrl") or sibling_source
                                         record.setdefault("quotes",[]).extend(extra_quotes)
