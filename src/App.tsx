@@ -3583,12 +3583,12 @@ type AnalyzedStructure = {
 
 type OtaContentSnapshot = {
   otaId:"expedia";propertyName:string;sourceUrl:string;observedAt:string;
-  roomCount:number;visibleImageCount:number;photoAltSamples:string[];
+  roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
   visibleServices:string[];descriptionExcerpt:string;
   evidenceScope:string;identityVerified:boolean;
 };
 type ExpediaPresentation = {
-  visibleImageCount:number;photoAltSamples:string[];visibleServices:string[];
+  visibleImageCount:number|null;photoAltSamples:string[];visibleServices:string[];
   descriptionExcerpt:string;roomCount:number;evidenceScope:string;
 };
 type ExpediaCompanionRoom = {
@@ -5247,7 +5247,8 @@ export default function App() {
           })),
           capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,320),
           presentation:{
-            visibleImageCount:Math.max(0,Math.min(500,Number(payload.presentation?.visibleImageCount)||0)),
+            visibleImageCount:typeof payload.presentation?.visibleImageCount==="number"&&Number.isFinite(payload.presentation.visibleImageCount)
+              ? Math.max(0,Math.min(500,payload.presentation.visibleImageCount)) : null,
             photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
               ? payload.presentation.photoAltSamples.filter((x:unknown)=>typeof x==="string").slice(0,15).map((x:string)=>x.slice(0,140)):[],
             visibleServices:Array.isArray(payload.presentation?.visibleServices)
@@ -5265,7 +5266,7 @@ export default function App() {
             otaId:"expedia",propertyName:capture.propertyName,
             sourceUrl:capture.sourceUrl,observedAt:capture.capturedAt,
             roomCount:capture.rooms.length,
-            visibleImageCount:capture.presentation?.visibleImageCount||0,
+            visibleImageCount:capture.presentation?.visibleImageCount??null,
             photoAltSamples:capture.presentation?.photoAltSamples||[],
             visibleServices:capture.presentation?.visibleServices||[],
             descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
@@ -9166,7 +9167,7 @@ export default function App() {
               </div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Copertura fotografica</p>
-                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
+                <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount===null ? "fotografie non campionate (aggiorna Companion)" : expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
                 {bookingExpediaComparison
                   ? <p className="mt-1 text-[11px] font-semibold text-[#50627F]">Campione di Giove: {bookingExpediaComparison.photoCountLeft} / {bookingExpediaComparison.photoCountRight} foto ({veloraAgentName(bookingExpediaComparison.leftAgent)} / {veloraAgentName(bookingExpediaComparison.rightAgent)})</p>
                   : <p className="mt-1 text-[11px] text-[#50627F]">Confronto con la galleria Booking non ancora rilevato da Giove.</p>}
