@@ -1,10 +1,12 @@
-VELORA · EXPEDIA CHROME COMPANION
+VELORA · EXPEDIA + VRBO CHROME COMPANION
 =================================
-VERSIONE DI TEST — acquisizione delle camere Expedia VISIBILI nel Chrome normale.
+VERSIONE 0.3.0 DI TEST — lettura passiva di Expedia e Vrbo nel Chrome normale.
 
 COSA FA:
 - Legge i titoli delle camere e i prezzi totali gia mostrati nella pagina Expedia
   che hai aperto personalmente nel tuo Chrome normale.
+- Su Vrbo prova a leggere un singolo alloggio e un totale di soggiorno esplicito.
+  Se prezzi diversi o date/ospiti non sono verificabili, non importa una tariffa.
 - Rileva anche un campione di foto gia caricate, servizi citati e snippet descrittivo.
   Non e una lettura completa della galleria: le differenze con Booking vanno validate.
 - Dopo la conferma dell'identita, Velora importa le tariffe nella sezione dedicata OTA;
@@ -23,11 +25,11 @@ INSTALLAZIONE UNA SOLA VOLTA:
 6. Aggiorna Velora online con Ctrl+F5.
 
 USO:
-1. Apri in Chrome la scheda della tua struttura su Expedia, inserendo date/ospiti.
+1. Apri in Chrome la scheda della struttura su Expedia O Vrbo, inserendo date/ospiti.
 2. Apri anche Velora online nella stessa sessione di Chrome.
-3. Scheda Ercole -> "Acquisisci camere da Chrome".
+3. Scheda Ercole (Expedia) oppure Atlante (Vrbo) -> "Acquisisci da Chrome".
 4. Verifica i risultati mostrati, soprattutto struttura e date.
-5. Se il nome coincide, Velora importa le tariffe in automatico.
+5. Se il nome coincide, Velora importa il totale soggiorno verificato in automatico.
    Se il nome differisce, verifica prima l'identita e spunta la conferma;
    Velora inserira poi le tariffe nella sezione OTA.
 
@@ -36,3 +38,8 @@ La lettura e limitata ai dati esposti visibilmente nella pagina.
 Non cambia la disponibilita di Expedia a consentire accessi automatizzati.
 Se il portale nega accesso o blocca la pagina, il componente non lo aggira.
 Gli abbinamenti fisici delle camere con Booking richiedono riscontri certi.
+
+VRBO:
+- Non e necessario configurare un account Vrbo per questa lettura pubblica.
+- Non riutilizzare la procedura di login dell'agente Windows se il portale limita l'accesso.
+- Se Vrbo limita anche la pagina nel tuo Chrome normale, l'estensione non puo leggere ne aggirare tale limitazione.

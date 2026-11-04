@@ -3582,7 +3582,7 @@ type AnalyzedStructure = {
 };
 
 type OtaContentSnapshot = {
-  otaId:"expedia";propertyName:string;sourceUrl:string;observedAt:string;
+  otaId:"expedia"|"vrbo";propertyName:string;sourceUrl:string;observedAt:string;
   roomCount:number;visibleImageCount:number|null;photoAltSamples:string[];
   visibleServices:string[];descriptionExcerpt:string;
   evidenceScope:string;identityVerified:boolean;
@@ -3599,6 +3599,7 @@ type ExpediaCompanionCapture = {
   sourceUrl:string;checkin:string;checkout:string;nights:number;guests:number;
   rooms:ExpediaCompanionRoom[];presentation?:ExpediaPresentation;capturedAt:string;warning:string;propertyId:string;
 };
+type VrboCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-vrbo-visible-v1"};
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
     .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
@@ -5056,6 +5057,11 @@ export default function App() {
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
   const [companionMessage,setCompanionMessage] = useState("");
   const [expediaReviewOpen,setExpediaReviewOpen] = useState(false);
+  const [vrboSupported,setVrboSupported] = useState(false);
+  const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
+  const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
+  const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
+  const [vrboMessage,setVrboMessage] = useState("");
 
   const [availabilityProbes, setAvailabilityProbes] = useState<AvailabilityProbe[]>([]);
   const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityProbe>(EMPTY_AVAILABILITY_DRAFT);
@@ -5209,10 +5215,72 @@ export default function App() {
       const type=event.data.type;
       if(type==="READY") {
         setCompanionInstalled(true);
+        setVrboSupported(Boolean(event.data.payload?.vrbo));
       } else if(type==="ERROR") {
-        setCompanionMessage(String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300));
+        const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
+        if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
+        else setCompanionMessage(message);
       } else if(type==="RESULT") {
         const payload=event.data.payload;
+        if(payload?.schema==="velora-vrbo-visible-v1"){
+          let url:URL;
+          try {url=new URL(String(payload.sourceUrl||""));}catch{setVrboMessage("Link Vrbo non valido.");return;}
+          if(url.protocol!=="https:" || !/(^|\.)vrbo\.(com|co\.uk|de|fr|es|it)$/.test(url.hostname)){
+            setVrboMessage("La pagina acquisita non appartiene a Vrbo.");return;
+          }
+          if(!Array.isArray(payload.rooms)||payload.rooms.length>1){
+            setVrboMessage("Risultato Vrbo non valido: il lettore deve rilevare al massimo un alloggio.");return;
+          }
+          const safeRooms=payload.rooms.filter((room:unknown):room is ExpediaCompanionRoom=>{
+            if(!room || typeof room!=="object")return false;
+            const item=room as ExpediaCompanionRoom;
+            return typeof item.roomType==="string"&&item.roomType.length>=6&&item.roomType.length<=180&&
+              Number.isFinite(item.total)&&item.total>=1&&item.total<=200000&&item.confidence==="total-for-stay";
+          });
+          const capture:VrboCompanionCapture={
+            schema:"velora-vrbo-visible-v1",
+            pageTitle:String(payload.pageTitle||"").slice(0,240),
+            propertyName:String(payload.propertyName||"").slice(0,180),
+            sourceUrl:url.toString().slice(0,1600),
+            checkin:String(payload.checkin||""),checkout:String(payload.checkout||""),
+            nights:Number(payload.nights||0),guests:Number(payload.guests||0),
+            rooms:safeRooms.map(room=>({
+              roomType:room.roomType,total:room.total,confidence:room.confidence,
+              board:String(room.board||"Non chiaro").slice(0,80),
+              refund:String(room.refund||"Non chiaro").slice(0,80),
+              taxes:String(room.taxes||"Non chiaro").slice(0,80)
+            })),
+            presentation:{
+              visibleImageCount:typeof payload.presentation?.visibleImageCount==="number"&&Number.isFinite(payload.presentation.visibleImageCount)
+                ? Math.max(0,Math.min(500,payload.presentation.visibleImageCount)):null,
+              photoAltSamples:Array.isArray(payload.presentation?.photoAltSamples)
+                ? payload.presentation.photoAltSamples.filter((item:unknown)=>typeof item==="string").slice(0,15).map((item:string)=>item.slice(0,140)):[],
+              visibleServices:Array.isArray(payload.presentation?.visibleServices)
+                ? payload.presentation.visibleServices.filter((item:unknown)=>typeof item==="string").slice(0,18).map((item:string)=>item.slice(0,60)):[],
+              descriptionExcerpt:String(payload.presentation?.descriptionExcerpt||"").slice(0,450),
+              roomCount:safeRooms.length,evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+            },
+            capturedAt:new Date().toISOString(),warning:String(payload.warning||"").slice(0,400),
+            propertyId:activeAuditData.id
+          };
+          setVrboCapture(capture);
+          setVrboIdentityConfirmed(false);
+          setVrboReviewOpen(true);
+          setVrboMessage(capture.rooms.length
+            ? "Un totale soggiorno Vrbo letto. Controlla nome struttura, date e ospiti; il confronto con Booking resta da verificare."
+            : capture.warning);
+          setOtaContentSnapshots(previous=>[
+            ...previous.filter(item=>item.otaId!=="vrbo"),
+            {otaId:"vrbo",propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
+              observedAt:capture.capturedAt,roomCount:capture.rooms.length,
+              visibleImageCount:capture.presentation?.visibleImageCount??null,
+              photoAltSamples:capture.presentation?.photoAltSamples||[],
+              visibleServices:capture.presentation?.visibleServices||[],
+              descriptionExcerpt:capture.presentation?.descriptionExcerpt||"",
+              evidenceScope:"sample-of-visible-loaded-images-and-page-text",identityVerified:false}
+          ]);
+          return;
+        }
         if(payload?.schema!=="velora-expedia-visible-v1" || !Array.isArray(payload.rooms) || payload.rooms.length>40) {
           setCompanionMessage("Risultato estensione non valido. Nessuna tariffa importata.");
           return;
@@ -5308,6 +5376,13 @@ export default function App() {
        companionStay.guests!==captured.guests)return;
     importCompanionExpediaRates();
   },[companionCapture,companionIdentityConfirmed,companionStay,activeAuditData.id]);
+
+  useEffect(()=>{
+    if(!vrboCapture || vrboCapture.propertyId!==activeAuditData.id || !vrboCapture.rooms.length)return;
+    if(!matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,
+      activeAuditData.name,activeAuditData.city) && !vrboIdentityConfirmed)return;
+    importVrboCompanionRates();
+  },[vrboCapture,vrboIdentityConfirmed,activeAuditData.id]);
 
   useEffect(() => {
     void connectLocalAgent(true);
@@ -6338,6 +6413,10 @@ export default function App() {
       setCompanionCapture(null);
       setExpediaReviewOpen(false);
       setCompanionMessage("");
+      setVrboCapture(null);
+      setVrboReviewOpen(false);
+      setVrboMessage("");
+      setVrboIdentityConfirmed(false);
       setAvailabilityProbes([]);
       setSelectedRateCohort("");
       setBrowserPilotResult(null);
@@ -6722,6 +6801,10 @@ export default function App() {
     setCompanionCapture(null);
     setExpediaReviewOpen(false);
     setCompanionMessage("");
+    setVrboCapture(null);
+    setVrboReviewOpen(false);
+    setVrboMessage("");
+    setVrboIdentityConfirmed(false);
     window.localStorage.setItem(ACTIVE_STRUCTURE_KEY, structure.id);
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
@@ -6865,6 +6948,71 @@ export default function App() {
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  function captureVrboFromChrome() {
+    setVrboReviewOpen(true);
+    setVrboCapture(null);
+    setVrboIdentityConfirmed(false);
+    setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
+    window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
+    if(!vrboSupported)
+      setVrboMessage("Per Vrbo serve Chrome Companion 0.3.0. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+  }
+
+  function importVrboCompanionRates() {
+    const captured=vrboCapture;
+    if(!captured || captured.propertyId!==activeAuditData.id || !captured.rooms.length)return;
+    const identityMatched=matchingExpediaProperty(
+      captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city
+    );
+    if(!identityMatched&&!vrboIdentityConfirmed)return;
+    const start=Date.parse(captured.checkin+"T00:00:00Z");
+    const end=Date.parse(captured.checkout+"T00:00:00Z");
+    const nights=Number.isFinite(start)&&Number.isFinite(end)
+      ? Math.round((end-start)/86400000):0;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(captured.checkin) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(captured.checkout) ||
+       captured.checkin<todayLocalIso() || nights<1 || nights>60 ||
+       nights!==captured.nights || !Number.isInteger(captured.guests) || captured.guests<1){
+      setVrboMessage("Date e ospiti non verificati sulla pagina Vrbo. Imposta date e ospiti su Vrbo e acquisisci nuovamente; non invento prezzi.");
+      return;
+    }
+    const existing=new Set(rateQuotes.filter(q=>q.otaId==="vrbo").map(q=>
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")));
+    const fresh:RateQuote[]=captured.rooms.filter(room=>!existing.has(
+      [captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total].join("|")
+    )).map((room,index)=>({
+      ...EMPTY_RATE_DRAFT,
+      id:globalThis.crypto?.randomUUID?.()??"vrbo-companion-"+Date.now()+"-"+index,
+      otaId:"vrbo",origin:"browser-assisted",
+      observedAt:new Date().toISOString(),stayDate:captured.checkin,nights,guests:captured.guests,
+      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      board:room.board,refund:room.refund,taxes:room.taxes,
+      audience:"Non verificato",promotion:"",
+      manualListingTitle:captured.propertyName,
+      manualIdentityConfirmed:vrboIdentityConfirmed,
+      pilotVerified:false,roomMatchStatus:"da verificare",
+      comparisonWarning:"Totale soggiorno letto da una scheda Vrbo visibile nel Chrome personale. "+
+        "La struttura e l'unità Booking devono essere verificate; imposte, condizioni e delta OTA non validati."
+    }));
+    if(!fresh.length){
+      setVrboMessage("Rilevazione già registrata: nessun duplicato creato.");
+      return;
+    }
+    setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(item=>
+      item.otaId==="vrbo"&&item.sourceUrl===captured.sourceUrl
+        ? {...item,identityVerified:true}:item));
+    setVrboMessage("Tariffa Vrbo salvata nella sezione tariffaria dedicata. Il delta con Booking rimane da verificare.");
+    setVrboReviewOpen(false);
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const vrbo=document.getElementById("velora-pricing-ota-vrbo");
+      if(vrbo instanceof HTMLDetailsElement)vrbo.open=true;
+      vrbo?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
   }
 
   function captureExpediaFromChrome() {
@@ -7910,7 +8058,18 @@ export default function App() {
       <tr><td>Servizi</td><td>${safe(reportListing.visibleServices.join(" · ")||"Non rilevati nel campione")}</td></tr>
       <tr><td>Descrizione</td><td>${safe(reportListing.descriptionExcerpt||"Snippet non disponibile")}</td></tr>
       </tbody></table>` : "";
-    const numericPricingHtml = otaDistributionHtml + presentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
+    const vrboReportListing=otaContentSnapshots.find(item=>item.otaId==="vrbo");
+    const vrboPresentationReport=vrboReportListing
+      ? `<h2>Presentazione Vrbo · campione osservato</h2>
+        <p>Identità e contenuti osservati nella scheda Vrbo visibile nel browser, non confronto integrale con Booking.</p>
+        <table><tbody>
+          <tr><td>Nome Vrbo</td><td>${safe(vrboReportListing.propertyName)} · ${vrboReportListing.identityVerified?"identità dichiarata verificata":"identità da verificare"}</td></tr>
+          <tr><td>Totale alloggio</td><td>${vrboReportListing.roomCount?"1 preventivo esplicito letto":"Nessun preventivo verificabile"}</td></tr>
+          <tr><td>Fotografie</td><td>${vrboReportListing.visibleImageCount===null?"non campionate":vrboReportListing.visibleImageCount+" foto caricate nel campione"}</td></tr>
+          <tr><td>Servizi</td><td>${safe(vrboReportListing.visibleServices.join(" · ")||"Non rilevati")}</td></tr>
+          <tr><td>Descrizione</td><td>${safe(vrboReportListing.descriptionExcerpt||"Non rilevata")}</td></tr>
+        </tbody></table>` : "";
+    const numericPricingHtml = otaDistributionHtml + presentationReport + vrboPresentationReport + `<h2>Tariffe puntuali e delta tra OTA</h2><p>Prezzi finali osservati per notte (totale / notti), non ADR realizzato. Δ = (altra OTA / Booking − 1) × 100. Il confronto richiede stessa unità fisica verificata, date, durata, ospiti, trattamento, cancellazione, pubblico, imposte e giorno di rilevazione. “n.d.” significa non confrontabile, non prezzo zero.</p><table><thead><tr><th>Data</th><th>Canale</th><th>Tipologia</th><th>€/notte</th><th>Booking base</th><th>Δ</th><th>Condizioni / limite</th></tr></thead><tbody>${numericPricingRows.join("") || `<tr><td colspan="7">Nessun preventivo datato registrato. La tabella descrittiva sotto resta disponibile.</td></tr>`}</tbody></table>`;
     const seededCell = (sample: { low?: number; high?: number; scope?: string; status?: string }) =>
       sample.low === undefined || sample.high === undefined ? safe(sample.status || "Non campionato")
         : `<b>€${sample.low.toFixed(2)}${sample.low === sample.high ? "" : `–€${sample.high.toFixed(2)}`}/notte</b><small>${safe(sample.scope || "")}</small>`;
@@ -8946,6 +9105,7 @@ export default function App() {
       ? activeAuditData.pricingAudit.comparisonSamples : [];
     const rateDetailRows = buildRateComparisonRows(rateQuotes, todayLocalIso());
     const expediaPresentation=otaContentSnapshots.find(item=>item.otaId==="expedia");
+    const vrboPresentation=otaContentSnapshots.find(item=>item.otaId==="vrbo");
     const bookingPresentation=browserPilotResult?.propertyId===activeAuditData.id
       ? browserPilotResult.otaProfiles?.booking : undefined;
     const bookingExpediaComparison=frontendComparisons.find(row=>
@@ -9160,19 +9320,21 @@ export default function App() {
           <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
               Asimmetrie di presentazione OTA · nome, camere, foto, servizi e testi
-              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Acquisizione Expedia non presente"}</span>
+              <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Expedia non acquisita"} · {vrboPresentation?"Vrbo acquisita":"Vrbo non acquisita"}</span>
             </summary>
             <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Identità e nome commerciale</p>
                 <p className="mt-2 text-[11px] text-[#50627F]"><b>Struttura Velora:</b> {activeAuditData.name}</p>
                 <p className="mt-1 text-[11px] text-[#50627F]"><b>Expedia:</b> {expediaPresentation?.propertyName||"Non rilevato"}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]"><b>Vrbo:</b> {vrboPresentation?.propertyName||"Non rilevato"}</p>
                 {expediaNameDifferent && <p className="mt-2 text-[11px] font-bold text-amber-800">Nome differente: verificare se è una variante commerciale o una scheda non pertinente. Non è conferma automatica d'identità.</p>}
                 {expediaPresentation && <p className="mt-2 text-[10px] font-semibold text-[#50627F]">{expediaPresentation.identityVerified?"Identità dichiarata verificata per questa acquisizione":"Identità ancora da confermare"} · <a href={expediaPresentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">Apri fonte Expedia</a></p>}
               </div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Camere e inventario visibile</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation?expediaPresentation.roomCount+" tipologie rilevate":"non acquisito"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: <b>{vrboPresentation?vrboPresentation.roomCount+" alloggi con preventivo verificabile nel campione":"non acquisito"}</b></p>
                 <p className="mt-1 text-[11px] text-[#50627F]">Booking: {browserPilotResult?.propertyId===activeAuditData.id
                   ? (browserPilotResult.roomReferences?.length||0) > 0
                     ? browserPilotResult.roomReferences?.length+" riferimenti campionati"
@@ -9183,6 +9345,7 @@ export default function App() {
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Copertura fotografica</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: <b>{expediaPresentation ? expediaPresentation.visibleImageCount===null ? "fotografie non campionate (aggiorna Companion)" : expediaPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: <b>{vrboPresentation ? vrboPresentation.visibleImageCount===null ? "non campionate" : vrboPresentation.visibleImageCount+" immagini caricate nel campione" : "nessuna acquisizione"}</b></p>
                 {bookingExpediaComparison
                   ? <p className="mt-1 text-[11px] font-semibold text-[#50627F]">Campione di Giove: {bookingExpediaComparison.photoCountLeft} / {bookingExpediaComparison.photoCountRight} foto ({veloraAgentName(bookingExpediaComparison.leftAgent)} / {veloraAgentName(bookingExpediaComparison.rightAgent)})</p>
                   : <p className="mt-1 text-[11px] text-[#50627F]">Confronto con la galleria Booking non ancora rilevato da Giove.</p>}
@@ -9192,6 +9355,7 @@ export default function App() {
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <p className="text-xs font-black text-[#23124A]">Servizi e descrizione</p>
                 <p className="mt-2 text-[11px] text-[#50627F]">Expedia: {expediaPresentation?.visibleServices.length ? expediaPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
+                <p className="mt-1 text-[11px] text-[#50627F]">Vrbo: {vrboPresentation?.visibleServices.length ? vrboPresentation.visibleServices.join(" · ") : "Servizi non acquisiti nel campione"}</p>
                 {bookingExpediaComparison?.differentServiceMentions.length
                   ? <p className="mt-2 text-[11px] font-semibold text-amber-800">Differenze testuali rilevate da Giove: {bookingExpediaComparison.differentServiceMentions.join(" · ")}</p>
                   : <p className="mt-2 text-[11px] text-[#50627F]">Nessuna differenza fra servizi verificata su entrambe le OTA.</p>}
@@ -9463,6 +9627,10 @@ export default function App() {
                             aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
+                          </button> : agent.id==="vrbo" ? <button type="button"
+                            onClick={captureVrboFromChrome}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white">
+                            ▶ Chrome
                           </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
@@ -9475,7 +9643,7 @@ export default function App() {
                         {(specialistLaunchErrors[agent.id] || (state?.state==="failed" && state.error)) && <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-800" role="alert">{specialistLaunchErrors[agent.id] || state?.error}</p>}
                         {loginPortal && <div className="mt-2 flex items-center justify-between gap-2 border-t border-current/15 pt-2">
                           <span className="text-[10px] font-semibold opacity-80">
-                            {loginState?.state==="awaiting_user"?"Codice richiesto · completa nel Chrome":loginState?.state==="authenticating"?"Verifica login in esecuzione…":loginState?.state==="ready"?"Accesso confermato · pronto per la scansione":loginState?.state==="unverified"?"Accesso da verificare":loginState?.state==="access_limited"?"Accesso limitato da Expedia/Vrbo · login non iniziato":loginState?.state==="error"?"Errore login · vedi dettaglio":loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.credentialSaved?"Email salvata · premi Accedi e verifica":loginState?.profileSaved?"Profilo Chrome presente · login non verificato":"Accesso da configurare"}
+                            {agent.id==="vrbo"?"Companion Chrome · nessun login richiesto":loginState?.state==="awaiting_user"?"Codice richiesto · completa nel Chrome":loginState?.state==="authenticating"?"Verifica login in esecuzione…":loginState?.state==="ready"?"Accesso confermato · pronto per la scansione":loginState?.state==="unverified"?"Accesso da verificare":loginState?.state==="access_limited"?"Accesso limitato da Expedia/Vrbo · login non iniziato":loginState?.state==="error"?"Errore login · vedi dettaglio":loginState?.state==="open"?"Accesso manuale aperto":loginState?.state==="queued"?"Apertura Chrome...":loginState?.credentialSaved?"Email salvata · premi Accedi e verifica":loginState?.profileSaved?"Profilo Chrome presente · login non verificato":"Accesso da configurare"}
                           </span>
                           <span className="flex shrink-0 gap-1">
                             {loginState?.state==="open" && <button type="button"
@@ -9490,6 +9658,17 @@ export default function App() {
                           </span>
                         </div>}
 
+
+                        {agent.id==="vrbo" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
+                          <span className="text-[10px] font-bold">Modalità pubblica · senza login</span>
+                          <button type="button" onClick={()=>setVrboReviewOpen(open=>!open)}
+                            className="rounded-lg border border-current/30 bg-white/80 px-2 py-2 text-[10px] font-black text-[#23124A]">
+                            {vrboReviewOpen?"Chiudi dettaglio":"Dettaglio Vrbo"}
+                          </button>
+                          <span className="text-[10px] font-semibold">
+                            {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} rilevazioni
+                          </span>
+                        </div>}
                         {agent.id==="expedia" && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-current/15 pt-2">
                           <button type="button" onClick={captureExpediaFromChrome}
                             className="rounded-lg bg-[#23124A] px-2.5 py-2 text-[10px] font-black text-white">
@@ -9633,6 +9812,40 @@ export default function App() {
                       </section>
                     ))}
                   </div>
+                  {vrboReviewOpen && <section className="mt-3 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-black text-[#23124A]">Vrbo · acquisizione dal Chrome normale</h4>
+                      <button type="button" onClick={()=>setVrboReviewOpen(false)} className="text-xs font-bold underline">Riduci dettagli</button>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-5 text-[#50627F]">
+                      Non serve effettuare il login nell'agente Windows. Apri una scheda alloggio Vrbo accessibile nel Chrome normale, imposta date e ospiti, poi premi il pulsante di acquisizione. L'estensione non supera gli accessi limitati.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <a href="https://www.vrbo.com/it-it/" target="_blank" rel="noopener noreferrer"
+                        className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-[#23124A]">Apri Vrbo</a>
+                      <button type="button" onClick={captureVrboFromChrome}
+                        className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white">
+                        Acquisisci da Chrome
+                      </button>
+                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.3 collegato":"Serve Chrome Companion 0.3.0"}</span>
+                    </div>
+                    {!vrboSupported && <p className="mt-2 text-xs text-amber-800">Scarica il Companion aggiornato, rimuovi la vecchia estensione Expedia da Chrome e carica la cartella estratta. <a className="font-black underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip">Scarica ZIP</a></p>}
+                    {vrboMessage && <p className="mt-3 rounded-lg bg-[#F5F2FA] p-3 text-xs font-semibold text-[#23124A]" role="status">{vrboMessage}</p>}
+                    {vrboCapture?.propertyId===activeAuditData.id && <div className="mt-3 space-y-2 rounded-xl border border-blue-100 p-3">
+                      <p className="text-sm font-black text-[#23124A]">{vrboCapture.propertyName || vrboCapture.pageTitle || "Titolo non acquisito"}</p>
+                      <p className="text-xs text-[#50627F]">Check-in: {vrboCapture.checkin||"da verificare"} · Check-out: {vrboCapture.checkout||"da verificare"} · Ospiti: {vrboCapture.guests||"da verificare"}</p>
+                      <p className="text-xs text-[#50627F]">Fotografie caricate nel campione: {vrboCapture.presentation?.visibleImageCount??"non rilevate"} · Servizi citati: {vrboCapture.presentation?.visibleServices.join(", ")||"non rilevati"}</p>
+                      {vrboCapture.rooms.map((room,i)=><p key={i} className="rounded-lg bg-[#F8F6FB] p-3 text-xs text-[#23124A]">Alloggio Vrbo · <b>€ {room.total.toFixed(2)} per {vrboCapture.nights} notti</b> · condizioni da verificare</p>)}
+                      {!matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,
+                        activeAuditData.name,activeAuditData.city) &&
+                        <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                          <input type="checkbox" checked={vrboIdentityConfirmed}
+                            onChange={e=>setVrboIdentityConfirmed(e.target.checked)} className="mt-0.5"/>
+                          Ho verificato sulla pagina Vrbo il nome, la località e le foto: confermo che si tratta della struttura {activeAuditData.name}.
+                        </label>}
+                      <p className="text-[11px] text-[#50627F]">La tariffa viene importata nell'area Vrbo soltanto se identità, date, ospiti e totale sono verificabili. Non viene considerata una corrispondenza certa con Booking.</p>
+                    </div>}
+                  </section>}
                   {expediaReviewOpen && <section className="mt-3 rounded-2xl border border-[#C8A96B] bg-white p-4 shadow-sm">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <h4 className="text-sm font-black text-[#23124A]">Expedia · risultati acquisiti</h4>
