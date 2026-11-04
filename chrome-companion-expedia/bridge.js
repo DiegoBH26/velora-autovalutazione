@@ -1,5 +1,5 @@
 // Visible-page bridge. The extension does not store credentials or booking data.
-// Velora must be open in another Chrome tab while the user views Expedia.
+// Velora must be open in another Chrome tab while the user views Expedia or Vrbo.
 "use strict";
 const ORIGIN = "https://diegobh26.github.io";
 if (location.origin === ORIGIN &&
@@ -15,8 +15,9 @@ if (location.origin === ORIGIN &&
       emit("READY", {installed: true});
       return;
     }
-    if(event.data?.type !== "CAPTURE_EXPEDIA") return;
-    chrome.runtime.sendMessage({type: "CAPTURE_VISIBLE_EXPEDIA"}, (reply) => {
+    if(!["CAPTURE_EXPEDIA","CAPTURE_VRBO"].includes(event.data?.type)) return;
+    const requestType=event.data.type==="CAPTURE_VRBO"?"CAPTURE_VISIBLE_VRBO":"CAPTURE_VISIBLE_EXPEDIA";
+    chrome.runtime.sendMessage({type: requestType}, (reply) => {
       const error = chrome.runtime.lastError;
       if (error || !reply?.ok) {
         emit("ERROR", {message: error?.message || reply?.error || "Acquisizione non riuscita"});
