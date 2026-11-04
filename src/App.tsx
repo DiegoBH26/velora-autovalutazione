@@ -3763,6 +3763,8 @@ type BrowserPilotObservation = {
   title?: string;
   identityQuarantined?: boolean;
   identityQuarantineReason?: string;
+  identityUnverified?: boolean;
+  identityVerificationNote?: string;
   quotes?: BrowserPilotQuoteCandidate[];
 };
 
@@ -4134,9 +4136,16 @@ function pilotListingIdentityWarning(result:BrowserPilotResult,observation:Brows
 function pilotWrongListingReason(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
   const mismatch=pilotListingIdentityWarning(result,observation);
   if(mismatch)return mismatch;
-  if(observation.identityQuarantined ||
-    ["wrong_property_listing","wrong_property","identity_mismatch"].includes(observation.status))
-    return "Annuncio di altra struttura: identità rifiutata dal controllo OTA.";
+  const confirmedMismatch=["wrong_property_listing","wrong_property",
+    "identity_mismatch","listing_identity_mismatch"].includes(observation.status);
+  const explicitQuarantine=Boolean(observation.identityQuarantined &&
+    /annuncio diverso|altra struttura|another property/i.test(
+      observation.identityQuarantineReason||""));
+  // Old agent versions incorrectly quarantined a merely unverified Booking
+  // page. Do not turn that *uncertainty* into a false "different hotel" alert.
+  if(confirmedMismatch||explicitQuarantine)
+    return "Scheda di altra struttura: identificazione non corrispondente.";
+
   return "";
 }
 function pilotEligiblePriceObservations(result:BrowserPilotResult|null|undefined):BrowserPilotObservation[] {
@@ -10722,7 +10731,9 @@ export default function App() {
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
                 {browserPilotResult.observations.length} controlli OTA importati · {pilotEligiblePriceObservations(browserPilotResult).reduce((sum,item)=>sum+(item.quotes?.length||0),0)} righe prezzo potenzialmente attribuibili · {pilotDetectedRateQuotes(browserPilotResult).filter(row=>row.pilotVerified).length} validate · {(browserPilotResult.observations||[]).filter(obs=>pilotWrongListingReason(browserPilotResult,obs)).length} schede estranee scartate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch.
               </p>
-              <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 14 fonti complessive = 10 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
+              <details className="mt-2 rounded-xl border border-[#E5DDF1] bg-white p-3">
+                <summary className="cursor-pointer text-xs font-bold text-[#23124A]">Dettagli tecnici e log (facoltativi)</summary>
+                <div className="mt-2">
               {(browserPilotResult.roomReferences || []).length > 0 && <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-950">
                 <b>Camera reference Booking</b>
                 {(browserPilotResult.roomReferences || []).map((reference, index) => <span key={`room-ref-${index}`} className="block mt-1">
@@ -10835,6 +10846,8 @@ export default function App() {
                   </tbody>
                 </table>
               </div>}
+                </div>
+              </details>
             </>}
           </div>
           <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · {rateQuotes.length} rilevazioni salvate · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
