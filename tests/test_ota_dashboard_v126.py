@@ -31,6 +31,17 @@ class OtaDashboardContracts(unittest.TestCase):
         self.assertIn('setExpediaReviewOpen(false)',APP)
         self.assertIn('velora-pricing-details',APP)
 
+    def test_price_accordion_distinguishes_observed_from_imported(self):
+        # Pilot preview can contain valid-looking Booking prices that stay
+        # quarantined because their listing identity is unverified.
+        self.assertIn('const observed = (browserPilotResult?.propertyId===activeAuditData.id',APP)
+        self.assertIn('const pending = observed.length>0 && count===0;',APP)
+        self.assertIn('prezzi osservati',APP)
+        self.assertIn('non ancora registrati nell\'archivio tariffe',APP)
+        self.assertIn('pilotListingIdentityWarning(browserPilotResult,observation)',APP)
+        self.assertIn('Nessun prezzo osservato né registrato',APP)
+        self.assertNotIn('"Nessuna tariffa rilevata"',APP)
+
     def test_audit_comparison_does_not_invent_photo_deltas(self):
         self.assertIn('OtaContentSnapshot',APP)
         self.assertIn('setOtaContentSnapshots(previous=>[',APP)
