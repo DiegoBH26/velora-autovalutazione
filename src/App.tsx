@@ -4127,12 +4127,26 @@ function pilotListingIdentityWarning(result:BrowserPilotResult,observation:Brows
   // proof of a different legal property. No price is used for comparison.
   return "Identità non coerente: struttura richiesta «"+expected+"», scheda osservata «"+listingName.slice(0,110)+"». Prezzi esclusi dal confronto.";
 }
+// A wrong-property listing is retained ONLY as diagnostic evidence.
+// Its price must not count in this property's rates or enter the PDF.
+function pilotWrongListingReason(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
+  const mismatch=pilotListingIdentityWarning(result,observation);
+  if(mismatch)return mismatch;
+  if(observation.identityQuarantined ||
+    ["wrong_property_listing","wrong_property","identity_mismatch"].includes(observation.status))
+    return "Annuncio di altra struttura: identità rifiutata dal controllo OTA.";
+  return "";
+}
+function pilotEligiblePriceObservations(result:BrowserPilotResult|null|undefined):BrowserPilotObservation[] {
+  if(!result)return [];
+  return (result.observations||[]).filter(observation=>!pilotWrongListingReason(result,observation));
+}
 function pilotComparisonEvidence(result:BrowserPilotResult|null|undefined):{comparable:boolean; channels:number; identityWarnings:string[]} {
   if(!result) return {comparable:false,channels:0,identityWarnings:[]};
   const warnings=new Set<string>();
   const cohorts=new Map<string,Set<string>>();
   for(const obs of result.observations||[]) {
-    const warning=pilotListingIdentityWarning(result,obs);
+    const warning=pilotWrongListingReason(result,obs);
     if(warning) { warnings.add((PILOT_OTA_LABELS[obs.otaId]||obs.otaId)+": "+warning);continue; }
     for(const q of obs.quotes||[]) {
       if(!q.verified || !q.referenceRoomKey || q.comparisonSelected===false) continue;
@@ -4157,7 +4171,7 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   const stayMap = new Map<string, Map<string, { units:Set<string>; labels:Map<string,string>; explicitNoRate:boolean }>>();
   for (const observation of result.observations || []) {
     if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
-    if(pilotListingIdentityWarning(result,observation)) continue;
+    if(pilotWrongListingReason(result,observation)) continue;
     if(!observation.checkin||!observation.checkout)continue;
     const key=[observation.checkin,observation.checkout,Number(observation.adults||2)].join("|");
     if (!stayMap.has(key)) stayMap.set(key,new Map());
@@ -4252,7 +4266,7 @@ function pilotDetectedRateQuotes(result: BrowserPilotResult): RateQuote[] {
   const rows: RateQuote[] = [];
   for (const observation of result.observations || []) {
     if (!PILOT_TARIFF_OTA_IDS.includes(observation.otaId as typeof PILOT_TARIFF_OTA_IDS[number])) continue;
-    if(pilotListingIdentityWarning(result,observation)) continue;
+    if(pilotWrongListingReason(result,observation)) continue;
     const sourceUrl = observation.finalUrl || observation.requestedUrl || "";
     for (const quote of observation.quotes || []) {
       if (quote.comparisonSelected === false) continue;
@@ -8417,7 +8431,9 @@ export default function App() {
           return `<tr><td><b>${safe(platform)}</b></td><td>${safe(profile.status)}</td><td>${safe(rating)}</td><td>${safe(profile.reviewCount ? String(profile.reviewCount) : "n.d.")}</td><td>${safe(recommendation)}</td><td>${safe(profileProof || "Nessun dettaglio aggiuntivo")}</td></tr>`;
         }).join("")}</tbody></table>`
       : "";
-    const pilotQuoteRows = pilotObservations.flatMap((observation) =>
+    const pilotQuoteRows = pilotEligiblePriceObservations(
+      browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult:null
+    ).flatMap((observation) =>
       (observation.quotes || [])
         .map((quote) => ({ observation, quote }))
     );
@@ -9097,7 +9113,7 @@ export default function App() {
       const channels = Array.from(new Set(observations.map((o) => o.otaId))).filter((id) => id !== "sito");
       const channelRows = channels.map((id) => {
         const rows = observations.filter((o) => o.otaId === id);
-        const verified = rows.filter((o) => !pilot || !pilotListingIdentityWarning(pilot,o)).filter((o) => (o.quotes || []).some((q) => q.verified)).length;
+        const verified = rows.filter((o) => !pilot || !pilotWrongListingReason(pilot,o)).filter((o) => (o.quotes || []).some((q) => q.verified)).length;
         const blocked = rows.some((o) => /blocked|429|403|rate_limited|robots_denied/i.test(o.status || ""));
         const state = verified ? "Prezzi rilevati" : blocked ? "Portale limitato" : rows.some((o) => o.status === "no_public_rate") ? "Nessun prezzo nel campione" : "Da verificare";
         return { id, name: reportChannels.find((c) => c.id === id)?.platform || id, count: rows.length, verified, state };
@@ -9450,7 +9466,7 @@ export default function App() {
       const discovery=pilot?.discoveredSources?.[otaId];
       const observations=(pilot?.observations||[]).filter(row=>row.otaId===otaId);
       const profile=pilot?.otaProfiles?.[otaId];
-      const validPilotQuote=observations.some(row=>!pilotListingIdentityWarning(pilot,row) &&
+      const validPilotQuote=observations.some(row=>!pilotWrongListingReason(pilot,row) &&
         (row.quotes||[]).some(q=>q.verified));
       const vrboPublic=otaId==="vrbo"&&vrboPresence.propertyId===activeAuditData.id
         &&vrboPresence.state==="completed" ? vrboPresence.result : undefined;
@@ -10678,7 +10694,7 @@ export default function App() {
             {resetScrapingMessage && <p className="mt-2 rounded-xl border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{resetScrapingMessage}</p>}
             {browserPilotResult?.propertyId === activeAuditData.id && <>
               <p className="mt-2 text-[11px] font-semibold text-[#23124A]">
-                {browserPilotResult.observations.length} controlli tariffari importati · {browserPilotResult.observations.reduce((sum, item) => sum + (item.quotes?.length || 0), 0)} righe prezzo osservate · {pilotDetectedRateQuotes(browserPilotResult).filter(row=>row.pilotVerified).length} validate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch · esiti inclusi nel prossimo report PDF.
+                {browserPilotResult.observations.length} controlli OTA importati · {pilotEligiblePriceObservations(browserPilotResult).reduce((sum,item)=>sum+(item.quotes?.length||0),0)} righe prezzo potenzialmente attribuibili · {pilotDetectedRateQuotes(browserPilotResult).filter(row=>row.pilotVerified).length} validate · {(browserPilotResult.observations||[]).filter(obs=>pilotWrongListingReason(browserPilotResult,obs)).length} schede estranee scartate · {Object.keys(browserPilotResult.otaProfiles || {}).length} profili/metasearch.
               </p>
               <p className="mt-1 text-[10px] leading-4 text-[#50627F]"><b>Lettura canali:</b> 14 fonti complessive = 10 canali tariffari + 4 profili/metasearch. Una riga prezzo osservata può essere reale ma ancora non attribuita con certezza a camera/piano; in quel caso viene mostrata ma non usata nel delta.</p>
               {(browserPilotResult.roomReferences || []).length > 0 && <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-950">
@@ -10761,24 +10777,26 @@ export default function App() {
                 <table className="min-w-[980px] w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#23124A] text-white"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date testate</th><th className="p-2 text-left">Esito tecnico</th><th className="p-2 text-left">Motivo / cosa manca</th></tr></thead>
                   <tbody>{browserPilotResult.observations.map((observation, index) => {
-                    const quotes = observation.quotes || [];
+                    const rejection=pilotWrongListingReason(browserPilotResult,observation);
+                    const quotes = rejection?[]:observation.quotes || [];
                     const verified = quotes.filter((quote) => quote.verified).length;
-                    const label = pilotCoverageSummary(browserPilotResult, observation.month, observation.otaId) || observation.status;
-                    const quoteDetail = quotes.length ? ` · ${quotes.length} righe prezzo · ${verified} validate` : "";
+                    const label = rejection?"ANNUNCIO ESTRANEO SCARTATO":
+                      pilotCoverageSummary(browserPilotResult, observation.month, observation.otaId) || observation.status;
+                    const quoteDetail = rejection?" · prezzi esclusi":quotes.length ? ` · ${quotes.length} righe prezzo · ${verified} validate` : "";
                     return <tr key={`pilot-diagnostic-${index}`} className="border-t border-[#EEE8F4] align-top odd:bg-[#FBF9FF]">
                       <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                       <td className="p-2">{observation.checkin} → {observation.checkout}</td>
                       <td className="p-2 font-semibold">{label}{quoteDetail}</td>
-                      <td className="p-2">{observation.evidence || "Nessun dettaglio tecnico disponibile"}{observation.finalUrl && <span className="block mt-1 break-all text-[9px] text-[#50627F]">Pagina finale: {observation.finalUrl}</span>}</td>
+                      <td className="p-2">{rejection?<strong className="block text-rose-700">{rejection}</strong>:null}{observation.evidence || "Nessun dettaglio tecnico disponibile"}{observation.finalUrl && <span className="block mt-1 break-all text-[9px] text-[#50627F]">Pagina finale: {observation.finalUrl}</span>}</td>
                     </tr>;
                   })}</tbody>
                 </table>
               </div>}
-              {browserPilotResult.observations.some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
+              {pilotEligiblePriceObservations(browserPilotResult).some((item) => item.quotes?.length) && <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-[#E5DDF1] bg-white">
                 <table className="w-full border-collapse text-[10px]">
                   <thead className="sticky top-0 bg-[#F4F0F8] text-[#23124A]"><tr><th className="p-2 text-left">OTA</th><th className="p-2 text-left">Date</th><th className="p-2 text-left">Camera / piano</th><th className="p-2 text-right">€/notte</th><th className="p-2 text-right">Totale soggiorno</th><th className="p-2 text-left">Condizioni</th></tr></thead>
                   <tbody>
-                    {browserPilotResult.observations.flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
+                    {pilotEligiblePriceObservations(browserPilotResult).flatMap((observation, obsIndex) => (observation.quotes || []).map((quote, quoteIndex) =>
                       <tr key={`pilot-quote-${obsIndex}-${quoteIndex}`} className={`border-t border-[#EEE8F4] align-top ${quote.roomMatchStatus === "different-room-fallback" ? "bg-amber-50" : ""}`}>
                         <td className="p-2 font-black">{activeAuditData.otaPresence.find((channel) => channel.id === observation.otaId)?.platform || observation.otaId}</td>
                         <td className="p-2">{observation.checkin} → {observation.checkout}</td>
@@ -10819,9 +10837,9 @@ export default function App() {
               // Preliminary observations are displayed even if an identity or
               // attribution safeguard has excluded them from rateQuotes.
               // Never advertise zero observed rates just because none was saved.
-              const observed = (browserPilotResult?.propertyId===activeAuditData.id
-                ? browserPilotResult.observations : [])
-                .filter(observation=>observation.otaId===otaId)
+              const observed = pilotEligiblePriceObservations(
+                browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult:null
+              ).filter(observation=>observation.otaId===otaId)
                 .flatMap(observation=>(observation.quotes||[])
                   .filter(quote=>Number.isFinite(Number(quote.total))&&Number(quote.total)>0)
                   .map(quote=>({observation,quote})));
