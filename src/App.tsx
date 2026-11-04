@@ -6515,6 +6515,23 @@ export default function App() {
         if(bookingState.agents?.booking?.state!=="completed"){
           throw new Error("Booking non ha concluso la ricerca: le altre OTA non possono partire con date diverse.");
         }
+        if(needsBooking){
+          const datesResponse=await fetch(
+            localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=booking"),
+            {mode:"cors",cache:"no-store"}
+          );
+          if(!datesResponse.ok) throw new Error("Impossibile leggere le date Booking confermate.");
+          const bookingDates=await datesResponse.json() as {
+            bookingReferenceStays?:Array<{status?:string;checkin?:string;checkout?:string}>
+          };
+          const locks=bookingDates.bookingReferenceStays||[];
+          if(!locks.length || locks.some(lock=>
+            !["initial_dates_available","shifted_to_available_booking_dates"].includes(lock.status||"")
+            || !lock.checkin || !lock.checkout
+          )){
+            throw new Error("Booking non ha confermato tutte le finestre di soggiorno: ricerca OTA sospesa per evitare date asimmetriche.");
+          }
+        }
       }
       const remaining=ids.filter(id=>id!=="booking");
       if(remaining.length){
