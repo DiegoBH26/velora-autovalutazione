@@ -9784,6 +9784,23 @@ export default function App() {
                         <option value="missing">Non individuata</option>
                         <option value="unverified">Accesso / identità incerti</option>
                       </select>
+                      {row.url && <label className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-[#50627F]">
+                        <input type="checkbox" className="mt-0.5"
+                          checked={row.presence==="present"}
+                          onChange={event=>{
+                            const verified=event.target.checked;
+                            if(verified && !window.confirm("Hai aperto la scheda OTA e verificato nome, località e fotografie della struttura corretta?"))return;
+                            setOtaContentSnapshots(previous=>previous.map(item=>
+                              item.otaId===row.otaId?{...item,identityVerified:verified}:item));
+                            updateAnswer("audit-ota-"+row.otaId,{
+                              auditStatus:verified?"present":"unverified",
+                              note:verified
+                                ? "Identità confermata dall'operatore dopo verifica di nome, località e fotografie. URL: "+row.url
+                                : "Identità da riconfermare. URL candidato: "+row.url
+                            });
+                          }}/>
+                        <span>Confermo identità dopo verifica nome, località e foto</span>
+                      </label>}
                     </div>
                     {cell(row.photosState,row.photosLabel)}
                     {cell(row.roomState,row.roomLabel)}
