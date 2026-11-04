@@ -5225,7 +5225,7 @@ export default function App() {
         if(payload?.schema==="velora-vrbo-visible-v1"){
           let url:URL;
           try {url=new URL(String(payload.sourceUrl||""));}catch{setVrboMessage("Link Vrbo non valido.");return;}
-          if(url.protocol!=="https:" || !/(^|\\.)vrbo\\.(com|co\\.uk|de|fr|es|it)$/.test(url.hostname)){
+          if(url.protocol!=="https:" || !/(^|\.)vrbo\.(com|co\.uk|de|fr|es|it)$/.test(url.hostname)){
             setVrboMessage("La pagina acquisita non appartiene a Vrbo.");return;
           }
           if(!Array.isArray(payload.rooms)||payload.rooms.length>1){
@@ -6971,8 +6971,8 @@ export default function App() {
     const end=Date.parse(captured.checkout+"T00:00:00Z");
     const nights=Number.isFinite(start)&&Number.isFinite(end)
       ? Math.round((end-start)/86400000):0;
-    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(captured.checkin) ||
-       !/^\\d{4}-\\d{2}-\\d{2}$/.test(captured.checkout) ||
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(captured.checkin) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(captured.checkout) ||
        captured.checkin<todayLocalIso() || nights<1 || nights>60 ||
        nights!==captured.nights || !Number.isInteger(captured.guests) || captured.guests<1){
       setVrboMessage("Date e ospiti non verificati sulla pagina Vrbo. Imposta date e ospiti su Vrbo e acquisisci nuovamente; non invento prezzi.");
