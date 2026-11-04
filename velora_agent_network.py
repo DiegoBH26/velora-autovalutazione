@@ -198,20 +198,35 @@ def quarantine_identity_mismatches(result: dict, agent: str) -> dict:
         if observation.get("otaId") != agent:
             continue
         check = observation.get("identityCheck") or {}
-        mismatch = (observation.get("status") in bad_statuses
-                    or observation.get("sourceIdentityVerified") is False
-                    or (isinstance(check, dict) and (check.get("verified") is False
-                        or check.get("ok") is False)))
-        if not mismatch:
+        # There are TWO distinct states: a proven mismatch (different hotel)
+        # and a still-unverified identity (Booking found, name/city evidence
+        # incomplete). The latter must NOT be labelled "other property".
+        explicit_wrong = observation.get("status") in bad_statuses
+        unverified = (observation.get("sourceIdentityVerified") is False
+                      or (isinstance(check, dict) and (check.get("verified") is False
+                          or check.get("ok") is False)))
+        if not explicit_wrong and not unverified:
             continue
-        observation["identityQuarantined"] = True
-        observation["identityQuarantineReason"] = (
-            "ERRORE IDENTITÀ: scheda non attribuibile con certezza alla struttura selezionata"
-        )
         observation["sourceIdentityVerified"] = False
+        if explicit_wrong:
+            observation["identityQuarantined"] = True
+            observation["identityQuarantineReason"] = (
+                "ANNUNCIO ESTRANEO: la verifica ha rilevato una scheda di altra struttura"
+            )
+        else:
+            observation.pop("identityQuarantined", None)
+            observation.pop("identityQuarantineReason", None)
+            observation["identityUnverified"] = True
+            observation["identityVerificationNote"] = (
+                "Identità non ancora verificata; annuncio diverso NON dimostrato"
+            )
         for quote in observation.get("quotes") or []:
             quote["verified"] = False
-            quote["identityRejected"] = True
+            # Exclude from price deltas, not from the observed-price preview.
+            if explicit_wrong:
+                quote["identityRejected"] = True
+            else:
+                quote.pop("identityRejected", None)
     return result
 
 
