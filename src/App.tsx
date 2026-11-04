@@ -9417,6 +9417,113 @@ export default function App() {
       count: allRows.filter(({ item }) => answers[item.id]?.auditStatus === option.value).length,
     }));
 
+    // Four independent frontend signals. Booking is the reference, never a row.
+    // Absence in one search is a finding, not proof that the listing does not exist.
+    const otaAsymmetryRows = pricingAccordionIds.filter(otaId=>otaId!=="booking").map(otaId=>{
+      const platform=activeAuditData.otaPresence.find(item=>item.id===otaId)?.platform
+        || PILOT_OTA_LABELS[otaId] || otaId;
+      const manual=answers["audit-ota-"+otaId];
+      const snapshot=otaContentSnapshots.find(item=>item.otaId===otaId);
+      const pilot=browserPilotResult?.propertyId===activeAuditData.id ? browserPilotResult : null;
+      const discovery=pilot?.discoveredSources?.[otaId];
+      const observations=(pilot?.observations||[]).filter(row=>row.otaId===otaId);
+      const profile=pilot?.otaProfiles?.[otaId];
+      const validPilotQuote=observations.some(row=>!pilotListingIdentityWarning(pilot,row) &&
+        (row.quotes||[]).some(q=>q.verified));
+      const vrboPublic=otaId==="vrbo"&&vrboPresence.propertyId===activeAuditData.id
+        &&vrboPresence.state==="completed" ? vrboPresence.result : undefined;
+      const hasCandidate=Boolean(snapshot?.sourceUrl||discovery?.candidateUrl||discovery?.presenceDetected||
+        discovery?.url||vrboPublic?.candidateUrls.length||
+        observations.some(row=>["source_unverified","not_verified_present","existing_unverified"].includes(row.status)));
+      const anyBlocked=observations.some(row=>["rate_limited","rate_limited_session","access_blocked",
+        "blocked","http_error","navigation_error","robots_denied","robots_unavailable","login_required"].includes(row.status))
+        || vrboPublic?.status==="inconclusive";
+      const explicitlyNotFound=manual?.auditStatus==="missing" ||
+        vrboPublic?.status==="not_identified" ||
+        (!hasCandidate && observations.length>0 && observations.every(row=>row.status==="source_missing")) ||
+        (!hasCandidate && discovery?.status==="source_missing");
+      const identityConfirmed=Boolean(snapshot?.identityVerified ||
+        manual?.auditStatus==="present" && /https?:\/\//i.test(manual.note||"") ||
+        discovery?.identityVerified || validPilotQuote);
+      const presence: "present"|"missing"|"candidate"|"blocked"|"unverified"=
+        identityConfirmed ? "present"
+        : explicitlyNotFound ? "missing"
+        : hasCandidate ? "candidate"
+        : anyBlocked ? "blocked" : "unverified";
+      const presenceLabel=presence==="present"?"Scheda confermata"
+        : presence==="missing"?"Non individuata nella ricerca"
+        : presence==="candidate"?"Scheda candidata · identità da confermare"
+        : presence==="blocked"?"Accesso bloccato · presenza incerta":"Non verificata";
+      // Use paired Giove readings only: a generic photoAudit of the property
+      // must not be mistaken for a Booking gallery or image identity evidence.
+      const photoPair=frontendComparisons.find(row=>
+        (row.leftAgent==="booking"&&row.rightAgent===otaId)||
+        (row.rightAgent==="booking"&&row.leftAgent===otaId));
+      const bookingPhotoCount=photoPair
+        ? photoPair.leftAgent==="booking"?photoPair.photoCountLeft:photoPair.photoCountRight:null;
+      const otaPhotoCount=photoPair
+        ? photoPair.leftAgent===otaId?photoPair.photoCountLeft:photoPair.photoCountRight
+        : snapshot?.visibleImageCount??null;
+      const photoDifference=photoPair && bookingPhotoCount!==null && otaPhotoCount!==null
+        && bookingPhotoCount>0 && otaPhotoCount>0 ? otaPhotoCount-bookingPhotoCount : null;
+      const photosLabel=photoDifference!==null
+        ? (photoDifference===0
+          ? bookingPhotoCount+" / "+bookingPhotoCount+" foto campionate · immagini da confrontare"
+          : otaPhotoCount+" / "+bookingPhotoCount+" foto campionate · "+Math.abs(photoDifference)+(photoDifference<0?" in meno":" in più"))
+        : otaPhotoCount!==null ? otaPhotoCount+" foto visibili · Booking non confrontato"
+        : "Fotografie non campionate";
+      const photosState=photoDifference===null?"unverified":photoDifference===0?"candidate":"missing";
+      // Compare unique priced unit types only on the exact same stay/guest
+      // cohort; do not infer a room is missing simply because the page blocked.
+      const eligible=rateQuotes.filter(q=>q.total>0&&q.nights>0&&q.guests>0&&
+        (q.otaId===otaId||q.otaId==="booking"));
+      const otaQuotes=eligible.filter(q=>q.otaId===otaId);
+      const bookingQuotes=eligible.filter(q=>q.otaId==="booking");
+      const sharedStays=[...new Set(otaQuotes.map(q=>[q.stayDate,q.nights,q.guests].join("|")))]
+        .filter(key=>bookingQuotes.some(q=>[q.stayDate,q.nights,q.guests].join("|")===key));
+      const sharedStay=sharedStays.sort((a,b)=>b.localeCompare(a))[0];
+      const stayOta=sharedStay?otaQuotes.filter(q=>[q.stayDate,q.nights,q.guests].join("|")===sharedStay):[];
+      const stayBooking=sharedStay?bookingQuotes.filter(q=>[q.stayDate,q.nights,q.guests].join("|")===sharedStay):[];
+      const roomNames=(rows:RateQuote[])=>new Set(rows.map(q=>normalizedRateToken(q.roomType)).filter(Boolean));
+      const bookingRoomCount=roomNames(stayBooking).size;
+      const otaRoomCount=roomNames(stayOta).size;
+      const roomComparable=presence==="present"&&Boolean(sharedStay)&&bookingRoomCount>0;
+      const roomLabel=roomComparable
+        ? otaRoomCount+" / "+bookingRoomCount+" tipologie con preventivo · date identiche"
+        : otaQuotes.length ? roomNames(otaQuotes).size+" tipologie quotate · confronto Booking in sospeso"
+        : snapshot?.roomCount ? snapshot.roomCount+" tipologie con prezzo lette · Booking da confrontare"
+        : "Nessuna tipologia tariffata verificabile";
+      const roomState=roomComparable
+        ? otaRoomCount<bookingRoomCount?"missing":otaRoomCount>bookingRoomCount?"candidate":"present"
+        : "unverified";
+      const matchedPrices=stayOta.flatMap(ota=>{
+        if(ota.roomMatchStatus!=="same-room"||!ota.referenceRoomKey)return [];
+        const booking=stayBooking.find(b=>b.referenceRoomKey===ota.referenceRoomKey &&
+          b.board===ota.board && b.refund===ota.refund && b.audience===ota.audience &&
+          b.taxes===ota.taxes && b.total>0);
+        return booking ? [{ota,booking,delta:Math.round((ota.total/booking.total-1)*10000)/100}] : [];
+      });
+      const differentPrices=matchedPrices.filter(row=>Math.abs(row.delta)>=0.01);
+      const priceState=matchedPrices.length
+        ? differentPrices.length?"missing":"present" : "unverified";
+      const priceLabel=matchedPrices.length
+        ? differentPrices.length
+          ? differentPrices.length+" / "+matchedPrices.length+" prezzi diversi da Booking"
+          : matchedPrices.length+" prezzi comparabili · nessun delta"
+        : otaQuotes.length
+          ? otaQuotes.length+" preventivi letti · condizioni/unità da abbinare"
+          : "Nessun prezzo comparabile acquisito";
+      return {
+        otaId,platform,presence,presenceLabel,presenceNote:manual?.note||"",
+        photosState,photosLabel,roomState,roomLabel,priceState,priceLabel,
+        roomCount:otaRoomCount,bookingRoomCount,sharedStay,
+        photoSource:photoPair?"Confronto Giove (foto caricate, non equivalenza immagini)":snapshot?.sourceUrl||"",
+        url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||"",
+        matchedPrices,differentPrices
+      };
+    });
+
+
     const visibleData = EXTERNAL_WEB_AUDIT_DATA.map((macro) => ({
       ...macro,
       categories: macro.categories
@@ -9575,7 +9682,7 @@ export default function App() {
           </div></details>
           <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
-              Asimmetrie di presentazione OTA · nome, camere, foto, servizi e testi
+              Dettaglio delle acquisizioni OTA · nome, foto, servizi e testi
               <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Expedia non acquisita"} · {vrboPresentation?"Vrbo acquisita":"Vrbo non acquisita"} · {holiduPresentation?"Holidu acquisita":"Holidu non acquisita"}</span>
             </summary>
             <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
@@ -9627,46 +9734,73 @@ export default function App() {
           </details>
           <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
-          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
-            <h4 className="text-sm font-black text-[#23124A]">Copertura OTA e asimmetrie distributive</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Confronto eseguito solo sulle stesse date e usando tipologie/unità con prezzo frontend validato. La differenza è un fatto osservato; la causa tecnica (channel manager, mapping, allotment, restrizioni o stop-sale) resta da verificare.</p>
-            {browserPilotResult && (() => {
-              const evidence=pilotComparisonEvidence(browserPilotResult);
-              return <div className="mt-3 space-y-2">
-                {evidence.identityWarnings.length>0 && <div className="rounded-lg border border-amber-300 bg-white p-3">
-                  <p className="text-xs font-black text-[#874A00]">Attenzione · possibili schede di altre strutture</p>
-                  <p className="mt-1 text-[11px] text-[#50627F]">I prezzi delle schede con nome incoerente sono esclusi dai confronti. Non sono dati validati della struttura selezionata.</p>
-                  {evidence.identityWarnings.map((warning,index)=><p key={index} className="mt-1 text-[11px] font-semibold text-[#874A00]">{warning}</p>)}
-                </div>}
-                {!evidence.comparable && <div className="rounded-lg border border-[#D8C8A5] bg-white p-3">
-                  <p className="text-xs font-black text-[#23124A]">Confronto OTA non determinabile · evidenze comparabili insufficienti</p>
-                  <p className="mt-1 text-[11px] text-[#50627F]">Non risultano due portali con prezzi validati per la stessa struttura, camera, date e condizioni. Questo non dimostra che le tariffe siano uguali né che non esistano asimmetrie.</p>
-                </div>}
-              </div>;
-            })()}
-            {pilotDistributionAsymmetries(browserPilotResult).length === 0
-              ? <div className="mt-3 space-y-2"><p className="text-xs font-semibold text-[#23124A]">{pilotComparisonEvidence(browserPilotResult).comparable ? "Nessuna asimmetria di camere dimostrata nel campione confrontabile." : "Verifiche OTA disponibili (non equivalgono a un confronto validato):"}</p>
-                {activeAuditData.otaPresence.filter(channel=>channel.id!=="sito").map(channel=>{
-                  const observations=(browserPilotResult?.observations || []).filter(observation=>observation.otaId===channel.id);
-                  const verified=observations.filter(observation=>!browserPilotResult || !pilotListingIdentityWarning(browserPilotResult,observation)).filter(observation=>(observation.quotes||[]).some(quote=>quote.verified)).length;
-                  const total=Math.max(1,observations.length);
-                  const pct=Math.min(100,Math.round(verified/total*100));
-                  const reason=observations.length ? pilotCoverageSummary(browserPilotResult,observations[0].month,channel.id) : "Non verificato nel campione";
-                  return <div key={channel.id} className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-2 rounded-lg bg-white p-2">
-                    <span className="truncate text-[11px] font-bold text-[#23124A]">{channel.platform}</span>
-                    <div><div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]"><div className="h-full rounded-full bg-[#8F79AE]" style={{width:pct+"%"}} /></div>
-                      <span className="mt-1 block text-[10px] text-[#50627F]">{verified} controlli con tariffe validate su {observations.length} · {reason}</span></div>
-                  </div>;
-                })}</div>
-              : <OtaDistributionMiniChart items={pilotDistributionAsymmetries(browserPilotResult)} />}
-            <div className="mt-3 space-y-2">
-              {pilotDistributionAsymmetries(browserPilotResult).map((item,index)=><div key={"ota-asym-"+index} className="rounded-xl border border-amber-200 bg-white p-3">
-                <p className="text-xs font-black text-[#7C4A00]">{item.otaLabel} · {item.checkin} → {item.checkout} · {item.unitCount}/{item.maxUnitCount} tipologie</p>
-                <p className="mt-1 text-[11px] leading-5 text-[#50627F]">{item.finding}</p>
-                {item.units.length>0 && <p className="mt-1 text-[10px] font-semibold text-[#23124A]">Tipologie rilevate: {item.units.join(" · ")}</p>}
-              </div>)}
+          <section className="mt-4 overflow-hidden rounded-2xl border border-[#D5D0E7] bg-white" aria-label="Asimmetrie OTA per sezione">
+            <div className="border-b border-[#E5DDF1] bg-[#F8F5FC] p-4">
+              <h4 className="text-sm font-black text-[#23124A]">Barra delle asimmetrie · Booking come riferimento</h4>
+              <p className="mt-1 text-[11px] leading-5 text-[#50627F]">
+                Quattro verifiche separate per ciascuna OTA: <b>presenza scheda</b>, <b>fotografie</b>, <b>tipologie con prezzo</b> e <b>tariffe</b>.
+                Il verde indica un riscontro positivo nel campione, il rosso una criticità rilevata, l'ambra un dato incompleto e il grigio una verifica ancora impossibile.
+              </p>
+              <p className="mt-1 text-[10px] font-semibold text-[#64748B]">
+                Una scheda non individuata non è necessariamente inesistente. Le immagini uguali non si deducono dal solo numero di foto.
+                Differenze tariffarie soltanto con stessa camera verificata, date, ospiti e condizioni.
+              </p>
             </div>
-          </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[900px]">
+                <div className="grid grid-cols-[132px_repeat(4,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
+                  <div>OTA</div><div>1 · Presenza scheda</div><div>2 · Fotografie</div>
+                  <div>3 · Tipologie / Booking</div><div>4 · Tariffe / Booking</div>
+                </div>
+                {otaAsymmetryRows.map(row=>{
+                  const styleFor=(state:string)=>state==="present"
+                    ? "bg-emerald-500" : state==="missing"?"bg-rose-500"
+                    : state==="candidate"?"bg-amber-400":"bg-slate-300";
+                  const cell=(state:string,label:string)=>(
+                    <div className="min-w-0">
+                      <div className="h-2 overflow-hidden rounded-full bg-[#EDE8F2]">
+                        <div className={`h-full w-full rounded-full ${styleFor(state)}`}/>
+                      </div>
+                      <p className="mt-1.5 text-[10px] font-semibold leading-[1.4] text-[#34435B]">{label}</p>
+                    </div>);
+                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[132px_repeat(4,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
+                    <div>
+                      <p className="text-xs font-black text-[#23124A]">{row.platform}</p>
+                      {row.url && <a className="mt-1 inline-block break-all text-[10px] font-semibold text-[#50627F] underline" href={row.url} target="_blank" rel="noopener noreferrer">Apri scheda</a>}
+                    </div>
+                    <div>
+                      {cell(row.presence,row.presenceLabel)}
+                      <select aria-label={`Verifica presenza ${row.platform}`}
+                        value={answers["audit-ota-"+row.otaId]?.auditStatus||""}
+                        onChange={event=>updateAnswer("audit-ota-"+row.otaId,{
+                          auditStatus:event.target.value as AuditStatus,
+                          note:event.target.value==="missing"
+                            ? "Scheda non individuata nel frontend durante la verifica manuale. L'assenza definitiva non è dimostrata."
+                            : answers["audit-ota-"+row.otaId]?.note||""
+                        })}
+                        className="mt-1.5 w-full min-w-0 rounded-md border border-[#DCCFEA] bg-white p-1 text-[10px] text-[#23124A]">
+                        <option value="">Da verificare</option>
+                        <option value="present">Scheda verificata (con URL)</option>
+                        <option value="missing">Non individuata</option>
+                        <option value="unverified">Accesso / identità incerti</option>
+                      </select>
+                    </div>
+                    {cell(row.photosState,row.photosLabel)}
+                    {cell(row.roomState,row.roomLabel)}
+                    <div>{cell(row.priceState,row.priceLabel)}
+                      {row.differentPrices.length>0 && <p className="mt-1 text-[10px] text-rose-700">
+                        Δ prezzi confrontabili: {row.differentPrices.slice(0,3).map(item=>`+${item.delta.toFixed(1)}%`.replace("+-","-")).join(" · ")}
+                      </p>}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>
+            <p className="border-t border-[#E5DDF1] bg-[#FCFAFF] px-4 py-2 text-[10px] text-[#50627F]">
+              Il conteggio delle tipologie riguarda le <b>unità con preventivo letto</b>, non necessariamente l'inventario totale pubblicato.
+              Senza pari date e ospiti, l'assenza di tariffe non equivale a indisponibilità o a una scheda mancante.
+            </p>
+          </section>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Booking determina sempre per primo la finestra di date realmente disponibile</b>; quella stessa coppia check-in/check-out viene poi bloccata e replicata identica su ogni OTA selezionata, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>scheda struttura → stesse date Booking → 2 adulti → Cerca/Verifica disponibilità → tariffe visibili</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
