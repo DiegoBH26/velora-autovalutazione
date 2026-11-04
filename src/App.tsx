@@ -9368,9 +9368,12 @@ export default function App() {
                 <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
               </div>}
 
-                <p className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] px-3 py-2 text-[11px] text-[#50627F]">
-                  <strong>Ercole, Atlante e Mercurio:</strong> salva l’email dell’account in «Configura credenziali» (password vuota per Expedia/Vrbo con codice), quindi premi <strong>Accedi e verifica</strong> per entrare sul portale prima della scansione. Se serve un codice, inseriscilo personalmente nel Chrome dedicato e premi <strong>Ho completato l’accesso · Riprendi</strong>. Dopo la conferma potrai premere <strong>▶ Account</strong>. Non comunicare codici a Velora.
-                </p>
+                <details className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] text-[11px] text-[#50627F]">
+                  <summary className="cursor-pointer px-3 py-2 font-bold text-[#23124A]">Come funzionano gli accessi Expedia, Vrbo e Holidu · apri guida</summary>
+                  <p className="px-3 pb-3 leading-5">
+                    Salva l’email dell’account in «Configura credenziali» (password vuota per Expedia/Vrbo con codice), quindi premi <strong>Accedi e verifica</strong> per entrare sul portale prima della scansione. Se serve un codice, inseriscilo personalmente nel Chrome dedicato e premi <strong>Ho completato l’accesso · Riprendi</strong>. Dopo la conferma potrai premere <strong>▶ Account</strong>. Non comunicare codici a Velora.
+                  </p>
+                </details>
                 <div className="border-t border-[#EEE8F4] pt-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -9393,8 +9396,22 @@ export default function App() {
                       }} className="text-[11px] font-black text-[#64748B] underline underline-offset-4 disabled:opacity-40">Deseleziona</button>
                     </div>
                   </div>
-                  <div className="grid items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {SPECIALIST_AGENTS.map((agent)=>{
+                  <div className="space-y-5">
+                    {([
+                      {id:"access",title:"Agenti con accesso",subtitle:"Expedia, Vrbo e Holidu · schede operative allineate"},
+                      {id:"standard",title:"Altri agenti",subtitle:"OTA, sito diretto e recensioni · schede compatte"}
+                    ] as const).map(group=>(
+                      <section key={group.id} className="space-y-2">
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <h4 className="text-xs font-black text-[#23124A]">{group.title}</h4>
+                          <p className="text-[10px] font-semibold text-[#64748B]">{group.subtitle}</p>
+                        </div>
+                        <div className={group.id==="access"
+                          ? "grid items-stretch gap-3 md:grid-cols-3"
+                          : "grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}>
+                          {SPECIALIST_AGENTS.filter(agent=>group.id==="access"
+                            ? LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId)
+                            : !LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId)).map((agent)=>{
                       const ota=LOCAL_PILOT_OTA_OPTIONS.find((item)=>item.id===agent.id);
                       const selected=ota?localPilotSelectedChannels.includes(agent.id):selectedSupportAgents.includes(agent.id);
                       const state=specialistStatuses[agent.id];
@@ -9423,7 +9440,11 @@ export default function App() {
                           window.localStorage.setItem("velora-pilot-selected-support-agents",JSON.stringify(next));
                         }
                       };
-                      return <div key={agent.id} className={"flex min-h-[104px] flex-col justify-between rounded-xl border p-3 transition "+(selected?active:idle)}>
+                      return <div key={agent.id} className={
+                        "flex h-full min-w-0 flex-col justify-between rounded-xl border p-3 transition "+
+                        (group.id==="access"?"min-h-[232px]":"min-h-[110px]")+
+                        " "+(selected?active:idle)
+                      }>
                         <button type="button" onClick={toggle} disabled={launchingBatch||localPilotRunning}
                           aria-pressed={selected} aria-label={(selected?"Escludi ":"Seleziona ")+agent.name+" ("+agent.channel+")"}
                           className="flex w-full items-start gap-2 text-left disabled:opacity-50">
@@ -9607,7 +9628,10 @@ export default function App() {
                         </div>}
                         </details>}
                       </div>;
-                    })}
+                          })}
+                        </div>
+                      </section>
+                    ))}
                   </div>
                   {expediaReviewOpen && <section className="mt-3 rounded-2xl border border-[#C8A96B] bg-white p-4 shadow-sm">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

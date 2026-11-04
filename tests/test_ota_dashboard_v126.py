@@ -8,7 +8,14 @@ WORKER=(ROOT/"chrome-companion-expedia/background.js").read_text(encoding="utf-8
 
 class OtaDashboardContracts(unittest.TestCase):
     def test_agents_remain_compact_and_review_moves_outside_cards(self):
-        self.assertIn("grid items-start gap-2.5",APP)
+        self.assertIn('grid items-stretch gap-3 md:grid-cols-3',APP)
+        self.assertIn('grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',APP)
+        self.assertIn('min-h-[232px]',APP)
+        self.assertIn('min-h-[110px]',APP)
+        self.assertIn('group.id==="access"',APP)
+        self.assertIn('Agenti con accesso',APP)
+        self.assertIn('Altri agenti',APP)
+        self.assertIn('Come funzionano gli accessi Expedia, Vrbo e Holidu',APP)
         self.assertIn("Accessi, credenziali e test avanzati",APP)
         self.assertIn("Expedia · risultati acquisiti",APP)
         self.assertIn("setExpediaReviewOpen(open=>!open)",APP)
