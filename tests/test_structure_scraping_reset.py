@@ -45,6 +45,8 @@ class PropertyScrapingReset(unittest.TestCase):
             auto=SimpleNamespace(lock=threading.Lock(),running=False,
                                  property_id="villa-casale",error="",message="",result=None),
             agent_lock=threading.Lock(),
+            vrbo_presence_lock=threading.Lock(),
+            vrbo_presence_runs={},
             agent_runs={
                 ("villa-casale","booking"):{"state":"completed"},
                 ("another-villa","booking"):{"state":"completed"},
@@ -59,6 +61,8 @@ class PropertyScrapingReset(unittest.TestCase):
             "Path":Path, "json":json, "shutil":shutil,
             "STATE":self.states.state, "AUTO_STATE":self.states.auto,
             "AGENT_RUN_LOCK":self.states.agent_lock, "AGENT_RUNS":self.states.agent_runs,
+            "VRBO_PRESENCE_LOCK":self.states.vrbo_presence_lock,
+            "VRBO_PRESENCE_RUNS":self.states.vrbo_presence_runs,
             "RUNTIME_PROPERTIES":self.runtime, "AGENT_RESULTS":self.agents,
             "safe_property_id":lambda value: value if re.fullmatch(r"[a-z0-9-]{1,80}",str(value)) else (_ for _ in ()).throw(ValueError("ID")),
             "runtime_property_path":lambda pid:self.runtime/(pid+".json"),
@@ -115,6 +119,12 @@ class PropertyScrapingReset(unittest.TestCase):
             self.reset({"propertyId":"villa-casale","website":"https://one.test"})
         self.assertTrue((self.agents/"villa-casale"/"booking"/"result.json").exists())
         self.assertTrue((self.runtime/"villa-casale.json").exists())
+
+    def test_active_vrbo_presence_prevents_reset(self):
+        self.states.vrbo_presence_runs["villa-casale"]={"state":"running"}
+        with self.assertRaisesRegex(RuntimeError,"Attendi"):
+            self.reset({"propertyId":"villa-casale","website":"https://one.test"})
+        self.assertTrue((self.agents/"villa-casale"/"booking"/"result.json").exists())
 
     def test_shared_cache_is_preserved_for_other_property(self):
         (self.runtime/"another-villa.json").write_text(json.dumps(self.property),encoding="utf-8")
