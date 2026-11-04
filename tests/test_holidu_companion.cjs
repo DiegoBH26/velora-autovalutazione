@@ -25,7 +25,7 @@ function capture(prices,locationHref="https://www.holidu.it/d/12345?checkin=2027
   vm.runInContext(worker+"\nthis.capture=visibleHoliduCapture;",sandbox);
   return sandbox.capture();
 }
-assert.equal(manifest.version,"0.4.0");
+assert.equal(manifest.version,"0.4.1");
 assert.ok(manifest.host_permissions.includes("https://*.holidu.it/*"));
 assert.match(bridge,/CAPTURE_VISIBLE_HOLIDU/);
 const valid=capture(["€ 450 per 3 notti, 1 alloggio","€ 150 a notte"]);
