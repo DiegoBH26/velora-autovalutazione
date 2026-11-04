@@ -4176,23 +4176,25 @@ function pilotDistributionAsymmetries(result: BrowserPilotResult | null | undefi
   const out: OtaDistributionAsymmetry[]=[];
   for (const [stayKey,byOta] of stayMap) {
     const [checkin,checkout]=stayKey.split("|");
-    const positive=[...byOta.entries()].filter(([,slot])=>slot.units.size>0);
-    if (positive.length<2) continue;
-    const maxUnitCount=Math.max(...positive.map(([,slot])=>slot.units.size));
-    if (maxUnitCount<2) continue;
-    const referenceChannels=positive.filter(([,slot])=>slot.units.size===maxUnitCount).map(([otaId])=>PILOT_OTA_LABELS[otaId]||otaId);
-    for (const [otaId,slot] of byOta) {
+    // Booking is the mandatory baseline; the channel with most rooms is
+    // not automatically the reference. Only compare verified priced units.
+    const booking=byOta.get("booking");
+    if(!booking?.units.size)continue;
+    const maxUnitCount=booking.units.size;
+    const referenceChannels=["Booking.com"];
+    for(const [otaId,slot] of byOta) {
+      if(otaId==="booking")continue;
       const count=slot.units.size;
-      if (count>0 && count<maxUnitCount) {
+      if(count>0 && count<maxUnitCount) {
         const units=[...slot.labels.values()];
         out.push({
           checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:count,maxUnitCount,referenceChannels,units,
-          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" espone "+count+" tipologia/e vendibile/i, mentre "+referenceChannels.join(", ")+" ne espone/espongono "+maxUnitCount+" sulle stesse date. Asimmetria distributiva verificata da frontend. Possibili cause da approfondire: mapping inventario incompleto, disponibilità/restrizioni diverse, configurazione parziale del canale o sincronizzazione channel manager non omogenea.",
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" ha "+count+" tipologia/e con preventivo validato nel campione, contro "+maxUnitCount+" su Booking nelle stesse date. La differenza riguarda i preventivi visibili, non dimostra da sola che le altre tipologie non siano pubblicate. Verificare mapping, restrizioni, allotment e disponibilità.",
         });
-      } else if (count===0 && slot.explicitNoRate && maxUnitCount>0) {
+      } else if(count===0 && slot.explicitNoRate) {
         out.push({
           checkin,checkout,otaId,otaLabel:PILOT_OTA_LABELS[otaId]||otaId,unitCount:0,maxUnitCount,referenceChannels,units:[],
-          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" non espone tipologie prenotabili sulle date testate, mentre "+referenceChannels.join(", ")+" ne espone/espongono "+maxUnitCount+". Asimmetria di disponibilità verificata da frontend; non prova da sola un errore del channel manager e richiede verifica di allotment, stop-sale, minimum stay e mapping.",
+          finding:(PILOT_OTA_LABELS[otaId]||otaId)+" non mostra un preventivo pubblico sulle date testate, mentre Booking mostra "+maxUnitCount+" tipologie con prezzo validato. Questo non prova l'assenza della scheda né una mancata pubblicazione: verificare disponibilità e restrizioni.",
         });
       }
     }
