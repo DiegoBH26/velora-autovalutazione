@@ -7,12 +7,21 @@ if (location.origin === ORIGIN &&
   const emit = (type, payload) => window.postMessage({
     source: "velora-expedia-companion-v1", type, payload
   }, ORIGIN);
-  emit("READY", { installed: true,vrbo:true,holidu:true,version:"0.4.0" });
+  emit("READY", { installed: true,vrbo:true,holidu:true,tabsLauncher:true,version:"0.4.1" });
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN ||
         event.data?.source !== "velora-online-v1") return;
     if(event.data?.type === "COMPANION_PING") {
-      emit("READY", {installed: true,vrbo:true,holidu:true,version:"0.4.0"});
+      emit("READY", {installed: true,vrbo:true,holidu:true,tabsLauncher:true,version:"0.4.1"});
+      return;
+    }
+    if(event.data?.type==="OPEN_THREE_OTA_TABS") {
+      chrome.runtime.sendMessage({type:"OPEN_THREE_OTA_TABS"},(reply)=>{
+        const error=chrome.runtime.lastError;
+        if(error||!reply?.ok)
+          emit("PORTALS_ERROR",{message:error?.message||reply?.error||"Apertura non riuscita",count:reply?.count||0});
+        else emit("PORTALS_OPENED",{count:reply.count});
+      });
       return;
     }
     if(!["CAPTURE_EXPEDIA","CAPTURE_VRBO","CAPTURE_HOLIDU"].includes(event.data?.type)) return;
