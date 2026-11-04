@@ -45,7 +45,16 @@ assert.equal(safe.some(row=>row===wrong),false);
 assert.equal(safe.some(row=>row===booking),true);
 assert.equal(safe.some(row=>row===foundSame),true);
 assert.equal(sandbox.eligible({...result,observations:[{...booking,status:"wrong_property_listing"}]}).length,0);
-assert.equal(sandbox.eligible({...result,observations:[{...booking,identityQuarantined:true}]}).length,0);
+// Previous versions incorrectly marked a merely UNVERIFIED Booking page
+// as "other property". Keep its observed prices visible, not validated.
+assert.equal(sandbox.eligible({...result,observations:[{
+  ...booking,verified:false,identityQuarantined:true,
+  identityQuarantineReason:"ERRORE IDENTITÀ: scheda non attribuibile con certezza"
+}]}).length,1);
+assert.equal(sandbox.eligible({...result,observations:[{
+  ...booking,identityQuarantined:true,
+  identityQuarantineReason:"ERRORE IDENTITÀ: annuncio diverso dalle schede OTA precedentemente validate"
+}]}).length,0);
 assert.ok(app.includes('pilotEligiblePriceObservations(browserPilotResult).flatMap('));
 assert.ok(app.includes('const pilotQuoteRows = pilotEligiblePriceObservations('));
 assert.ok(app.includes('const observed = pilotEligiblePriceObservations('));
