@@ -29,6 +29,7 @@ jobs:
           node tests/test_expedia_companion_grid.cjs
           node tests/test_expedia_companion_geometry.cjs
           node tests/test_vrbo_companion.cjs
+          node tests/test_holidu_companion.cjs
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -39,3 +40,5 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_expedia_chrome_companion.py'
       - name: Verify OTA dashboard and evidence flow
         run: python -m unittest discover -s tests -p 'test_ota_dashboard_v126.py'
+      - name: Verify Vrbo autonomous presence and 3-OTA workspace
+        run: python -m unittest discover -s tests -p 'test_vrbo_presence_and_ota_workspace.py'
