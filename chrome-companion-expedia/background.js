@@ -404,28 +404,166 @@ function visibleVrboCapture() {
   };
 }
 
+function visibleHoliduCapture() {
+  const host=location.hostname.toLowerCase();
+  if(!/(^|\.)holidu\.(com|it|de|fr|es)$/.test(host))
+    return {error:"La scheda aperta non appartiene a Holidu."};
+  const pageText=String(document.body?.innerText||"").slice(0,50000);
+  if(/accesso (?:temporaneamente )?limitato|access (?:temporarily )?limited|access denied|sei un robot|are you a robot|verify you are human|verifica che sei una persona|captcha/i.test(pageText.slice(0,3500)))
+    return {error:"Holidu mostra una limitazione o una verifica. Il Companion non può superarla. Apri prima una normale scheda struttura accessibile."};
+  const url=new URL(location.href);
+  // Holidu partner links may redirect to another OTA. Never treat partner prices as Holidu.
+  if(!/\/d\/\d+/.test(url.pathname))
+    return {error:"Non è aperta una scheda alloggio Holidu verificabile (/d/...). Apri l'annuncio corretto, non i risultati di ricerca o un sito partner."};
+  const safeUrl=new URL(url.origin+url.pathname);
+  const paramsAllowed=new Set(["chkin","chkout","checkin","checkout","startDate","endDate","d1","d2","adults","guests","rm1","arrival","departure"]);
+  for(const [key,val] of url.searchParams)if(paramsAllowed.has(key)&&val.length<70)safeUrl.searchParams.set(key,val);
+  function iso(v) {
+    const match=String(v||"").match(/20\d{2}-\d{2}-\d{2}/);
+    if(!match)return "";
+    const d=new Date(match[0]+"T00:00:00Z");
+    return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===match[0]?match[0]:"";
+  }
+  const pickDate=keys=>{for(const key of keys){const value=iso(url.searchParams.get(key));if(value)return value;}return "";};
+  const checkin=pickDate(["chkin","checkin","d1","startDate","arrival"]);
+  const checkout=pickDate(["chkout","checkout","d2","endDate","departure"]);
+  const nightDiff=checkin&&checkout?Math.round((Date.parse(checkout)-Date.parse(checkin))/86400000):0;
+  const nights=nightDiff>=1&&nightDiff<=60?nightDiff:0;
+  let guests=0;
+  for(const key of ["adults","guests","rm1"]){
+    const value=url.searchParams.get(key)||"";
+    if(/^\d{1,2}$/.test(value)){guests=Number(value);break;}
+    const match=value.match(/(?:^|,)a(\d{1,2})(?:,|$)/);
+    if(match){guests=Number(match[1]);break;}
+  }
+  if(!guests){
+    const match=pageText.slice(0,3500).match(/\b(\d{1,2})\s*(?:ospiti|viaggiatori|adulti|guests|travelers|adults)\b/i);
+    if(match)guests=Number(match[1]);
+  }
+  const visible=e=>e instanceof Element&&e.getClientRects().length>0&&
+    getComputedStyle(e).display!=="none"&&getComputedStyle(e).visibility!=="hidden";
+  const title=(document.querySelector("h1")?.innerText||"").trim().replace(/\s+/g," ").slice(0,180);
+  const pageTitle=String(document.title||"").trim().slice(0,240);
+  const propertyName=/^(?:holidu|alloggi|sistemazioni|find your|results?)/i.test(title)||!title
+    ? pageTitle.replace(/\s+[|–-]\s+Holidu.*$/i,"").slice(0,180)
+    : title;
+  const currencyPattern=/(?:€\s*(\d[\d.,\s]*\d|\d)|(\d[\d.,\s]*\d|\d)\s*€)/g;
+  const parseEur=raw=>{
+    let v=String(raw||"").replace(/\s/g,"");
+    if(/[.,]/.test(v)){
+      if(v.includes(".")&&v.includes(",")){
+        const decimal=v.lastIndexOf(",")>v.lastIndexOf(".")?",":".";
+        const thousands=decimal===","?".":",";
+        v=v.split(thousands).join("").replace(decimal,".");
+      } else if(/^[\d]+[.,]\d{3}$/.test(v))v=v.replace(/[.,]/g,"");
+      else v=v.replace(",",".");
+    }
+    const amount=Number(v);
+    return Number.isFinite(amount)&&amount>=1&&amount<=200000?amount:null;
+  };
+  const candidates=[];
+  const priceNodes=[...document.querySelectorAll("div,span,p,strong,b,section")].slice(0,7000);
+  for(const node of priceNodes) {
+    if(!visible(node))continue;
+    const txt=String(node.innerText||"").trim().slice(0,310);
+    if(!txt||txt.length>300)continue;
+    if(!/€/.test(txt))continue;
+    const matches=[...txt.matchAll(currencyPattern)];
+    for(const match of matches){
+      const value=parseEur(match[1]||match[2]);
+      if(value===null)continue;
+      const before=txt.slice(Math.max(0,match.index-90),match.index);
+      const after=txt.slice(match.index+match[0].length,match.index+match[0].length+110);
+      const context=(before+" "+after).toLowerCase();
+      const isStay=/\b(?:totale(?:\s+(?:soggiorno|prezzo))?|prezzo\s+totale|total(?:\s+price)?|for\s+\d+\s+nights?|per\s+\d+\s+nott[ei])\b/i.test(context);
+      const isNightly=/\b(?:a|per)\s+notte\b|\bper\s+night\b|\bnightly\b|\bprezzo\s+a\s+notte\b/i.test(after.slice(0,45))||
+        /\b(?:a|per)\s+notte\s*$/i.test(before);
+      const isOld=/\b(?:prezzo originale|prezzo barrato|original price|was)\b/i.test(before.slice(-45));
+      const explicitNights=context.match(/\b(?:per|for)\s+(\d{1,2})\s+(?:nott[ei]|nights?)\b/i);
+      if(!isStay||isNightly||isOld||(explicitNights&&nights&&Number(explicitNights[1])!==nights))continue;
+      candidates.push({amount:value});
+    }
+  }
+  const distinct=[...new Set(candidates.map(item=>item.amount))];
+  if(/(?:prenota su|continua su|book on|continue on)\s+(?:booking|expedia|vrbo|airbnb)/i.test(pageText.slice(0,8000)))
+    return {error:"Holidu rimanda a un'altra OTA. Nessuna tariffa attribuita a Holidu."};
+  const rooms=[];
+  if(nights>0&&guests>0&&distinct.length===1){
+    rooms.push({
+      roomType:"Intero alloggio · "+(propertyName||"Holidu").slice(0,115),
+      total:distinct[0],board:"Non chiaro",refund:"Non chiaro",
+      taxes:"Non chiaro",confidence:"total-for-stay"
+    });
+  }
+  const imgUrls=new Set(),photoAlts=new Set();
+  for(const img of [...document.querySelectorAll("img")].filter(visible).slice(0,300)){
+    const w=Number(img.naturalWidth||img.width||0),h=Number(img.naturalHeight||img.height||0);
+    if(w<180||h<120)continue;
+    try{
+      const source=String(img.currentSrc||img.src||"");
+      if(!source||source.startsWith("data:"))continue;
+      imgUrls.add(new URL(source,location.href).pathname);
+    }catch{continue;}
+    const alt=String(img.alt||"").trim();
+    if(alt.length>4&&alt.length<140)photoAlts.add(alt);
+  }
+  const features=[
+    ["Piscina",/\bpiscina\b|\bpool\b/i],["Wi-Fi",/\bwi-?fi\b/i],
+    ["Parcheggio",/\bparcheggio\b|\bparking\b/i],
+    ["Colazione",/\bcolazione\b|\bbreakfast\b/i],
+    ["Aria condizionata",/\baria condizionata\b|\bair conditioning\b/i],
+    ["Cucina",/\bcucina\b|\bkitchen\b/i]
+  ].filter(([,r])=>r.test(pageText)).map(([name])=>name);
+  const description=String(document.querySelector('meta[name="description"]')?.getAttribute?.("content")||"").trim().slice(0,450);
+  const warning=rooms.length
+    ?"Un totale soggiorno visibile acquisito. L'unità fisica, l'identità e le condizioni Booking vanno verificate."
+    : !nights||!guests
+      ?"Date oppure ospiti non verificabili nell'URL/pagina: nessun prezzo importabile."
+      : distinct.length>1
+        ?"Più importi di soggiorno differenti individuati: impossibile scegliere il totale senza ambiguità."
+        :"Nessun totale soggiorno esplicito e attribuibile all'alloggio trovato. Non moltiplico il prezzo a notte.";
+  return {
+    schema:"velora-holidu-visible-v1",pageTitle,propertyName,sourceUrl:safeUrl.toString(),
+    checkin,checkout,nights,guests,rooms,
+    presentation:{
+      visibleImageCount:imgUrls.size,photoAltSamples:[...photoAlts].slice(0,15),
+      visibleServices:features,descriptionExcerpt:description,roomCount:rooms.length,
+      evidenceScope:"sample-of-visible-loaded-images-and-page-text"
+    },
+    capturedAt:new Date().toISOString(),warning
+  };
+}
+
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO"].includes(request?.type)) return false;
+  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO","CAPTURE_VISIBLE_HOLIDU"].includes(request?.type)) return false;
   if(!sender.tab?.url?.startsWith("https://diegobh26.github.io/velora-autovalutazione/")) {
     sendResponse({ok:false,error:"Richiesta consentita solo da Velora online."});
     return false;
   }
   (async()=>{
     const vrbo=request.type==="CAPTURE_VISIBLE_VRBO";
-    const tabUrls=vrbo
+    const holidu=request.type==="CAPTURE_VISIBLE_HOLIDU";
+    const tabUrls=holidu
+      ? ["https://*.holidu.it/*","https://*.holidu.com/*","https://*.holidu.de/*","https://*.holidu.fr/*","https://*.holidu.es/*"]
+      : vrbo
       ? ["https://*.vrbo.com/*","https://*.vrbo.co.uk/*","https://*.vrbo.de/*","https://*.vrbo.fr/*","https://*.vrbo.es/*","https://*.vrbo.it/*"]
       : ["https://*.expedia.it/*","https://*.expedia.com/*",
          "https://*.expedia.de/*","https://*.expedia.fr/*",
          "https://*.expedia.es/*","https://*.expedia.co.uk/*"];
     const tabs=await chrome.tabs.query({url:tabUrls});
-    const targets=tabs.filter(tab=>tab.id&&tab.url?.startsWith("https://"))
+    const targets=tabs.filter(tab=>tab.id&&tab.url?.startsWith("https://")&&
+      (holidu ? /\/d\/\d+/.test(new URL(tab.url).pathname)
+        : vrbo ? /\/pdp\/|\/\d+(?:ha|vb|vr)?\/?$|\/vacation-rental\/|\/holiday-rental\//i.test(new URL(tab.url).pathname)
+        : !/\/(?:hotel-search|search)\b/i.test(new URL(tab.url).pathname)))
       .sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0));
-    if(!targets.length) throw Error(vrbo
-      ? "Apri prima una scheda alloggio Vrbo accessibile nel Chrome normale."
+    if(!targets.length) throw Error(holidu
+      ? "Nessuna scheda alloggio Holidu (/d/...) aperta. Apri l'annuncio corretto, non la pagina di ricerca."
+      : vrbo ? "Nessuna scheda alloggio Vrbo aperta. Apri l'annuncio corretto, non la pagina di ricerca."
       : "Apri prima la pagina delle camere Expedia nel tuo Chrome normale.");
     const executed=await chrome.scripting.executeScript({
       target:{tabId:targets[0].id},
-      func:vrbo?visibleVrboCapture:visibleExpediaCapture
+      func:holidu?visibleHoliduCapture:vrbo?visibleVrboCapture:visibleExpediaCapture
     });
     const payload=executed?.[0]?.result;
     if(!payload||payload.error) throw Error(payload?.error||"Impossibile leggere le camere visibili.");
