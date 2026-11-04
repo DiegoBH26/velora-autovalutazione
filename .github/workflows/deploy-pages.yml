@@ -36,6 +36,7 @@ jobs:
           node tests/test_expedia_companion_grid.cjs
           node tests/test_expedia_companion_geometry.cjs
           node tests/test_vrbo_companion.cjs
+          node tests/test_holidu_companion.cjs
       - name: Package Chrome Companion into downloadable ZIP
         run: |
           python -c "import pathlib,zipfile; root=pathlib.Path('chrome-companion-expedia'); dest=pathlib.Path('dist/velora-expedia-companion.zip'); z=zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED); [z.write(p,arcname='Velora_Chrome_Companion/'+p.name) for p in sorted(root.iterdir()) if p.is_file() and p.suffix in ('.json','.js','.txt')]; z.close(); print('Prepared',dest)"
@@ -51,6 +52,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_expedia_chrome_companion.py'
       - name: Verify OTA dashboard and evidence flow
         run: python -m unittest discover -s tests -p 'test_ota_dashboard_v126.py'
+      - name: Verify Vrbo autonomous presence and 3-OTA workspace
+        run: python -m unittest discover -s tests -p 'test_vrbo_presence_and_ota_workspace.py'
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
