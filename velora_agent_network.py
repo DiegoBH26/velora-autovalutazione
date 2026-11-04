@@ -306,7 +306,18 @@ def specialist_input_matches_property_id(data: dict) -> bool:
             and t not in ignored and t != city and not t.isdigit()]
     if not tokens or not name:
         return bool(name)
-    return any(compact(token) in name for token in tokens)
+    if any(compact(token) in name for token in tokens):
+        return True
+    # The user corrected the typo of this SAME known Salve property, keeping
+    # its stable archive ID ("...speculizzi..."). Do not mistake a filename
+    # typo for an unrelated hotel. This is an exact, locality-bound exception:
+    # no generic fuzzy match and no blanket bypass of OTA page identity.
+    known_spelling_correction=(
+        city=="salve"
+        and "speculizzi" in tokens
+        and name=="tenutaspecolizzi"
+    )
+    return known_spelling_correction
 
 
 async def execute(agent: str, data: dict, property_file: Path, output: Path,
