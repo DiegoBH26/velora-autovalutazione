@@ -36,3 +36,5 @@ jobs:
         run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py
       - name: Check Expedia companion contracts
         run: python -m unittest discover -s tests -p 'test_expedia_chrome_companion.py'
+      - name: Verify OTA dashboard and evidence flow
+        run: python -m unittest discover -s tests -p 'test_ota_dashboard_v126.py'
