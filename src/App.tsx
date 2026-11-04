@@ -3572,6 +3572,7 @@ type AnalyzedStructure = {
   ownerInfo: OwnerInfo;
   answers: Record<string, Answer>;
   rateQuotes?: RateQuote[];
+  otaContentSnapshots?: OtaContentSnapshot[];
   availabilityProbes?: AvailabilityProbe[];
   auditData?: AuditData;
   assessmentMode: AssessmentMode;
@@ -3580,13 +3581,23 @@ type AnalyzedStructure = {
   updatedAt: string;
 };
 
+type OtaContentSnapshot = {
+  otaId:"expedia";propertyName:string;sourceUrl:string;observedAt:string;
+  roomCount:number;visibleImageCount:number;photoAltSamples:string[];
+  visibleServices:string[];descriptionExcerpt:string;
+  evidenceScope:string;identityVerified:boolean;
+};
+type ExpediaPresentation = {
+  visibleImageCount:number;photoAltSamples:string[];visibleServices:string[];
+  descriptionExcerpt:string;roomCount:number;evidenceScope:string;
+};
 type ExpediaCompanionRoom = {
   roomType:string;total:number;board:string;refund:string;taxes:string;confidence:string;
 };
 type ExpediaCompanionCapture = {
   schema:"velora-expedia-visible-v1";pageTitle:string;propertyName:string;
   sourceUrl:string;checkin:string;checkout:string;nights:number;guests:number;
-  rooms:ExpediaCompanionRoom[];capturedAt:string;warning:string;propertyId:string;
+  rooms:ExpediaCompanionRoom[];presentation?:ExpediaPresentation;capturedAt:string;warning:string;propertyId:string;
 };
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
@@ -5031,6 +5042,7 @@ export default function App() {
 
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [rateQuotes, setRateQuotes] = useState<RateQuote[]>([]);
+  const [otaContentSnapshots,setOtaContentSnapshots] = useState<OtaContentSnapshot[]>([]);
   const [rateDraft, setRateDraft] = useState<RateQuote>(EMPTY_RATE_DRAFT);
   const [manualRateSource, setManualRateSource] = useState<null | {
     otaId: string; checkin: string; checkout: string; nights: number; guests: number;
@@ -5412,6 +5424,7 @@ export default function App() {
     setOwnerInfo(seeded.ownerInfo);
     setAnswers(seeded.answers);
     setRateQuotes([]);
+    setOtaContentSnapshots([]);
     setAvailabilityProbes([]);
     setSelectedRateCohort("");
     setAssessmentMode("web-audit");
@@ -6532,6 +6545,7 @@ export default function App() {
       setOwnerInfo({ ...EMPTY_OWNER_INFO, ...selected.ownerInfo });
       setAnswers(selected.answers);
       setRateQuotes(Array.isArray(selected.rateQuotes) ? selected.rateQuotes : []);
+      setOtaContentSnapshots(Array.isArray(selected.otaContentSnapshots) ? selected.otaContentSnapshots : []);
       setAvailabilityProbes(Array.isArray(selected.availabilityProbes) ? selected.availabilityProbes : []);
       setAssessmentMode(selected.assessmentMode);
       const ids = selected.customQuickItemIds?.length ? selected.customQuickItemIds : savedInterviewTemplate();
@@ -6553,6 +6567,7 @@ export default function App() {
       if (parsed.ownerInfo) setOwnerInfo({ ...EMPTY_OWNER_INFO, ...parsed.ownerInfo });
       if (parsed.answers) setAnswers(parsed.answers);
       if (Array.isArray(parsed.rateQuotes)) setRateQuotes(parsed.rateQuotes);
+      if (Array.isArray(parsed.otaContentSnapshots)) setOtaContentSnapshots(parsed.otaContentSnapshots);
       if (Array.isArray(parsed.availabilityProbes)) setAvailabilityProbes(parsed.availabilityProbes);
       if (
         parsed.assessmentMode === "full" ||
@@ -6585,6 +6600,7 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        otaContentSnapshots,
         availabilityProbes,
         assessmentMode,
         customQuickItemIds,
@@ -6592,7 +6608,7 @@ export default function App() {
         guideEnabled,
       })
     );
-  }, [hydrated, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
+  }, [hydrated, ownerInfo, answers, rateQuotes, otaContentSnapshots, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection, guideEnabled]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -6610,13 +6626,14 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
       assessmentMode,
       customQuickItemIds,
       useCustomQuickSelection,
       updatedAt: new Date().toISOString(),
     } : item));
-  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
+  }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, otaContentSnapshots, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -6647,6 +6664,7 @@ export default function App() {
         ownerInfo,
         answers,
         rateQuotes,
+        otaContentSnapshots,
         availabilityProbes,
         assessmentMode,
         updatedAt: new Date().toISOString(),
@@ -6657,6 +6675,7 @@ export default function App() {
     setOwnerInfo({ ...EMPTY_OWNER_INFO, ...structure.ownerInfo });
     setAnswers(structure.answers);
     setRateQuotes(Array.isArray(structure.rateQuotes) ? structure.rateQuotes : []);
+    setOtaContentSnapshots(Array.isArray(structure.otaContentSnapshots) ? structure.otaContentSnapshots : []);
     setAvailabilityProbes(Array.isArray(structure.availabilityProbes) ? structure.availabilityProbes : []);
     setSelectedRateCohort("");
     setAssessmentMode(structure.assessmentMode);
@@ -7137,6 +7156,7 @@ export default function App() {
       ownerInfo,
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
       assessmentMode,
       customQuickItemIds,
@@ -7175,6 +7195,7 @@ export default function App() {
 
     setAnswers({});
     setRateQuotes([]);
+    setOtaContentSnapshots([]);
     setAvailabilityProbes([]);
     window.localStorage.removeItem(STORAGE_KEY);
   }
@@ -7203,6 +7224,7 @@ export default function App() {
       })),
       answers,
       rateQuotes,
+      otaContentSnapshots,
       availabilityProbes,
     };
 
