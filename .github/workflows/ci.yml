@@ -30,6 +30,7 @@ jobs:
           node tests/test_expedia_companion_geometry.cjs
           node tests/test_vrbo_companion.cjs
           node tests/test_holidu_companion.cjs
+          node tests/test_three_ota_tabs.cjs
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
