@@ -5347,6 +5347,7 @@ export default function App() {
             propertyId:activeAuditData.id
           };
           setHoliduCapture(capture);
+          setOtaWorkspaceOpen(true);
           setHoliduIdentityConfirmed(false);
           setHoliduReviewOpen(true);
           setHoliduMessage(capture.rooms.length
@@ -7112,6 +7113,7 @@ export default function App() {
   }
 
   function captureHoliduFromChrome() {
+    setOtaWorkspaceOpen(true);
     setHoliduReviewOpen(true);
     setHoliduCapture(null);
     setHoliduIdentityConfirmed(false);
@@ -9865,6 +9867,10 @@ export default function App() {
                             title="Cerca autonomamente la scheda Vrbo senza login, poi mostra un esito verificabile."
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white disabled:opacity-50">
                             {vrboPresenceBusy||vrboPresence.state==="queued"||vrboPresence.state==="running"?"Ricerca…":"▶ Verifica presenza"}
+                          </button> : agent.id==="holidu" ? <button type="button"
+                            onClick={captureHoliduFromChrome}
+                            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-3 text-[10px] font-black text-white">
+                            ▶ Chrome
                           </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing}
                             onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
