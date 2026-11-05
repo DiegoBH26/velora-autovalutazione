@@ -12885,6 +12885,7 @@ async def run(args: argparse.Namespace) -> dict:
               "browserPhases": [], "observations": [], "selectedChannels": channels,
               "scanMode": "fresh-selected-channels", "historyDisplayPolicy": "separate-not-current"}
     output = Path(args.output)
+    specialist_id=str(getattr(args,"agent_id","") or "")
     # Previously proven wrong Airbnb identities must not be opened again for
     # the same property. Scope by property id AND canonical name; never block
     # an unverified candidate based only on lack of search results.
