@@ -9274,6 +9274,8 @@ async def booking_resolve_reference_stay(
     robots: dict,
     initial_record: dict,
     max_shifts: int | None = None,
+    allowed_checkout: str | None = None,
+    used_windows: set[tuple[str,str]] | None = None,
 ) -> tuple[dict, dict, dict]:
     """Trova una finestra Booking tariffata prima di interrogare le altre OTA.
 
@@ -9286,7 +9288,10 @@ async def booking_resolve_reference_stay(
     # non attribuito alla camera non basta: in quel caso Velora prova altre date.
     initial_status=str(initial_record.get("status") or "")
     initial_verified=any(bool(item.get("verified")) for item in (initial_record.get("quotes") or []))
-    if initial_status=="quote_candidates" and initial_verified:
+    original_window=(stay["checkin"],stay["checkout"])
+    within_period=(not allowed_checkout or stay["checkout"]<=allowed_checkout)
+    if (initial_status=="quote_candidates" and initial_verified
+            and within_period and original_window not in (used_windows or set())):
         return stay,initial_record,{
             "status":"initial_dates_available",
             "requestedCheckin":stay["checkin"],
@@ -9319,6 +9324,10 @@ async def booking_resolve_reference_stay(
     try:
         for offset in offsets:
             candidate=shifted_reference_stay(stay,offset)
+            if allowed_checkout and candidate["checkout"]>allowed_checkout:
+                continue
+            if (candidate["checkin"],candidate["checkout"]) in (used_windows or set()):
+                continue
             attempts+=1
             probe=await booking_probe_direct_dated_detail(carrier,source,candidate,robots)
             probe_status=str((probe or {}).get("status") or "inconclusive")
@@ -13690,6 +13699,8 @@ async def run(args: argparse.Namespace) -> dict:
             # Avoid repeated requests to a portal which already denied access
             # during this same scan; still report every monthly test separately.
             temporarily_limited_otas={}
+            booked_windows=set()
+            range_checkout=str(custom_settings.get("end") or "") if custom_settings else None
             for stay_index,planned_stay in enumerate(list(plan)):
                 await ensure_pricing_context(f"inizio campione tariffario {planned_stay.get('month','')}")
                 effective_stay=dict(planned_stay)
@@ -13798,7 +13809,13 @@ async def run(args: argparse.Namespace) -> dict:
                         robots,
                         initial_booking,
                         max_shifts=2 if reference_for_specialist else None,
+                        allowed_checkout=range_checkout,
+                        used_windows=booked_windows if not reference_for_specialist else None,
                     )
+                    if resolution.get("status") in {
+                        "initial_dates_available","shifted_to_available_booking_dates"
+                    }:
+                        booked_windows.add((effective_stay["checkin"],effective_stay["checkout"]))
                     result["bookingDateResolution"].append(resolution)
                     reference_lock={
                         "month":planned_stay.get("month"),
