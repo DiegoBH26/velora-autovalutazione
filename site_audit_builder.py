@@ -239,8 +239,10 @@ def build_audit(payload, snaps, mobile):
     city = clean(payload.get("city"), 100) or ld["city"]
     province = clean(payload.get("province"), 10).upper()
     rooms = int(payload.get("rooms") or 0) if str(payload.get("rooms") or "").strip().isdigit() else 0
-    property_id = slugify(name, website)
-    if city and not property_id.endswith(slugify(city)):
+    # The local specialist already has a stable propertyId. Never create a new
+    # structure identity from the website spelling (e.g. corrected typos).
+    property_id = clean(payload.get("propertyId"), 120) or slugify(name, website)
+    if not payload.get("propertyId") and city and not property_id.endswith(slugify(city)):
         property_id = (property_id + "-" + slugify(city))[:79].strip("-")
 
     discovered = {}
