@@ -42,7 +42,10 @@ class PortalSessionTest(unittest.TestCase):
         self.assertNotIn("▶ Pubblico",self.app)
         self.assertIn("requireSpecialistAccountProfiles",self.app)
         self.assertIn("LOGIN_PORTAL_IDS",self.app)
-        self.assertIn("startSpecialistAgent(agent.id)",self.app)
+        # Individual OTA launch is intentionally routed through the Booking-first batch.
+        self.assertIn("launchAgentBatch([agent.id])",self.app)
+        self.assertIn('await startSpecialistAgent("booking"',self.app)
+        self.assertIn("requireSpecialistAccountProfiles",self.app)
         self.assertIn("SCREENSHOT_INTERVIEW_PRESET_IDS",self.app)
         self.assertIn("loginState?.profileSaved",self.app)
         self.assertIn('sessionMode: "public" | "account"',self.app)
