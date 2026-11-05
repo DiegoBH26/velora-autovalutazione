@@ -63,7 +63,9 @@ class VeloraSpecialistContracts(unittest.TestCase):
         for agent in IDS:
             self.assertIn('id:"' + agent + '"', app)
         self.assertIn("async function launchAgentBatch", app)
-        self.assertIn('startSpecialistAgent(id,false,"public",()=>{', app)
+        # Booking is now the sequential date authority before other specialists.
+        self.assertIn('await startSpecialistAgent("booking"', app)
+        self.assertIn('await Promise.all(remaining.map(id=>startSpecialistAgent(id,false,"public"', app)
         self.assertIn("acceptedIds.push(id)", app)
         self.assertIn("await requireSpecialistAccountProfiles(ids)", app)
         self.assertIn('const readiness = await fetch(localAgentUrl("/api/agents/config")', app)
