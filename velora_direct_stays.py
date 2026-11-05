@@ -76,6 +76,48 @@ async def _apply_dates(page, stay):
     valid=all(stay[key] in actual for key in ("checkin","checkout"))
     return {"applied":valid,"reason":"Date native impostate" if valid else "Le date sono state modificate dal booking engine"}
 
+async def _apply_guests(page, adults):
+    """Prova soltanto controlli nativi esplicitamente etichettati adulti/ospiti."""
+    try:
+        inputs=page.locator("input:visible,select:visible")
+        count=min(await inputs.count(),100)
+        for i in range(count):
+            el=inputs.nth(i)
+            label=await el.evaluate("""e=>[
+                e.name||'',e.id||'',e.getAttribute('aria-label')||'',
+                e.placeholder||'',e.closest('label')?.innerText||''
+            ].join(' ').toLowerCase()""")
+            if not re.search(r"adulti|adults|ospiti|guests",label):
+                continue
+            tag=await el.evaluate("e=>e.tagName.toLowerCase()")
+            if tag=="select":
+                try:await el.select_option(str(adults),timeout=2500)
+                except Exception:continue
+            elif await el.get_attribute("type") in ("number","text","tel"):
+                try:await el.fill(str(adults),timeout=2500)
+                except Exception:continue
+            else:
+                continue
+            value=await el.input_value()
+            if value==str(adults):
+                return {"confirmed":True,"evidence":"Occupazione impostata nel campo pubblico"}
+    except Exception:
+        pass
+    return {"confirmed":False,"evidence":"Occupazione non confermata nel motore di prenotazione"}
+
+def _explicit_conditions(text):
+    low=str(text or "").lower()
+    board=("Colazione inclusa" if re.search(r"colazione inclusa|breakfast included",low)
+           else "Solo pernottamento" if re.search(r"solo pernottamento|room only",low)
+           else "")
+    refund=("Non rimborsabile" if re.search(r"non rimborsabile|non refundable",low)
+            else "Cancellazione gratuita" if re.search(r"cancellazione gratuita|free cancellation",low)
+            else "")
+    taxes=("Incluse" if re.search(r"tasse incluse|imposte incluse|taxes included",low)
+           else "Escluse" if re.search(r"tasse escluse|imposte escluse|taxes excluded",low)
+           else "")
+    return {"board":board,"refund":refund,"taxes":taxes}
+
 async def _visible_offer_candidates(page):
     """Raccoglie prezzi e nomi camera nello stesso contenitore visibile;
     non presume che l'importo sia il totale confrontabile."""
@@ -108,10 +150,12 @@ async def _visible_offer_candidates(page):
             key=(room.lower(),amount,basis)
             if key in seen:continue
             seen.add(key)
+            terms=_explicit_conditions(text)
             offers.append({
                 "roomType":room,"displayedAmount":amount,"currency":"EUR",
                 "displayedBasis":basis,"bookingActionVisible":bool(card.get("hasBookingAction")),
-                "conditions":text[-220:],
+                "conditions":text[-220:],"board":terms["board"],
+                "refund":terms["refund"],"taxes":terms["taxes"],
                 "verified":False,
                 "evidence":"Importo e intestazione camera nella stessa scheda: "
                     +"totale soggiorno indicato" if basis=="stay_total_claimed"
@@ -153,6 +197,8 @@ async def probe_direct_stays(url, rows, *, limit=4):
                             sample["status"]="dates_not_selectable"
                             sample["evidence"].append(applied["reason"])
                         else:
+                            occupancy=await _apply_guests(page,stay["guests"])
+                            sample["occupancyControl"]=occupancy
                             # Avoid submitting forms with unknown side effects.
                             # Search CTA is allowed only when explicitly a search, never checkout.
                             buttons=page.get_by_role("button",name=re.compile(r"^(cerca|search|verifica disponibilit[aà]|check availability|mostra disponibilit[aà])$",re.I))
@@ -173,6 +219,27 @@ async def probe_direct_stays(url, rows, *, limit=4):
                                     for m in list(_PRICE_PATTERN.finditer(page_text))[:20]]
                             sample["visiblePrices"]=[p for p in prices if p["amount"] is not None][:12]
                             sample["quotes"]=await _visible_offer_candidates(page)
+                            # Conferma soltanto prezzi con camera, totale soggiorno,
+                            # date/ospiti, disponibilita' e condizioni esplicite.
+                            if date_confirmed and occupancy.get("confirmed"):
+                                for offer in sample["quotes"]:
+                                    complete=(offer.get("displayedBasis")=="stay_total_claimed"
+                                        and offer.get("bookingActionVisible")
+                                        and all(offer.get(k) for k in ("board","refund","taxes"))
+                                        and offer.get("roomType"))
+                                    if not complete:continue
+                                    offer["verified"]=True
+                                    result["verifiedQuotes"].append({
+                                        **stay,"roomType":offer["roomType"],
+                                        "total":offer["displayedAmount"],
+                                        "board":offer["board"],"refund":offer["refund"],
+                                        "taxes":offer["taxes"],"audience":"public",
+                                        "sourceUrl":sample["sourceUrl"],
+                                        "verified":True,
+                                        "evidence":"Stesse date/ospiti, camera, prezzo totale e condizioni esplicite",
+                                    })
+                                if any(q.get("verified") for q in sample["quotes"]):
+                                    sample["availability"]="price_and_booking_action_observed"
                             sample["evidence"].append(
                                 f"{len(sample['quotes'])} prezzi-candidati associati a intestazioni camera; "
                                 "nessuna parità tariffaria senza conferma completa di soggiorno e condizioni.")
@@ -189,6 +256,6 @@ async def probe_direct_stays(url, rows, *, limit=4):
             await context.close()
         finally:
             await browser.close()
-    result["status"]="samples_observed"
-    result["evidence"].append("Nessun prezzo entra nel confronto senza conferma completa di soggiorno, tipologia e totale.")
+    result["status"]="verified_rates" if result["verifiedQuotes"] else "samples_observed"
+    result["evidence"].append("Solo le quotazioni che riportano tutte le condizioni richieste sono candidate al confronto con la medesima tipologia OTA.")
     return result
