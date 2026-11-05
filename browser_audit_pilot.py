@@ -5063,6 +5063,15 @@ async def agoda_room_offer_visual_candidates(page, stay: dict) -> list[dict]:
       }).slice(0,500);
 
       for(const priceEl of priceNodes){
+        // Ignore discount badges ("29 € applied"), savings and crossed-out
+        // prices. They are not payable nightly room prices.
+        const badge=clean(priceEl.parentElement?.innerText||priceEl.parentElement?.textContent||'');
+        const priceClass=String(priceEl.className||'')+' '+String(priceEl.parentElement?.className||'');
+        if(
+          priceEl.closest('del,s,strike,[aria-label*="original" i],[class*="strike" i],[class*="original-price" i]')
+          || (badge.length<140 && /(?:€|EUR|\d)[^\n]{0,35}(?:applicato|applied|di sconto|discount|risparmio|save\s|offerta applicata)/i.test(badge))
+          || /(?:discount|saving|coupon|badge|original-price|strike)/i.test(priceClass)
+        ) continue;
         const pr=priceEl.getBoundingClientRect();
         let box=priceEl, text='';
         for(let d=0;d<7&&box;d++,box=box.parentElement){
@@ -5173,6 +5182,13 @@ async def agoda_offer_row_candidates(page, stay: dict) -> list[dict]:
         if(!room) continue;
 
         const priceNodes=Array.from(offer.querySelectorAll('span,strong,b,div')).filter(visible)
+          .filter(el=>{
+            const near=clean(el.parentElement?.innerText||el.parentElement?.textContent||'');
+            return !el.closest('s,del,strike,[class*="strike" i],[class*="original-price" i]')
+              && !(near.length<140 && /(?:applicato|applied|di sconto|discount|risparmio|coupon)/i.test(near))
+              && !/(discount|saving|coupon|badge|original-price|strike)/i.test(
+                String(el.className||'')+' '+String(el.parentElement?.className||''));
+          })
           .map(el=>clean(el.textContent)).filter(v=>v.length<=45&&priceRx.test(v));
         let priceText=priceNodes.find(v=>priceRx.test(v))||'';
         if(!priceText){
