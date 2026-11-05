@@ -567,6 +567,18 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                     + (" Date condivise confermate." if consistent else
                        " Date non confrontabili o Minerva non ancora eseguita: non validare il delta."))
         elif agent == "official_site":
+            direct=result.get("directBookingVerification") or {}
+            be=result.get("bookingEngine") or {}
+            add(agent, "booking_engine_identification", "Fornitore booking engine",
+                be.get("status")=="provider_identified" and bool(be.get("provider")),
+                "Fornitore: "+str(be.get("provider") or "non identificato"))
+            add(agent, "booking_engine_navigation", "Navigazione booking engine",
+                direct.get("navigation")=="reached",
+                "Navigazione: "+str(direct.get("navigation") or "non eseguita")
+                +"; flusso transazionale NON ancora collaudato")
+            add(agent, "direct_dated_prices", "Tariffe dirette datate",
+                bool(direct.get("datedPrices")) and direct.get("availability")=="verified",
+                "Nessun prezzo diretto entra nel delta senza preventivo datato e disponibilità verificata")
             audit = result.get("auditData") or {}
             add(agent, "identity", "Sito ufficiale identificato", bool(audit.get("website")) and audit.get("id") == property_id,
                 "Identità e sito del report devono corrispondere alla struttura selezionata")
