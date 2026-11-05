@@ -12879,6 +12879,26 @@ async def run(args: argparse.Namespace) -> dict:
               "browserPhases": [], "observations": [], "selectedChannels": channels,
               "scanMode": "fresh-selected-channels", "historyDisplayPolicy": "separate-not-current"}
     output = Path(args.output)
+    # Previously proven wrong Airbnb identities must not be opened again for
+    # the same property. Scope by property id AND canonical name; never block
+    # an unverified candidate based only on lack of search results.
+    rejected_airbnb_urls=set()
+    if specialist_id=="airbnb" and output.is_file():
+        try:
+            previous=json.loads(output.read_text(encoding="utf-8"))
+            if (previous.get("propertyId")==data.get("id")
+                    and previous.get("propertyName")==data.get("name")):
+                for item in previous.get("observations") or []:
+                    if (item.get("otaId")=="airbnb"
+                            and item.get("status")=="wrong_property_listing"
+                            and airbnb_explicit_different_tenuta(
+                                str(data.get("name") or ""),
+                                str(item.get("title") or ""),str(data.get("city") or ""))):
+                        wrong=str(item.get("sourceUrl") or item.get("finalUrl") or "")
+                        if _plausible_ota_listing_url("airbnb",wrong):
+                            rejected_airbnb_urls.add(normalize_ota_listing_url("airbnb",wrong))
+        except (OSError,ValueError,TypeError):
+            pass
     if args.dry_run:
         write_result(output, result)
         return result
@@ -13775,6 +13795,9 @@ async def run(args: argparse.Namespace) -> dict:
                 for channel in channels:
                     channel_started=time.monotonic()
                     source = sources.get(channel, {}).get("url", "")
+                    if channel=="airbnb" and source and normalize_ota_listing_url("airbnb",source) in rejected_airbnb_urls:
+                        sources.pop("airbnb",None)
+                        source=""
                     print(
                         f"{effective_stay['month']} {channel}: START frontend pubblico · "
                         f"BOOKING LOCK={effective_stay['checkin']}→{effective_stay['checkout']} · "
@@ -13896,6 +13919,24 @@ async def run(args: argparse.Namespace) -> dict:
                                     flush=True,
                                 )
                                 write_result(output,result)
+                            if channel=="airbnb":
+                                valid_fresh=[
+                                    url for url in (frontend_source.get("listingUrls") or [])
+                                    if normalize_ota_listing_url("airbnb",str(url)) not in rejected_airbnb_urls
+                                ]
+                                frontend_source["listingUrls"]=valid_fresh
+                                chosen=str(frontend_source.get("url") or "")
+                                if chosen and normalize_ota_listing_url("airbnb",chosen) in rejected_airbnb_urls:
+                                    if valid_fresh:
+                                        frontend_source["url"]=valid_fresh[0]
+                                    else:
+                                        frontend_source["url"]=""
+                                        frontend_source["status"]="not_verified_present"
+                                        frontend_source["evidence"]=(
+                                            "Annuncio precedentemente riconosciuto come struttura diversa "
+                                            "escluso dalla nuova ricerca. Nessuna scheda Airbnb "
+                                            "equivalente verificata; non ripetere la stessa pagina errata."
+                                        )
                             if frontend_source.get("status")=="found" and frontend_source.get("url"):
                                 source=frontend_source["url"]
                                 previous_urls=list((sources.get("airbnb") or {}).get("listingUrls") or []) if channel=="airbnb" else []
@@ -14078,6 +14119,11 @@ async def run(args: argparse.Namespace) -> dict:
                                         "Nessuna tariffa attribuita e nessuna ricerca di unità sorelle."
                                     )
                                     record["sourceIdentityVerified"]=False
+                                    wrong_source=str(record.get("sourceUrl") or source or "")
+                                    if _plausible_ota_listing_url("airbnb",wrong_source):
+                                        rejected_airbnb_urls.add(normalize_ota_listing_url("airbnb",wrong_source))
+                                    sources.pop("airbnb",None)
+                                    unverified_source_ids.add("airbnb")
                                     result.setdefault("discoveredSources",{}).setdefault("airbnb",{})["identityMismatch"]=True
                                     print(
                                         f"{effective_stay['month']} airbnb: WRONG PROPERTY SKIPPED "
