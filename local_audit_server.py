@@ -1375,7 +1375,7 @@ class Handler(SimpleHTTPRequestHandler):
                              "plannedAgents":agent_network.FUTURE_AGENTS,
                              "reviewer":{"name":agent_network.REVIEWER_NAME,"trigger":"manual_only"},"version":"v125"})
             return
-        if route in {"/api/agents/status","/api/agents/result","/api/agents/validation"}:
+        if route in {"/api/agents/status","/api/agents/result","/api/agents/validation","/api/agents/chat"}:
             if agent_network is None:
                 self._json(503,{"error":specialist_unavailable_message()}); return
             if self.headers.get("Origin") and not self._allowed_origin():
@@ -1385,6 +1385,24 @@ class Handler(SimpleHTTPRequestHandler):
                 property_id=safe_property_id((query.get("propertyId") or [""])[0])
             except ValueError:
                 self._json(400,{"error":"Struttura non valida"}); return
+            if route=="/api/agents/chat":
+                # Read-only Giove viewer: the logged structured exchanges only.
+                # No credentials, prompts or hidden browser actions are exposed.
+                target=agent_mailbox_path(property_id)
+                try:
+                    payload=json.loads(target.read_text(encoding="utf-8"))
+                    if payload.get("propertyId")!=property_id:
+                        raise ValueError("Proprietà della mailbox non coerente")
+                    events=payload.get("events") or []
+                    if not isinstance(events,list):
+                        raise ValueError("Formato mailbox non valido")
+                except FileNotFoundError:
+                    events=[]
+                except (OSError,ValueError,TypeError):
+                    self._json(500,{"error":"Mailbox agenti non leggibile"}); return
+                self._json(200,{"propertyId":property_id,"events":events[-120:],
+                                 "viewer":"Giove","mode":"structured-events-read-only"})
+                return
             if route=="/api/agents/status":
                 with AGENT_RUN_LOCK:
                     status={agent:dict(AGENT_RUNS.get((property_id,agent),{})) for agent in agent_network.AGENTS}
