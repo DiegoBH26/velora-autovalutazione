@@ -15,6 +15,7 @@ from pathlib import Path
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields
+from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
 NETWORK_SCHEMA = "velora-specialist-network-v1"
@@ -435,6 +436,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "note": "Campione acquisito durante la visita OTA; foto e servizi da validare prima di dichiarare un'asimmetria.",
         }
     elif agent == "official_site":
+        peer_evidence = read_peer_evidence(property_file.parent, data["id"], skip_agent=agent)
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
             raise ValueError("Sito ufficiale non configurato")
@@ -476,9 +478,11 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "bookingEngine": audit.get("bookingEngine") or {},
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
+            "peerBookingDates": (peer_evidence.get("booking") or {}).get("bookingReferenceStays") or [],
             "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
         }, data["id"], agent)
     else:  # reviews only
+        peer_evidence = read_peer_evidence(property_file.parent, data["id"], skip_agent=agent)
         profile = property_file.parent / "chrome-reviews"
         async with async_playwright() as playwright:
             context = await pilot._launch_velora_context(playwright, profile, data, "recensioni", ghost)
@@ -488,6 +492,11 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 # I prezzi eventualmente visibili sono esclusi dall'output reviews.
                 ota_profiles = {}
                 for channel in ("booking", "agoda", "airbnb"):
+                    cached=(peer_evidence.get(channel) or {}).get("rating") or {}
+                    if cached.get("status")=="sampled" and cached.get("rating") is not None:
+                        ota_profiles[channel]={**cached,"evidence":str(cached.get("evidence") or "")+
+                            " · Condiviso dall'agente OTA; nessuna seconda navigazione."}
+                        continue
                     source = (data.get("sources") or {}).get(channel) or {}
                     url = source.get("url") if isinstance(source, dict) else ""
                     if not url:
@@ -503,9 +512,19 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 await context.close()
         result = _safe_result({
             "schema": NETWORK_SCHEMA, "reputation": google,"otaReviewProfiles": ota_profiles,
-            "evidence": "Analisi Google + metriche reputazione OTA pubbliche, senza discovery prezzi né tariffe.",
+            "otaProfiles": {channel:profile for channel,profile in ota_profiles.items()
+                if profile.get("status")=="sampled" and (
+                    (peer_evidence.get(channel) or {}).get("rating")
+                    or ((data.get("sources") or {}).get(channel) or {}).get("identityVerified") is True
+                )},
+            "evidence": "Analisi Google e reputazione OTA; evidenze già confermate riutilizzate senza doppia visita.",
         }, data["id"], agent)
     _write(output, result)
+    try:
+        store_peer_evidence(property_file.parent, data["id"], agent, result)
+    except (OSError, ValueError, TypeError):
+        # La memoria ausiliaria non deve compromettere il risultato verificato.
+        pass
     return result
 
 def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
