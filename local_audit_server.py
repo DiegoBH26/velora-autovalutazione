@@ -381,13 +381,22 @@ def specialist_peer_consultation(property_id, agent_id, expected_name, stage, st
             "message":"Riferimento Booking non coincidente: recupero non autorizzato.",
         })
         return {"approved":False,"reason":"booking_lock_mismatch"}
+    strategy=(
+        "same_page_offer_mapping" if count_rooms>0 and count_prices>0
+        else "same_page_room_grid_recheck"
+    )
+    next_action=(
+        "Hai già rilevato camere e prezzi: controlla la corrispondenza "
+        "tra ogni riga offerta, la sua camera e il prezzo corrente a notte."
+        if strategy=="same_page_offer_mapping" else
+        "Le offerte non risultano renderizzate: raggiungi la griglia camere "
+        "e attendi il caricamento prima di cercare i prezzi."
+    )
     agent_mailbox_publish(property_id,"booking","help_reply",{
-        "recipient":"agoda","strategy":"same_page_room_grid_recheck",
+        "recipient":"agoda","strategy":strategy,
         "message":(
             f"Galileo, confermo {actual[0]} → {actual[1]}. "
-            "Rimani su Agoda: raggiungi la griglia camere, attendi che "
-            "le offerte siano renderizzate, abbina il prezzo alla relativa "
-            "camera e controlla la base a notte. Non usare le mie tariffe."
+            +next_action+" Rimani sulla tua OTA: non usare le mie tariffe."
         ),
     })
     agent_mailbox_publish(property_id,"giove","review_decision",{
@@ -398,7 +407,7 @@ def specialist_peer_consultation(property_id, agent_id, expected_name, stage, st
             "nessun bypass, nessun prezzo inventato."
         ),
     })
-    return {"approved":True,"strategy":"same_page_room_grid_recheck","maxAttempts":1}
+    return {"approved":True,"strategy":strategy,"maxAttempts":1}
 
 
 def agent_mailbox_result(property_id,agent_id):
