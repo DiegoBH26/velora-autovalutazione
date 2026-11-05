@@ -3804,7 +3804,7 @@ type BrowserPilotResult = {
   propertyName?: string;
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
-  directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
+  directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;evidence?:string[]}> };
@@ -9887,7 +9887,12 @@ export default function App() {
                 Pagina booking engine: {browserPilotResult.directBookingVerification.navigation === "reached" ? "raggiunta" : "non verificata"} ·
                 Date: {browserPilotResult.directBookingVerification.controls?.dates ? "controlli rilevati" : "non confermate"} ·
                 Ospiti: {browserPilotResult.directBookingVerification.controls?.guests ? "controlli rilevati" : "non confermati"} ·
-                Disponibilità e prezzi datati: non verificati.
+                Disponibilità e prezzi datati: {browserPilotResult.directCommercialAudit?.verifiedQuotes?.length?"Verificati su alcuni campioni":"non verificati"}.
+              </p>}
+              {browserPilotResult.directBookingVerification?.ctaNavigation && <p className="mt-1 text-[#50627F]">
+                Clic su Prenota: {browserPilotResult.directBookingVerification.ctaNavigation.status==="reached"
+                  ? (browserPilotResult.directBookingVerification.ctaNavigation.connectionType||"Destinazione raggiunta")
+                  : "percorso non confermato"}.
               </p>}
               {browserPilotResult.navigationAudit && <p className="mt-2">
                 Navigazione sito: {browserPilotResult.navigationAudit.pagesVisited??0} pagine visitate ·
