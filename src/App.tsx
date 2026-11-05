@@ -3800,6 +3800,7 @@ type DiscoveredPilotSource = {
 type BrowserPilotResult = {
   schema: "velora-browser-audit-pilot-v1";
   propertyId: string;
+  agentId?: string;
   propertyName?: string;
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
@@ -3827,6 +3828,28 @@ type BrowserPilotResult = {
   }[];
   observations: BrowserPilotObservation[];
 };
+
+type VerifiedRatingChannel = { id:string; label:string; raw:number; scale:number; normalized:number; reviewCount:number|null };
+function verifiedRatingChannels(result: BrowserPilotResult | null | undefined): VerifiedRatingChannel[] {
+  if (!result) return [];
+  const values:VerifiedRatingChannel[]=[];
+  const google=result.reputation;
+  if(google?.status==="sampled" && Number.isFinite(google.rating) && Number(google.rating)>0 && Number(google.rating)<=5) {
+    values.push({id:"google",label:"Google",raw:Number(google.rating),scale:5,
+      normalized:Number(google.rating),reviewCount:google.reviewCount??null});
+  }
+  const labels:Record<string,string>={booking:"Booking",agoda:"Agoda",airbnb:"Airbnb",
+    expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu",hotels:"Hotels.com",
+    trip:"Trip.com",priceline:"Priceline",travelocity:"Travelocity"};
+  for(const [id,p] of Object.entries(result.otaProfiles||{})) {
+    const raw=Number(p.rating),scale=Number(p.ratingScale);
+    if(!labels[id] || p.status!=="sampled" || p.rating===null || p.rating===undefined ||
+       p.ratingScale===null || p.ratingScale===undefined ||
+       !Number.isFinite(raw)||!Number.isFinite(scale)||scale<=0||raw<=0||raw>scale) continue;
+    values.push({id,label:labels[id],raw,scale,normalized:(raw/scale)*5,reviewCount:p.reviewCount??null});
+  }
+  return values;
+}
 
 function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefined, next: BrowserPilotResult): BrowserPilotResult {
   if (!previous || previous.propertyId !== next.propertyId) return next;
@@ -5849,7 +5872,8 @@ export default function App() {
   function applyPilotEvidence(result: BrowserPilotResult) {
     // Leonardo: importa automaticamente la verifica del booking engine
     // nella stessa sezione che prima richiedeva "Usa questo riscontro".
-    if (result.bookingEngine) {
+    if (result.bookingEngine && (result.agentId==="official_site" ||
+        (result.bookingEngine.status!=="skipped_pricing_test" && !!result.bookingEngine.url))) {
       const engine = result.bookingEngine;
       const status = engine.status === "provider_identified" ? "present"
         : engine.status === "provider_unknown" || engine.status === "request_only" ? "partial" : "unverified";
@@ -7044,6 +7068,11 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     } : item));
   }, [hydrated, activeStructureId, ownerInfo, answers, rateQuotes, otaContentSnapshots, availabilityProbes, assessmentMode, customQuickItemIds, useCustomQuickSelection]);
+
+  const ratingChannels=verifiedRatingChannels(
+    browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult:null);
+  const averageRating=ratingChannels.length?
+    ratingChannels.reduce((sum,p)=>sum+p.normalized,0)/ratingChannels.length:null;
 
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
@@ -11220,7 +11249,15 @@ export default function App() {
 
           {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <>
             <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Google</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.rating ?? "n.d."}/5</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                <div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Rating medio · {ratingChannels.length} {ratingChannels.length===1?"piattaforma":"piattaforme"}</div>
+                <div className="mt-1 text-lg font-black text-[#23124A]">{averageRating!==null?averageRating.toFixed(2):"n.d."}/5</div>
+                <div className="mt-1 space-y-0.5 text-[10px] leading-4 text-[#50627F]">
+                  {ratingChannels.map(c=><div key={c.id} className="flex items-center justify-between gap-1">
+                    <span>{c.label}</span><b className="text-[#23124A]">{c.raw.toLocaleString("it-IT",{maximumFractionDigits:2})}/{c.scale}</b>
+                  </div>)}
+                </div>
+              </div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.reviewCount ?? "n.d."}</div></div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione testuale</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.sampleSize ?? 0}</div></div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.strengths?.length ?? 0}</div></div>
