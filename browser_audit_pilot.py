@@ -11214,8 +11214,33 @@ async def observe(
                   };
                   const mentioned=Object.entries(tokens).filter(([,rx])=>rx.test(words)).map(([key])=>key);
                   const policy=words.match(/.{0,100}(?:cancellazione|cancellation|non rimborsabile|refundable).{0,150}/i);
+                  // Property rating from JSON-LD on the SAME opened OTA page.
+                  // Never infer it from arbitrary numbers in the room list.
+                  let ratingCandidate=null;
+                  for(const el of Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0,25)){
+                    try {
+                      const parsed=JSON.parse(el.textContent||'null');
+                      const nodes=Array.isArray(parsed)?parsed:[parsed];
+                      const expanded=nodes.flatMap(n=>Array.isArray(n?.['@graph'])?n['@graph']:[n]);
+                      for(const n of expanded){
+                        const type=String(n?.['@type']||'').toLowerCase();
+                        if(!/hotel|lodgingbusiness|accommodation|bedandbreakfast|resort|vacationrental/.test(type))continue;
+                        const aggregate=n?.aggregateRating;
+                        if(!aggregate)continue;
+                        const rating=Number(aggregate.ratingValue);
+                        const scale=Number(aggregate.bestRating||5);
+                        const reviews=Number(aggregate.reviewCount||aggregate.ratingCount||0);
+                        if(Number.isFinite(rating)&&Number.isFinite(scale)&&scale>0&&rating>0&&rating<=scale){
+                          ratingCandidate={rating,ratingScale:scale,reviewCount:Number.isFinite(reviews)&&reviews>0?reviews:null,
+                            evidence:"AggregateRating JSON-LD nella stessa scheda OTA"};
+                          break;
+                        }
+                      }
+                      if(ratingCandidate)break;
+                    }catch{}
+                  }
                   return {photoCountInDom:images.length,photoOrderSample:images,
-                    headings:labels,mentionedAmenities:mentioned,
+                    headings:labels,mentionedAmenities:mentioned,ratingCandidate,
                     policyExcerpt:policy?clean(policy[0]).slice(0,260):'',
                     sampleOnly:true};
                 }""")
