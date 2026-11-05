@@ -10421,12 +10421,27 @@ async def observe(
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         elif channel == "agoda" and dates_confirmed:
+            # Agoda rende spesso la griglia tariffe solo dopo lo scroll delle
+            # camere. Un titolo struttura o un banner non dimostrano che le
+            # offerte siano state renderizzate. Resta sempre sulla stessa URL
+            # con le date Booking; non apre nuove ricerche.
             try:
+                room_area=page.locator(
+                    '[data-selenium="room-grid"], [data-selenium="room-name"], '
+                    '[data-ppapi*="room-name" i], [data-element-name*="room-name" i]'
+                ).first
+                if await room_area.count():
+                    await room_area.scroll_into_view_if_needed(timeout=3500)
+                else:
+                    await page.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight*0.55))")
                 await page.locator(
-                    '[data-selenium="display-price"], [data-selenium="room-price"], [data-selenium="room-name"]'
-                ).first.wait_for(state="visible",timeout=4500)
+                    '[data-selenium="display-price"], [data-selenium="room-price"], '
+                    '[data-selenium="room-name"], [data-ppapi*="room-price" i], '
+                    '[data-element-name*="room-name" i], [class*="price" i]'
+                ).first.wait_for(state="visible",timeout=6500)
+                await page.wait_for_timeout(900)
             except Exception:
-                await page.wait_for_timeout(1200)
+                await page.wait_for_timeout(1400)
             record["finalUrl"] = page.url
             record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
         elif channel in {"airbnb","vrbo"} and dates_confirmed:
