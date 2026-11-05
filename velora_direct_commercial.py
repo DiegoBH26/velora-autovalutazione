@@ -55,7 +55,7 @@ async def inspect_direct_booking(site_url, engine, *, timeout_ms=18000):
                     base["evidence"].append("Il sito mostra una possibile limitazione d'accesso.")
                 else:
                     base["status"]="page_observed"
-                price_re=re.compile(r"(?:€\\s*\\d[\\d.,]*|\\d[\\d.,]*\\s*€)")
+                price_re=re.compile(r"(?:€\s*\d[\d.,]*|\d[\d.,]*\s*€)")
                 base["observedPriceTexts"]=price_re.findall(info["body"])[:10]
                 if base["observedPriceTexts"]:
                     base["evidence"].append("Importi generici visibili: NON verificati per date, ospiti, camera e condizioni.")
