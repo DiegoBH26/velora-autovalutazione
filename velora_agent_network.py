@@ -14,6 +14,7 @@ from pathlib import Path
 
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
+from velora_direct_commercial import inspect_direct_booking, concise_engine_fields
 from playwright.async_api import async_playwright
 
 NETWORK_SCHEMA = "velora-specialist-network-v1"
@@ -408,9 +409,18 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 photos=await pilot.frontend_photo_audit(context,picture_data,{})
             finally:
                 await context.close()
+        # Leonardo pubblica risultati strutturati per la scheda booking engine.
+        # L'audit fotografico consolidato resta invariato.
+        direct_verification = await inspect_direct_booking(site, audit.get("bookingEngine") or {})
+        engine_fields = concise_engine_fields(audit, direct_verification)
+        audit["bookingEngineVerification"] = direct_verification
+        audit["bookingEngineFields"] = engine_fields
         result = _safe_result({
-            "schema": NETWORK_SCHEMA, "auditData": audit,"photoAudit": photos,
-            "evidence": "Audit navigazione sito + foto multi-pagina; nessuna tariffa OTA.",
+            "schema": NETWORK_SCHEMA, "auditData": audit, "photoAudit": photos,
+            "bookingEngine": audit.get("bookingEngine") or {},
+            "bookingEngineFields": engine_fields,
+            "directBookingVerification": direct_verification,
+            "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
         }, data["id"], agent)
     else:  # reviews only
         profile = property_file.parent / "chrome-reviews"
