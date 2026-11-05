@@ -419,6 +419,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         if not site:
             raise ValueError("Sito ufficiale non configurato")
         audit = await build_site_audit({
+            "propertyId": data["id"],
             "website": site,
             "name": data.get("name", ""),
             "city": data.get("city", ""),
