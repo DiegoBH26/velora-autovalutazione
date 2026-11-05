@@ -6452,6 +6452,7 @@ export default function App() {
                     createdAt:sameProperty?previous.createdAt:(specialistPartial.createdAt||new Date().toISOString()),
                     observations:sameProperty?previous.observations:[],
                     reputation:agentId==="reviews"?(specialistPartial.reputation||{}):(sameProperty?previous.reputation:undefined),
+                    otaProfiles:{...(sameProperty?previous.otaProfiles:{}),...(specialistPartial.otaProfiles||{})},
                     photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
                     bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
                     directBookingVerification:agentId==="official_site"?(specialistPartial.directBookingVerification):(sameProperty?previous.directBookingVerification:undefined),
