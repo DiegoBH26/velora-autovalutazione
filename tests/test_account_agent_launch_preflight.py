@@ -18,7 +18,7 @@ class AccountLaunchGuard(unittest.TestCase):
         batch=app[begin:end]
         self.assertLess(
             batch.index("await requireSpecialistAccountProfiles(ids)"),
-            batch.index("await Promise.all(ids.map(")
+            batch.index("await Promise.all(remaining.map(")
         )
         self.assertIn("acceptedIds.push(id)",batch)
         self.assertIn("if (acceptedIds.length===1)",batch)
