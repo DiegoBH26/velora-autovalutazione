@@ -3805,6 +3805,9 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
+  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;roomType:string;total:number;verified?:boolean}>;
+    samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
+      visiblePrices?:Array<{amount:number;text:string}>;evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
   discoveredSources?: Record<string, DiscoveredPilotSource>;
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
@@ -6462,6 +6465,7 @@ export default function App() {
                     photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
                     bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
                     directBookingVerification:agentId==="official_site"?(specialistPartial.directBookingVerification):(sameProperty?previous.directBookingVerification:undefined),
+                    directCommercialAudit:agentId==="official_site"?(specialistPartial.directCommercialAudit):(sameProperty?previous.directCommercialAudit:undefined),
                     navigationAudit:agentId==="official_site"?(specialistPartial.navigationAudit):(sameProperty?previous.navigationAudit:undefined),
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
@@ -9876,6 +9880,36 @@ export default function App() {
               </p>}
             </div>}
           </section>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
+            <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
+            <div className="space-y-3 px-4 pb-4 text-xs text-[#23124A]">
+              <p className="text-[#50627F]">Leonardo utilizza soltanto le date Booking confermate e uguali a quelle richieste. Gli importi generici non vengono scambiati per tariffe di soggiorno.</p>
+              {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit ?
+                <>
+                  <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
+                    <b>Esito commerciale:</b> {browserPilotResult.directCommercialAudit.status||"Non verificato"} ·
+                    {(browserPilotResult.directCommercialAudit.samples||[]).length} finestre esaminate ·
+                    {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi verificati.
+                    <p className="mt-1 text-[#50627F]">Una tariffa entra nel confronto soltanto quando data, ospiti, camera, totale e condizioni sono confermati.</p>
+                  </div>
+                  {(browserPilotResult.directCommercialAudit.samples||[]).map((sample,i)=>
+                    <div key={sample.checkin+"-"+sample.checkout+"-"+i} className="rounded-xl border border-[#E5DDF1] bg-white p-3">
+                      <b>{sample.checkin} → {sample.checkout}</b> · {sample.nights} notti · {sample.guests} ospiti
+                      <p className="mt-1">Esito: {sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
+                        sample.status==="dates_not_selectable"?"Calendario non gestibile automaticamente":
+                        sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
+                        "Verifica non completata"}</p>
+                      <p className="mt-1 text-[#50627F]">Disponibilità: non verificata · Tariffa confrontabile: non disponibile</p>
+                      {(sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
+                      {(sample.evidence||[]).map((ev,k)=><p key={k} className="text-[#50627F]">{ev}</p>)}
+                    </div>
+                  )}
+                  {!(browserPilotResult.directCommercialAudit.samples||[]).length &&
+                    <p className="text-amber-800">{(browserPilotResult.directCommercialAudit.evidence||[]).join(" ")||"Nessuna finestra prenotabile confermata da Booking per il confronto."}</p>}
+                </>:
+                <p className="text-[#50627F]">Nessun audit commerciale diretto importato. Avvia Leonardo dopo una verifica Booking sulle stesse date.</p>}
+            </div>
+          </details>
           <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Registra soltanto ciò che compare sulla specifica scheda, con data e URL. Una dicitura “potresti avere uno sconto” non dimostra una promozione attiva; tariffe per iscritti o app vanno distinte da quelle pubbliche.</p>
           <label className="mt-3 block text-[11px] font-black text-[#23124A]">Sito diretto e listino
