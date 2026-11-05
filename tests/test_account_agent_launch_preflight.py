@@ -21,7 +21,7 @@ class AccountLaunchGuard(unittest.TestCase):
             batch.index("await Promise.all(remaining.map(")
         )
         self.assertIn("acceptedIds.push(id)",batch)
-        self.assertIn("if (acceptedIds.length===1)",batch)
+        self.assertIn("if(acceptedIds.length===1)",batch)
         self.assertIn("if (acceptedIds.length===0)",batch)
         self.assertNotIn("setAgentRunIds(ids);",batch)
 
