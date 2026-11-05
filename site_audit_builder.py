@@ -508,6 +508,7 @@ async def build_site_audit(payload):
         browser=await p.chromium.launch(channel="chrome", headless=True)
         context=await browser.new_context(locale="it-IT", timezone_id="Europe/Rome")
         snaps=[]
+        navigation_errors=[]
         try:
             page=await context.new_page()
             try:
@@ -538,8 +539,8 @@ async def build_site_audit(payload):
                 page=await context.new_page()
                 try:
                     snaps.append(await snapshot(page,href))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    navigation_errors.append({"url":href,"error":type(exc).__name__})
                 finally:
                     await page.close()
                 await asyncio.sleep(0.35)
@@ -553,7 +554,24 @@ async def build_site_audit(payload):
                 await page.close()
         finally:
             await browser.close()
-    return build_audit(payload,snaps,mobile)
+    audit=build_audit(payload,snaps,mobile)
+    # Conclusioni limitate alle pagine effettivamente visitate,
+    # senza dichiarare che ogni pulsante o percorso abbia funzionato.
+    failed=[{"url":x["url"],"status":x.get("httpStatus")}
+            for x in snaps if isinstance(x.get("httpStatus"),int) and x["httpStatus"]>=400]
+    failed.extend(navigation_errors)
+    home_links={x.get("href") for x in snaps[0].get("links",[])
+                if x.get("href") and same_site(website,x["href"])}
+    audit.setdefault("_autoAudit",{})["navigationChecks"]={
+        "pagesVisited":len(snaps),
+        "internalLinksSeen":len(home_links),
+        "failedPages":failed,
+        "testedPages":[{"url":x["url"],"status":x.get("httpStatus")}
+                       for x in snaps],
+        "status":"issues_observed" if failed else "sample_no_errors",
+        "evidence":"Verificato solo il campione di pagine visitate. Menu, widget e checkout non sono dichiarati collaudati.",
+    }
+    return audit
 
 
 if __name__ == "__main__":
