@@ -631,6 +631,11 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 rep.get("status") == "sampled" and bool(rep.get("sampleSize", 0)),
                 f"Stato: {rep.get('status', 'n.d.')}; campione: {rep.get('sampleSize', 0)}")
     comparisons=[]
+    cover_candidates={
+        agent: (sample.get("photoOrderSample") or [None])[0]
+        for agent,sample in frontend_samples.items()
+        if sample.get("photoOrderSample")
+    }
     sample_agents=sorted(frontend_samples)
     for left_index,left in enumerate(sample_agents):
         for right in sample_agents[left_index+1:]:
@@ -651,6 +656,8 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
         "validatedAt": _now(), "checkedBy": "manual-trigger",
         "checks": checks, "rows": validation_rows({"checks": checks}), "reviewer": REVIEWER_NAME,
         "frontendComparisons":comparisons,
+        "coverPhotoCandidates":cover_candidates,
+        "coverComparisonStatus":"requires_visual_confirmation",
         "passed": sum(1 for c in checks if c["passed"]),
         "total": len(checks),
         "note": "Verde solo se il dato è verificato; assenza/blocco non equivalgono ad assenza dell'offerta."
