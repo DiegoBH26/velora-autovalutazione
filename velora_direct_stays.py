@@ -226,13 +226,16 @@ async def probe_direct_stays(url, rows, *, limit=4):
                                 await buttons.first.click(timeout=4500)
                                 await page.wait_for_timeout(1300)
                             current=await page.evaluate("""() => ({
-                              fields:[...document.querySelectorAll('input[type=date]')].map(x=>x.value),
+                              fields:[...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(x=>x.value).slice(0,100),
                               url:location.href,
                               text:(document.body?.innerText||'').slice(0,22000)
                             })""")
                             page_text=current["text"]
                             actual_dates=set(current["fields"])
-                            date_confirmed=stay["checkin"] in actual_dates and stay["checkout"] in actual_dates
+                            def contains_date(key):
+                                year,month,day=stay[key].split("-")
+                                return stay[key] in actual_dates or f"{day}/{month}/{year}" in actual_dates
+                            date_confirmed=contains_date("checkin") and contains_date("checkout")
                             sample["status"]="date_context_observed" if date_confirmed else "dates_unconfirmed"
                             sample["sourceUrl"]=page.url.split("?")[0].split("#")[0]
                             prices=[{"amount":_money(m.group(0)),"text":m.group(0)}
