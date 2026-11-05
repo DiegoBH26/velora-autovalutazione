@@ -10158,8 +10158,8 @@ export default function App() {
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
                           {!loginPortal ? <button type="button" disabled={working||localPilotRunning}
                             onClick={()=>void launchAgentBatch([agent.id])}
-                            title={"Avvia solo "+agent.name+" ("+agent.channel+")"}
-                            aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
+                            title={"Avvia "+agent.name+" con sincronizzazione obbligatoria delle date Booking"}
+                            aria-label={"Avvia "+agent.name+" sulle date confermate da Booking"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
                           </button> : agent.id==="vrbo" ? <button type="button"
@@ -10665,7 +10665,7 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
                   <div>
                     <p className="text-sm font-black text-[#23124A]">3 · Avvio della scansione</p>
-                    <p className="mt-1 text-[11px] text-[#64748B]">Partenza parallela, massimo due browser alla volta. Expedia, Vrbo e Holidu richiedono il profilo Account salvato: senza accesso preparato la scansione non parte e il timer resta fermo. Giove si avvia manualmente.</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Prima Booking conferma una finestra con tariffa e disponibilità per ciascun soggiorno; poi gli altri agenti cercano solo sulle stesse date e per gli stessi ospiti. Se Booking non conferma le date, il confronto non parte. Expedia, Vrbo e Holidu richiedono il profilo Account salvato. Giove si avvia manualmente.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
