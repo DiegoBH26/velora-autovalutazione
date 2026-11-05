@@ -7,7 +7,7 @@ Il dominio/URL viene usato come prova del fornitore soltanto per host noti.
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 
 from selectolax.lexbor import LexborHTMLParser
 
@@ -32,8 +32,16 @@ def _public_url(value: str, base: str) -> str:
     parsed = urlparse(resolved)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return ""
-    # Le query di prenotazione possono contenere token o dati del soggiorno.
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", "", ""))
+    # Bedzzle: l'API key pubblica del link identifica la struttura. Eliminandola
+    # apriremmo soltanto la homepage generica invece del suo booking engine.
+    # Conservare soltanto parametri pubblici noti, mai token di sessione.
+    host=(parsed.hostname or "").lower()
+    public_query=""
+    if host=="booking.bedzzle.com":
+        allowed={"apikey","lang"}
+        public_query=urlencode([(k,v) for k,v in parse_qsl(parsed.query,keep_blank_values=False)
+                                if k.lower() in allowed and len(v)<=180])
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", public_query, ""))
 
 
 def _provider(host: str) -> str:
