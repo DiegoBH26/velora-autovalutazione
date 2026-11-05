@@ -62,9 +62,45 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("host === 'booking.bedzzle.com'",app)
         self.assertIn("const provider = engine.provider || resolved?.provider",app)
 
+    def test_stay_lock_no_shift_no_missing_guests(self):
+        from velora_direct_stays import eligible_stays
+        from datetime import date,timedelta
+        checkin=(date.today()+timedelta(days=45)).isoformat()
+        checkout=(date.today()+timedelta(days=48)).isoformat()
+        rows=[
+            {"status":"shifted_to_available_booking_dates","requestedCheckin":"2027-08-01",
+             "requestedCheckout":"2027-08-04","checkin":checkin,"checkout":checkout,"adults":2},
+            {"status":"initial_dates_available","requestedCheckin":checkin,
+             "requestedCheckout":checkout,"checkin":checkin,"checkout":checkout,"adults":None},
+            {"status":"initial_dates_available","requestedCheckin":checkin,
+             "requestedCheckout":checkout,"checkin":checkin,"checkout":checkout,"adults":3}
+        ]
+        found=eligible_stays(rows)
+        self.assertEqual(len(found),1)
+        self.assertEqual(found[0]["guests"],3)
+        self.assertEqual(found[0]["checkin"],checkin)
+        self.assertEqual(found[0]["checkout"],checkout)
+
+    def test_bedzzle_public_booking_key_is_preserved(self):
+        from booking_engine import detect_booking_engine
+        target="https://booking.bedzzle.com/desktop/?apikey=publicPropertyKey&lang=it&session=secret"
+        engine=detect_booking_engine("https://example.org/",
+            '<a href="'+target+'">Prenota</a>')
+        self.assertEqual(engine["provider"],"Bedzzle")
+        self.assertIn("apikey=publicPropertyKey",engine["url"])
+        self.assertIn("lang=it",engine["url"])
+        self.assertNotIn("session=",engine["url"])
+
+    def test_direct_quotes_not_invented(self):
+        import inspect
+        from velora_direct_stays import probe_direct_stays
+        source=inspect.getsource(probe_direct_stays)
+        self.assertIn('"verifiedQuotes":[]',source)
+        self.assertIn('visible_offer_candidates',source)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
-        for filename in ("velora_direct_commercial.py","velora_shared_intelligence.py"):
+        for filename in ("velora_direct_commercial.py","velora_direct_stays.py","velora_shared_intelligence.py"):
             assert "Scarico" in script
             assert filename+".new" in script
             assert 'move /Y "'+filename+'.new" "'+filename+'"' in script
