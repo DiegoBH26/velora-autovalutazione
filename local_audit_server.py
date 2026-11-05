@@ -263,7 +263,7 @@ def agent_output(property_id,agent_id):
 # executable commands, credentials, browser control or cross-OTA navigation.
 # Giove can audit the exchange, which never overrides evidence from the portal.
 MAILBOX_LOCK=threading.RLock()
-MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision"}
+MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision","identity_rejected"}
 MAILBOX_LIMIT=120
 
 
@@ -289,7 +289,7 @@ def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=Fal
         safe_details={
             key:value for key,value in (details or {}).items()
             if key in {"propertyName","sourceRun","windows","date","status",
-                       "roomCount","priceCount","technicalReason","ota","message",
+                       "roomCount","priceCount","observedPriceCount","technicalReason","ota","message",
                        "recipient","strategy","decision"}
             and isinstance(value,(str,int,float,bool,list))
         }
@@ -434,18 +434,35 @@ def agent_mailbox_result(property_id,agent_id):
             "quote_candidates_unverified"}]
         errors=[row for row in rows if row.get("status") in {
             "rate_limited","access_blocked","blocked","http_error","login_required"}]
-        event_type=("technical_block" if errors else
+        rejected=[row for row in rows if row.get("status") in {
+            "wrong_property_listing","identity_mismatch","wrong_property"
+        } or row.get("identityQuarantined")]
+        room_count=max((int((row.get("rateDiagnostics") or {}).get("actualRoomNames") or 0)
+                        for row in rows),default=0)
+        seen_prices=max((int((row.get("rateDiagnostics") or {}).get("numericEuroPrices") or 0)
+                         for row in rows),default=0)
+        event_type=("identity_rejected" if rejected and prices==0 else
+                    "technical_block" if errors else
                     "pricing_read_failure" if weak and prices==0 else "pricing_observed")
         diagnostic=", ".join(dict.fromkeys(
-            str(row.get("status") or "") for row in (errors or weak)))[:180]
+            str(row.get("status") or "") for row in (rejected or errors or weak)))[:180]
+        message=(
+            f"{agent_id}: annuncio di altra struttura scartato. "
+            "Nessun prezzo attribuito e nessuna prova di assenza su questa OTA."
+            if event_type=="identity_rejected" else
+            f"{agent_id}: sulla mia OTA ho osservato {room_count} intestazioni camera "
+            f"e {seen_prices} elementi di prezzo, ma solo {prices} offerte validate. "
+            f"Esito: {diagnostic or 'lettura conclusa'}."
+            if event_type=="pricing_read_failure" else
+            f"{agent_id}: verifica completata. Prezzi validati: {prices}. "
+            f"Esito: {diagnostic or 'nessun blocco documentato'}."
+        )
         agent_mailbox_publish(property_id,agent_id,event_type,{
-            "ota":agent_id,"priceCount":prices,
+            "ota":agent_id,"priceCount":prices,"roomCount":room_count,
+            "observedPriceCount":seen_prices,
             "technicalReason":diagnostic,
             "status":"evidence_only_no_cross_ota_navigation",
-            "message":(
-                f"{agent_id}: ho verificato la mia OTA. Prezzi validati: {prices}. "
-                f"Esito: {diagnostic or 'rilevazione conclusa'}."
-            ),
+            "message":message,
         })
 
 
