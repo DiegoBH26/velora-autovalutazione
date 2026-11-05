@@ -15,6 +15,7 @@ from pathlib import Path
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields
+from velora_direct_stays import probe_direct_stays
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
@@ -470,14 +471,25 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 "availability": "not_verified", "datedPrices": [],
                 "evidence": ["Verifica booking engine non conclusa: " + type(exc).__name__],
             }
+        booking_windows=(peer_evidence.get("booking") or {}).get("bookingReferenceStays") or []
+        direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
+        if (direct_verification.get("navigation")=="reached" and audit.get("bookingEngine",{}).get("url"):
+            try:
+                direct_stays=await probe_direct_stays(
+                    audit["bookingEngine"]["url"], booking_windows, limit=4)
+            except Exception as exc:
+                direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
+                              "evidence":["Preventivi non completati: "+type(exc).__name__]}
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
+        audit["directCommercialAudit"] = direct_stays
         audit["bookingEngineFields"] = engine_fields
         result = _safe_result({
             "schema": NETWORK_SCHEMA, "auditData": audit, "photoAudit": photos,
             "bookingEngine": audit.get("bookingEngine") or {},
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
+            "directCommercialAudit": direct_stays,
             "navigationAudit": (audit.get("_autoAudit") or {}).get("navigationChecks") or {},
             "peerBookingDates": (peer_evidence.get("booking") or {}).get("bookingReferenceStays") or [],
             "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
@@ -652,9 +664,13 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 direct.get("navigation")=="reached",
                 "Navigazione: "+str(direct.get("navigation") or "non eseguita")
                 +"; flusso transazionale NON ancora collaudato")
+            commercial=result.get("directCommercialAudit") or {}
+            add(agent, "direct_search_windows", "Ricerca date dirette",
+                bool(commercial.get("samples")),
+                f"{len(commercial.get('samples') or [])} finestre Booking analizzate; esito {commercial.get('status','n.d.')}")
             add(agent, "direct_dated_prices", "Tariffe dirette datate",
-                bool(direct.get("datedPrices")) and direct.get("availability")=="verified",
-                "Nessun prezzo diretto entra nel delta senza preventivo datato e disponibilità verificata")
+                bool(commercial.get("verifiedQuotes")),
+                "Nessun prezzo diretto entra nel delta senza preventivo datato, stanza equivalente e condizioni verificate")
             audit = result.get("auditData") or {}
             add(agent, "identity", "Sito ufficiale identificato", bool(audit.get("website")) and audit.get("id") == property_id,
                 "Identità e sito del report devono corrispondere alla struttura selezionata")
