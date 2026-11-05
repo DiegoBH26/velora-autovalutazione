@@ -459,9 +459,10 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             booking_report=json.loads(reference_path.read_text(encoding="utf-8"))
             if booking_report.get("propertyId")==property_id:
                 for row in booking_report.get("bookingReferenceStays") or []:
-                    month=str(row.get("month") or "")
-                    if month and row.get("checkin") and row.get("checkout"):
-                        booking_locks[month]=(row["checkin"],row["checkout"],row.get("adults"))
+                    key=(str(row.get("requestedCheckin") or ""),
+                         str(row.get("requestedCheckout") or ""))
+                    if all(key) and row.get("checkin") and row.get("checkout"):
+                        booking_locks[key]=(row["checkin"],row["checkout"],row.get("adults"))
         except (OSError,ValueError):
             pass
     for agent, path in outputs.items():
@@ -539,15 +540,17 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 f"{len(errors)} osservazioni con blocchi o date incoerenti")
             if agent != "booking":
                 local_locks={
-                    str(row.get("month") or ""): (
+                    (str(row.get("requestedCheckin") or ""),
+                     str(row.get("requestedCheckout") or "")): (
                         row.get("checkin"),row.get("checkout"),row.get("adults"))
                     for row in result.get("bookingReferenceStays") or []
-                    if row.get("month") and row.get("checkin") and row.get("checkout")
+                    if row.get("requestedCheckin") and row.get("requestedCheckout")
+                    and row.get("checkin") and row.get("checkout")
                 }
                 common=set(booking_locks)&set(local_locks)
                 consistent=bool(booking_locks and local_locks and
                     set(local_locks)==set(booking_locks) and
-                    all(booking_locks[month]==local_locks[month] for month in common))
+                    all(booking_locks[window]==local_locks[window] for window in common))
                 add(agent,"shared_booking_lock","Stesse date Booking fra agenti",consistent,
                     f"Riferimento Minerva: {len(booking_locks)} finestre; {agent_display(agent)}: {len(local_locks)}."
                     + (" Date condivise confermate." if consistent else
