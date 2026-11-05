@@ -18,10 +18,13 @@ class CollaborationContract(unittest.TestCase):
         self.assertIn('"help_request","help_reply","review_decision"',SERVER)
         self.assertIn('"recipient":"booking"',SERVER)
         self.assertIn('"recipient":"agoda"',SERVER)
-        self.assertIn('booking=agent_mailbox_reference(property_id,',SERVER)
-        self.assertIn('if booking and booking.get("windows"):',SERVER)
-        self.assertIn('"decision":"diagnostic_only"',SERVER)
-        self.assertIn('"decision":"no_booking_reference"',SERVER)
+        self.assertIn('reference=agent_mailbox_reference(property_id,expected_name)',SERVER)
+        self.assertIn('if not matching:',SERVER)
+        self.assertIn('"decision":"blocked_no_exact_booking_lock"',SERVER)
+        self.assertIn('"decision":"approved_one_same_page_recheck"',SERVER)
+        self.assertIn('peer_callback=peer_callback',SERVER)
+        self.assertIn('peer_callback("pricing_help",stay,',PILOT)
+        self.assertIn('peer_callback("recovery_result",stay,',PILOT)
         self.assertIn('MAILBOX_LIMIT=120',SERVER)
 
     def test_giove_viewer_displays_real_message_text(self):
