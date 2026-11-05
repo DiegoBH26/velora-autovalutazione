@@ -10,6 +10,7 @@ import re
 from datetime import date
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
+from site_audit_builder import public_url, robots_allowed
 
 _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PRICE_PATTERN=re.compile(r"(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*€)")
@@ -62,7 +63,7 @@ async def _apply_dates(page, stay):
         if row["type"]=="date" and re.search(r"check.?in|arriv|start|from|entrata",label):targets["checkin"]=i
         elif row["type"]=="date" and re.search(r"check.?out|partenz|end|to|uscita",label):targets["checkout"]=i
     if len(targets)!=2:return {"applied":False,"reason":"Selettore date personalizzato o campi non riconosciuti"}
-    inputs=page.locator("input")
+    inputs=page.locator("input:visible")
     # Only native dates; never click through unknown form/payment buttons.
     for name,index in targets.items():
         await inputs.nth(index).fill(stay[name],timeout=4500)
@@ -77,8 +78,12 @@ async def probe_direct_stays(url, rows, *, limit=4):
         result["status"]="missing_booking_reference"
         result["evidence"].append("Nessuna finestra futura esatta confermata da Booking; prezzi diretti non confrontabili.")
         return result
-    if urlparse(url).scheme not in ("http","https") or not urlparse(url).hostname:
+    try:
+        url=public_url(url)
+    except ValueError:
         result["status"]="missing_engine_url";return result
+    if robots_allowed(url,{}) is not True:
+        result["status"]="robots_unverified";result["evidence"].append("Navigazione non autorizzata o robots.txt non conclusivo.");return result
     async with async_playwright() as pw:
         browser=await pw.chromium.launch(channel="chrome",headless=True)
         try:
