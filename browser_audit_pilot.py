@@ -10723,14 +10723,35 @@ async def observe(
                             explicit_sold_out=agoda_sold_out_message(body)
                             eur_count=int(agoda_debug.get("numericEuroPrices") or 0)
                             room_count=int(agoda_debug.get("actualRoomNames") or 0)
-                            if explicit_sold_out:
+                            # Agoda può mostrare "sold out" per una singola tipologia,
+                            # oppure in banner generici, mentre altre camere restano
+                            # prenotabili. Non trasformare quel testo in una chiusura
+                            # dell'intera struttura quando esistono intestazioni camera.
+                            if explicit_sold_out and eur_count==0 and room_count==0:
                                 record.update(
-                                    status="no_public_rate",
+                                    status="needs_human_review",
                                     evidence=(
-                                        f"Agoda: nessuna disponibilità pubblica per "
-                                        f"{stay['checkin']}→{stay['checkout']} (2 adulti). "
-                                        f"Messaggio esplicito sulla scheda: «{explicit_sold_out}». "
-                                        "Nessun prezzo inventato."
+                                        f"Agoda mostra «{explicit_sold_out}», ma non è stata "
+                                        "verificata una indisponibilità dell'intera struttura "
+                                        f"per {stay['checkin']}→{stay['checkout']} "
+                                        f"e {stay.get('adults',2)} ospiti. "
+                                        "Nessun prezzo o messaggio riferito alla singola "
+                                        "offerta è attribuibile con certezza. "
+                                        "Esito tecnico non conclusivo: non generare "
+                                        "asimmetria commerciale di calendario."
+                                    )[:900],
+                                )
+                            elif explicit_sold_out:
+                                record.update(
+                                    status="needs_human_review",
+                                    evidence=(
+                                        f"Agoda: messaggio «{explicit_sold_out}» presente, "
+                                        f"ma sono state identificate {room_count} camere "
+                                        f"e {eur_count} elementi di prezzo. "
+                                        "La frase potrebbe riferirsi solo ad alcune "
+                                        "tipologie: non dimostra che tutto l'hotel sia "
+                                        "esaurito. Verificare la griglia tariffe sulle "
+                                        f"date Booking {stay['checkin']}→{stay['checkout']}."
                                     )[:900],
                                 )
                             elif eur_count==0:
