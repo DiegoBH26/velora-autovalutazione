@@ -263,7 +263,7 @@ def agent_output(property_id,agent_id):
 # executable commands, credentials, browser control or cross-OTA navigation.
 # Giove can audit the exchange, which never overrides evidence from the portal.
 MAILBOX_LOCK=threading.RLock()
-MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block"}
+MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision"}
 MAILBOX_LIMIT=120
 
 
@@ -272,7 +272,7 @@ def agent_mailbox_path(property_id):
 
 
 def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=False):
-    if sender not in (set(agent_network.AGENTS) if agent_network else set()):
+    if sender not in ((set(agent_network.AGENTS) if agent_network else set()) | {"giove"}):
         raise ValueError("Mittente mailbox non riconosciuto")
     if event_type not in MAILBOX_EVENT_TYPES:
         raise ValueError("Evento mailbox non consentito")
@@ -289,7 +289,8 @@ def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=Fal
         safe_details={
             key:value for key,value in (details or {}).items()
             if key in {"propertyName","sourceRun","windows","date","status",
-                       "roomCount","priceCount","technicalReason","ota"}
+                       "roomCount","priceCount","technicalReason","ota","message",
+                       "recipient","strategy","decision"}
             and isinstance(value,(str,int,float,bool,list))
         }
         # Only bounded scalar strings and compact date-window dictionaries.
@@ -303,7 +304,8 @@ def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=Fal
                     for item in value[:16] if isinstance(item,dict)
                 ]
         event={
-            "from":sender,"to":"giove" if event_type!="booking_reference" else "ota_specialists",
+            "from":sender,"to":str(safe_details.get("recipient") or (
+                "ota_specialists" if event_type=="booking_reference" else "giove"))[:60],
             "type":event_type,"createdAt":datetime.now(timezone.utc).isoformat(),
             "details":safe_details,
         }
@@ -367,12 +369,60 @@ def agent_mailbox_result(property_id,agent_id):
             "rate_limited","access_blocked","blocked","http_error","login_required"}]
         event_type=("technical_block" if errors else
                     "pricing_read_failure" if weak and prices==0 else "pricing_observed")
+        diagnostic=", ".join(dict.fromkeys(
+            str(row.get("status") or "") for row in (errors or weak)))[:180]
         agent_mailbox_publish(property_id,agent_id,event_type,{
             "ota":agent_id,"priceCount":prices,
-            "technicalReason":", ".join(dict.fromkeys(
-                str(row.get("status") or "") for row in (errors or weak)))[:180],
+            "technicalReason":diagnostic,
             "status":"evidence_only_no_cross_ota_navigation",
+            "message":(
+                f"{agent_id}: ho verificato la mia OTA. Prezzi validati: {prices}. "
+                f"Esito: {diagnostic or 'rilevazione conclusa'}."
+            ),
         })
+        # Structured peer consultation, controlled and audit-ready. It is not
+        # a free-form LLM conversation: replies are generated from known
+        # evidence, with no cross-OTA browsing or autonomous code changes.
+        if agent_id=="agoda" and weak and prices==0 and not errors:
+            agent_mailbox_publish(property_id,"agoda","help_request",{
+                "recipient":"booking",
+                "ota":"agoda",
+                "message":(
+                    "Minerva, le tue date sono state ricevute ma sulla mia "
+                    "scheda Agoda non ho validato le offerte. Quali controlli "
+                    "posso replicare senza cambiare portale?"
+                ),
+                "technicalReason":diagnostic,
+            })
+            booking=agent_mailbox_reference(property_id,str(result.get("propertyName") or ""))
+            if booking and booking.get("windows"):
+                agent_mailbox_publish(property_id,"booking","help_reply",{
+                    "recipient":"agoda","ota":"agoda",
+                    "strategy":"same_dates_room_grid",
+                    "message":(
+                        "Galileo, utilizza solo le finestre già confermate. "
+                        "Verifica la scheda corretta, scorri fino alle camere, "
+                        "attendi le offerte e associa il prezzo al piano e alla "
+                        "sua base per notte. I miei prezzi Booking non provano "
+                        "la disponibilità Agoda."
+                    ),
+                })
+                agent_mailbox_publish(property_id,"giove","review_decision",{
+                    "recipient":"agoda","ota":"agoda",
+                    "decision":"diagnostic_only",
+                    "message":(
+                        "Procedura di controllo condivisa. Nessuna tariffa "
+                        "Agoda validata in questa esecuzione: non dichiarare "
+                        "indisponibilità e non attribuire prezzi Booking ad Agoda. "
+                        "Il recupero richiede una nuova osservazione sullo stesso portale."
+                    ),
+                })
+            else:
+                agent_mailbox_publish(property_id,"giove","review_decision",{
+                    "recipient":"agoda","ota":"agoda",
+                    "decision":"no_booking_reference",
+                    "message":"Riferimento Booking non verificato: nessun confronto né nuovo tentativo autorizzato.",
+                })
 
 
 def vrbo_presence_path(property_id):
