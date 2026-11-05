@@ -10720,10 +10720,14 @@ async def observe(
                     # not a scripted conversation after the job is completed.
                     peer_decision={"approved":True,"strategy":"same_page_room_grid_recheck"}
                     if callable(peer_callback):
-                        peer_decision=peer_callback("pricing_help",stay,{
-                            "numericEuroPrices":agoda_debug.get("numericEuroPrices",0),
-                            "actualRoomNames":agoda_debug.get("actualRoomNames",0),
-                        }) or {"approved":False}
+                        try:
+                            peer_decision=peer_callback("pricing_help",stay,{
+                                "numericEuroPrices":agoda_debug.get("numericEuroPrices",0),
+                                "actualRoomNames":agoda_debug.get("actualRoomNames",0),
+                            }) or {"approved":False}
+                        except Exception as exc:
+                            peer_decision={"approved":False}
+                            record["peerDiagnosticError"]=type(exc).__name__
                     if peer_decision.get("approved") and peer_decision.get("strategy") in {"same_page_room_grid_recheck","same_page_offer_mapping"}:
                         try:
                             await page.evaluate("""() => {
@@ -10769,11 +10773,6 @@ async def observe(
                             "strategy":"same_page_room_grid_recheck",
                             "attempts":0,"status":"blocked_by_giove",
                         }
-                    if callable(peer_callback):
-                        peer_callback("recovery_result",stay,{
-                            "status":str((record.get("rateRecovery") or {}).get("status") or "unverified"),
-                            "verifiedQuotes":sum(1 for q in record.get("quotes") or [] if q.get("verified")),
-                        })
                     if not record.get("quotes"):
                         fallback=await agoda_visible_rate_candidates(page,stay)
                         record["quotes"]=fallback
@@ -10855,6 +10854,16 @@ async def observe(
                                             "Importi esclusi dal confronto finché non validati."
                                         )[:900],
                                     )
+                if callable(peer_callback) and record.get("rateRecovery"):
+                    try:
+                        peer_callback("recovery_result",stay,{
+                            "status":str(record.get("status") or "unverified"),
+                            "verifiedQuotes":sum(
+                                1 for q in record.get("quotes") or [] if q.get("verified")
+                            ),
+                        })
+                    except Exception as exc:
+                        record["peerDiagnosticError"]=type(exc).__name__
             elif channel in {"airbnb","vrbo"}:
                 candidates=(
                     await airbnb_quote_candidates(page,stay)
