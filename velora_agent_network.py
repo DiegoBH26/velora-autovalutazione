@@ -402,6 +402,26 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         ]
         first = next((x for x in samples if x.get("photoOrderSample")), {})
         photo = (first.get("photoOrderSample") or [None])[0]
+        # Riutilizza il rating osservato durante la STESSA visita OTA;
+        # solo la scheda con identità esplicitamente confermata è ammessa.
+        verified_rating = next((
+            o["frontendSnapshot"]["ratingCandidate"]
+            for o in observations
+            if o.get("sourceIdentityVerified") is True
+            and isinstance(o.get("frontendSnapshot"), dict)
+            and isinstance(o["frontendSnapshot"].get("ratingCandidate"), dict)
+        ), None)
+        if verified_rating:
+            result.setdefault("otaProfiles", {})[agent] = {
+                "status": "sampled",
+                "url": next((o.get("finalUrl") for o in observations
+                             if o.get("sourceIdentityVerified") is True and o.get("finalUrl")), ""),
+                "rating": verified_rating.get("rating"),
+                "ratingScale": verified_rating.get("ratingScale"),
+                "reviewCount": verified_rating.get("reviewCount"),
+                "evidence": verified_rating.get("evidence", "")+
+                    "; identità OTA verificata dallo specialista.",
+            }
         result["sharedKnowledge"] = {
             "sourceAgent": agent, "propertyId": data["id"],
             "observedAt": _now(), "listingIdentityQuarantined": False,
