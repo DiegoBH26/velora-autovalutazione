@@ -690,9 +690,20 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 "Navigazione: "+str(direct.get("navigation") or "non eseguita")
                 +"; flusso transazionale NON ancora collaudato")
             commercial=result.get("directCommercialAudit") or {}
+            samples_direct=commercial.get("samples") or []
+            parity=bool(samples_direct) and bool(booking_locks) and all(
+                (sample.get("checkin"),sample.get("checkout"),sample.get("guests"))
+                in booking_locks.values()
+                and (sample.get("checkin"),sample.get("checkout")) in booking_locks
+                for sample in samples_direct
+            )
+            add(agent, "direct_booking_date_parity", "Date e ospiti sito diretto / Booking",
+                parity,
+                f"{len(samples_direct)} finestre sito diretto controllate rispetto a {len(booking_locks)} riferimenti Booking."
+                + (" Date e ospiti coincidenti." if parity else " Confronto non convalidato."))
             add(agent, "direct_search_windows", "Ricerca date dirette",
-                bool(commercial.get("samples")),
-                f"{len(commercial.get('samples') or [])} finestre Booking analizzate; esito {commercial.get('status','n.d.')}")
+                bool(samples_direct),
+                f"{len(samples_direct)} finestre Booking analizzate; esito {commercial.get('status','n.d.')}")
             add(agent, "direct_dated_prices", "Tariffe dirette datate",
                 bool(commercial.get("verifiedQuotes")),
                 "Nessun prezzo diretto entra nel delta senza preventivo datato, stanza equivalente e condizioni verificate")
