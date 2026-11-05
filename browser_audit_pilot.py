@@ -14116,6 +14116,17 @@ async def run(args: argparse.Namespace) -> dict:
                                     if airbnb_explicit_different_tenuta(
                                         str(data.get("name") or ""),title,str(data.get("city") or ""))),"")
                                 if wrong_brand:
+                                    if callable(peer_callback):
+                                        try:
+                                            peer_callback("identity_help",effective_stay,{
+                                                "observedTitle":wrong_brand,
+                                                "sourceUrl":str(record.get("sourceUrl") or source or ""),
+                                            })
+                                        except Exception as peer_exc:
+                                            print(
+                                                f"airbnb peer consultation unavailable: {type(peer_exc).__name__}",
+                                                flush=True,
+                                            )
                                     record["status"]="wrong_property_listing"
                                     record["quotes"]=[]
                                     record["evidence"]=(
