@@ -2181,7 +2181,13 @@ async def discover_airbnb_property_listings(context, data: dict, robots: dict) -
         except Exception as exc:
             diagnostics.append(f"Airbnb frontend interno: {type(exc).__name__}")
 
-    ranked=sorted(hits.values(),key=lambda row:row[0],reverse=True)
+    # Rejected listings are excluded before the page identity verifier.
+    excluded=set(data.get("_runtimeRejectedAirbnbUrls") or [])
+    ranked=sorted(
+        (row for row in hits.values()
+         if normalize_ota_listing_url("airbnb",row[1]) not in excluded),
+        key=lambda row:row[0],reverse=True
+    )
     print(
         f"airbnb-indexed-discovery: candidati={len(ranked)} · "
         f"query brand={core_brand} · URL rooms={[urlparse(item[1]).path for item in ranked[:8]]} · "
@@ -12943,6 +12949,18 @@ async def run(args: argparse.Namespace) -> dict:
     # the same property. Scope by property id AND canonical name; never block
     # an unverified candidate based only on lack of search results.
     rejected_airbnb_urls=set()
+    rejection_path=output.parent/"airbnb-rejected-identities.json"
+    if specialist_id=="airbnb" and rejection_path.is_file():
+        try:
+            saved=json.loads(rejection_path.read_text(encoding="utf-8"))
+            if saved.get("propertyId")==data.get("id") and saved.get("propertyName")==data.get("name"):
+                rejected_airbnb_urls.update(
+                    normalize_ota_listing_url("airbnb",url)
+                    for url in (saved.get("urls") or [])[:100]
+                    if _plausible_ota_listing_url("airbnb",str(url))
+                )
+        except (OSError,ValueError,TypeError):
+            pass
     if specialist_id=="airbnb" and output.is_file():
         try:
             previous=json.loads(output.read_text(encoding="utf-8"))
@@ -12959,6 +12977,8 @@ async def run(args: argparse.Namespace) -> dict:
                             rejected_airbnb_urls.add(normalize_ota_listing_url("airbnb",wrong))
         except (OSError,ValueError,TypeError):
             pass
+    if specialist_id=="airbnb":
+        data["_runtimeRejectedAirbnbUrls"]=sorted(rejected_airbnb_urls)
     if args.dry_run:
         write_result(output, result)
         return result
@@ -13022,7 +13042,10 @@ async def run(args: argparse.Namespace) -> dict:
                 property_path=Path(args.property)
                 if property_path.parent.name=="runtime-properties":
                     tmp_property=property_path.with_suffix(".tmp")
-                    tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                    tmp_property.write_text(json.dumps(
+                        {k:v for k,v in data.items() if k!="_runtimeRejectedAirbnbUrls"},
+                        ensure_ascii=False,indent=2
+                    ),encoding="utf-8")
                     tmp_property.replace(property_path)
             except OSError:
                 pass
@@ -13500,7 +13523,10 @@ async def run(args: argparse.Namespace) -> dict:
                     }
                     data["sources"]=persisted_sources
                     tmp_property=property_path.with_suffix(".tmp")
-                    tmp_property.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                    tmp_property.write_text(json.dumps(
+                        {k:v for k,v in data.items() if k!="_runtimeRejectedAirbnbUrls"},
+                        ensure_ascii=False,indent=2
+                    ),encoding="utf-8")
                     tmp_property.replace(property_path)
             except OSError:
                 pass
@@ -14193,6 +14219,17 @@ async def run(args: argparse.Namespace) -> dict:
                                     wrong_source=str(record.get("sourceUrl") or source or "")
                                     if _plausible_ota_listing_url("airbnb",wrong_source):
                                         rejected_airbnb_urls.add(normalize_ota_listing_url("airbnb",wrong_source))
+                                        data["_runtimeRejectedAirbnbUrls"]=sorted(rejected_airbnb_urls)
+                                        try:
+                                            rejection_path.parent.mkdir(parents=True,exist_ok=True)
+                                            tmp_rejection=rejection_path.with_suffix(".tmp")
+                                            tmp_rejection.write_text(json.dumps({
+                                                "propertyId":data["id"],"propertyName":data["name"],
+                                                "urls":sorted(rejected_airbnb_urls)[:100],
+                                            },ensure_ascii=False,indent=2),encoding="utf-8")
+                                            tmp_rejection.replace(rejection_path)
+                                        except OSError:
+                                            pass
                                     sources.pop("airbnb",None)
                                     unverified_source_ids.add("airbnb")
                                     result.setdefault("discoveredSources",{}).setdefault("airbnb",{})["identityMismatch"]=True
