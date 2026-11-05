@@ -5138,7 +5138,7 @@ export default function App() {
   const [agentChatError,setAgentChatError]=useState("");
   const [agentChatEvents,setAgentChatEvents]=useState<Array<{
     from:string;to:string;type:string;createdAt:string;
-    details?:{propertyName?:string;sourceRun?:string;windows?:Array<{
+    details?:{message?:string;recipient?:string;strategy?:string;decision?:string;propertyName?:string;sourceRun?:string;windows?:Array<{
       requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;status?:string
     }>;date?:string;status?:string;roomCount?:number;priceCount?:number;technicalReason?:string;ota?:string}
   }>>([]);
@@ -10752,8 +10752,12 @@ export default function App() {
                           booking_reference:"Date Booking confermate e condivise",
                           pricing_read_failure:"Difficoltà nella lettura delle tariffe",
                           pricing_observed:"Acquisizione tariffe registrata",
-                          technical_block:"Problema tecnico segnalato"
+                          technical_block:"Problema tecnico segnalato",
+                          help_request:"Richiesta di aiuto tra agenti",
+                          help_reply:"Risposta tecnica condivisa",
+                          review_decision:"Giove · Controllo e limiti operativi"
                         } as Record<string,string>)[event.type]||event.type}</p>
+                        {event.details?.message && <p className="mt-1 text-xs leading-relaxed text-[#374151]">{event.details.message}</p>}
                         {event.details?.windows?.map((stay,i)=><p key={i} className="mt-1 text-[11px] text-[#50627F]">
                           {stay.requestedCheckin} → {stay.requestedCheckout} · Date confermate: {stay.checkin} → {stay.checkout}
                         </p>)}
