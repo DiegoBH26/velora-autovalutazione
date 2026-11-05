@@ -11248,7 +11248,7 @@ export default function App() {
           <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni Google e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
 
-          {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.reputation?.status === "sampled" && <>
+          {browserPilotResult?.propertyId === activeAuditData.id && (browserPilotResult.reputation?.status === "sampled" || ratingChannels.length>0) && <>
             <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
                 <div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Rating medio · {ratingChannels.length} {ratingChannels.length===1?"piattaforma":"piattaforme"}</div>
@@ -11259,20 +11259,20 @@ export default function App() {
                   </div>)}
                 </div>
               </div>
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.reviewCount ?? "n.d."}</div></div>
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione testuale</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.sampleSize ?? 0}</div></div>
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.strengths?.length ?? 0}</div></div>
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Criticità ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation.weaknesses?.length ?? 0}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.reviewCount ?? "n.d."}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione testuale</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.sampleSize ?? 0}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.strengths?.length ?? 0}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Criticità ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.weaknesses?.length ?? 0}</div></div>
             </div>
             <div className="mt-2 rounded-xl border border-[#E5DDF1] bg-white px-3 py-2 text-[10px] leading-5 text-[#50627F]">
               <b className="text-[#23124A]">Copertura del campione:</b>{" "}
-              {browserPilotResult.reputation.sampleSize ?? 0} recensioni testuali analizzate su {browserPilotResult.reputation.reviewCount ?? "n.d."} recensioni pubbliche
-              {browserPilotResult.reputation.reviewCount && browserPilotResult.reputation.sampleSize !== undefined
-                ? ` · ${Math.round(((browserPilotResult.reputation.sampleSize || 0) / browserPilotResult.reputation.reviewCount) * 100)}%`
+              {browserPilotResult.reputation?.sampleSize ?? 0} recensioni testuali analizzate su {browserPilotResult.reputation?.reviewCount ?? "n.d."} recensioni pubbliche
+              {browserPilotResult.reputation?.reviewCount && browserPilotResult.reputation?.sampleSize !== undefined
+                ? ` · ${Math.round(((browserPilotResult.reputation?.sampleSize || 0) / browserPilotResult.reputation?.reviewCount) * 100)}%`
                 : ""}.
               {" "}Forze e criticità descrivono esclusivamente il campione effettivamente letto.
-              {browserPilotResult.reputation.sampleQuality==="limited" && <span className="ml-1 font-bold text-amber-800">Campione limitato: le ricorrenze possono non emergere nonostante recensioni positive esistenti.</span>}
-              {browserPilotResult.reputation.panelOpened===false && <span className="ml-1 font-bold text-amber-800">L'apertura del pannello recensioni Google non è stata confermata.</span>}
+              {browserPilotResult.reputation?.sampleQuality==="limited" && <span className="ml-1 font-bold text-amber-800">Campione limitato: le ricorrenze possono non emergere nonostante recensioni positive esistenti.</span>}
+              {browserPilotResult.reputation?.panelOpened===false && <span className="ml-1 font-bold text-amber-800">L'apertura del pannello recensioni Google non è stata confermata.</span>}
             </div>
           </>}
 
