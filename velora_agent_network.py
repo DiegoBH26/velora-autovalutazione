@@ -411,7 +411,15 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 await context.close()
         # Leonardo pubblica risultati strutturati per la scheda booking engine.
         # L'audit fotografico consolidato resta invariato.
-        direct_verification = await inspect_direct_booking(site, audit.get("bookingEngine") or {})
+        try:
+            direct_verification = await inspect_direct_booking(site, audit.get("bookingEngine") or {})
+        except Exception as exc:
+            # Un engine bloccato non deve cancellare un audit foto/sito riuscito.
+            direct_verification = {
+                "status": "error", "navigation": "not_tested",
+                "availability": "not_verified", "datedPrices": [],
+                "evidence": ["Verifica booking engine non conclusa: " + type(exc).__name__],
+            }
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
         audit["bookingEngineFields"] = engine_fields
