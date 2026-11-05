@@ -37,6 +37,8 @@ def _public_url(value: str, base: str) -> str:
 
 
 def _provider(host: str) -> str:
+    if host == "booking.bedzzle.com" or host.endswith(".booking.bedzzle.com"):
+        return "Bedzzle"
     if host.endswith(".kross.travel") or host == "book.krossbooking.com":
         return "Kross Booking"
     if host == "book.ermeshotels.com" or host.endswith(".book.ermeshotels.com"):
