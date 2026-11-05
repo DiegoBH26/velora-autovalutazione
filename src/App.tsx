@@ -5846,6 +5846,18 @@ export default function App() {
   }
 
   function applyPilotEvidence(result: BrowserPilotResult) {
+    // Leonardo: importa automaticamente la verifica del booking engine
+    // nella stessa sezione che prima richiedeva "Usa questo riscontro".
+    if (result.bookingEngine) {
+      const engine = result.bookingEngine;
+      const status = engine.status === "provider_identified" ? "present"
+        : engine.status === "provider_unknown" || engine.status === "request_only" ? "partial" : "unverified";
+      updateAnswer("audit-booking-engine", { auditStatus: status });
+      updateAnswer("audit-booking-engine-provider", { note: engine.provider || "" });
+      updateAnswer("audit-booking-engine-url", { note: engine.url || "" });
+      updateAnswer("audit-booking-engine-mode", { note: engine.mode || "" });
+      updateAnswer("audit-booking-engine-evidence", { note: engine.evidence || "Percorso non verificato." });
+    }
     const automaticPilotQuotes = pilotDetectedRateQuotes(result);
     // Replace previous automatic quotes for retested OTA/date even when all newly
     // observed quotes were rejected due to a different property identity.
@@ -6416,6 +6428,7 @@ export default function App() {
                     observations:sameProperty?previous.observations:[],
                     reputation:agentId==="reviews"?(specialistPartial.reputation||{}):(sameProperty?previous.reputation:undefined),
                     photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
+                    bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
                   return combined;
