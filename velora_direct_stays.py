@@ -67,14 +67,34 @@ async def _apply_dates(page, stay):
         label=" ".join([row["name"],row["id"],row["placeholder"]])
         if row["type"]=="date" and re.search(r"check.?in|arriv|start|from|entrata",label):targets["checkin"]=i
         elif row["type"]=="date" and re.search(r"check.?out|partenz|end|to|uscita",label):targets["checkout"]=i
+    # Testo data esplicitamente etichettato, se il booking engine non usa input date.
+    modes={"checkin":"date","checkout":"date"}
+    if len(targets)!=2:
+        targets={}
+        for i,row in enumerate(controls):
+            label=" ".join([row["name"],row["id"],row["placeholder"]])
+            if row["type"] not in ("text","search","tel"):continue
+            if re.search(r"check.?in|arriv|data di ingresso|start.date",label):
+                targets["checkin"]=i;modes["checkin"]="text"
+            elif re.search(r"check.?out|partenz|data di uscita|end.date",label):
+                targets["checkout"]=i;modes["checkout"]="text"
     if len(targets)!=2:return {"applied":False,"reason":"Selettore date personalizzato o campi non riconosciuti"}
     inputs=page.locator("input:visible")
-    # Only native dates; never click through unknown form/payment buttons.
+    # Only explicitly identified date controls: never submit checkout/payment.
     for name,index in targets.items():
-        await inputs.nth(index).fill(stay[name],timeout=4500)
+        value=stay[name]
+        if modes[name]=="text":
+            year,month,day=value.split("-")
+            value=f"{day}/{month}/{year}"
+        await inputs.nth(index).fill(value,timeout=4500)
+        await inputs.nth(index).press("Tab",timeout=2500)
+    await page.wait_for_timeout(250)
     actual=await page.evaluate("""() => [...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(e=>e.value)""")
-    valid=all(stay[key] in actual for key in ("checkin","checkout"))
-    return {"applied":valid,"reason":"Date native impostate" if valid else "Le date sono state modificate dal booking engine"}
+    def has_date(key):
+        y,m,d=stay[key].split("-")
+        return any(v in actual for v in (stay[key],f"{d}/{m}/{y}"))
+    valid=has_date("checkin") and has_date("checkout")
+    return {"applied":valid,"reason":"Date inserite e confermate" if valid else "Le date sono state modificate o rifiutate dal booking engine"}
 
 async def _apply_guests(page, adults):
     """Prova soltanto controlli nativi esplicitamente etichettati adulti/ospiti."""
