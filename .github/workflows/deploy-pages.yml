@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile local audit agent
-        run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py velora_agent_network.py velora_direct_commercial.py velora_shared_intelligence.py velora_portal_sessions.py
+        run: python -m py_compile local_audit_server.py site_audit_builder.py browser_audit_pilot.py booking_engine.py mass_scrape.py velora_agent_network.py velora_direct_commercial.py velora_direct_stays.py velora_shared_intelligence.py velora_portal_sessions.py
       - name: Regression Leonardo and shared specialist evidence
         run: python -m unittest discover -s tests -p 'test_leonardo_shared_audit.py'
       - name: Validate specialist agent metadata and legacy protections
