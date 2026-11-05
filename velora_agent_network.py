@@ -472,6 +472,16 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 "evidence": ["Verifica booking engine non conclusa: " + type(exc).__name__],
             }
         booking_windows=(peer_evidence.get("booking") or {}).get("bookingReferenceStays") or []
+        if not booking_windows:
+            # Riutilizza i risultati Booking gia' salvati prima dell'installazione
+            # della memoria condivisa: nessuna nuova scansione OTA richiesta.
+            previous_booking=property_file.parent.parent / "specialist-agents" / str(data["id"]) / "booking" / "result.json"
+            try:
+                prior=json.loads(previous_booking.read_text(encoding="utf-8"))
+                if prior.get("propertyId")==data["id"]:
+                    booking_windows=prior.get("bookingReferenceStays") or []
+            except (OSError,ValueError,TypeError):
+                pass
         direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
         if (direct_verification.get("navigation")=="reached" and audit.get("bookingEngine",{}).get("url"):
             try:
