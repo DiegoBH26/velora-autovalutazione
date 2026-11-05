@@ -5138,7 +5138,7 @@ export default function App() {
   const [agentChatError,setAgentChatError]=useState("");
   const [agentChatEvents,setAgentChatEvents]=useState<Array<{
     from:string;to:string;type:string;createdAt:string;
-    details?:{message?:string;recipient?:string;strategy?:string;decision?:string;propertyName?:string;sourceRun?:string;windows?:Array<{
+    details?:{message?:string;recipient?:string;strategy?:string;decision?:string;observedPriceCount?:number;propertyName?:string;sourceRun?:string;windows?:Array<{
       requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;status?:string
     }>;date?:string;status?:string;roomCount?:number;priceCount?:number;technicalReason?:string;ota?:string}
   }>>([]);
@@ -10753,6 +10753,7 @@ export default function App() {
                           pricing_read_failure:"Difficoltà nella lettura delle tariffe",
                           pricing_observed:"Acquisizione tariffe registrata",
                           technical_block:"Problema tecnico segnalato",
+                          identity_rejected:"Scheda di un'altra struttura scartata",
                           help_request:"Richiesta di aiuto tra agenti",
                           help_reply:"Risposta tecnica condivisa",
                           review_decision:"Giove · Controllo e limiti operativi"
@@ -10761,7 +10762,8 @@ export default function App() {
                         {event.details?.windows?.map((stay,i)=><p key={i} className="mt-1 text-[11px] text-[#50627F]">
                           {stay.requestedCheckin} → {stay.requestedCheckout} · Date confermate: {stay.checkin} → {stay.checkout}
                         </p>)}
-                        {typeof event.details?.priceCount==="number" && <p className="mt-1 text-[11px] text-[#50627F]">Prezzi verificati: {event.details.priceCount}</p>}
+                        {(typeof event.details?.observedPriceCount==="number" || typeof event.details?.roomCount==="number") && <p className="mt-1 text-[11px] text-[#50627F]">Elementi prezzo osservati: {event.details?.observedPriceCount??0} · Camere individuate: {event.details?.roomCount??0}</p>}
+                        {typeof event.details?.priceCount==="number" && <p className="mt-1 text-[11px] text-[#50627F]">Offerte tariffarie validate: {event.details.priceCount}</p>}
                         {event.details?.technicalReason && <p className="mt-1 text-[11px] text-[#9A3412]">Motivo: {event.details.technicalReason}</p>}
                       </div>)}
                     </div>
