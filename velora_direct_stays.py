@@ -29,7 +29,12 @@ def eligible_stays(rows, *, limit=4):
         try:
             nights=(date.fromisoformat(departure)-date.fromisoformat(arrival)).days
         except ValueError: continue
-        adults=int(item.get("adults") or 2)
+        if item.get("status") and item["status"]!="initial_dates_available":
+            continue
+        if item.get("adults") is None:
+            continue
+        try: adults=int(item.get("adults"))
+        except (ValueError,TypeError): continue
         if not (1<=nights<=60 and 1<=adults<=12 and date.fromisoformat(arrival)>=date.today()):
             continue
         key=(arrival,departure,adults)
