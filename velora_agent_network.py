@@ -14,7 +14,7 @@ from pathlib import Path
 
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
-from velora_direct_commercial import inspect_direct_booking, concise_engine_fields
+from velora_direct_commercial import inspect_direct_booking, concise_engine_fields, follow_booking_cta
 from velora_direct_stays import probe_direct_stays
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
@@ -460,6 +460,20 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 photos=await pilot.frontend_photo_audit(context,picture_data,{})
             finally:
                 await context.close()
+        # Segue davvero la CTA di prenotazione per catturare la scheda/dominio
+        # finale e l'eventuale parametro pubblico Bedzzle della struttura.
+        try:
+            cta_verification=await follow_booking_cta(site,audit.get("bookingEngine") or {})
+        except Exception as exc:
+            cta_verification={"status":"error","evidence":[type(exc).__name__]}
+        if cta_verification.get("status")=="reached" and cta_verification.get("resolvedUrl"):
+            from booking_engine import detect_booking_engine
+            discovered=detect_booking_engine(
+                cta_verification["resolvedUrl"],"",cta_verification["resolvedUrl"])
+            if discovered.get("status")=="provider_identified":
+                discovered["mode"]=cta_verification.get("connectionType") or "link dal sito"
+                discovered["evidence"]=" ".join(cta_verification.get("evidence") or [])[:500]
+                audit["bookingEngine"]=discovered
         # Leonardo pubblica risultati strutturati per la scheda booking engine.
         # L'audit fotografico consolidato resta invariato.
         try:
@@ -490,6 +504,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             except Exception as exc:
                 direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
                               "evidence":["Preventivi non completati: "+type(exc).__name__]}
+        direct_verification["ctaNavigation"]=cta_verification
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
         audit["directCommercialAudit"] = direct_stays
