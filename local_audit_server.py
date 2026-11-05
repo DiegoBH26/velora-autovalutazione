@@ -259,6 +259,121 @@ def agent_output(property_id,agent_id):
     return agent_workspace(property_id,agent_id) / "result.json"
 
 
+# Local, bounded agent mailbox. Structured observations only: no prompts,
+# executable commands, credentials, browser control or cross-OTA navigation.
+# Giove can audit the exchange, which never overrides evidence from the portal.
+MAILBOX_LOCK=threading.RLock()
+MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block"}
+MAILBOX_LIMIT=120
+
+
+def agent_mailbox_path(property_id):
+    return AGENT_RESULTS / safe_property_id(property_id) / "agent-mailbox.json"
+
+
+def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=False):
+    if sender not in (set(agent_network.AGENTS) if agent_network else set()):
+        raise ValueError("Mittente mailbox non riconosciuto")
+    if event_type not in MAILBOX_EVENT_TYPES:
+        raise ValueError("Evento mailbox non consentito")
+    dest=agent_mailbox_path(property_id)
+    with MAILBOX_LOCK:
+        payload={"propertyId":property_id,"events":[]}
+        if not reset and dest.exists():
+            try:
+                old=json.loads(dest.read_text(encoding="utf-8"))
+                if old.get("propertyId")==property_id and isinstance(old.get("events"),list):
+                    payload=old
+            except (OSError,ValueError,TypeError):
+                pass
+        safe_details={
+            key:value for key,value in (details or {}).items()
+            if key in {"propertyName","sourceRun","windows","date","status",
+                       "roomCount","priceCount","technicalReason","ota"}
+            and isinstance(value,(str,int,float,bool,list))
+        }
+        # Only bounded scalar strings and compact date-window dictionaries.
+        for key,value in list(safe_details.items()):
+            if isinstance(value,str): safe_details[key]=value[:220]
+            if isinstance(value,list):
+                safe_details[key]=[
+                    {k:str(v)[:70] for k,v in item.items()
+                     if k in {"requestedCheckin","requestedCheckout","checkin",
+                              "checkout","status","nights","adults"}}
+                    for item in value[:16] if isinstance(item,dict)
+                ]
+        event={
+            "from":sender,"to":"giove" if event_type!="booking_reference" else "ota_specialists",
+            "type":event_type,"createdAt":datetime.now(timezone.utc).isoformat(),
+            "details":safe_details,
+        }
+        payload["events"]=(payload["events"]+[event])[-MAILBOX_LIMIT:]
+        dest.parent.mkdir(parents=True,exist_ok=True)
+        temporary=dest.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
+        temporary.replace(dest)
+        return event
+
+
+def agent_mailbox_reference(property_id, property_name):
+    """Read only the latest Booking handoff for the same structure."""
+    try:
+        payload=json.loads(agent_mailbox_path(property_id).read_text(encoding="utf-8"))
+    except (OSError,ValueError,TypeError):
+        return None
+    if payload.get("propertyId")!=property_id:
+        return None
+    for event in reversed(payload.get("events") or []):
+        if event.get("from")=="booking" and event.get("type")=="booking_reference":
+            details=event.get("details") or {}
+            if details.get("propertyName")==property_name:
+                return details
+            return None
+    return None
+
+
+def agent_mailbox_result(property_id,agent_id):
+    """Publish diagnostic facts, not an invented commercial availability verdict."""
+    try:
+        result=json.loads(agent_output(property_id,agent_id).read_text(encoding="utf-8"))
+    except (OSError,ValueError,TypeError):
+        return
+    if agent_id=="booking":
+        locks=[row for row in result.get("bookingReferenceStays") or []
+               if isinstance(row,dict) and row.get("status") in {
+                   "initial_dates_available","shifted_to_available_booking_dates"}]
+        if locks:
+            agent_mailbox_publish(property_id,"booking","booking_reference",{
+                "propertyName":result.get("propertyName",""),
+                "sourceRun":result.get("createdAt",""),
+                "windows":locks,
+                "roomCount":sum(len(row.get("quotes") or [])
+                    for row in result.get("observations") or []
+                    if row.get("otaId")=="booking"),
+                "status":"booking_dates_confirmed",
+            },reset=True)
+        return
+    if agent_id not in {"official_site","reviews"}:
+        rows=[row for row in result.get("observations") or []
+              if row.get("otaId")==agent_id]
+        if not rows:
+            return
+        prices=sum(len([q for q in row.get("quotes") or [] if q.get("verified")])
+                   for row in rows)
+        weak=[row for row in rows if row.get("status") in {
+            "needs_human_review","no_public_rate","dates_unconfirmed",
+            "quote_candidates_unverified"}]
+        errors=[row for row in rows if row.get("status") in {
+            "rate_limited","access_blocked","blocked","http_error","login_required"}]
+        event_type=("technical_block" if errors else
+                    "pricing_read_failure" if weak and prices==0 else "pricing_observed")
+        agent_mailbox_publish(property_id,agent_id,event_type,{
+            "ota":agent_id,"priceCount":prices,
+            "technicalReason":", ".join(dict.fromkeys(
+                str(row.get("status") or "") for row in (errors or weak)))[:180],
+            "status":"evidence_only_no_cross_ota_navigation",
+        })
+
 
 def vrbo_presence_path(property_id):
     return AGENT_RESULTS / safe_property_id(property_id) / "vrbo-presence.json"
@@ -408,12 +523,21 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                     raise RuntimeError("Prima effettua «Accedi e verifica» nella scheda dell\'agente e completa la verifica con codice; scansione non avviata.")
                 else:
                     print_agent_status(agent_id,"Profilo Chrome","DA VERIFICARE","Profilo locale presente; login non confermato")
+            # Handoff is informative: each worker stays inside its own OTA.
+            if agent_id not in {"booking","official_site","reviews"}:
+                reference=agent_mailbox_reference(property_id,str(data.get("name") or ""))
+                if reference:
+                    print_agent_status(
+                        agent_id,"Mailbox Booking","RICEVUTA",
+                        f"{len(reference.get('windows') or [])} finestre confermate · stessa struttura"
+                    )
             asyncio.run(agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
                 assisted=False,assist_callback=None,
                 authorized_profile_dir=Path(account_profile) if account_profile else None,
             ))
+            agent_mailbox_result(property_id,agent_id)
         print_agent_status(agent_id,"Esecuzione","COMPLETATO","Esito salvato, in attesa del check di Giove")
         with AGENT_RUN_LOCK:
             AGENT_RUNS[key]["state"]="completed"
