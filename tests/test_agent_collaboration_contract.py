@@ -33,6 +33,16 @@ class CollaborationContract(unittest.TestCase):
         self.assertIn('review_decision:"Giove · Controllo e limiti operativi"',APP)
         self.assertIn('event.details?.message',APP)
 
+    def test_airbnb_wrong_listing_is_shared_and_quarantined(self):
+        self.assertIn('("airbnb","identity_help")',SERVER)
+        self.assertIn('"strategy":"quarantine_wrong_property"',SERVER)
+        self.assertIn('peer_callback("identity_help",effective_stay,',PILOT)
+        self.assertIn('rejected_airbnb_urls=set()',PILOT)
+        self.assertIn('previous.get("propertyName")==data.get("name")',PILOT)
+        self.assertIn('rejected_airbnb_urls.add(normalize_ota_listing_url("airbnb",wrong_source))',PILOT)
+        self.assertIn('sources.pop("airbnb",None)',PILOT)
+        self.assertIn('identity_rejected:"Scheda di un\'altra struttura scartata"',APP)
+
     def test_agoda_recovery_is_single_page_and_bounded(self):
         section=PILOT.split('elif channel == "agoda":\n                candidates=',1)[1].split(
             'elif channel in {"airbnb","vrbo"}:',1)[0]
