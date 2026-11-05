@@ -4,6 +4,7 @@ Nessun acquisto, login, elusione di controlli o navigazione aggressiva.
 from __future__ import annotations
 import re
 from urllib.parse import urlparse
+from site_audit_builder import public_url, robots_allowed
 from playwright.async_api import async_playwright
 
 def _safe(url):
@@ -24,6 +25,16 @@ async def inspect_direct_booking(site_url, engine, *, timeout_ms=18000):
           "evidence":[]}
     if not _safe(url):
         base["evidence"].append("Nessun URL transazionale verificabile rilevato; non equivale ad assenza del booking engine.")
+        return base
+    try:
+        url = public_url(url)
+    except ValueError:
+        base["status"]="invalid_url"
+        base["evidence"].append("URL booking engine non pubblico o non sicuro.")
+        return base
+    if robots_allowed(url, {}) is False:
+        base["status"]="robots_denied"
+        base["evidence"].append("Verifica non eseguita: robots.txt non permette la navigazione automatica.")
         return base
     async with async_playwright() as pw:
         browser=await pw.chromium.launch(channel="chrome", headless=True)
