@@ -478,6 +478,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "bookingEngine": audit.get("bookingEngine") or {},
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
+            "navigationAudit": (audit.get("_autoAudit") or {}).get("navigationChecks") or {},
             "peerBookingDates": (peer_evidence.get("booking") or {}).get("bookingReferenceStays") or [],
             "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
         }, data["id"], agent)
