@@ -222,6 +222,12 @@ async def probe_direct_stays(url, rows, *, limit=4):
                             # Conferma soltanto prezzi con camera, totale soggiorno,
                             # date/ospiti, disponibilita' e condizioni esplicite.
                             if date_confirmed and occupancy.get("confirmed"):
+                                if not sample["quotes"] and re.search(
+                                    r"nessuna disponibilit[aà]|non ci sono camere disponibili|no availability|no rooms available",
+                                    page_text,re.I):
+                                    sample["availability"]="unavailable_reported"
+                                    sample["evidence"].append(
+                                        "Il booking engine dichiara indisponibilità per le date/ospiti confermati.")
                                 for offer in sample["quotes"]:
                                     complete=(offer.get("displayedBasis")=="stay_total_claimed"
                                         and offer.get("bookingActionVisible")
