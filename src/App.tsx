@@ -3803,6 +3803,7 @@ type BrowserPilotResult = {
   propertyName?: string;
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
+  directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
   discoveredSources?: Record<string, DiscoveredPilotSource>;
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
   reputation?: BrowserPilotReputation;
@@ -6429,6 +6430,7 @@ export default function App() {
                     reputation:agentId==="reviews"?(specialistPartial.reputation||{}):(sameProperty?previous.reputation:undefined),
                     photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
                     bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
+                    directBookingVerification:agentId==="official_site"?(specialistPartial.directBookingVerification):(sameProperty?previous.directBookingVerification:undefined),
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
                   return combined;
@@ -9820,15 +9822,13 @@ export default function App() {
               <textarea value={answers["audit-booking-engine-evidence"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-evidence", { note: event.target.value })} placeholder="Dove porta Prenota, cosa compare, data della prova, cosa non è stato verificato" className="mt-1 block min-h-[70px] w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
             </label>
             {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-[#135443]">
-              <b>Riscontro della prova locale:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
-              <button type="button" onClick={() => {
-                const found = browserPilotResult.bookingEngine!;
-                updateAnswer("audit-booking-engine", { auditStatus: found.status === "provider_identified" ? "present" : found.status === "provider_unknown" || found.status === "request_only" ? "partial" : "unverified" });
-                updateAnswer("audit-booking-engine-provider", { note: found.provider });
-                updateAnswer("audit-booking-engine-url", { note: found.url });
-                updateAnswer("audit-booking-engine-mode", { note: found.mode });
-                updateAnswer("audit-booking-engine-evidence", { note: found.evidence });
-              }} className="ml-2 font-black underline">Usa questo riscontro</button>
+              <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
+              {browserPilotResult.directBookingVerification && <p className="mt-2">
+                Pagina booking engine: {browserPilotResult.directBookingVerification.navigation === "reached" ? "raggiunta" : "non verificata"} ·
+                Date: {browserPilotResult.directBookingVerification.controls?.dates ? "controlli rilevati" : "non confermate"} ·
+                Ospiti: {browserPilotResult.directBookingVerification.controls?.guests ? "controlli rilevati" : "non confermati"} ·
+                Disponibilità e prezzi datati: non verificati.
+              </p>}
             </div>}
           </section>
           <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
