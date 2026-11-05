@@ -10157,7 +10157,7 @@ export default function App() {
                         <div className="mt-2.5 flex items-center justify-between gap-2">
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
                           {!loginPortal ? <button type="button" disabled={working||localPilotRunning}
-                            onClick={()=>void startSpecialistAgent(agent.id)}
+                            onClick={()=>void launchAgentBatch([agent.id])}
                             title={"Avvia solo "+agent.name+" ("+agent.channel+")"}
                             aria-label={"Avvia solo "+agent.name+" ("+agent.channel+")"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
@@ -10174,7 +10174,7 @@ export default function App() {
                             ▶ Chrome
                           </button> : <button type="button"
                             disabled={working||localPilotRunning||Boolean(portalSessionBusy)||loginProcessing}
-                            onClick={()=>void startSpecialistAgent(agent.id,true,"account")}
+                            onClick={()=>void launchAgentBatch([agent.id])}
                             title="Verifica ora il profilo Chrome sul PC. Se non è pronto, Velora mostra il motivo senza avviare il timer."
                             aria-label={"Avvia "+agent.name+" con account registrato"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white disabled:opacity-40">
