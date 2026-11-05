@@ -334,6 +334,73 @@ def agent_mailbox_reference(property_id, property_name):
     return None
 
 
+def specialist_peer_consultation(property_id, agent_id, expected_name, stage, stay, facts):
+    """Runtime collaboration: actual request, reply and Giove decision before retry.
+
+    Only a small, preapproved same-page reading strategy can be returned.
+    No peer supplies rates, URLs, JavaScript, credentials or browser commands.
+    """
+    if agent_id!="agoda" or stage not in {"pricing_help","recovery_result"}:
+        return {"approved":False,"reason":"outside_specialist_scope"}
+    reference=agent_mailbox_reference(property_id,expected_name)
+    requested=(str(stay.get("requestedCheckin") or stay.get("checkin") or ""),
+               str(stay.get("requestedCheckout") or stay.get("checkout") or ""))
+    actual=(str(stay.get("checkin") or ""),str(stay.get("checkout") or ""))
+    matching=bool(reference and any(
+        (str(row.get("requestedCheckin") or ""),str(row.get("requestedCheckout") or ""))==requested
+        and (str(row.get("checkin") or ""),str(row.get("checkout") or ""))==actual
+        for row in reference.get("windows") or []
+    ))
+    count_prices=max(0,min(int(facts.get("numericEuroPrices") or 0),1000))
+    count_rooms=max(0,min(int(facts.get("actualRoomNames") or 0),1000))
+    if stage=="recovery_result":
+        outcome=str(facts.get("status") or "unverified")[:80]
+        agent_mailbox_publish(property_id,"agoda","pricing_observed",{
+            "recipient":"giove","ota":"agoda",
+            "message":(
+                f"Minerva, ho eseguito il controllo autorizzato su Agoda "
+                f"per {actual[0]} → {actual[1]}. Esito: {outcome}. "
+                f"Offerte validate: {max(0,int(facts.get('verifiedQuotes') or 0))}."
+            ),
+            "status":outcome,
+        })
+        return {"approved":False,"reason":"completed"}
+    agent_mailbox_publish(property_id,"agoda","help_request",{
+        "recipient":"booking","ota":"agoda",
+        "message":(
+            f"Minerva, sulla scheda Agoda per {actual[0]} → {actual[1]} "
+            f"vedo {count_rooms} camere e {count_prices} elementi di prezzo, "
+            "ma non riesco ad attribuirli alle offerte. Hai un metodo "
+            "di verifica da suggerirmi?"
+        ),
+        "technicalReason":"unmatched_room_price_evidence",
+    })
+    if not matching:
+        agent_mailbox_publish(property_id,"giove","review_decision",{
+            "recipient":"agoda","decision":"blocked_no_exact_booking_lock",
+            "message":"Riferimento Booking non coincidente: recupero non autorizzato.",
+        })
+        return {"approved":False,"reason":"booking_lock_mismatch"}
+    agent_mailbox_publish(property_id,"booking","help_reply",{
+        "recipient":"agoda","strategy":"same_page_room_grid_recheck",
+        "message":(
+            f"Galileo, confermo {actual[0]} → {actual[1]}. "
+            "Rimani su Agoda: raggiungi la griglia camere, attendi che "
+            "le offerte siano renderizzate, abbina il prezzo alla relativa "
+            "camera e controlla la base a notte. Non usare le mie tariffe."
+        ),
+    })
+    agent_mailbox_publish(property_id,"giove","review_decision",{
+        "recipient":"agoda","decision":"approved_one_same_page_recheck",
+        "message":(
+            "Autorizzo un solo ulteriore controllo sulla stessa pagina Agoda "
+            "e sulle medesime date. Nessuna navigazione incrociata, "
+            "nessun bypass, nessun prezzo inventato."
+        ),
+    })
+    return {"approved":True,"strategy":"same_page_room_grid_recheck","maxAttempts":1}
+
+
 def agent_mailbox_result(property_id,agent_id):
     """Publish diagnostic facts, not an invented commercial availability verdict."""
     try:
@@ -380,49 +447,6 @@ def agent_mailbox_result(property_id,agent_id):
                 f"Esito: {diagnostic or 'rilevazione conclusa'}."
             ),
         })
-        # Structured peer consultation, controlled and audit-ready. It is not
-        # a free-form LLM conversation: replies are generated from known
-        # evidence, with no cross-OTA browsing or autonomous code changes.
-        if agent_id=="agoda" and weak and prices==0 and not errors:
-            agent_mailbox_publish(property_id,"agoda","help_request",{
-                "recipient":"booking",
-                "ota":"agoda",
-                "message":(
-                    "Minerva, le tue date sono state ricevute ma sulla mia "
-                    "scheda Agoda non ho validato le offerte. Quali controlli "
-                    "posso replicare senza cambiare portale?"
-                ),
-                "technicalReason":diagnostic,
-            })
-            booking=agent_mailbox_reference(property_id,str(result.get("propertyName") or ""))
-            if booking and booking.get("windows"):
-                agent_mailbox_publish(property_id,"booking","help_reply",{
-                    "recipient":"agoda","ota":"agoda",
-                    "strategy":"same_dates_room_grid",
-                    "message":(
-                        "Galileo, utilizza solo le finestre già confermate. "
-                        "Verifica la scheda corretta, scorri fino alle camere, "
-                        "attendi le offerte e associa il prezzo al piano e alla "
-                        "sua base per notte. I miei prezzi Booking non provano "
-                        "la disponibilità Agoda."
-                    ),
-                })
-                agent_mailbox_publish(property_id,"giove","review_decision",{
-                    "recipient":"agoda","ota":"agoda",
-                    "decision":"diagnostic_only",
-                    "message":(
-                        "Procedura di controllo condivisa. Nessuna tariffa "
-                        "Agoda validata in questa esecuzione: non dichiarare "
-                        "indisponibilità e non attribuire prezzi Booking ad Agoda. "
-                        "Il recupero richiede una nuova osservazione sullo stesso portale."
-                    ),
-                })
-            else:
-                agent_mailbox_publish(property_id,"giove","review_decision",{
-                    "recipient":"agoda","ota":"agoda",
-                    "decision":"no_booking_reference",
-                    "message":"Riferimento Booking non verificato: nessun confronto né nuovo tentativo autorizzato.",
-                })
 
 
 def vrbo_presence_path(property_id):
@@ -581,11 +605,18 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                         agent_id,"Mailbox Booking","RICEVUTA",
                         f"{len(reference.get('windows') or [])} finestre confermate · stessa struttura"
                     )
+            peer_callback=(
+                lambda stage,stay,facts: specialist_peer_consultation(
+                    property_id,agent_id,str(data.get("name") or ""),
+                    stage,stay,facts
+                )
+            ) if agent_id=="agoda" else None
             asyncio.run(agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
                 assisted=False,assist_callback=None,
                 authorized_profile_dir=Path(account_profile) if account_profile else None,
+                peer_callback=peer_callback,
             ))
             agent_mailbox_result(property_id,agent_id)
         print_agent_status(agent_id,"Esecuzione","COMPLETATO","Esito salvato, in attesa del check di Giove")
