@@ -26,7 +26,9 @@ class AgentMailboxContracts(unittest.TestCase):
     def test_specialist_receive_booking_reference_without_cross_navigation(self):
         self.assertIn('agent_mailbox_reference(property_id,str(data.get("name") or ""))',SERVER)
         self.assertIn('agent_mailbox_result(property_id,agent_id)',SERVER)
-        self.assertIn('event_type=("technical_block" if errors else',SERVER)
+        self.assertIn('"identity_rejected" if rejected and prices==0',SERVER)
+        self.assertIn('"technical_block" if errors else',SERVER)
+        self.assertIn('"observedPriceCount":seen_prices',SERVER)
         self.assertIn('"pricing_read_failure" if weak and prices==0',SERVER)
         self.assertIn('if agent_id=="booking":',SERVER)
 
