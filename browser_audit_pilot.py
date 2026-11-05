@@ -9955,7 +9955,7 @@ async def google_click_ota_listing(page, channel: str, property_name: str, city:
 async def observe(
     page, channel: str, source: str, stay: dict, robots: dict,
     property_name: str="", city: str="", assist_callback=None, ghost: bool=False,
-    direct_public_source: bool=False,
+    direct_public_source: bool=False, peer_callback=None,
 ) -> dict:
     requested = frontend_entry_url(channel, source, stay)
     record = {"otaId": channel, **stay, "sourceUrl": source, "requestedUrl": requested or source,
@@ -10710,47 +10710,64 @@ async def observe(
                         )[:900],
                     )
                 else:
-                    # One bounded same-page recovery if Agoda cards were not
-                    # rendered when the first parsers ran. No new navigation.
-                    try:
-                        await page.evaluate("""() => {
-                          const cards=[...document.querySelectorAll(
-                            '[data-selenium="room-grid"],[data-selenium="room-name"],'
-                            +'[data-ppapi*="room-name" i],[data-element-name*="room-name" i]'
-                          )].filter(el=>el.getBoundingClientRect().width>0);
-                          if(cards.length) cards[0].scrollIntoView({block:"center"});
-                          else window.scrollTo(0,Math.floor(document.body.scrollHeight*0.65));
-                        }""")
-                        await page.wait_for_timeout(1300)
-                        recovered=await agoda_room_offer_visual_candidates(page,stay)
-                        if not recovered:
-                            recovered=await agoda_offer_row_candidates(page,stay)
-                        if not recovered:
-                            recovered=await agoda_quote_candidates(page,stay)
+                    # Runtime help request sent while Galileo is still scanning,
+                    # not a scripted conversation after the job is completed.
+                    peer_decision={"approved":True,"strategy":"same_page_room_grid_recheck"}
+                    if callable(peer_callback):
+                        peer_decision=peer_callback("pricing_help",stay,{
+                            "numericEuroPrices":agoda_debug.get("numericEuroPrices",0),
+                            "actualRoomNames":agoda_debug.get("actualRoomNames",0),
+                        }) or {"approved":False}
+                    if peer_decision.get("approved") and peer_decision.get("strategy")=="same_page_room_grid_recheck":
+                        try:
+                            await page.evaluate("""() => {
+                              const cards=[...document.querySelectorAll(
+                                '[data-selenium="room-grid"],[data-selenium="room-name"],'
+                                +'[data-ppapi*="room-name" i],[data-element-name*="room-name" i]'
+                              )].filter(el=>el.getBoundingClientRect().width>0);
+                              if(cards.length) cards[0].scrollIntoView({block:"center"});
+                              else window.scrollTo(0,Math.floor(document.body.scrollHeight*0.65));
+                            }""")
+                            await page.wait_for_timeout(1300)
+                            recovered=await agoda_room_offer_visual_candidates(page,stay)
+                            if not recovered:
+                                recovered=await agoda_offer_row_candidates(page,stay)
+                            if not recovered:
+                                recovered=await agoda_quote_candidates(page,stay)
+                            record["rateRecovery"]={
+                                "strategy":"same_page_room_grid_recheck",
+                                "attempts":1,
+                                "status":"prices_observed" if recovered else "no_prices_validated",
+                            }
+                            if recovered:
+                                verified_recovered=[q for q in recovered if q.get("verified")]
+                                record["quotes"]=recovered
+                                record.update(
+                                    status=("quote_candidates" if verified_recovered
+                                            else "quote_candidates_unverified"),
+                                    evidence=(
+                                        f"Galileo: recupero sulla stessa pagina Agoda "
+                                        f"con date Booking invariate: {len(recovered)} offerte "
+                                        f"rilevate, {len(verified_recovered)} validate. "
+                                        "Nessuna navigazione su altri portali."
+                                    )[:900],
+                                )
+                        except Exception as exc:
+                            record["rateRecovery"]={
+                                "strategy":"same_page_room_grid_recheck",
+                                "attempts":1,"status":"technical_error",
+                                "error":type(exc).__name__,
+                            }
+                    else:
                         record["rateRecovery"]={
                             "strategy":"same_page_room_grid_recheck",
-                            "attempts":1,
-                            "status":"prices_observed" if recovered else "no_prices_validated",
+                            "attempts":0,"status":"blocked_by_giove",
                         }
-                        if recovered:
-                            verified_recovered=[q for q in recovered if q.get("verified")]
-                            record["quotes"]=recovered
-                            record.update(
-                                status=("quote_candidates" if verified_recovered
-                                        else "quote_candidates_unverified"),
-                                evidence=(
-                                    f"Galileo: recupero sulla stessa pagina Agoda "
-                                    f"con date Booking invariate: {len(recovered)} offerte "
-                                    f"rilevate, {len(verified_recovered)} validate. "
-                                    "Nessuna navigazione su altri portali."
-                                )[:900],
-                            )
-                    except Exception as exc:
-                        record["rateRecovery"]={
-                            "strategy":"same_page_room_grid_recheck",
-                            "attempts":1,"status":"technical_error",
-                            "error":type(exc).__name__,
-                        }
+                    if callable(peer_callback):
+                        peer_callback("recovery_result",stay,{
+                            "status":str((record.get("rateRecovery") or {}).get("status") or "unverified"),
+                            "verifiedQuotes":sum(1 for q in record.get("quotes") or [] if q.get("verified")),
+                        })
                     if not record.get("quotes"):
                         fallback=await agoda_visible_rate_candidates(page,stay)
                         record["quotes"]=fallback
@@ -12851,6 +12868,7 @@ async def run(args: argparse.Namespace) -> dict:
     assisted=bool(getattr(args,"assisted",False))
     pricing_only=bool(getattr(args,"pricing_only",False))
     assist_callback=getattr(args,"assist_callback",None) if assisted else None
+    peer_callback=getattr(args,"peer_callback",None) if callable(getattr(args,"peer_callback",None)) else None
     print(f"assistenza manuale: {'ATTIVA (pausa reale fino a 15 minuti)' if assisted else 'DISATTIVA'} · Ghost={'sì' if ghost else 'no'}",flush=True)
     result = {"schema": SCHEMA, "propertyId": data["id"], "propertyName": data["name"],
               "createdAt": datetime.now(timezone.utc).isoformat(), "method": "Pilota locale, solo frontend pubblico senza login: scheda → date → ospiti → cerca → tariffe; nessun account, registrazione, tariffa member/app o bypass.",
@@ -13751,6 +13769,9 @@ async def run(args: argparse.Namespace) -> dict:
                     )
                     write_result(output,result)
 
+                # Preserve original requested window for the peer validation.
+                effective_stay["requestedCheckin"]=str(planned_stay.get("checkin") or "")
+                effective_stay["requestedCheckout"]=str(planned_stay.get("checkout") or "")
                 for channel in channels:
                     channel_started=time.monotonic()
                     source = sources.get(channel, {}).get("url", "")
@@ -13964,7 +13985,8 @@ async def run(args: argparse.Namespace) -> dict:
                                                     and channel in {"expedia","vrbo","holidu"}
                                                     and channel not in unverified_source_ids
                                                 )
-                                            )),
+                                            ),
+                                            peer_callback=peer_callback if channel=="agoda" else None),
                                     timeout=1000 if assisted and channel in {"vrbo","expedia","holidu","travelocity","trip","priceline"} else AUTO_OTA_OBSERVE_TIMEOUT,
                                 )
                             except asyncio.TimeoutError:
