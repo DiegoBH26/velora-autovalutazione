@@ -387,6 +387,33 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         )
         raw = await pilot.run(args)
         result = quarantine_identity_mismatches(enforce_portal_scope(enforce_known_listing_identity(_safe_result(raw, data["id"], agent), agent, data), agent), agent)
+        # Gli osservatori OTA condividono ciò che hanno già visto nella scheda:
+        # niente seconda ricerca per recuperare foto di copertina e servizi.
+        observations = [
+            o for o in result.get("observations") or []
+            if o.get("otaId")==agent and o.get("sourceIdentityVerified") is not False
+            and not o.get("identityQuarantined")
+            and o.get("status") not in ("wrong_property_listing","identity_mismatch","wrong_property")
+        ]
+        samples = [
+            o.get("frontendSnapshot") for o in observations
+            if isinstance(o.get("frontendSnapshot"),dict)
+            and o["frontendSnapshot"].get("sampleOnly")
+        ]
+        first = next((x for x in samples if x.get("photoOrderSample")), {})
+        photo = (first.get("photoOrderSample") or [None])[0]
+        result["sharedKnowledge"] = {
+            "sourceAgent": agent, "propertyId": data["id"],
+            "observedAt": _now(), "listingIdentityQuarantined": False,
+            "coverCandidate": photo if isinstance(photo,dict) else None,
+            "mentionedAmenities": first.get("mentionedAmenities") or [],
+            "coverStatus": "sample_not_visually_verified",
+            "verifiedDatedRates": sum(
+                1 for o in observations for q in o.get("quotes") or []
+                if q.get("verified") is True
+            ),
+            "note": "Campione acquisito durante la visita OTA; foto e servizi da validare prima di dichiarare un'asimmetria.",
+        }
     elif agent == "official_site":
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
