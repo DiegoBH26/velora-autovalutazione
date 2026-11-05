@@ -3917,6 +3917,9 @@ function providerFromBookingUrl(value: string): { provider: string; mode: string
     const url = new URL(value.trim());
     if (!['https:', 'http:'].includes(url.protocol)) return null;
     const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'booking.bedzzle.com' || host.endsWith('.booking.bedzzle.com')) {
+      return { provider: 'Bedzzle', mode: 'Fornitore indicato dal dominio del percorso di prenotazione', status: 'present' };
+    }
     if (host.endsWith('.kross.travel') || host === 'book.krossbooking.com') {
       return { provider: 'Kross Booking', mode: 'Fornitore indicato dal dominio del percorso di prenotazione', status: 'present' };
     }
@@ -5876,10 +5879,12 @@ export default function App() {
     if (result.bookingEngine && (result.agentId==="official_site" ||
         (result.bookingEngine.status!=="skipped_pricing_test" && !!result.bookingEngine.url))) {
       const engine = result.bookingEngine;
-      const status = engine.status === "provider_identified" ? "present"
-        : engine.status === "provider_unknown" || engine.status === "request_only" ? "partial" : "unverified";
+      const resolved = engine.url ? providerFromBookingUrl(engine.url) : null;
+      const provider = engine.provider || resolved?.provider || "";
+      const status = provider ? "present" :
+        engine.status === "provider_unknown" || engine.status === "request_only" ? "partial" : "unverified";
       updateAnswer("audit-booking-engine", { auditStatus: status });
-      updateAnswer("audit-booking-engine-provider", { note: engine.provider || "" });
+      updateAnswer("audit-booking-engine-provider", { note: provider });
       updateAnswer("audit-booking-engine-url", { note: engine.url || "" });
       updateAnswer("audit-booking-engine-mode", { note: engine.mode || "" });
       updateAnswer("audit-booking-engine-evidence", { note: engine.evidence || "Percorso non verificato." });
