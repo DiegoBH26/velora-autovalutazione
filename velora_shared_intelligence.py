@@ -45,7 +45,7 @@ def store_peer_evidence(runtime: Path, property_id: str, agent: str, result: dic
               "capturedAt":datetime.now(timezone.utc).isoformat(),"agent":agent}
     if agent=="booking":
         evidence["bookingReferenceStays"]=[
-            {k:item.get(k) for k in ("requestedCheckin","requestedCheckout","checkin","checkout","adults")}
+            {k:item.get(k) for k in ("requestedCheckin","requestedCheckout","checkin","checkout","adults","status")}
             for item in (result.get("bookingReferenceStays") or [])
             if item.get("checkin") and item.get("checkout")
         ][:80]
