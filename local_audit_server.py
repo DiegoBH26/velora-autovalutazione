@@ -340,7 +340,10 @@ def specialist_peer_consultation(property_id, agent_id, expected_name, stage, st
     Only a small, preapproved same-page reading strategy can be returned.
     No peer supplies rates, URLs, JavaScript, credentials or browser commands.
     """
-    if agent_id!="agoda" or stage not in {"pricing_help","recovery_result"}:
+    if (agent_id,stage) not in {
+        ("agoda","pricing_help"),("agoda","recovery_result"),
+        ("airbnb","identity_help")
+    }:
         return {"approved":False,"reason":"outside_specialist_scope"}
     reference=agent_mailbox_reference(property_id,expected_name)
     requested=(str(stay.get("requestedCheckin") or stay.get("checkin") or ""),
@@ -351,6 +354,33 @@ def specialist_peer_consultation(property_id, agent_id, expected_name, stage, st
         and (str(row.get("checkin") or ""),str(row.get("checkout") or ""))==actual
         for row in reference.get("windows") or []
     ))
+    if agent_id=="airbnb":
+        observed=str(facts.get("observedTitle") or "")[:160]
+        agent_mailbox_publish(property_id,"airbnb","help_request",{
+            "recipient":"booking",
+            "message":(
+                f"Minerva, ho trovato su Airbnb una struttura intitolata «{observed}», "
+                f"diversa da «{expected_name}». Confermi che non devo "
+                "riutilizzare questa scheda per i soggiorni successivi?"
+            ),
+        })
+        agent_mailbox_publish(property_id,"booking","help_reply",{
+            "recipient":"airbnb","strategy":"quarantine_wrong_property",
+            "message":(
+                f"Apollo, il riferimento è «{expected_name}» e le date restano "
+                f"{actual[0]} → {actual[1]}. Non riutilizzare quella URL "
+                "e cerca soltanto annunci della struttura richiesta."
+            ),
+        })
+        agent_mailbox_publish(property_id,"giove","review_decision",{
+            "recipient":"airbnb","decision":"quarantine_wrong_property",
+            "message":(
+                "Titolo di struttura diversa già riscontrato: scarta "
+                "la candidata, non usarne i prezzi e non visitarla "
+                "di nuovo negli altri campioni."
+            ),
+        })
+        return {"approved":True,"strategy":"quarantine_wrong_property"}
     count_prices=max(0,min(int(facts.get("numericEuroPrices") or 0),1000))
     count_rooms=max(0,min(int(facts.get("actualRoomNames") or 0),1000))
     if stage=="recovery_result":
@@ -636,7 +666,7 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                     property_id,agent_id,str(data.get("name") or ""),
                     stage,stay,facts
                 )
-            ) if agent_id=="agoda" else None
+            ) if agent_id in {"agoda","airbnb"} else None
             asyncio.run(agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
