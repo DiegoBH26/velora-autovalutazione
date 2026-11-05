@@ -344,7 +344,8 @@ def specialist_input_matches_property_id(data: dict) -> bool:
 async def execute(agent: str, data: dict, property_file: Path, output: Path,
                   *, months: int = 1, custom_period: dict | None = None,
                   ghost: bool = False, assisted: bool = False,
-                  assist_callback=None, authorized_profile_dir: Path | None = None) -> dict:
+                  assist_callback=None, authorized_profile_dir: Path | None = None,
+                  peer_callback=None) -> dict:
     """Run an independently scoped specialist. Legacy parsers remain unchanged."""
     if agent not in AGENTS or not AGENTS[agent]["ready"]:
         raise ValueError("Agente non disponibile")
@@ -380,7 +381,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             months=months, today=None, dry_run=False, ghost=ghost,
             assisted=assisted, assist_callback=assist_callback if assisted else None,
             pricing_only=True, custom_period=custom_period,
-            agent_id=agent,
+            agent_id=agent, peer_callback=peer_callback,
             authorized_profile_dir=str(authorized_profile_dir) if authorized_profile_dir else None,
         )
         raw = await pilot.run(args)
