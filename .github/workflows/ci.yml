@@ -49,6 +49,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_booking_date_lock_contract.py'
       - name: Verify Agoda room grid and sold-out safeguards
         run: python -m unittest discover -s tests -p 'test_agoda_rate_grid_regression.py'
+      - name: Verify exact Agoda rates and Airbnb exclusion memory
+        run: python -m unittest discover -s tests -p 'test_specolizzi_agoda_airbnb_regressions.py'
       - name: Check private agent mailbox and Giove handoffs
         run: python -m unittest discover -s tests -p 'test_agent_mailbox_contract.py'
       - name: Check Giove agent chat viewer
