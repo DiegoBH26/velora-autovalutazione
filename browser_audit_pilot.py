@@ -10724,7 +10724,7 @@ async def observe(
                             "numericEuroPrices":agoda_debug.get("numericEuroPrices",0),
                             "actualRoomNames":agoda_debug.get("actualRoomNames",0),
                         }) or {"approved":False}
-                    if peer_decision.get("approved") and peer_decision.get("strategy")=="same_page_room_grid_recheck":
+                    if peer_decision.get("approved") and peer_decision.get("strategy") in {"same_page_room_grid_recheck","same_page_offer_mapping"}:
                         try:
                             await page.evaluate("""() => {
                               const cards=[...document.querySelectorAll(
