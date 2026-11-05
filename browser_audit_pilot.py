@@ -10710,86 +10710,128 @@ async def observe(
                         )[:900],
                     )
                 else:
-                    fallback=await agoda_visible_rate_candidates(page,stay)
-                    record["quotes"]=fallback
-                    if fallback:
-                        record.update(
-                            status="quote_candidates",
-                            evidence=(
-                                f"Date Agoda confermate. Il fallback specifico Agoda ha associato {len(fallback)} prezzi "
-                                f"a camera + base prezzo esplicita. Esempio: {fallback[0]['roomType']} · "
-                                f"€{fallback[0]['nightlyRate']:.2f}/notte · €{fallback[0]['total']:.2f} totale."
-                            )[:900],
-                        )
-                    else:
-                        geometric=await agoda_geometric_rate_candidates(page,stay)
-                        record["quotes"]=geometric
-                        if geometric:
+                    # One bounded same-page recovery if Agoda cards were not
+                    # rendered when the first parsers ran. No new navigation.
+                    try:
+                        await page.evaluate("""() => {
+                          const cards=[...document.querySelectorAll(
+                            '[data-selenium="room-grid"],[data-selenium="room-name"],'
+                            +'[data-ppapi*="room-name" i],[data-element-name*="room-name" i]'
+                          )].filter(el=>el.getBoundingClientRect().width>0);
+                          if(cards.length) cards[0].scrollIntoView({block:"center"});
+                          else window.scrollTo(0,Math.floor(document.body.scrollHeight*0.65));
+                        }""")
+                        await page.wait_for_timeout(1300)
+                        recovered=await agoda_room_offer_visual_candidates(page,stay)
+                        if not recovered:
+                            recovered=await agoda_offer_row_candidates(page,stay)
+                        if not recovered:
+                            recovered=await agoda_quote_candidates(page,stay)
+                        record["rateRecovery"]={
+                            "strategy":"same_page_room_grid_recheck",
+                            "attempts":1,
+                            "status":"prices_observed" if recovered else "no_prices_validated",
+                        }
+                        if recovered:
+                            verified_recovered=[q for q in recovered if q.get("verified")]
+                            record["quotes"]=recovered
                             record.update(
-                                status="quote_candidates_unverified",
+                                status=("quote_candidates" if verified_recovered
+                                        else "quote_candidates_unverified"),
                                 evidence=(
-                                    f"Date Agoda confermate. Il parser strutturato non ha chiuso il match, ma il frontend mostra "
-                                    f"{len(geometric)} prezzo/i associabili a una camera per prossimità visiva. "
-                                    f"I valori vengono mostrati come reali osservati ma restano esclusi dal delta finché non validati. "
-                                    f"Esempio: {geometric[0]['roomType']} · €{geometric[0]['nightlyRate']:.2f}/notte."
+                                    f"Galileo: recupero sulla stessa pagina Agoda "
+                                    f"con date Booking invariate: {len(recovered)} offerte "
+                                    f"rilevate, {len(verified_recovered)} validate. "
+                                    "Nessuna navigazione su altri portali."
+                                )[:900],
+                            )
+                    except Exception as exc:
+                        record["rateRecovery"]={
+                            "strategy":"same_page_room_grid_recheck",
+                            "attempts":1,"status":"technical_error",
+                            "error":type(exc).__name__,
+                        }
+                    if not record.get("quotes"):
+                        fallback=await agoda_visible_rate_candidates(page,stay)
+                        record["quotes"]=fallback
+                        if fallback:
+                            record.update(
+                                status="quote_candidates",
+                                evidence=(
+                                    f"Date Agoda confermate. Il fallback specifico Agoda ha associato {len(fallback)} prezzi "
+                                    f"a camera + base prezzo esplicita. Esempio: {fallback[0]['roomType']} · "
+                                    f"€{fallback[0]['nightlyRate']:.2f}/notte · €{fallback[0]['total']:.2f} totale."
                                 )[:900],
                             )
                         else:
-                            explicit_sold_out=agoda_sold_out_message(body)
-                            eur_count=int(agoda_debug.get("numericEuroPrices") or 0)
-                            room_count=int(agoda_debug.get("actualRoomNames") or 0)
-                            # Agoda può mostrare "sold out" per una singola tipologia,
-                            # oppure in banner generici, mentre altre camere restano
-                            # prenotabili. Non trasformare quel testo in una chiusura
-                            # dell'intera struttura quando esistono intestazioni camera.
-                            if explicit_sold_out and eur_count==0 and room_count==0:
+                            geometric=await agoda_geometric_rate_candidates(page,stay)
+                            record["quotes"]=geometric
+                            if geometric:
                                 record.update(
-                                    status="needs_human_review",
+                                    status="quote_candidates_unverified",
                                     evidence=(
-                                        f"Agoda mostra «{explicit_sold_out}», ma non è stata "
-                                        "verificata una indisponibilità dell'intera struttura "
-                                        f"per {stay['checkin']}→{stay['checkout']} "
-                                        f"e {stay.get('adults',2)} ospiti. "
-                                        "Nessun prezzo o messaggio riferito alla singola "
-                                        "offerta è attribuibile con certezza. "
-                                        "Esito tecnico non conclusivo: non generare "
-                                        "asimmetria commerciale di calendario."
-                                    )[:900],
-                                )
-                            elif explicit_sold_out:
-                                record.update(
-                                    status="needs_human_review",
-                                    evidence=(
-                                        f"Agoda: messaggio «{explicit_sold_out}» presente, "
-                                        f"ma sono state identificate {room_count} camere "
-                                        f"e {eur_count} elementi di prezzo. "
-                                        "La frase potrebbe riferirsi solo ad alcune "
-                                        "tipologie: non dimostra che tutto l'hotel sia "
-                                        "esaurito. Verificare la griglia tariffe sulle "
-                                        f"date Booking {stay['checkin']}→{stay['checkout']}."
-                                    )[:900],
-                                )
-                            elif eur_count==0:
-                                record.update(
-                                    status="needs_human_review",
-                                    evidence=(
-                                        "Scheda Agoda letta con le date richieste, ma nel frontend non "
-                                        "compare alcun importo numerico in euro attribuibile a un'offerta. "
-                                        f"Camere identificate: {room_count}. "
-                                        "I banner (es. «Pareggiamo il prezzo più basso!») non sono tariffe. "
-                                        "La disponibilità non è dimostrata."
+                                        f"Date Agoda confermate. Il parser strutturato non ha chiuso il match, ma il frontend mostra "
+                                        f"{len(geometric)} prezzo/i associabili a una camera per prossimità visiva. "
+                                        f"I valori vengono mostrati come reali osservati ma restano esclusi dal delta finché non validati. "
+                                        f"Esempio: {geometric[0]['roomType']} · €{geometric[0]['nightlyRate']:.2f}/notte."
                                     )[:900],
                                 )
                             else:
-                                record.update(
-                                    status="needs_human_review",
-                                    evidence=(
-                                        f"Agoda mostra {eur_count} elemento/i con importo EUR e "
-                                        f"{room_count} intestazione/i camera, ma non è verificata "
-                                        "l'associazione prezzo/camera/base tariffaria. "
-                                        "Importi esclusi dal confronto finché non validati."
-                                    )[:900],
-                                )
+                                explicit_sold_out=agoda_sold_out_message(body)
+                                eur_count=int(agoda_debug.get("numericEuroPrices") or 0)
+                                room_count=int(agoda_debug.get("actualRoomNames") or 0)
+                                # Agoda può mostrare "sold out" per una singola tipologia,
+                                # oppure in banner generici, mentre altre camere restano
+                                # prenotabili. Non trasformare quel testo in una chiusura
+                                # dell'intera struttura quando esistono intestazioni camera.
+                                if explicit_sold_out and eur_count==0 and room_count==0:
+                                    record.update(
+                                        status="needs_human_review",
+                                        evidence=(
+                                            f"Agoda mostra «{explicit_sold_out}», ma non è stata "
+                                            "verificata una indisponibilità dell'intera struttura "
+                                            f"per {stay['checkin']}→{stay['checkout']} "
+                                            f"e {stay.get('adults',2)} ospiti. "
+                                            "Nessun prezzo o messaggio riferito alla singola "
+                                            "offerta è attribuibile con certezza. "
+                                            "Esito tecnico non conclusivo: non generare "
+                                            "asimmetria commerciale di calendario."
+                                        )[:900],
+                                    )
+                                elif explicit_sold_out:
+                                    record.update(
+                                        status="needs_human_review",
+                                        evidence=(
+                                            f"Agoda: messaggio «{explicit_sold_out}» presente, "
+                                            f"ma sono state identificate {room_count} camere "
+                                            f"e {eur_count} elementi di prezzo. "
+                                            "La frase potrebbe riferirsi solo ad alcune "
+                                            "tipologie: non dimostra che tutto l'hotel sia "
+                                            "esaurito. Verificare la griglia tariffe sulle "
+                                            f"date Booking {stay['checkin']}→{stay['checkout']}."
+                                        )[:900],
+                                    )
+                                elif eur_count==0:
+                                    record.update(
+                                        status="needs_human_review",
+                                        evidence=(
+                                            "Scheda Agoda letta con le date richieste, ma nel frontend non "
+                                            "compare alcun importo numerico in euro attribuibile a un'offerta. "
+                                            f"Camere identificate: {room_count}. "
+                                            "I banner (es. «Pareggiamo il prezzo più basso!») non sono tariffe. "
+                                            "La disponibilità non è dimostrata."
+                                        )[:900],
+                                    )
+                                else:
+                                    record.update(
+                                        status="needs_human_review",
+                                        evidence=(
+                                            f"Agoda mostra {eur_count} elemento/i con importo EUR e "
+                                            f"{room_count} intestazione/i camera, ma non è verificata "
+                                            "l'associazione prezzo/camera/base tariffaria. "
+                                            "Importi esclusi dal confronto finché non validati."
+                                        )[:900],
+                                    )
             elif channel in {"airbnb","vrbo"}:
                 candidates=(
                     await airbnb_quote_candidates(page,stay)
