@@ -1540,6 +1540,47 @@ class Handler(SimpleHTTPRequestHandler):
                     if a<_date.today() or b<a or (b-a).days>366 or n not in (1,2,3,4,5,7,14) or not 1<=adults<=12 or frequency not in ("daily","weekly","biweekly") or a+_timedelta(days=n)>b:
                         raise ValueError("Calendario personalizzato non valido")
                     custom_period={"start":a.isoformat(),"end":b.isoformat(),"nights":n,"adults":adults,"frequency":frequency}
+                # Preflight before queueing: every pricing agent must receive the
+                # same EXACT confirmed Booking windows for this property and plan.
+                # Never use a stale partial snapshot, a similarly named property,
+                # or a lock from another requested interval.
+                data.pop("_specialistBookingLocks",None)
+                if agent_id not in {"booking","official_site","reviews"}:
+                    try:
+                        booking_result=json.loads(agent_output(property_id,"booking").read_text(encoding="utf-8"))
+                        if (booking_result.get("propertyId")!=property_id
+                                or booking_result.get("propertyName")!=data.get("name")):
+                            raise ValueError("Identità Booking diversa dalla struttura attuale")
+                        expected_plan=(browser_pilot.custom_date_plan(datetime.now().date(),custom_period)
+                            if custom_period else browser_pilot.monthly_plan(
+                                datetime.now().date(),limit=(13 if months==12 else months)))
+                        locks=booking_result.get("bookingReferenceStays") or []
+                        expected_keys=[
+                            (str(stay.get("checkin")),str(stay.get("checkout")),
+                             int(stay.get("nights") or 0),int(stay.get("adults") or 2))
+                            for stay in expected_plan
+                        ]
+                        by_key={}
+                        for row in locks:
+                            if not isinstance(row,dict) or row.get("status") not in {
+                                "initial_dates_available","shifted_to_available_booking_dates"
+                            }:
+                                continue
+                            key=(str(row.get("requestedCheckin")),str(row.get("requestedCheckout")),
+                                 int(row.get("nights") or 0),int(row.get("adults") or 2))
+                            if row.get("checkin") and row.get("checkout"):
+                                by_key[key]=row
+                        if not expected_keys or any(key not in by_key for key in expected_keys):
+                            raise ValueError("Finestre Booking incomplete o di un altro periodo")
+                        data["_specialistBookingLocks"]=[dict(by_key[key]) for key in expected_keys]
+                        print(f"[GIOVE] Date Booking sincronizzate: {len(expected_keys)} finestre",flush=True)
+                    except (FileNotFoundError,OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
+                        self._json(409,{"error":(
+                            "DATE NON SINCRONIZZATE: esegui prima Booking con lo stesso "
+                            "periodo e la stessa struttura, poi avvia questa OTA. "
+                            "Nessuna scansione disallineata è stata avviata. "
+                            +str(exc)[:150]
+                        )}); return
                 with AGENT_RUN_LOCK:
                     current=AGENT_RUNS.get((property_id,agent_id),{})
                     if current.get("state") in {"running","queued"}:
@@ -1547,25 +1588,6 @@ class Handler(SimpleHTTPRequestHandler):
                     AGENT_RUNS[(property_id,agent_id)]={
                         "state":"queued","agentId":agent_id,"startedAt":datetime.now(timezone.utc).isoformat(),"error":""
                     }
-                # Reuse Minerva date locks only when the saved result belongs
-                # to the exact same property. Never accept locks supplied by the UI.
-                data.pop("_specialistBookingLocks",None)
-                if agent_id not in {"booking","official_site","reviews"}:
-                    try:
-                        booking_result=json.loads(agent_output(property_id,"booking").read_text(encoding="utf-8"))
-                        same_property=(booking_result.get("propertyId")==property_id
-                            and booking_result.get("propertyName")==data.get("name"))
-                        if same_property:
-                            rows=[dict(row) for row in booking_result.get("bookingReferenceStays") or []
-                                if isinstance(row,dict) and row.get("month")
-                                and row.get("requestedCheckin") and row.get("requestedCheckout")
-                                and row.get("checkin") and row.get("checkout")
-                                and row.get("status") in {"initial_dates_available","shifted_to_available_booking_dates"}]
-                            if rows:
-                                data["_specialistBookingLocks"]=rows
-                                print(f"[GI0VE] Date Minerva riutilizzabili: {len(rows)}",flush=True)
-                    except (FileNotFoundError,OSError,ValueError,TypeError):
-                        pass
                 input_path=work/"property.json"
                 input_path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
                 agent_output(property_id,agent_id).unlink(missing_ok=True)
