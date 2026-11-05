@@ -3805,6 +3805,7 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
+  navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
   discoveredSources?: Record<string, DiscoveredPilotSource>;
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
   reputation?: BrowserPilotReputation;
@@ -6456,6 +6457,7 @@ export default function App() {
                     photoAudit:agentId==="official_site"?(specialistPartial.photoAudit||{}):(sameProperty?previous.photoAudit:undefined),
                     bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
                     directBookingVerification:agentId==="official_site"?(specialistPartial.directBookingVerification):(sameProperty?previous.directBookingVerification:undefined),
+                    navigationAudit:agentId==="official_site"?(specialistPartial.navigationAudit):(sameProperty?previous.navigationAudit:undefined),
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
                   return combined;
@@ -9851,13 +9853,21 @@ export default function App() {
             <label className="mt-3 block text-[11px] font-black text-[#23124A]">Evidenza e limiti della verifica
               <textarea value={answers["audit-booking-engine-evidence"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-evidence", { note: event.target.value })} placeholder="Dove porta Prenota, cosa compare, data della prova, cosa non è stato verificato" className="mt-1 block min-h-[70px] w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
             </label>
-            {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-[#135443]">
+            {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-[#D8D3E2] bg-[#F8F6FC] p-3 text-[11px] text-[#23124A]">
               <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
               {browserPilotResult.directBookingVerification && <p className="mt-2">
                 Pagina booking engine: {browserPilotResult.directBookingVerification.navigation === "reached" ? "raggiunta" : "non verificata"} ·
                 Date: {browserPilotResult.directBookingVerification.controls?.dates ? "controlli rilevati" : "non confermate"} ·
                 Ospiti: {browserPilotResult.directBookingVerification.controls?.guests ? "controlli rilevati" : "non confermati"} ·
                 Disponibilità e prezzi datati: non verificati.
+              </p>}
+              {browserPilotResult.navigationAudit && <p className="mt-2">
+                Navigazione sito: {browserPilotResult.navigationAudit.pagesVisited??0} pagine visitate ·
+                {browserPilotResult.navigationAudit.internalLinksSeen??0} link interni rilevati in homepage ·
+                {(browserPilotResult.navigationAudit.failedPages||[]).length} errori nel campione.
+                {(browserPilotResult.navigationAudit.failedPages||[]).length>0 &&
+                  <span className="ml-1 font-bold text-rose-700">Verificare i collegamenti che non hanno risposto.</span>}
+                <span className="block text-[#50627F]">Non equivale al collaudo di tutti i menu, widget o checkout.</span>
               </p>}
             </div>}
           </section>
