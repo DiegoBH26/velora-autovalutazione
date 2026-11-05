@@ -59,6 +59,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_booking_exact_identity.py'
       - name: Verify Booking-first OTA date locks
         run: python -m unittest discover -s tests -p 'test_booking_date_lock_contract.py'
+      - name: Verify selected calendar range and unique Booking stays
+        run: python -m unittest discover -s tests -p 'test_booking_date_range_regression.py'
       - name: Verify Agoda room grid and sold-out safeguards
         run: python -m unittest discover -s tests -p 'test_agoda_rate_grid_regression.py'
       - name: Verify exact Agoda rates and Airbnb exclusion memory
