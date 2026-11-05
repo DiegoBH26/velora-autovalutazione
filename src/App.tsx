@@ -5133,6 +5133,15 @@ export default function App() {
   const [specialistLaunchErrors,setSpecialistLaunchErrors]=useState<Record<string,string>>({});
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
+  const [agentChatOpen,setAgentChatOpen]=useState(false);
+  const [agentChatLoading,setAgentChatLoading]=useState(false);
+  const [agentChatError,setAgentChatError]=useState("");
+  const [agentChatEvents,setAgentChatEvents]=useState<Array<{
+    from:string;to:string;type:string;createdAt:string;
+    details?:{propertyName?:string;sourceRun?:string;windows?:Array<{
+      requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;status?:string
+    }>;date?:string;status?:string;roomCount?:number;priceCount?:number;technicalReason?:string;ota?:string}
+  }>>([]);
   const [frontendComparisons,setFrontendComparisons]=useState<Array<{
     leftAgent:string;rightAgent:string;photoCountLeft:number;photoCountRight:number;
     differentServiceMentions:string[];status:string;note:string;
@@ -6550,6 +6559,30 @@ export default function App() {
       setSpecialistMessage(error instanceof Error?error.message:"Avvio agenti non riuscito.");
     } finally {
       setLaunchingBatch(false);
+    }
+  }
+
+  async function loadAgentChat() {
+    setAgentChatOpen(true);
+    setAgentChatLoading(true);
+    setAgentChatError("");
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Avvia l'agente locale Velora per vedere i messaggi.");
+      const response=await fetch(
+        localAgentUrl("/api/agents/chat?propertyId="+encodeURIComponent(activeAuditData.id)),
+        {mode:"cors",cache:"no-store"}
+      );
+      const data=await response.json() as {
+        events?:typeof agentChatEvents;error?:string;propertyId?:string
+      };
+      if(!response.ok)throw new Error(data.error||"Mailbox agenti non disponibile");
+      if(data.propertyId!==activeAuditData.id)throw new Error("La chat appartiene a un'altra struttura");
+      setAgentChatEvents(data.events||[]);
+    } catch(error) {
+      setAgentChatError(error instanceof Error?error.message:"Errore lettura della chat");
+    } finally {
+      setAgentChatLoading(false);
     }
   }
 
@@ -10689,11 +10722,46 @@ export default function App() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={()=>void refreshSpecialistStatuses()} className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-black">Aggiorna stati</button>
+                      <button type="button" onClick={()=>void (agentChatOpen?setAgentChatOpen(false):loadAgentChat())} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">
+                        {agentChatOpen?"Nascondi chat agenti":"Mostrami chat agenti"}
+                      </button>
                       <button type="button" disabled={specialistCheckRunning || launchingBatch} onClick={()=>void validateSpecialistNetwork()} className="rounded-lg bg-[#23124A] px-4 py-2 text-xs font-black text-white disabled:opacity-40">
                         {specialistCheckRunning?"Giove sta verificando...":"Avvia Giove · Esegui check"}
                       </button>
                     </div>
                   </div>
+                  {agentChatOpen && <div className="mt-3 rounded-xl border border-[#E5DDF1] bg-white p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-black text-[#23124A]">Giove · Chat interna degli agenti</p>
+                        <p className="text-[11px] text-[#64748B]">Eventi reali della mailbox locale, in sola lettura. Le informazioni condivise non sostituiscono la verifica sulle OTA.</p>
+                      </div>
+                      <button type="button" onClick={()=>void loadAgentChat()} disabled={agentChatLoading} className="rounded-lg border border-[#E5DDF1] px-3 py-2 text-xs font-bold disabled:opacity-50">
+                        {agentChatLoading?"Caricamento…":"Aggiorna chat"}
+                      </button>
+                    </div>
+                    {agentChatError && <p role="alert" className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-800">{agentChatError}</p>}
+                    {!agentChatLoading && !agentChatError && agentChatEvents.length===0 && <p className="mt-3 text-xs text-[#64748B]">Nessun messaggio registrato per questa struttura. La mailbox si popola durante le scansioni con l'agente locale aggiornato.</p>}
+                    <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+                      {agentChatEvents.map((event,index)=><div key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
+                        <div className="flex flex-wrap justify-between gap-2 text-[11px]">
+                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":"Giove"}</span>
+                          <span className="text-[#64748B]">{event.createdAt?new Date(event.createdAt).toLocaleString("it-IT"):""}</span>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-[#374151]">{({
+                          booking_reference:"Date Booking confermate e condivise",
+                          pricing_read_failure:"Difficoltà nella lettura delle tariffe",
+                          pricing_observed:"Acquisizione tariffe registrata",
+                          technical_block:"Problema tecnico segnalato"
+                        } as Record<string,string>)[event.type]||event.type}</p>
+                        {event.details?.windows?.map((stay,i)=><p key={i} className="mt-1 text-[11px] text-[#50627F]">
+                          {stay.requestedCheckin} → {stay.requestedCheckout} · Date confermate: {stay.checkin} → {stay.checkout}
+                        </p>)}
+                        {typeof event.details?.priceCount==="number" && <p className="mt-1 text-[11px] text-[#50627F]">Prezzi verificati: {event.details.priceCount}</p>}
+                        {event.details?.technicalReason && <p className="mt-1 text-[11px] text-[#9A3412]">Motivo: {event.details.technicalReason}</p>}
+                      </div>)}
+                    </div>
+                  </div>}
                   {specialistChecks!==null && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-white">
                     <table className="w-full min-w-[650px] text-left text-[11px]">
                       <thead className="bg-[#F4F0F8] text-[#23124A]"><tr><th className="px-3 py-2.5">Agente / OTA</th><th className="px-3 py-2.5">Controllo</th><th className="px-3 py-2.5">Esito di Giove</th><th className="px-3 py-2.5">Evidenza / errore</th></tr></thead>
