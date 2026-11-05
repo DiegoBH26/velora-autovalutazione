@@ -1269,6 +1269,28 @@ def _strict_ota_identity_match(
     # For public /pdp/lo/ group listings, corroborate the distinctive
     # brand phrase in the actual PAGE heading and the same locality before
     # accepting a moderate score. Never trust the URL on its own.
+    # Specolizzi is advertised in Presicce while its commercial registry
+    # may identify Salve. Require matching distinctive name in both the live
+    # title and Agoda URL, plus the specifically corroborated locality.
+    # Never treat photos or price widgets alone as proof of identity.
+    agoda_specolizzi_geo_alias=False
+    if not strict_ok and _classify_ota_url(url)=="agoda":
+        actual_title=_norm_name(title)
+        actual_path=_norm_name(urlparse(url).path)
+        expected_norm=_norm_name(property_name)
+        city_norm=_norm_name(city)
+        if (
+            expected_norm in {"masseria tenuta specolizzi","tenuta specolizzi"}
+            and city_norm in {"salve","presicce","presicce acquarica"}
+            and "tenuta specolizzi" in actual_title
+            and "tenuta specolizzi" in actual_path
+            and "presicce" in _norm_name(
+                " ".join((urlparse(url).path,body[:6000]))
+            )
+        ):
+            agoda_specolizzi_geo_alias=True
+            strict_ok=True
+
     vrbo_group_alias=False
     if (
         not strict_ok and _classify_ota_url(url)=="vrbo"
@@ -1320,6 +1342,12 @@ def _strict_ota_identity_match(
     if booking_exact_identity:
         evidence_parts.append(
             "Booking: titolo, nome distintivo, URL /hotel/ e località coincidono"
+        )
+    if agoda_specolizzi_geo_alias:
+        evidence_parts.append(
+            "Agoda: titolo e URL coincidono con Tenuta Specolizzi; "
+            "località Presicce collegata all'anagrafica Salve. "
+            "Identità fisica da verificare separatamente nei casi ambigui"
         )
     if vrbo_group_alias:
         evidence_parts.append(
