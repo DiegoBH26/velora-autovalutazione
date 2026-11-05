@@ -2785,7 +2785,10 @@ async def agoda_visible_rate_candidates(page, stay: dict) -> list[dict]:
       const nodes=Array.from(document.querySelectorAll('span,strong,b,div')).filter(el => {
         if (!visible(el)) return false;
         const own=clean(el.textContent);
-        return own.length<=40 && priceOnly.test(own);
+        const near=clean(el.parentElement?.innerText||el.parentElement?.textContent||'');
+        return own.length<=40 && priceOnly.test(own)
+          && !el.closest('del,s,strike,[class*="strike" i],[class*="original-price" i]')
+          && !(near.length<140 && /(?:applicato|applied|sconto|discount|risparmio|coupon)/i.test(near));
       }).slice(0,300);
       const out=[]; const seen=new Set();
       for (const priceNode of nodes) {
@@ -3060,9 +3063,18 @@ async def agoda_quote_candidates(page, stay: dict) -> list[dict]:
         '[data-element-name*="room-title" i]',
         'h2','h3','h4'
       ];
+      const isActualRate=el=>{
+        const local=clean(el?.parentElement?.innerText||el?.parentElement?.textContent||'');
+        const css=String(el?.className||'')+' '+String(el?.parentElement?.className||'');
+        return !el?.closest('s,del,strike,[class*="strike" i],[class*="original-price" i]')
+          && !(local.length<140&&/(?:applicato|applied|sconto|discount|risparmio|coupon)/i.test(local))
+          && !/(discount|saving|coupon|badge|original-price|strike)/i.test(css);
+      };
       const pick=(node,selectors) => {
         for (const selector of selectors) {
-          const matches=Array.from(node.querySelectorAll(selector)).filter(visible);
+          const matches=Array.from(node.querySelectorAll(selector)).filter(
+            el=>visible(el)&&isActualRate(el)
+          );
           if (matches.length) return matches[0];
         }
         return null;
