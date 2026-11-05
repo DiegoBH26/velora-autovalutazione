@@ -50,6 +50,18 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
             assert value["checkin"]=="2027-09-26"
             assert value["requestedCheckin"]=="2027-08-01"
 
+    def test_bedzzle_booking_engine_domain(self):
+        from booking_engine import detect_booking_engine
+        result=detect_booking_engine(
+            "https://example.org/",
+            '<a href="https://booking.bedzzle.com/desktop/">Prenota</a>'
+        )
+        self.assertEqual(result["provider"], "Bedzzle")
+        self.assertEqual(result["status"], "provider_identified")
+        app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
+        self.assertIn("host === 'booking.bedzzle.com'",app)
+        self.assertIn("const provider = engine.provider || resolved?.provider",app)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
         for filename in ("velora_direct_commercial.py","velora_shared_intelligence.py"):
