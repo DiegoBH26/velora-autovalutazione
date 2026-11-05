@@ -165,6 +165,12 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
         # Priceline viene datato tramite UI: la scheda resta invariata finché
         # il date picker non conferma il soggiorno richiesto.
         return base
+    # Keep Agoda on the same Italian-market listing variant shown to the
+    # user. An indexed /en-in/ copy can have a different storefront/rendering
+    # and is not a reliable substitute for the Italian rate grid.
+    if channel=="agoda" and re.match(r"^/[a-z]{2}-[a-z]{2}/",parsed.path,re.I):
+        path=re.sub(r"^/[a-z]{2}-[a-z]{2}/","/it-it/",parsed.path,count=1,flags=re.I)
+        parsed=parsed._replace(path=path)
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
