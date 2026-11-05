@@ -3805,7 +3805,7 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
-  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;roomType:string;total:number;verified?:boolean}>;
+  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
@@ -7086,6 +7086,25 @@ export default function App() {
   const averageRating=ratingChannels.length?
     ratingChannels.reduce((sum,p)=>sum+p.normalized,0)/ratingChannels.length:null;
 
+  const directCommercial=browserPilotResult?.propertyId===activeAuditData.id
+    ?browserPilotResult.directCommercialAudit:undefined;
+  const directPriceDeltas=(directCommercial?.verifiedQuotes||[]).flatMap(direct=>{
+    if(!direct.verified)return [];
+    const bookings=rateQuotes.filter(q=>q.otaId==="booking" && q.pilotVerified===true
+      && q.total>0 && q.stayDate===direct.checkin
+      && q.guests===direct.guests && q.nights===direct.nights
+      && normalizedRateToken(q.roomType)===normalizedRateToken(direct.roomType)
+      && normalizedRateToken(q.board)===normalizedRateToken(direct.board)
+      && normalizedRateToken(q.refund)===normalizedRateToken(direct.refund)
+      && normalizedRateToken(q.taxes)===normalizedRateToken(direct.taxes)
+      && normalizedRateToken(q.audience)===normalizedRateToken(direct.audience));
+    return bookings.slice(0,1).map(booking=>({
+      checkin:direct.checkin,room:direct.roomType,
+      direct:direct.total,booking:booking.total,
+      delta:((direct.total-booking.total)/booking.total)*100
+    }));
+  });
+
   const activeMacro =
     assessmentData.find((macro) => macro.id === activeMacroId) ?? assessmentData[0];
 
@@ -9892,6 +9911,15 @@ export default function App() {
                     {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi verificati.
                     <p className="mt-1 text-[#50627F]">Una tariffa entra nel confronto soltanto quando data, ospiti, camera, totale e condizioni sono confermati.</p>
                   </div>
+                  {directPriceDeltas.length>0 && <div className="rounded-xl border border-[#E5DDF1] bg-white p-3">
+                    <b>Confronti confermati con Booking · stessa camera, occupazione e condizioni</b>
+                    {directPriceDeltas.map((c,i)=><div key={i} className="mt-2 flex flex-wrap justify-between gap-2 border-t border-[#E5DDF1] pt-2">
+                      <span>{c.checkin} · {c.room}</span>
+                      <span>Diretto € {c.direct.toFixed(2)} · Booking € {c.booking.toFixed(2)} ·
+                        <b className={c.delta>0?"text-rose-700":"text-emerald-700"}> {c.delta>0?"+":""}{c.delta.toFixed(1)}%</b>
+                      </span>
+                    </div>)}
+                  </div>}
                   {(browserPilotResult.directCommercialAudit.samples||[]).map((sample,i)=>
                     <div key={sample.checkin+"-"+sample.checkout+"-"+i} className="rounded-xl border border-[#E5DDF1] bg-white p-3">
                       <b>{sample.checkin} → {sample.checkout}</b> · {sample.nights} notti · {sample.guests} ospiti
@@ -9899,7 +9927,12 @@ export default function App() {
                         sample.status==="dates_not_selectable"?"Calendario non gestibile automaticamente":
                         sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
                         "Verifica non completata"}</p>
-                      <p className="mt-1 text-[#50627F]">Disponibilità: non verificata · Tariffa confrontabile: non disponibile</p>
+                      <p className="mt-1 text-[#50627F]">Disponibilità: {sample.availability==="unavailable_reported"?"Indisponibilità dichiarata dal sito diretto":
+                        sample.availability==="price_and_booking_action_observed"?"Camera con prezzo e tasto prenotazione osservati":"Non verificata"}
+                        {" "}· Tariffe verificate: {(sample.quotes||[]).filter(q=>q.verified).length}</p>
+                      {sample.availability==="unavailable_reported" && rateQuotes.some(q=>q.otaId==="booking" && q.pilotVerified===true
+                        && q.stayDate===sample.checkin && q.nights===sample.nights && q.guests===sample.guests) &&
+                        <p className="mt-1 font-black text-rose-700">Possibile asimmetria: Booking ha una tariffa verificata, il diretto dichiara indisponibilità. Verificare la medesima tipologia di camera.</p>}
                       {(sample.quotes||[]).length>0 && <div className="mt-2 space-y-1 rounded-lg bg-[#FBF9FF] p-2">
                         <b>Tariffe osservate sulle schede camere (da verificare)</b>
                         {(sample.quotes||[]).slice(0,12).map((q,k)=><div key={k} className="flex flex-wrap justify-between gap-2 border-t border-[#E5DDF1] pt-1">
