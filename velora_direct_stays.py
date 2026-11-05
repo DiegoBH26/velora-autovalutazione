@@ -76,6 +76,50 @@ async def _apply_dates(page, stay):
     valid=all(stay[key] in actual for key in ("checkin","checkout"))
     return {"applied":valid,"reason":"Date native impostate" if valid else "Le date sono state modificate dal booking engine"}
 
+async def _visible_offer_candidates(page):
+    """Raccoglie prezzi e nomi camera nello stesso contenitore visibile;
+    non presume che l'importo sia il totale confrontabile."""
+    try:
+        cards=await page.evaluate("""() => {
+          const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+          const nodes=[...document.querySelectorAll(
+            'article,[data-testid*=room],[data-testid*=rate],[class*=room-card],[class*=roomCard],[class*=rate-card],[class*=room-type],[class*=roomType]')];
+          return nodes.filter(visible).slice(0,80).map(el=>{
+            const text=(el.innerText||'').replace(/\\s+/g,' ').trim().slice(0,1400);
+            const head=el.querySelector('h2,h3,h4,[class*=room-name],[class*=roomName]')?.textContent||'';
+            return {roomType:String(head).replace(/\\s+/g,' ').trim().slice(0,140),
+                    text,hasBookingAction:/\\b(prenota|book now|seleziona|select room)\\b/i.test(text)};
+          }).filter(x=>x.roomType&&x.text&&/[€]/.test(x.text)).slice(0,30);
+        }""")
+    except Exception:
+        return []
+    offers=[]
+    seen=set()
+    for card in cards:
+        text=card.get("text") or ""
+        matches=list(_PRICE_PATTERN.finditer(text))[:6]
+        for match in matches:
+            amount=_money(match.group(0))
+            if amount is None:continue
+            near=text[max(0,match.start()-75):min(len(text),match.end()+75)]
+            basis="stay_total_claimed" if re.search(
+                r"totale|prezzo complessivo|total price|total for stay|intero soggiorno",near,re.I) else "unknown"
+            room=str(card.get("roomType") or "")[:140]
+            key=(room.lower(),amount,basis)
+            if key in seen:continue
+            seen.add(key)
+            offers.append({
+                "roomType":room,"displayedAmount":amount,"currency":"EUR",
+                "displayedBasis":basis,"bookingActionVisible":bool(card.get("hasBookingAction")),
+                "conditions":text[-220:],
+                "verified":False,
+                "evidence":"Importo e intestazione camera nella stessa scheda: "
+                    +"totale soggiorno indicato" if basis=="stay_total_claimed"
+                    else "Importo osservato, natura del prezzo non confermata",
+            })
+            if len(offers)>=20:return offers
+    return offers
+
 async def probe_direct_stays(url, rows, *, limit=4):
     stays=eligible_stays(rows,limit=limit)
     result={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
@@ -128,6 +172,10 @@ async def probe_direct_stays(url, rows, *, limit=4):
                             prices=[{"amount":_money(m.group(0)),"text":m.group(0)}
                                     for m in list(_PRICE_PATTERN.finditer(page_text))[:20]]
                             sample["visiblePrices"]=[p for p in prices if p["amount"] is not None][:12]
+                            sample["quotes"]=await _visible_offer_candidates(page)
+                            sample["evidence"].append(
+                                f"{len(sample['quotes'])} prezzi-candidati associati a intestazioni camera; "
+                                "nessuna parità tariffaria senza conferma completa di soggiorno e condizioni.")
                             sample["evidence"].append("Contesto date presente; gli importi generici non indicano camera, totale, tasse o condizioni.")
                             # Never advertise dated quotes without confirmed room/type,
                             # total-stay basis, rate conditions and availability.
