@@ -3807,7 +3807,7 @@ type BrowserPilotResult = {
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[] };
   directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;roomType:string;total:number;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
-      visiblePrices?:Array<{amount:number;text:string}>;evidence?:string[]}> };
+      visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
   discoveredSources?: Record<string, DiscoveredPilotSource>;
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
@@ -9900,7 +9900,14 @@ export default function App() {
                         sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
                         "Verifica non completata"}</p>
                       <p className="mt-1 text-[#50627F]">Disponibilità: non verificata · Tariffa confrontabile: non disponibile</p>
-                      {(sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
+                      {(sample.quotes||[]).length>0 && <div className="mt-2 space-y-1 rounded-lg bg-[#FBF9FF] p-2">
+                        <b>Tariffe osservate sulle schede camere (da verificare)</b>
+                        {(sample.quotes||[]).slice(0,12).map((q,k)=><div key={k} className="flex flex-wrap justify-between gap-2 border-t border-[#E5DDF1] pt-1">
+                          <span>{q.roomType}</span><span className="font-black">€ {Number(q.displayedAmount).toLocaleString("it-IT",{minimumFractionDigits:2})} · {q.displayedBasis==="stay_total_claimed"?"Indicazione di totale":"Base prezzo incerta"}</span>
+                        </div>)}
+                        <p className="text-amber-800">Valori osservati, esclusi dal delta fino a conferma di date, ospiti, camera e condizioni.</p>
+                      </div>}
+                      {(sample.quotes||[]).length===0 && (sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
                       {(sample.evidence||[]).map((ev,k)=><p key={k} className="text-[#50627F]">{ev}</p>)}
                     </div>
                   )}
