@@ -98,6 +98,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s=Get-Content 'local_audit_server.py.new' -Raw; $p=Get-Content 'browser_audit_pilot.py.new' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'velora-browser-pilot-v(\d+)').Groups[1].Value; if(-not $sv -or -not $pv -or $sv -ne $pv){ Write-Host ('ERRORE VERSIONI: agente v'+$sv+' / pilot v'+$pv); exit 2 } else { Write-Host ('Versioni scaricate sincronizzate: v'+$sv) }"
 if errorlevel 1 goto :errore
 
+rem Leonardo ha una versione indipendente: la vecchia sigla v125 non basta.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$f=Get-Content 'velora_direct_stays.py.new' -Raw; if($f -notmatch 'LEONARDO_BUILD = \"direct-engine-cta-httpdiag-20261109-r1\"'){ Write-Host 'ERRORE: motore Leonardo non aggiornato. Non sostituisco i file.'; exit 2 } else { Write-Host 'OK: motore Leonardo aggiornato.' }"
+if errorlevel 1 goto :errore
+
 rem Verifica sintassi di TUTTI i sorgenti PRIMA di sostituire quelli funzionanti.
 set "VELORA_PY="
 if exist ".venv\Scripts\python.exe" set "VELORA_PY=.venv\Scripts\python.exe"
