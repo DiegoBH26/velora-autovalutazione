@@ -3805,7 +3805,7 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
-  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
+  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
@@ -7089,11 +7089,13 @@ export default function App() {
   const directCommercial=browserPilotResult?.propertyId===activeAuditData.id
     ?browserPilotResult.directCommercialAudit:undefined;
   const directPriceDeltas=(directCommercial?.verifiedQuotes||[]).flatMap(direct=>{
-    if(!direct.verified)return [];
+    // Same textual room name is not proof of the same physical unit.
+    // A price delta requires a verified shared room reference from both sides.
+    if(!direct.verified || !direct.referenceRoomKey)return [];
     const bookings=rateQuotes.filter(q=>q.otaId==="booking" && q.pilotVerified===true
       && q.total>0 && q.stayDate===direct.checkin
       && q.guests===direct.guests && q.nights===direct.nights
-      && normalizedRateToken(q.roomType)===normalizedRateToken(direct.roomType)
+      && q.referenceRoomKey===direct.referenceRoomKey
       && normalizedRateToken(q.board)===normalizedRateToken(direct.board)
       && normalizedRateToken(q.refund)===normalizedRateToken(direct.refund)
       && normalizedRateToken(q.taxes)===normalizedRateToken(direct.taxes)
@@ -9667,7 +9669,7 @@ export default function App() {
       const matched=verifiedDirectRates.flatMap(direct=>{
         // L'identita' della stessa stanza non puo' essere dedotta dal nome.
         // Richiede il referenceRoomKey esplicito in ENTRAMBI i canali.
-        const reference=(direct as typeof direct & {referenceRoomKey?:string}).referenceRoomKey;
+        const reference=direct.referenceRoomKey;
         if(!reference)return [];
         return channelRates.filter(ota=>
           ota.referenceRoomKey===reference &&
