@@ -465,12 +465,18 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         profile = property_file.parent / "chrome-photos"
         picture_data={**data,"sources":{**(data.get("sources") or {}),
             "sito":{"label":"Sito ufficiale","url":site}}}
-        async with async_playwright() as playwright:
-            context=await pilot._launch_velora_context(playwright,profile,picture_data,"foto sito diretto",ghost)
-            try:
-                photos=await pilot.frontend_photo_audit(context,picture_data,{})
-            finally:
-                await context.close()
+        try:
+            async with async_playwright() as playwright:
+                context=await pilot._launch_velora_context(playwright,profile,picture_data,"foto sito diretto",ghost)
+                try:
+                    photos=await pilot.frontend_photo_audit(context,picture_data,{})
+                finally:
+                    await context.close()
+        except Exception as exc:
+            # Un errore dell'audit fotografico non deve impedire la ricerca
+            # commerciale nel booking engine; il limite resta esplicito.
+            photos={"status":"not_verified",
+                    "evidence":["Audit fotografico non concluso: "+type(exc).__name__]}
         # Segue davvero la CTA di prenotazione per catturare la scheda/dominio
         # finale e l'eventuale parametro pubblico Bedzzle della struttura.
         try:
