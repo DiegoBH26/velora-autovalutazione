@@ -271,7 +271,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         tree=ast.parse((ROOT/"velora_direct_stays.py").read_text(encoding="utf-8"))
         scripts=[n.value for n in ast.walk(tree)
                  if isinstance(n,ast.Constant) and isinstance(n.value,str)
-                 and "data-velora-bedzzle-date" in n.value]
+                 and "data-velora-bedzzle-date" in n.value and "const MONTHS=" in n.value]
         self.assertEqual(len(scripts),1)
         script=scripts[0]
         self.assertNotIn("\x08",script)
