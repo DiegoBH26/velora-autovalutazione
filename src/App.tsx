@@ -11211,12 +11211,25 @@ export default function App() {
           </div>
           <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto master commerciale, Booking riferimento OTA</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri il sito diretto o una OTA per consultare le tariffe rilevate. Il sito diretto è il master commerciale; Booking è il riferimento per date e confronto tra OTA. Ogni canale rimane chiuso inizialmente. Un delta è mostrato soltanto per la stessa unità verificata, con date, ospiti e condizioni equivalenti.</p>
-          {priceRangeRows.length>0 && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
-            <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi per OTA e soggiorno</p>
+          {(priceRangeRows.length>0 || Boolean(directEngine?.url) || verifiedDirectRates.length>0) && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
+            <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi · sito diretto e OTA</p>
             <p className="mb-2 text-[10px] text-[#50627F]">Range dei totali effettivamente letti: non equivale a una differenza tariffaria sulla stessa camera.</p>
             <table className="w-full min-w-[660px] text-left text-[11px]">
               <thead><tr><th className="p-2">Soggiorno</th><th className="p-2">OTA</th><th className="p-2">Tipologie</th><th className="p-2">Totale min–max</th><th className="p-2">Affidabilità confronto</th></tr></thead>
-              <tbody>{priceRangeRows.map((row,index)=>(
+              <tbody>
+                {verifiedDirectRates.length>0 ? verifiedDirectRates.map((quote,index)=><tr key={"direct-summary-"+index} className="border-t border-[#E5DDF1] bg-[#FFF9EC]">
+                  <td className="p-2">{quote.checkin} · {quote.nights} notti · {quote.guests} ospiti</td>
+                  <td className="p-2 font-black">Sito diretto · MASTER</td>
+                  <td className="p-2">{quote.roomType}</td>
+                  <td className="p-2 font-black">€{quote.total.toFixed(2)}</td>
+                  <td className="p-2">Totale diretto verificato · parità camera/condizioni OTA da confermare</td>
+                </tr>) : <tr className="border-t border-[#E5DDF1] bg-[#FFF9EC]">
+                  <td className="p-2">Date Booking da verificare</td>
+                  <td className="p-2 font-black">Sito diretto · MASTER</td>
+                  <td className="p-2">—</td><td className="p-2">n.d.</td>
+                  <td className="p-2">Leonardo: nessun preventivo datato verificato</td>
+                </tr>}
+                {priceRangeRows.map((row,index)=>(
                 <tr key={row.otaId+"-"+row.stayDate+"-"+row.nights+"-"+index} className="border-t border-[#E5DDF1]">
                   <td className="p-2">{row.stayDate} · {row.nights} notti · {row.guests} ospiti</td>
                   <td className="p-2 font-bold">{activeAuditData.otaPresence.find(ch=>ch.id===row.otaId)?.platform||PILOT_OTA_LABELS[row.otaId]||row.otaId}</td>
