@@ -15,7 +15,7 @@ from pathlib import Path
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields, follow_booking_cta
-from velora_direct_stays import probe_direct_stays
+from velora_direct_stays import probe_direct_stays, planned_direct_stays
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
@@ -440,7 +440,18 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         peer_evidence = read_peer_evidence(property_file.parent, data["id"], skip_agent=agent)
         site = data.get("website") or (data.get("sources", {}).get("sito") or {}).get("url")
         if not site:
-            raise ValueError("Sito ufficiale non configurato")
+            result=_safe_result({
+                "schema":NETWORK_SCHEMA,
+                "bookingEngine":{"status":"not_found_in_page","provider":"","url":"",
+                    "evidence":"Sito diretto non configurato nella scheda struttura: verifica impossibile."},
+                "directCommercialAudit":{"status":"website_not_configured","samples":[],
+                    "verifiedQuotes":[],"evidence":["Nessun sito diretto configurato. "
+                    "Leonardo non puo' cercare prezzi o disponibilita'."]},
+                "photoAudit":{},"navigationAudit":{},
+                "evidence":"Sito ufficiale assente dall'anagrafica; OTA successive analizzabili separatamente.",
+            },data["id"],agent)
+            _write(output,result)
+            return result
         audit = await build_site_audit({
             "propertyId": data["id"],
             "website": site,
@@ -485,10 +496,23 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 "availability": "not_verified", "datedPrices": [],
                 "evidence": ["Verifica booking engine non conclusa: " + type(exc).__name__],
             }
+        # Leonardo e' il PRIMO agente: parte dalle finestre richieste
+        # dall'utente e non attende un'esecuzione Booking preesistente.
+        # Booking viene lanciato DOPO e le confronta; i risultati di
+        # scansioni vecchie non possono cambiare il master attuale.
+        try:
+            today=datetime.now().date()
+            plan=(pilot.custom_date_plan(today, custom_period) if custom_period
+                else pilot.monthly_plan(today,limit=(13 if months==12 else max(1,months))))
+            direct_windows=planned_direct_stays(plan,limit=4)
+            plan_error=""
+        except (ValueError,KeyError,TypeError) as exc:
+            direct_windows=[]
+            plan_error="Piano date del sito diretto non valido: "+str(exc)[:180]
         booking_windows=(peer_evidence.get("booking") or {}).get("bookingReferenceStays") or []
         if not booking_windows:
-            # Riutilizza i risultati Booking gia' salvati prima dell'installazione
-            # della memoria condivisa: nessuna nuova scansione OTA richiesta.
+            # Solo a titolo di confronto storico, mai per scegliere il
+            # periodo di una NUOVA ricerca sul sito diretto.
             previous_booking=property_file.parent.parent / "specialist-agents" / str(data["id"]) / "booking" / "result.json"
             try:
                 prior=json.loads(previous_booking.read_text(encoding="utf-8"))
@@ -504,17 +528,33 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             # probe_direct_stays applica separatamente i controlli su data,
             # robots.txt, accesso e quote. Nessuna tariffa dedotta.
             try:
-                direct_stays=await probe_direct_stays(booking_url, booking_windows, limit=4)
+                direct_stays=await probe_direct_stays(booking_url, direct_windows, limit=4)
             except Exception as exc:
                 direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
                               "evidence":["Preventivi non completati: "+type(exc).__name__]}
         else:
-            direct_stays["status"]="engine_url_missing"
-            direct_stays["evidence"].append("Nessun URL del booking engine associato alla struttura.")
-        if not booking_windows:
+            engine_status=(audit.get("bookingEngine") or {}).get("status") or ""
+            direct_stays["status"]=(
+                "booking_engine_not_found" if engine_status=="not_found_in_page"
+                else "request_only_no_booking_engine" if engine_status=="request_only"
+                else "engine_url_missing")
+            direct_stays["evidence"].append(
+                "Nessun motore di prenotazione con prezzi e disponibilita' identificato sul sito diretto. "
+                "Se esiste un modulo soltanto di richiesta, non e' equivalente a un booking engine.")
+        direct_stays["referenceSource"]="sito_diretto"
+        direct_stays["plannedStays"]=direct_windows
+        direct_stays["bookingHistoricalReference"]=bool(booking_windows)
+        if plan_error:
+            direct_stays.setdefault("evidence",[]).append(plan_error)
+        if not direct_windows:
             direct_stays.setdefault("evidence",[]).append(
-                "Nessuna finestra Booking confermata disponibile nella memoria o negli archivi locali; "
-                "Leonardo non puo' scegliere date autonome per il confronto.")
+                "Nessuna finestra di soggiorno valida nel periodo scelto per il sito diretto.")
+        if booking_windows:
+            confirmed={(str(w.get("checkin") or ""),str(w.get("checkout") or ""),
+                        int(w.get("adults") or 0)) for w in booking_windows}
+            direct_stays["bookingHistoricalDateMatches"]=sum(
+                1 for w in direct_windows
+                if (w.get("checkin"),w.get("checkout"),w.get("adults")) in confirmed)
         direct_verification["ctaNavigation"]=cta_verification
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
@@ -526,6 +566,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
             "directCommercialAudit": direct_stays,
+            "masterSequence": ["official_site","booking","ota"],
             "navigationAudit": (audit.get("_autoAudit") or {}).get("navigationChecks") or {},
             "peerBookingDates": booking_windows,
             "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
