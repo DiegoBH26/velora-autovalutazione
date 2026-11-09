@@ -24,13 +24,16 @@ def eligible_stays(rows, *, limit=4):
         departure=str(item.get("checkout") or "")
         if not (_DATE_PATTERN.fullmatch(arrival) and _DATE_PATTERN.fullmatch(departure)):
             continue
-        if arrival!=str(item.get("requestedCheckin") or "") or departure!=str(item.get("requestedCheckout") or ""):
+        # Booking e' la fonte delle date di ricerca per TUTTI i canali.
+        # Le date inizialmente richieste possono essere state sostituite da
+        # Booking con un'altra finestra realmente confermata. In tal caso
+        # manteniamo la finestra confermata, senza ripristinare la richiesta.
+        status=str(item.get("status") or "")
+        if status not in {"initial_dates_available","shifted_to_available_booking_dates"}:
             continue
         try:
             nights=(date.fromisoformat(departure)-date.fromisoformat(arrival)).days
         except ValueError: continue
-        if item.get("status") and item["status"]!="initial_dates_available":
-            continue
         if item.get("adults") is None:
             continue
         try: adults=int(item.get("adults"))
@@ -39,7 +42,10 @@ def eligible_stays(rows, *, limit=4):
             continue
         key=(arrival,departure,adults)
         if any((x["checkin"],x["checkout"],x["guests"])==key for x in selected): continue
-        selected.append({"checkin":arrival,"checkout":departure,"guests":adults,"nights":nights})
+        selected.append({"checkin":arrival,"checkout":departure,"guests":adults,"nights":nights,
+                         "bookingConfirmation":status,
+                         "requestedCheckin":str(item.get("requestedCheckin") or ""),
+                         "requestedCheckout":str(item.get("requestedCheckout") or "")})
         if len(selected)>=limit:break
     return selected
 
