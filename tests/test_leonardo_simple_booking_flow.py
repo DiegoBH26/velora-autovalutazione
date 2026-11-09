@@ -86,7 +86,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         tree=ast.parse(source)
         scripts=[n.value for n in ast.walk(tree)
                  if isinstance(n,ast.Constant) and isinstance(n.value,str)
-                 and "Calendario mensile non riconosciuto" in n.value]
+                 and "Nessun calendario con mese, anno e giorni visibili" in n.value]
         self.assertEqual(len(scripts),1)
         self.assertNotIn("\x08",scripts[0])
         self.assertIn("const combined=leaves.filter",scripts[0])
@@ -115,6 +115,73 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
         self.assertIn("ghost=ghost,site_url=site",network)
 
+    def test_calendar_moves_year_then_month_and_confirms_day(self):
+        from velora_direct_stays import _select_visual_calendar_date
+        class Clickable:
+            def __init__(self,scope):
+                self.scope=scope
+            async def count(self):
+                return 1
+            @property
+            def first(self):
+                return self
+            async def click(self,timeout=0):
+                action=self.scope.action
+                if action["action"]=="day":
+                    self.scope.selected=True
+                elif action["kind"]=="year":
+                    self.scope.year+=1
+                elif action["kind"]=="month":
+                    self.scope.month-=1
+        class Calendar:
+            def __init__(self,stagnant=False):
+                self.year=2026
+                self.month=11
+                self.action={}
+                self.selected=False
+                self.stagnant=stagnant
+            async def evaluate(self,script,target):
+                goal=target["year"]*12+target["month"]
+                now=self.year*12+self.month
+                action={"action":"day" if now==goal else "nav",
+                        "currentMonth":self.month,"currentYear":self.year,
+                        "kind":"year" if self.year!=target["year"] else "month",
+                        "direction":"forward" if goal>now else "backward"}
+                self.action=action
+                return action
+            def locator(self,selector):
+                parent=self
+                if self.stagnant:
+                    class Still(Clickable):
+                        async def click(self,timeout=0):
+                            pass
+                    return Still(parent)
+                return Clickable(parent)
+        calendar=Calendar()
+        trace=[]
+        selected=asyncio.run(_select_visual_calendar_date(calendar,"2027-08-01",trace))
+        self.assertTrue(selected)
+        self.assertTrue(calendar.selected)
+        self.assertEqual((calendar.year,calendar.month),(2027,8))
+        self.assertIn("Navigazione year 11/2026 forward",trace)
+        self.assertIn("Navigazione month 11/2027 backward",trace)
+        no_move=Calendar(stagnant=True)
+        fail_trace=[]
+        self.assertFalse(asyncio.run(
+            _select_visual_calendar_date(no_move,"2027-08-01",fail_trace)))
+        self.assertTrue(any("rimasto" in item for item in fail_trace))
+
+    def test_displayed_dates_required_before_declaring_success(self):
+        import inspect
+        from velora_direct_stays import _apply_dates,_visual_date_values
+        body=inspect.getsource(_apply_dates)
+        self.assertIn('visual=await _visual_date_values(scope)',body)
+        self.assertIn('valid=all(_date_is_present(',body)
+        self.assertIn('if not await _select_visual_calendar_date(scope,requested,path)',body)
+        self.assertIn("Check-in e check-out 2027",body)
+        helper=inspect.getsource(_visual_date_values)
+        self.assertIn("fields={checkin:'',checkout:''}",helper)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
@@ -124,7 +191,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn('if sample["searchSubmitted"] else []',s)
         self.assertIn('"observedRoomPrices"',s)
         self.assertIn('new_pages=[p for p in context.pages',s)
-        self.assertIn('_select_visual_calendar_date(scope,value)',s)
+        self.assertIn('_select_visual_calendar_date(scope,requested,path)',s)
 
 if __name__=="__main__":
     unittest.main()
