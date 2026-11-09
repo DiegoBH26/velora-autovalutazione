@@ -306,6 +306,26 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn("generic=await _apply_dates_generic(scope,stay)",body)
         self.assertIn("bedzzle-plus-generic",body)
 
+    def test_bedzzle_arrival_fields_javascript_and_italian_months(self):
+        import ast,json,shutil,subprocess
+        source=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
+        tree=ast.parse(source)
+        scripts=[node.value for node in ast.walk(tree)
+                 if isinstance(node,ast.Constant) and isinstance(node.value,str)
+                 and ("data-velora-bedzzle-focus" in node.value or
+                      "const monthNames=['gennaio'" in node.value or
+                      "Il booking engine si apre" in node.value)]
+        self.assertGreaterEqual(len(scripts),2)
+        for script in scripts:
+            self.assertNotIn("\x08",script)
+            if "document.querySelectorAll" in script and shutil.which("node"):
+                check=subprocess.run(["node","--check","-"],
+                    input="new Function("+json.dumps(script)+");",
+                    capture_output=True,text=True,timeout=15)
+                self.assertEqual(check.returncode,0,check.stderr)
+        self.assertIn("const parsed=parseDate(t)",source)
+        self.assertIn("data\\s+(?:di\\s+)?partenza",source)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
