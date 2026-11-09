@@ -3805,7 +3805,8 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
-  directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
+  bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
+  directCommercialAudit?: { status?: string; evidence?: string[]; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
@@ -6487,7 +6488,9 @@ export default function App() {
                     discoveredSources:{...(previous?.propertyId===propertyId?previous.discoveredSources:{}),...(partial.discoveredSources||{})},
                     otaProfiles:{...(previous?.propertyId===propertyId?previous.otaProfiles:{}),...(partial.otaProfiles||{})},
                     reputation:previous?.propertyId===propertyId?previous.reputation:partial.reputation,
-                    photoAudit:previous?.propertyId===propertyId?previous.photoAudit:partial.photoAudit
+                    photoAudit:previous?.propertyId===propertyId?previous.photoAudit:partial.photoAudit,
+                    bookingReferenceStays:agentId==="booking"?(partial.bookingReferenceStays||[]):
+                      (previous?.propertyId===propertyId?previous.bookingReferenceStays:[])
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
                   return combined;
@@ -9696,6 +9699,18 @@ export default function App() {
       ? browserPilotResult.bookingEngine : undefined;
     const directPhotos = browserPilotResult?.propertyId===activeAuditData.id
       ? browserPilotResult.photoAudit : undefined;
+    const bookingMasterLocks=browserPilotResult?.propertyId===activeAuditData.id
+      ?(browserPilotResult.bookingReferenceStays||[]):[];
+    const directDateDiscrepancies=(directAudit?.plannedStays||[]).flatMap(stay=>{
+      const lock=bookingMasterLocks.find(item=>item.requestedCheckin===stay.checkin
+        && item.requestedCheckout===stay.checkout && item.adults===stay.adults);
+      if(!lock) return bookingMasterLocks.length?[{
+        checkin:stay.checkin,checkout:stay.checkout,
+        reason:"Booking non ha confermato la finestra iniziale del diretto"}]:[];
+      return lock.checkin!==stay.checkin || lock.checkout!==stay.checkout
+        ?[{checkin:stay.checkin,checkout:stay.checkout,
+          reason:"Booking ha spostato la ricerca a "+(lock.checkin||"n.d.")+" → "+(lock.checkout||"n.d.")}]:[];
+    });
     const verifiedDirectRates = (directAudit?.verifiedQuotes||[]).filter(q=>
       q.verified===true && Number.isFinite(q.total) && q.total>0 && q.nights>0 && q.guests>0);
     const directVisibleCandidates = (directAudit?.samples||[]).flatMap(sample=>
