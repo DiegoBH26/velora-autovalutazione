@@ -18,7 +18,8 @@ pause
 set "BASE=https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main"
 
 for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py velora_direct_commercial.py velora_direct_stays.py velora_shared_intelligence.py velora_portal_sessions.py velora_portal_credentials.py ota_public_source_hints.json) do (
-  if exist "%%F" copy /Y "%%F" "%%F.bak" >nul 2>nul
+  rem Non sovrascrivere il backup del precedente aggiornamento fallito.
+  if exist "%%F" if not exist "%%F.bak" copy /Y "%%F" "%%F.bak" >nul 2>nul
 )
 
 echo [1/12] Scarico local_audit_server.py...
