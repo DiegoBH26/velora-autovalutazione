@@ -45,6 +45,8 @@ for(const phrase of [
   "Sito diretto · MASTER commerciale",
   "1 · Presenza scheda","2 · Fotografie","3 · Tipologie / Booking","4 · Tariffe / Booking",
   "5 · Tariffe / Sito diretto",
+  "6 · Camere / Sito diretto",
+  "directRoomParityFor",
   "const asymmetryWithDirect=[directMasterRow,...otaAsymmetryRows]",
   "id=\"velora-pricing-ota-sito\"",
   "Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi",
