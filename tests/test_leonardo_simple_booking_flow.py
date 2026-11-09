@@ -182,6 +182,43 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         helper=inspect.getsource(_visual_date_values)
         self.assertIn("fields={checkin:'',checkout:''}",helper)
 
+    def test_real_official_homepage_prenota_pattern_maps_to_bedzzle(self):
+        from booking_engine import detect_booking_engine
+        homepage="https://www.specolizzi.it/"
+        engine="https://booking.bedzzle.com/desktop/?apikey=public-example&lang=it"
+        html='<nav><a href="'+engine+'">Prenota</a></nav>'
+        result=detect_booking_engine(homepage,html,homepage)
+        self.assertEqual(result["status"],"provider_identified")
+        self.assertEqual(result["provider"],"Bedzzle")
+        self.assertIn("apikey=public-example",result["url"])
+        self.assertIn("link dal sito",result["mode"])
+
+    def test_leonardo_prioritizes_commercial_search_over_photo_tour(self):
+        network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        first=network.index('elif agent == "official_site":')
+        relevant=network[first:network.index("else:  # reviews only",first)]
+        self.assertLess(relevant.index("await discover_direct_engine(site)"),
+                        relevant.index("await probe_direct_stays("))
+        self.assertLess(relevant.index("await probe_direct_stays("),
+                        relevant.index("await build_site_audit("))
+        self.assertLess(relevant.index("await probe_direct_stays("),
+                        relevant.index("pilot.frontend_photo_audit("))
+        self.assertIn('if not int(direct_stays.get("searchedTotal") or 0):',relevant)
+        self.assertIn('"status":"deferred_until_direct_search"',relevant)
+
+    def test_header_prenota_is_scored_above_other_booking_links(self):
+        import inspect
+        from velora_direct_stays import _navigate_booking_engine,discover_direct_engine
+        body=inspect.getsource(_navigate_booking_engine)
+        self.assertIn('diagnostic["ctaCandidates"]=len(candidates)',body)
+        self.assertIn('diagnostic["ctaLabel"]=candidates[0][2]',body)
+        self.assertIn('await candidates[0][1].click',body)
+        self.assertIn('ctaClicked=True',body)
+        self.assertIn("Prenota del sito ufficiale",body)
+        preflight=inspect.getsource(discover_direct_engine)
+        self.assertIn("detect_booking_engine(page.url,await page.content(),page.url)",preflight)
+        self.assertNotIn("frontend_photo_audit",preflight)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
