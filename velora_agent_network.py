@@ -539,7 +539,8 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             # robots.txt, accesso e quote. Nessuna tariffa dedotta.
             try:
                 direct_stays=await probe_direct_stays(
-                    booking_url, direct_windows,limit=len(direct_windows) or 1,ghost=ghost)
+                    booking_url, direct_windows,limit=len(direct_windows) or 1,
+                    ghost=ghost,site_url=site)
             except Exception as exc:
                 direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
                               "evidence":["Preventivi non completati: "+type(exc).__name__]}
