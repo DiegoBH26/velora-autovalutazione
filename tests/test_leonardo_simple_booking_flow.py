@@ -277,8 +277,9 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertEqual(len(scripts),1)
         script=scripts[0]
         self.assertNotIn("\x08",script)
-        self.assertIn("if(year===target.year&&month===target.month)",script)
-        self.assertIn("Math.abs(v.x-cx)",script) if "Math.abs(v.x-cx)" in script else None
+        self.assertIn("const names=['Previous Month','Next Month','Previous Year','Next Year']",script)
+        self.assertIn("data-velora-bedzzle-named-arrow",script)
+        self.assertIn("mese/anno non leggibili",script)
         if shutil.which("node"):
             result=subprocess.run(["node","--check","-"],
               input="new Function("+json.dumps(script)+");",
@@ -304,6 +305,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         body=inspect.getsource(_apply_dates)
         self.assertIn("specialized=await _apply_bedzzle_dates(scope,stay)",body)
         self.assertIn("generic=await _apply_dates_generic(scope,stay)",body)
+        self.assertIn('if specialized.get("namedControls"):',body)
         self.assertIn("bedzzle-plus-generic",body)
 
     def test_bedzzle_arrival_fields_javascript_and_italian_months(self):
@@ -325,6 +327,85 @@ class TestLeonardoBookingFlow(unittest.TestCase):
                 self.assertEqual(check.returncode,0,check.stderr)
         self.assertIn("const parsed=parseDate(t)",source)
         self.assertIn("data\\s+(?:di\\s+)?partenza",source)
+
+    def test_bedzzle_exact_named_arrows_november_2027_to_august_2027(self):
+        from unittest.mock import patch
+        import velora_direct_stays as module
+        class FakeControl:
+            def __init__(self,scope,selector):
+                self.scope=scope
+                self.selector=selector
+            async def count(self):return 1
+            @property
+            def first(self):return self
+            async def click(self,timeout=0):
+                if "data-velora-bedzzle-day" in self.selector:
+                    self.scope.day_clicked=True
+                    return
+                name=self.selector.split('"')[1]
+                self.scope.actions.append(name)
+                if name=="previous-month":
+                    self.scope.month-=1
+                    if self.scope.month==0:
+                        self.scope.year-=1
+                        self.scope.month=12
+                elif name=="next-month":
+                    self.scope.month+=1
+                    if self.scope.month==13:
+                        self.scope.year+=1
+                        self.scope.month=1
+                elif name=="previous-year":self.scope.year-=1
+                elif name=="next-year":self.scope.year+=1
+        class FakeBedzzle:
+            def __init__(self,year,month,stuck=False):
+                self.year=year
+                self.month=month
+                self.day_clicked=False
+                self.actions=[]
+                self.stuck=stuck
+            def locator(self,selector):
+                control=FakeControl(self,selector)
+                if self.stuck and 'data-velora-bedzzle-named-arrow' in selector:
+                    async def no_click(timeout=0):
+                        self.actions.append(selector.split('"')[1])
+                    control.click=no_click
+                return control
+        async def header(scope):
+            return {"ok":True,"year":scope.year,"month":scope.month,
+                    "gridBounds":{"left":100,"right":450,"top":230,"bottom":460}}
+        async def day(scope,iso,bounds):
+            return {"found":True}
+        with patch.object(module,"_bedzzle_named_calendar_state",header),\
+             patch.object(module,"_bedzzle_named_calendar_day",day):
+            bedzzle=FakeBedzzle(2027,11)
+            trace=[]
+            success=asyncio.run(module._bedzzle_navigate_calendar(
+                bedzzle,"2027-08-01",trace))
+            self.assertTrue(success)
+            self.assertEqual(bedzzle.actions,
+                             ["previous-month","previous-month","previous-month"])
+            self.assertEqual((bedzzle.year,bedzzle.month),(2027,8))
+            self.assertTrue(bedzzle.day_clicked)
+            self.assertIn("Bedzzle: clic Previous Month da 11/2027",trace)
+            from_2026=FakeBedzzle(2026,11)
+            self.assertTrue(asyncio.run(module._bedzzle_navigate_calendar(
+                from_2026,"2027-08-01",[])))
+            self.assertEqual(from_2026.actions,
+                ["next-year","previous-month","previous-month","previous-month"])
+            stalled=FakeBedzzle(2027,11,stuck=True)
+            stalled_trace=[]
+            self.assertFalse(asyncio.run(module._bedzzle_navigate_calendar(
+                stalled,"2027-08-01",stalled_trace)))
+            self.assertTrue(any("non ha cambiato" in step for step in stalled_trace))
+
+    def test_bedzzle_uses_weekday_column_for_august_first(self):
+        from datetime import date
+        self.assertEqual((date(2027,8,1).weekday(),date(2027,8,4).weekday()),
+                         (6,2))
+        source=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
+        self.assertIn("const targetCol=(new Date(Date.UTC(",source)
+        self.assertIn("data-velora-bedzzle-day",source)
+        self.assertIn("Previous Month",source)
 
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
