@@ -562,7 +562,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
     from playwright.async_api import async_playwright
     from site_audit_builder import public_url, robots_allowed
     stays=eligible_stays(rows,limit=limit)
-    result={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[],
+    result={"status":"not_checked","samples":[],"verifiedQuotes":[],
+            "observedRoomPrices":[],"evidence":[],
             "searchedTotal":0,"plannedTotal":len(stays)}
     if not stays:
         result["status"]="missing_direct_dates"
@@ -659,6 +660,24 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                             sample["visiblePrices"]=[p for p in prices
                                 if p["amount"] is not None][:14]
                             sample["quotes"]=await _visible_offer_candidates(active)
+                            # Il compito primario di Leonardo è trascrivere i prezzi
+                            # delle camere dopo la ricerca. Queste righe restano
+                            # separate dai preventivi comparabili con le OTA.
+                            if sample["searchSubmitted"]:
+                                for offer in sample["quotes"]:
+                                    result["observedRoomPrices"].append({
+                                        "checkin":stay["checkin"],"checkout":stay["checkout"],
+                                        "guests":stay["guests"],"nights":stay["nights"],
+                                        "roomType":offer["roomType"],
+                                        "displayedAmount":offer["displayedAmount"],
+                                        "currency":offer["currency"],
+                                        "priceBasis":offer["displayedBasis"],
+                                        "dateContextConfirmed":bool(date_confirmed),
+                                        "occupancyConfirmed":bool(occupancy.get("confirmed")),
+                                        "sourceUrl":sample["sourceUrl"],
+                                        "conditions":offer.get("conditions") or "",
+                                        "source":"public_booking_engine_result",
+                                    })
                             sample["status"]=(
                                 "search_submitted_dates_confirmed"
                                 if date_confirmed and sample["searchSubmitted"] else
@@ -721,6 +740,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
         result["status"]="search_executed_dates_unconfirmed"
     result["evidence"].append(
         f"Ricerche disponibilità realmente inviate: {result['searchedTotal']}/{len(stays)}. "
+        f"Prezzi di camere osservati: {len(result['observedRoomPrices'])}. "
         f"Preventivi completi verificati: {len(result['verifiedQuotes'])}. "
         "Le tariffe senza date, occupazione e condizioni confermate non entrano nel confronto OTA.")
     return result
