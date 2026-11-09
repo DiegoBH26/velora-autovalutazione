@@ -3810,7 +3810,7 @@ type BrowserPilotResult = {
   directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;
       navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;pageReached?:boolean;reason?:string;fallbackUsed?:boolean};
-      searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
+      searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string;trace?:string[];method?:string;displayedDates?:{checkin?:string;checkout?:string}};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
       evidence?:string[]}> };
@@ -10207,7 +10207,8 @@ export default function App() {
                       <p className="mt-1">Esito: {sample.status==="search_submitted_dates_confirmed"?"Ricerca inviata e date confermate":
                         sample.status==="search_submitted_dates_unconfirmed"?"Ricerca inviata, date non confermate nel risultato":
                         sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
-                        sample.status==="dates_not_selectable"?"Calendario non gestibile automaticamente":
+                        sample.status==="dates_not_selectable"?"Calendario: date di agosto 2027 NON impostate":
+                        sample.status==="calendar_not_navigable"?"Fermato: calendario non navigabile, settimane successive non ripetute":
                         sample.status==="date_inputs_observed_no_search"?"Date inserite ma ricerca di disponibilità NON avviata":
                         sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
                         "Verifica non completata"}</p>
@@ -10238,6 +10239,17 @@ export default function App() {
                         <p className="mt-1 text-[#50627F]">Pulsanti visibili: {(sample.formDiagnostic.searchActions||[]).join(" | ")||"nessuno"}</p>
                         <p className="mt-1 text-[#50627F]">Calendari custom: {sample.formDiagnostic.dateWidgets??0}</p>
                       </details>}
+                      {(sample.dateAttempts||[]).some(attempt=>(attempt.dates?.trace||[]).length>0) &&
+                        <details open className="mt-2 rounded-lg border border-[#E5DDF1] bg-[#FBF9FF] p-2">
+                          <summary className="cursor-pointer font-bold">Passaggi calendario · anno, mese, giorno</summary>
+                          {(sample.dateAttempts||[]).flatMap(a=>a.dates?.trace||[]).slice(-16).map((step,k)=>
+                            <p key={k} className="mt-1 text-[#50627F]">{step}</p>)}
+                          {(sample.dateAttempts||[]).map((attempt,k)=>attempt.dates?.displayedDates &&
+                            <p key={"dates-"+k} className="mt-1 font-bold">Date effettivamente mostrate:
+                              {" "}{attempt.dates.displayedDates.checkin||"non lette"} →
+                              {" "}{attempt.dates.displayedDates.checkout||"non lette"}
+                            </p>)}
+                        </details>}
                       {(sample.evidence||[]).map((ev,k)=><p key={k} className="text-[#50627F]">{ev}</p>)}
                     </div>
                   )}
