@@ -298,12 +298,23 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                         else:
                             occupancy=await _apply_guests(page,stay["guests"])
                             sample["occupancyControl"]=occupancy
-                            # Avoid submitting forms with unknown side effects.
-                            # Search CTA is allowed only when explicitly a search, never checkout.
-                            buttons=page.get_by_role("button",name=re.compile(r"^(?:cerca(?: disponibilit[aà])?|search(?: availability)?|verifica disponibilit[aà]|check availability|mostra disponibilit[aà]|verifica prezzi|trova camere|cerca camere)$",re.I))
+                            # Submit exclusively an explicit *search/availability* CTA.
+                            # Never click generic 'Prenota', checkout or payment buttons.
+                            # Without an observed search, prices may belong to stale dates.
+                            sample["searchSubmitted"]=False
+                            buttons=page.get_by_role("button",name=re.compile(
+                                r"^(?:cerca(?: disponibilit[aà])?|search(?: availability)?|"
+                                r"verifica disponibilit[aà]|check availability|mostra disponibilit[aà]|"
+                                r"verifica prezzi|trova camere|cerca camere|"
+                                r"mostra (?:risultati|prezzi|camere)|visualizza (?:camere|prezzi)|"
+                                r"show (?:results|rooms|prices)|find (?:rooms|rates))$",re.I))
                             if await buttons.count()==1:
                                 await buttons.first.click(timeout=4500)
                                 await page.wait_for_timeout(1300)
+                                sample["searchSubmitted"]=True
+                            else:
+                                sample["evidence"].append(
+                                    "Nessun pulsante di ricerca univoco: il preventivo non e' confermato per le date scelte.")
                             current=await page.evaluate("""() => ({
                               fields:[...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(x=>x.value).slice(0,100),
                               url:location.href,
@@ -315,7 +326,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                                 year,month,day=stay[key].split("-")
                                 return stay[key] in actual_dates or f"{day}/{month}/{year}" in actual_dates
                             date_confirmed=contains_date("checkin") and contains_date("checkout")
-                            sample["status"]="date_context_observed" if date_confirmed else "dates_unconfirmed"
+                            sample["status"]=("date_context_observed" if date_confirmed and sample["searchSubmitted"]
+                                else "date_inputs_observed_no_search" if date_confirmed else "dates_unconfirmed")
                             sample["sourceUrl"]=page.url.split("?")[0].split("#")[0]
                             prices=[{"amount":_money(m.group(0)),"text":m.group(0)}
                                     for m in list(_PRICE_PATTERN.finditer(page_text))[:20]]
@@ -323,7 +335,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                             sample["quotes"]=await _visible_offer_candidates(page)
                             # Conferma soltanto prezzi con camera, totale soggiorno,
                             # date/ospiti, disponibilita' e condizioni esplicite.
-                            if date_confirmed and occupancy.get("confirmed"):
+                            if date_confirmed and occupancy.get("confirmed") and sample["searchSubmitted"]:
                                 if not sample["quotes"] and re.search(
                                     r"nessuna disponibilit[aà]|non ci sono camere disponibili|no availability|no rooms available",
                                     page_text,re.I):
