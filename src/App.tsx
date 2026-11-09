@@ -3806,8 +3806,8 @@ type BrowserPilotResult = {
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
-  directCommercialAudit?: { status?: string; evidence?: string[]; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
-    samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
+  directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
+    samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
       evidence?:string[]}> };
@@ -6445,7 +6445,7 @@ export default function App() {
         const entry=status.agents?.[agentId];
         if(entry?.state==="failed") throw new Error(entry.error || "Agente interrotto.");
         if(entry?.state==="completed"){
-          setSpecialistMessage(veloraAgentName(agentId)+" ha terminato. Esito archiviato, non ancora validato da Giove.");
+          setSpecialistMessage(veloraAgentName(agentId)+" ha terminato la navigazione. Verifico se la ricerca commerciale è stata realmente eseguita.");
           if(SPECIALIST_AGENTS.some((item)=>item.id===agentId)){
             const resultResponse=await fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(propertyId)+"&agentId="+agentId),{mode:"cors",cache:"no-store"});
             if(resultResponse.ok && window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)===propertyId){
@@ -6475,6 +6475,14 @@ export default function App() {
                   return combined;
                 });
                 applyPilotEvidence(specialistPartial);
+                if(agentId==="official_site"){
+                  const commercial=specialistPartial.directCommercialAudit;
+                  setSpecialistMessage((commercial?.searchedTotal||0)>0
+                    ? (commercial?.verifiedQuotes?.length
+                      ? "Leonardo: date e disponibilità cercate; preventivi diretti acquisiti. Verifica il confronto OTA."
+                      : "Leonardo: ricerca date inviata, ma tariffe non ancora verificabili. Controlla i dettagli commerciali.")
+                    : "ATTENZIONE Leonardo: booking engine esaminato, ma nessuna ricerca date e tariffe eseguita. Apri Audit commerciale per il motivo; non considerarlo completato."); 
+                }
               } else {
                 setBrowserPilotResult((previous)=>{
                   const combined: BrowserPilotResult={
@@ -6589,15 +6597,19 @@ export default function App() {
           if(siteCheck.ok){
             const siteReport=await siteCheck.json() as {
               propertyId?:string;bookingEngine?:{status?:string};
-              directCommercialAudit?:{status?:string;verifiedQuotes?:unknown[]}
+              directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[]}
             };
             if(siteReport.propertyId!==activeAuditData.id)throw new Error("L'audit diretto ricevuto appartiene a un'altra struttura.");
-            setSpecialistMessage(siteReport.bookingEngine?.status==="not_found_in_page" ||
-              siteReport.bookingEngine?.status==="request_only"
-              ? "Leonardo: booking engine assente nel campione o solo richiesta. Procedo con Booking; diretto non confrontabile."
+            const noEngine=siteReport.bookingEngine?.status==="not_found_in_page" ||
+              siteReport.bookingEngine?.status==="request_only";
+            if(!noEngine && !(siteReport.directCommercialAudit?.searchedTotal||0)){
+              throw new Error("Leonardo ha raggiunto il sito, ma non ha eseguito alcuna ricerca con date e ospiti. Rete fermata: apri Audit commerciale, correggi il problema e ripeti Leonardo prima di Booking.");
+            }
+            setSpecialistMessage(noEngine
+              ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
               : siteReport.directCommercialAudit?.verifiedQuotes?.length
-                ? "Leonardo: preventivi diretti acquisiti. Ora confronto con Booking."
-                : "Leonardo: sito esaminato, preventivi da verificare. Ora confronto con Booking.");
+                ? "Leonardo: ricerche e preventivi diretti verificati. Ora confronto con Booking."
+                : "Leonardo: ricerca date effettuata, prezzi o condizioni ancora da verificare. Ora confronto con Booking.");
           }
         }else{
           setSpecialistMessage("Leonardo non ha concluso l'audit. Il sito diretto resta non verificato; Booking prosegue per le altre OTA.");
@@ -10105,12 +10117,17 @@ export default function App() {
                       website_not_configured:"Sito ufficiale non configurato",
                       engine_url_missing:"Percorso di prenotazione non verificato",
                       missing_booking_reference:"Date da confermare",
+                      missing_direct_dates:"Date e ospiti da selezionare",
+                      search_not_executed:"ATTENZIONE: nessuna ricerca date e tariffe realmente eseguita",
+                      search_executed_dates_unconfirmed:"Ricerca inviata, date da confermare nel risultato",
+                      search_executed_rates_unverified:"Ricerca eseguita, tariffe e condizioni da verificare",
                       robots_unverified:"Accesso al booking engine non consentito o non verificabile",
                       verified_rates:"Preventivi diretti verificati",
-                      samples_observed:"Ricerca eseguita, preventivi da verificare"
+                      samples_observed:"Ricerca parziale, preventivi da verificare"
                     } as Record<string,string>)[browserPilotResult.directCommercialAudit.status||""] ||
                     browserPilotResult.directCommercialAudit.status||"Non verificato"} ·
                     {(browserPilotResult.directCommercialAudit.samples||[]).length} finestre esaminate ·
+                    <b>{browserPilotResult.directCommercialAudit.searchedTotal??0} ricerche date effettivamente inviate</b> ·
                     {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi verificati.
                     <p className="mt-1 text-[#50627F]">Una tariffa entra nel confronto soltanto quando data, ospiti, camera, totale e condizioni sono confermati.</p>
                   </div>
@@ -10126,11 +10143,18 @@ export default function App() {
                   {(browserPilotResult.directCommercialAudit.samples||[]).map((sample,i)=>
                     <div key={sample.checkin+"-"+sample.checkout+"-"+i} className="rounded-xl border border-[#E5DDF1] bg-white p-3">
                       <b>{sample.checkin} → {sample.checkout}</b> · {sample.nights} notti · {sample.guests} ospiti
-                      <p className="mt-1">Esito: {sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
+                      <p className="mt-1">Esito: {sample.status==="search_submitted_dates_confirmed"?"Ricerca inviata e date confermate":
+                        sample.status==="search_submitted_dates_unconfirmed"?"Ricerca inviata, date non confermate nel risultato":
+                        sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
                         sample.status==="dates_not_selectable"?"Calendario non gestibile automaticamente":
-                        sample.status==="date_inputs_observed_no_search"?"Date inserite ma ricerca di disponibilità non avviata":
+                        sample.status==="date_inputs_observed_no_search"?"Date inserite ma ricerca di disponibilità NON avviata":
                         sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
                         "Verifica non completata"}</p>
+                      <p className={"mt-1 font-bold "+(sample.searchSubmitted?"text-emerald-700":"text-rose-700")}>
+                        Ricerca disponibilità inviata: {sample.searchSubmitted?"SÌ":"NO"}
+                        {sample.searchAction?.action?" · "+sample.searchAction.action:""}
+                        {sample.searchAction?.reason && !sample.searchSubmitted?" · "+sample.searchAction.reason:""}
+                      </p>
                       <p className="mt-1 text-[#50627F]">Disponibilità: {sample.availability==="unavailable_reported"?"Indisponibilità dichiarata dal sito diretto":
                         sample.availability==="price_and_booking_action_observed"?"Camera con prezzo e tasto prenotazione osservati":"Non verificata"}
                         {" "}· Tariffe verificate: {(sample.quotes||[]).filter(q=>q.verified).length}</p>
@@ -10145,7 +10169,7 @@ export default function App() {
                         <p className="text-amber-800">Valori osservati, esclusi dal delta fino a conferma di date, ospiti, camera e condizioni.</p>
                       </div>}
                       {(sample.quotes||[]).length===0 && (sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
-                      {["dates_not_selectable","dates_unconfirmed","navigation_error"].includes(sample.status)
+                      {["dates_not_selectable","dates_unconfirmed","navigation_error","date_inputs_observed_no_search","search_submitted_dates_unconfirmed"].includes(sample.status)
                         && sample.formDiagnostic && <details className="mt-2 rounded-lg border border-[#E5DDF1] p-2">
                         <summary className="cursor-pointer font-bold text-[#23124A]">Perché Leonardo non è riuscito a cercare · diagnostica modulo</summary>
                         <p className="mt-2 text-[#50627F]">Campi visualizzati: {(sample.formDiagnostic.fieldSamples||[]).map(f=>
