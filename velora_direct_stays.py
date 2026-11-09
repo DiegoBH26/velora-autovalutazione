@@ -383,201 +383,211 @@ async def _bedzzle_focus_box(scope, name):
                 type(exc).__name__+" "+str(exc)[:180]}
 
 
-async def _bedzzle_navigate_calendar(scope, iso, trace):
-    """Bedzzle desktop: year arrows and month arrows are separate controls.
+async def _bedzzle_named_calendar_state(scope):
+    """Read the two REAL Bedzzle header widgets from their accessible arrows.
 
-    Controls are chosen only from the calendar header next to the recognized
-    month/year label, and the header is checked again after each click.
+    Bedzzle exposes Previous/Next Month and Previous/Next Year separately.
+    The dates in the booking form can differ from the calendar view, so read
+    the displayed header between each pair of labeled arrows instead.
     """
-    target=date.fromisoformat(iso)
-    previous=None
-    for _ in range(19):
+    return await scope.evaluate(r"""() => {
+      const names=['Previous Month','Next Month','Previous Year','Next Year'];
+      const text=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim();
+      const visible=e=>{
+        if(!e)return false;
+        const r=e.getBoundingClientRect();
+        return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
+      };
+      const navMarker='data-velora-bedzzle-named-arrow';
+      document.querySelectorAll('['+navMarker+']').forEach(e=>e.removeAttribute(navMarker));
+      const nav={};
+      const pool=[...document.querySelectorAll(
+        'button,a,[role=button],[title],[aria-label],[data-original-title],i,span')].filter(visible);
+      for(const name of names){
+        const matches=pool.filter(e=>{
+          const labels=[
+            e.getAttribute('aria-label'),e.getAttribute('title'),
+            e.getAttribute('data-original-title'),e.getAttribute('data-bs-original-title'),
+            e.getAttribute('data-tooltip'),text(e)
+          ].filter(Boolean);
+          return labels.some(l=>l.trim().toLowerCase()===name.toLowerCase());
+        });
+        const ranked=matches.map(e=>{
+          const clickable=e.closest('button,a,[role=button]')||e;
+          const rect=clickable.getBoundingClientRect();
+          return {el:clickable,rect,score:rect.width*rect.height};
+        }).filter(x=>visible(x.el)&&x.rect.width<110&&x.rect.height<85)
+          .sort((a,b)=>a.score-b.score);
+        if(ranked.length){
+          const key=name.toLowerCase().replace(/\s+/g,'-');
+          ranked[0].el.setAttribute(navMarker,key);
+          nav[name]=ranked[0].rect;
+        }
+      }
+      const missing=names.filter(name=>!nav[name]);
+      if(missing.length)return {ok:false,
+        reason:'Comandi Bedzzle mancanti: '+missing.join(', '),
+        identified:names.filter(name=>nav[name])};
+      const monthNames={
+        gen:1,gennaio:1,jan:1,january:1,
+        feb:2,febbraio:2,february:2,
+        mar:3,marzo:3,march:3,apr:4,aprile:4,april:4,
+        mag:5,maggio:5,may:5,giu:6,giugno:6,jun:6,june:6,
+        lug:7,luglio:7,jul:7,july:7,ago:8,agosto:8,aug:8,august:8,
+        set:9,sett:9,settembre:9,sep:9,september:9,
+        ott:10,ottobre:10,oct:10,october:10,
+        nov:11,novembre:11,november:11,
+        dic:12,dicembre:12,dec:12,december:12
+      };
+      const center=r=>({x:(r.left+r.right)/2,y:(r.top+r.bottom)/2});
+      const monthLeft=center(nav['Previous Month']),monthRight=center(nav['Next Month']);
+      const yearLeft=center(nav['Previous Year']),yearRight=center(nav['Next Year']);
+      const labels=[...document.querySelectorAll('span,div,strong,b,button,a,th,[role=heading]')]
+        .filter(visible).filter(e=>e.children.length<4&&text(e).length<=24)
+        .map(e=>{const r=e.getBoundingClientRect();return {t:text(e).toLowerCase(),
+          x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,
+          area:r.width*r.height};});
+      function between(left,right,predicate){
+        const low=Math.min(left.x,right.x)-4,high=Math.max(left.x,right.x)+4;
+        const cy=(left.y+right.y)/2;
+        return labels.filter(e=>e.x>low&&e.x<high&&Math.abs(e.y-cy)<35&&predicate(e.t))
+          .sort((a,b)=>Math.abs(a.x-(low+high)/2)+Math.abs(a.y-cy)+a.area/1200-
+                         (Math.abs(b.x-(low+high)/2)+Math.abs(b.y-cy)+b.area/1200))[0];
+      }
+      const month=between(monthLeft,monthRight,t=>Object.hasOwn(monthNames,t));
+      const year=between(yearLeft,yearRight,t=>/^20\d{2}$/.test(t));
+      if(!month||!year)return {ok:false,
+        reason:'Bedzzle: mese/anno non leggibili tra le frecce nominate',
+        identified:names};
+      const gridBounds={
+        left:monthLeft.x-28,right:yearRight.x+29,
+        top:Math.max(monthLeft.y,yearLeft.y)+25,
+        bottom:Math.max(monthLeft.y,yearLeft.y)+255,
+        headerY:Math.max(monthLeft.y,yearLeft.y)
+      };
+      return {ok:true,month:monthNames[month.t],year:Number(year.t),
+              monthLabel:month.t,yearLabel:year.t,gridBounds,
+              identified:names};
+    }""")
+
+
+async def _bedzzle_named_calendar_day(scope, iso, bounds):
+    """Identify the in-month day in Bedzzle's actual seven-column grid."""
+    wanted=date.fromisoformat(iso)
+    return await scope.evaluate(r"""args => {
+      const visible=e=>{const r=e.getBoundingClientRect();
+        return r.width>0&&r.height>0&&r.bottom>0;};
+      const txt=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim();
+      const b=args.bounds, day=String(args.day), marker='data-velora-bedzzle-day';
+      document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
+      const center=e=>{const r=e.getBoundingClientRect();
+        return {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2};};
+      const inGrid=e=>{const c=center(e);
+        return visible(e)&&c.x>=b.left&&c.x<=b.right&&
+          c.y>=b.top&&c.y<=b.bottom;};
+      const disabled=e=>Boolean(e.closest(
+        '[disabled],[aria-disabled=true],.disabled,.off,.old,.new,.outside,'+
+        '.other-month,.not-current-month,.muted,.unavailable,.not-available'));
+      const nodes=[...document.querySelectorAll(
+        'td,[role=gridcell],button,a,[data-date],[data-day],span,div')].filter(inGrid);
+      const iso=args.iso;
+      const exact=nodes.filter(e=>['data-date','data-day','aria-label','title']
+        .some(k=>(e.getAttribute(k)||'').includes(iso))).filter(e=>!disabled(e));
+      const pick=(elems)=>{
+        const controls=[...new Set(elems.map(e=>e.closest(
+          'button,a,td,[role=gridcell],[data-date],[data-day]')||e))]
+          .filter(inGrid).filter(e=>!disabled(e));
+        if(controls.length!==1)return {found:false,count:controls.length};
+        controls[0].setAttribute(marker,'selected');
+        return {found:true,count:1,day};
+      };
+      if(exact.length)return pick(exact);
+      const cells=nodes.filter(e=>txt(e)===day && e.children.length<3);
+      const targetCol=(new Date(Date.UTC(args.year,args.month-1,args.day)).getUTCDay()+6)%7;
+      const weekLabels=[...document.querySelectorAll('span,th,div')]
+        .filter(inGrid).filter(e=>/^(L|M|G|V|S|D|Lun|Mar|Mer|Gio|Ven|Sab|Dom)$/i.test(txt(e)))
+        .map(e=>({...center(e),word:txt(e).toLowerCase()}));
+      const rows=[];
+      for(const label of weekLabels){
+        if(label.y>b.headerY+85)continue;
+        const row=weekLabels.filter(e=>Math.abs(e.y-label.y)<7)
+          .sort((a,b)=>a.x-b.x);
+        const unique=row.filter((e,i)=>i===0||Math.abs(e.x-row[i-1].x)>8);
+        if(unique.length===7)rows.push(unique);
+      }
+      const header=rows.sort((a,b)=>a[0].y-b[0].y)[0];
+      let candidates=cells.map(e=>e.closest('td,[role=gridcell],button,a')||e)
+        .filter(inGrid).filter(e=>!disabled(e));
+      candidates=[...new Set(candidates)];
+      if(header){
+        const x=header[targetCol].x;
+        candidates=candidates.filter(e=>Math.abs(center(e).x-x)<18);
+      }
+      return {...pick(candidates),reason:candidates.length!==1?
+        'Bedzzle: giorno '+day+' non identificato in modo univoco nella colonna '+targetCol+
+        ' (candidati '+candidates.length+', intestazione '+(header?'rilevata':'assente')+')':''};
+    }""",{"year":wanted.year,"month":wanted.month,"day":wanted.day,
+            "iso":iso,"bounds":bounds})
+
+
+async def _bedzzle_navigate_calendar(scope, iso, trace):
+    """Click Bedzzle's known accessible calendar arrows, not nearby icons."""
+    wanted=date.fromisoformat(iso)
+    for _ in range(24):
         try:
-            state=await scope.evaluate(r"""target => {
-              const MONTHS=[
-                ['gen','gennaio','jan','january'],
-                ['feb','febbraio','february'],
-                ['mar','marzo','march'],
-                ['apr','aprile','april'],
-                ['mag','maggio','may'],
-                ['giu','giugno','jun','june'],
-                ['lug','luglio','jul','july'],
-                ['ago','agosto','aug','august'],
-                ['set','sett','settembre','sep','september'],
-                ['ott','ottobre','oct','october'],
-                ['nov','novembre','november'],
-                ['dic','dicembre','dec','december']];
-              const text=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
-              const visible=e=>{
-                if(!e)return false;
-                const r=e.getBoundingClientRect();
-                return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
-              };
-              const monthOf=s=>{
-                s=(s||'').replace(/\s+20\d{2}$/,'').trim();
-                for(let i=0;i<12;i++)if(MONTHS[i].includes(s))return i+1;
-                return 0;
-              };
-              const marker='data-velora-bedzzle-date';
-              document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
-              const nodes=[...document.querySelectorAll(
-                'div,span,th,strong,b,button,a,[role=heading],[class*=month],[class*=year]')]
-                .filter(visible).filter(e=>text(e).length<26&&e.children.length<4);
-              const months=nodes.filter(e=>monthOf(text(e))>0);
-              const years=nodes.filter(e=>/^20\d{2}$/.test(text(e)));
-              const combos=nodes.filter(e=>monthOf(text(e))&&/\b20\d{2}$/.test(text(e)));
-              const headers=[];
-              for(const m of [...months,...combos]){
-                for(const y of [...years,...combos]){
-                  const rm=m.getBoundingClientRect(),ry=y.getBoundingClientRect();
-                  if(Math.abs((rm.top+rm.bottom-ry.top-ry.bottom)/2)>38)continue;
-                  if(Math.abs((rm.left+rm.right-ry.left-ry.right)/2)>300)continue;
-                  let root=m;
-                  for(let hops=0;root&&hops<9;hops++,root=root.parentElement){
-                    if(!root.contains(y))continue;
-                    const cells=[...root.querySelectorAll('td,[role=gridcell],button,span')]
-                       .filter(visible).filter(e=>/^\d{1,2}$/.test(text(e)));
-                    const rows=root.querySelectorAll('tr').length;
-                    if(cells.length<22||cells.length>110)continue;
-                    const bounds=root.getBoundingClientRect();
-                    if(bounds.height<110||bounds.height>1000||bounds.width>900)continue;
-                    headers.push({m,y,root,cells,rows,area:bounds.width*bounds.height});
-                    break;
-                  }
-                }
-              }
-              headers.sort((a,b)=>a.area-b.area);
-              const cal=headers[0];
-              if(!cal)return {action:'fail',reason:'Bedzzle: intestazione mese/anno con griglia non rilevata'};
-              const year=Number((text(cal.y).match(/20\d{2}/)||[])[0]);
-              const month=monthOf(text(cal.m));
-              if(!year||!month)return {action:'fail',reason:'Bedzzle: mese o anno non leggibile'};
-              if(year===target.year&&month===target.month){
-                const fullDates=[...cal.root.querySelectorAll(
-                  '[data-date],[data-day],[aria-label],[title]')].filter(visible);
-                const iso=String(target.year)+'-'+String(target.month).padStart(2,'0')+
-                  '-'+String(target.day).padStart(2,'0');
-                const exact=fullDates.filter(e=>
-                  ['data-date','data-day','aria-label','title'].some(k=>
-                    (e.getAttribute(k)||'').includes(iso)));
-                let candidates=exact;
-                if(!candidates.length){
-                  const days=cal.cells.filter(e=>text(e)===String(target.day));
-                  const disabled=e=>Boolean(e.closest(
-                    '[disabled],[aria-disabled=true],.disabled,.off,.old,.new,.outside,.other-month,.muted'));
-                  const weekDay=(new Date(Date.UTC(target.year,target.month-1,target.day)).getUTCDay()+6)%7;
-                  const weekdayLabels=[...cal.root.querySelectorAll('th,div,span')]
-                    .filter(visible).filter(e=>/^(?:[lmgvsd]|lun|mar|mer|gio|ven|sab|dom)$/i.test(text(e)))
-                    .map(e=>{const r=e.getBoundingClientRect();return {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,t:text(e)};});
-                  const monday=weekdayLabels.some(c=>c.t==='l'||c.t==='lun');
-                  const safe=days.map(e=>e.closest('td,[role=gridcell],button')||e)
-                      .filter(visible).filter(e=>!disabled(e));
-                  candidates=[...new Set(safe)];
-                  if(monday&&candidates.length>1){
-                    const columns=candidates.filter(e=>e.tagName==='TD'?
-                      e.cellIndex===weekDay:e.closest('td')?.cellIndex===weekDay);
-                    if(columns.length===1)candidates=columns;
-                    else {
-                      // Some calendars render the weekday row as DIV/SPAN,
-                      // not TH. Match the target day to its weekday column.
-                      const headerRows=[];
-                      for(const h of weekdayLabels){
-                        const row=weekdayLabels.filter(e=>Math.abs(e.y-h.y)<6)
-                          .sort((a,b)=>a.x-b.x);
-                        if(row.length>=7&&row.length<=9)headerRows.push(row);
-                      }
-                      const header=headerRows.sort((a,b)=>a[0].y-b[0].y)[0];
-                      if(header&&header[weekDay]){
-                        const expectedX=header[weekDay].x;
-                        const colCandidates=candidates.filter(e=>{
-                          const r=e.getBoundingClientRect();
-                          return Math.abs((r.left+r.right)/2-expectedX)<18;
-                        });
-                        if(colCandidates.length===1)candidates=colCandidates;
-                      }
-                    }
-                  }
-                }
-                candidates=[...new Set(candidates)].filter(visible);
-                if(candidates.length!==1)return {action:'fail',reason:
-                  'Bedzzle: giorno '+target.day+' non univoco ('+candidates.length+')',
-                  year,month};
-                candidates[0].setAttribute(marker,'day');
-                return {action:'day',year,month};
-              }
-              const changeYear=year!==target.year;
-              const anchor=changeYear?cal.y:cal.m;
-              const desired=(changeYear?target.year:target.month);
-              const actual=(changeYear?year:month);
-              const direction=desired>actual?1:-1;
-              const rect=anchor.getBoundingClientRect();
-              const cx=(rect.left+rect.right)/2,cy=(rect.top+rect.bottom)/2;
-              const arrowNodes=[...cal.root.querySelectorAll(
-                'button,a,[role=button],[onclick],[ng-click],'+
-                '[class*=next],[class*=prev],[class*=arrow],[class*=chevron],'+
-                '[class*=glyphicon],i,svg,span')]
-                .filter(visible);
-              const possibilities=[];
-              for(const el of arrowNodes){
-                let clickable=el.closest('button,a,[role=button],[onclick],[ng-click]')||el;
-                const r=clickable.getBoundingClientRect();
-                const x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;
-                const dx=x-cx,dy=Math.abs(y-cy);
-                if(r.width>85||r.height>65||dx*direction<8||Math.abs(dx)>108||dy>27)continue;
-                const cls=String(clickable.className?.baseVal||clickable.className||'')+
-                  ' '+String(el.className?.baseVal||el.className||'');
-                const aria=(clickable.getAttribute('aria-label')||'')+' '+
-                  (clickable.getAttribute('title')||'');
-                const semantic=/next|prev|arrow|chevron|angle|right|left|glyphicon|successiv|precedent/i.test(
-                  cls+' '+aria);
-                const pointer=getComputedStyle(clickable).cursor==='pointer';
-                if(!semantic&&!pointer&&!['BUTTON','A','SVG','I'].includes(clickable.tagName))continue;
-                possibilities.push({el:clickable,
-                  score:Math.abs(dx)+dy*2+(semantic?-30:0),x,y});
-              }
-              possibilities.sort((a,b)=>a.score-b.score);
-              if(!possibilities.length)return {action:'fail',
-                reason:'Bedzzle: freccia '+(changeYear?'anno':'mese')+
-                  (direction===1?' avanti':' indietro')+' non trovata',year,month};
-              possibilities[0].el.setAttribute(marker,'nav');
-              return {action:'nav',year,month,kind:changeYear?'year':'month',
-                direction,arrowCount:possibilities.length};
-            }""",{"year":target.year,"month":target.month,"day":target.day})
-            year,month=state.get("year"),state.get("month")
-            if previous is not None:
-                before_year,before_month,kind,direction=previous
-                if (year,month)==(before_year,before_month):
-                    trace.append("Bedzzle: freccia "+kind+" premuta ma "+str(month)+"/"+str(year)+" invariato")
-                    return False
-                if kind=="year" and year!=before_year+direction:
-                    trace.append("Bedzzle: freccia anno ha cambiato un controllo inatteso")
-                    return False
-                if kind=="month" and (year*12+month)!=(before_year*12+before_month+direction):
-                    trace.append("Bedzzle: freccia mese ha cambiato un controllo inatteso")
-                    return False
-            if state.get("action")=="fail":
-                trace.append(str(state.get("reason")))
+            state=await _bedzzle_named_calendar_state(scope)
+            if not state.get("ok"):
+                trace.append(state.get("reason","Comandi mese/anno non riconosciuti"))
                 return False
-            action=state.get("action")
-            if action not in ("day","nav"):
-                trace.append("Bedzzle: nessun controllo selezionato")
-                return False
-            el=scope.locator('[data-velora-bedzzle-date="'+action+'"]')
-            if await el.count()!=1:
-                trace.append("Bedzzle: target calendario non univoco")
-                return False
-            await el.click(timeout=3200)
-            if action=="day":
-                trace.append("Bedzzle: giorno "+iso+" cliccato nel mese corretto")
+            year,month=int(state["year"]),int(state["month"])
+            if (year,month)==(wanted.year,wanted.month):
+                day=await _bedzzle_named_calendar_day(scope,iso,state["gridBounds"])
+                if not day.get("found"):
+                    trace.append(day.get("reason") or
+                                 ("Bedzzle: giorno "+str(wanted.day)+" non cliccabile"))
+                    return False
+                target=scope.locator('[data-velora-bedzzle-day="selected"]')
+                if await target.count()!=1:
+                    trace.append("Bedzzle: giorno selezionato non univoco")
+                    return False
+                await target.first.click(timeout=3000)
+                trace.append("Bedzzle: giorno "+iso+" cliccato in "+
+                             str(month)+"/"+str(year))
                 return True
-            previous=(year,month,state["kind"],int(state["direction"]))
-            trace.append("Bedzzle: "+state["kind"]+" "+str(month)+"/"+str(year)+
-                         (" avanti" if state["direction"]==1 else " indietro"))
-            await asyncio.sleep(0.4)
+            if year!=wanted.year:
+                name="Next Year" if wanted.year>year else "Previous Year"
+                expected=(year+(1 if wanted.year>year else -1),month)
+            else:
+                name="Next Month" if wanted.month>month else "Previous Month"
+                expected=(year,month+(1 if wanted.month>month else -1))
+            arrow=scope.locator('[data-velora-bedzzle-named-arrow="'+
+                                name.lower().replace(" ","-")+'"]')
+            if await arrow.count()!=1:
+                trace.append("Bedzzle: pulsante "+name+" non univoco")
+                return False
+            await arrow.first.click(timeout=3500)
+            trace.append("Bedzzle: clic "+name+" da "+str(month)+"/"+str(year))
+            changed=False
+            for _poll in range(15):
+                await asyncio.sleep(0.16)
+                newer=await _bedzzle_named_calendar_state(scope)
+                if newer.get("ok") and (newer["year"],newer["month"])==expected:
+                    changed=True
+                    break
+                if newer.get("ok") and (newer["year"],newer["month"])!=(year,month):
+                    trace.append("Bedzzle: "+name+" ha portato a "+
+                                 str(newer["month"])+"/"+str(newer["year"])+
+                                 " anziché "+str(expected[1])+"/"+str(expected[0]))
+                    return False
+            if not changed:
+                trace.append("Bedzzle: "+name+" non ha cambiato il mese/anno "+
+                             str(month)+"/"+str(year))
+                return False
         except Exception as exc:
-            trace.append("Bedzzle: errore selezione "+type(exc).__name__)
+            trace.append("Bedzzle: errore su freccia o giorno "+
+                         type(exc).__name__+" "+str(exc)[:100])
             return False
-    trace.append("Bedzzle: limite navigazione calendario raggiunto")
+    trace.append("Bedzzle: raggiunto limite 24 navigazioni mese/anno")
     return False
 
 
