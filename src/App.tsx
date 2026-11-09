@@ -3806,7 +3806,7 @@ type BrowserPilotResult = {
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
-  directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
+  directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
@@ -10128,8 +10128,9 @@ export default function App() {
                     browserPilotResult.directCommercialAudit.status||"Non verificato"} ·
                     {(browserPilotResult.directCommercialAudit.samples||[]).length} finestre esaminate ·
                     <b>{browserPilotResult.directCommercialAudit.searchedTotal??0} ricerche date effettivamente inviate</b> ·
-                    {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi verificati.
-                    <p className="mt-1 text-[#50627F]">Una tariffa entra nel confronto soltanto quando data, ospiti, camera, totale e condizioni sono confermati.</p>
+                    <b>{(browserPilotResult.directCommercialAudit.observedRoomPrices||[]).length} prezzi delle camere letti</b> ·
+                    {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi omogenei verificati.
+                    <p className="mt-1 text-[#50627F]">Leonardo riporta i prezzi mostrati dopo la ricerca, anche con condizioni incomplete. Il confronto numerico OTA richiede basi e condizioni equivalenti.</p>
                   </div>
                   {directPriceDeltas.length>0 && <div className="rounded-xl border border-[#E5DDF1] bg-white p-3">
                     <b>Confronti confermati con Booking · stessa camera, occupazione e condizioni</b>
@@ -10162,11 +10163,11 @@ export default function App() {
                         && q.stayDate===sample.checkin && q.nights===sample.nights && q.guests===sample.guests) &&
                         <p className="mt-1 font-black text-rose-700">Possibile asimmetria: Booking ha una tariffa verificata, il diretto dichiara indisponibilità. Verificare la medesima tipologia di camera.</p>}
                       {(sample.quotes||[]).length>0 && <div className="mt-2 space-y-1 rounded-lg bg-[#FBF9FF] p-2">
-                        <b>Tariffe osservate sulle schede camere (da verificare)</b>
+                        <b>Camere e prezzi mostrati dal booking engine</b>
                         {(sample.quotes||[]).slice(0,12).map((q,k)=><div key={k} className="flex flex-wrap justify-between gap-2 border-t border-[#E5DDF1] pt-1">
                           <span>{q.roomType}</span><span className="font-black">€ {Number(q.displayedAmount).toLocaleString("it-IT",{minimumFractionDigits:2})} · {q.displayedBasis==="stay_total_claimed"?"Indicazione di totale":"Base prezzo incerta"}</span>
                         </div>)}
-                        <p className="text-amber-800">Valori osservati, esclusi dal delta fino a conferma di date, ospiti, camera e condizioni.</p>
+                        <p className="text-amber-800">Prezzi letti dalla pagina di disponibilità. Il delta con Booking richiede la stessa camera, date, occupazione e condizioni.</p>
                       </div>}
                       {(sample.quotes||[]).length===0 && (sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
                       {["dates_not_selectable","dates_unconfirmed","navigation_error","date_inputs_observed_no_search","search_submitted_dates_unconfirmed"].includes(sample.status)
