@@ -224,7 +224,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
 
     def test_leonardo_windows_and_frontend_versions_match(self):
         from velora_direct_stays import LEONARDO_BUILD
-        expected="direct-engine-bedzzle-form-20261109-r5"
+        expected="direct-engine-bedzzle-named-arrows-20261109-r6"
         self.assertEqual(LEONARDO_BUILD,expected)
         frontend=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
         server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
