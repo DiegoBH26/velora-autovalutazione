@@ -478,7 +478,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             try:
                 direct_stays=await probe_direct_stays(
                     booking_url,direct_windows,limit=len(direct_windows) or 1,
-                    ghost=ghost,site_url=site)
+                    ghost=ghost,site_url=site,debug_dir=output.parent)
             except Exception as exc:
                 direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
                               "observedRoomPrices":[],"searchedTotal":0,
@@ -563,7 +563,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 try:
                     direct_stays=await probe_direct_stays(
                         booking_url,direct_windows,limit=len(direct_windows) or 1,
-                        ghost=ghost,site_url=site)
+                        ghost=ghost,site_url=site,debug_dir=output.parent)
                     direct_stays["executionPriority"]="fallback_after_site_audit"
                 except Exception as exc:
                     direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
