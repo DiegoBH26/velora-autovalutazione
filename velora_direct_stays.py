@@ -185,11 +185,13 @@ async def _select_visual_calendar_date(scope, iso):
             for(let i=0;i<12;i++) if(MONTHS[i].some(m=>s===m)) return i+1;
             return 0;
           };
+          // Il mese e l'anno possono stare sopra la tabella del calendario:
+          // considera anche il contenitore padre del widget, non solo il TABLE.
           const roots=[...document.querySelectorAll(
             '[class*="calendar"],[class*="datepicker"],[role=grid],table,[class*="month-view"]')]
              .filter(visible).slice(0,180);
-          if (!roots.length) roots.push(...[...document.querySelectorAll('aside,section,div')]
-             .filter(visible).slice(0,450));
+          roots.push(...[...document.querySelectorAll('aside,section,div')]
+             .filter(visible).slice(0,650));
           const options=[];
           for(const root of roots){
             const leaves=leafs(root);
