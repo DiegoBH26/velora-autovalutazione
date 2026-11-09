@@ -6546,11 +6546,12 @@ export default function App() {
         const details=await check.json().catch(()=>({})) as {error?:string};
         throw new Error(details.error||"Modulo specialisti non disponibile sul PC. Esegui AGGIORNA_VELORA_COMPLETO.bat e riavvia l'agente Windows.");
       }
-      // Check saved account profiles BEFORE starting the timer. Otherwise
-      // three account-only agents silently reject and the UI stays at 0%.
-      await requireSpecialistAccountProfiles(ids);
+      // Leonardo is always first. Do not require Expedia/Vrbo/Holidu login
+      // before the public site and Booking audits: account readiness is checked
+      // individually by startSpecialistAgent immediately before each OTA starts.
+      // One missing account must not stop the master site scan.
       const acceptedIds:SpecialistAgentId[]=[];
-      setSpecialistMessage("Verifica dei profili completata. Invio richieste al servizio locale...");
+      setSpecialistMessage("Avvio Leonardo prima delle OTA; eventuali profili account saranno verificati solo nella loro fase.");
       // The timer starts only after Windows confirms acceptance of an agent.
       const onAccepted=(id:SpecialistAgentId)=>{
         acceptedIds.push(id);
@@ -10526,8 +10527,8 @@ export default function App() {
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
                           {!loginPortal ? <button type="button" disabled={working||localPilotRunning}
                             onClick={()=>void launchAgentBatch([agent.id])}
-                            title={"Avvia "+agent.name+" con sincronizzazione obbligatoria delle date Booking"}
-                            aria-label={"Avvia "+agent.name+" sulle date confermate da Booking"}
+                            title={"Avvia "+agent.name+" · Leonardo primo, poi Booking e le altre OTA"}
+                            aria-label={"Avvia "+agent.name+" con Leonardo prima delle OTA e date sincronizzate con Booking"}
                             className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-[#23124A] px-2 text-[10px] font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-40">
                             ▶
                           </button> : agent.id==="vrbo" ? <button type="button"
