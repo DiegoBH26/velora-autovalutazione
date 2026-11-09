@@ -710,21 +710,27 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
             context=await browser.new_context(
                 locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
             for stay in stays:
-                sample={**stay,"status":"not_verified","sourceUrl":url,"quotes":[],
+                sample={**stay,"status":"not_verified","sourceUrl":url.split("?")[0],"quotes":[],
                         "availability":"not_verified","searchSubmitted":False,
                         "evidence":[]}
                 page=await context.new_page()
                 try:
-                    response=await page.goto(url,wait_until="domcontentloaded",timeout=22000)
-                    if not response or response.status>=400:
+                    engine_page,navigation=await _navigate_booking_engine(
+                        page,context,url,site_url=site_url)
+                    sample["navigation"]=navigation
+                    if not navigation["pageReached"]:
                         sample["status"]="navigation_error"
-                        sample["evidence"].append("Booking engine non raggiungibile.")
+                        sample["evidence"].append("Motore non raggiunto: "+(
+                            navigation.get("reason") or "errore sconosciuto"))
+                        if navigation.get("httpStatus") is not None:
+                            sample["evidence"].append(
+                                "Codice HTTP: "+str(navigation["httpStatus"]))
                     else:
-                        await page.wait_for_timeout(1200)
+                        await engine_page.wait_for_timeout(1200)
                         # I booking engine sono spesso in iframe cross-origin:
                         # Playwright vi accede con gli stessi controlli dell'utente.
-                        scopes=[page.main_frame]+[frame for frame in page.frames
-                            if frame!=page.main_frame and frame.url.startswith(("https://","http://"))]
+                        scopes=[engine_page.main_frame]+[frame for frame in engine_page.frames
+                            if frame!=engine_page.main_frame and frame.url.startswith(("https://","http://"))]
                         attempts=[]
                         active=None
                         for scope in scopes:
@@ -742,7 +748,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                         sample["dateAttempts"]=attempts[:12]
                         if active is None:
                             sample["status"]="dates_not_selectable"
-                            sample["formDiagnostic"]=await _form_diagnostic(page.main_frame)
+                            sample["formDiagnostic"]=await _form_diagnostic(engine_page.main_frame)
                             reasons=[(entry.get("dates") or {}).get("reason") or entry.get("error") or ""
                                      for entry in attempts]
                             sample["evidence"].append(
@@ -859,6 +865,10 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                     sample["status"]="navigation_error"
                     sample["evidence"].append("Ricerca non completata: "+type(exc).__name__)
                 finally:
+                    for additional in list(context.pages):
+                        if additional != page:
+                            try:await additional.close()
+                            except Exception:pass
                     await page.close()
                 result["samples"].append(sample)
                 await asyncio.sleep(0.25)
