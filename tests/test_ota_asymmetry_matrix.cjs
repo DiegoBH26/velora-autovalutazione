@@ -41,9 +41,15 @@ assert.deepEqual(Array.from(context.compare({observations:[sample("agoda",7),sam
   "No asymmetry should be reported without a Booking baseline");
 const py=source;
 for(const phrase of [
-  "Barra delle asimmetrie · Booking come riferimento",
+  "Barra delle asimmetrie · Sito diretto MASTER · Booking riferimento tra OTA",
+  "Sito diretto · MASTER commerciale",
   "1 · Presenza scheda","2 · Fotografie","3 · Tipologie / Booking","4 · Tariffe / Booking",
-  "otaAsymmetryRows","otaId!==\"booking\"","presenceLabel",
+  "5 · Tariffe / Sito diretto",
+  "const asymmetryWithDirect=[directMasterRow,...otaAsymmetryRows]",
+  "id=\"velora-pricing-ota-sito\"",
+  "Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi",
+  "Prezzi e asimmetrie · sito diretto master / Booking riferimento OTA · apri/chiudi",
+  "otaAsymmetryRows","presenceLabel",
   "Non individuata nella ricerca","Accesso bloccato · presenza incerta",
   "Confermo identità dopo verifica nome, località e foto",
   "photoDifference","matchedPrices","quote.roomMatchStatus"
@@ -52,4 +58,4 @@ for(const phrase of [
   if(phrase==="quote.roomMatchStatus")continue;
   assert.ok(py.includes(phrase),"Missing comparison contract: "+phrase);
 }
-console.log("4-section OTA matrix and Booking-only benchmark: 6/4/2 rooms, no-rate and no-baseline protections passed.");
+console.log("OTA benchmark and site-direct master UI: legacy 6/4/2 room comparison, direct-rate parity and collapsible panels protected.");
