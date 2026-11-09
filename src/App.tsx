@@ -5086,7 +5086,8 @@ type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
 const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string; beta?: boolean}> = [
-  {id:"booking",name:"Minerva",channel:"Booking.com",detail:"Date, camere e tariffe"},
+  {id:"official_site",name:"Leonardo",channel:"Sito diretto · MASTER",detail:"Primo: booking engine, camere, disponibilità e tariffe"},
+  {id:"booking",name:"Minerva",channel:"Booking.com",detail:"Secondo: confronto con sito diretto e riferimento per tutte le OTA"},
   {id:"agoda",name:"Galileo",channel:"Agoda",detail:"Scheda hotel e preventivi"},
   {id:"airbnb",name:"Apollo",channel:"Airbnb",detail:"Annunci e tariffe"},
   {id:"vrbo",name:"Atlante",channel:"Vrbo",detail:"Annunci, identità e preventivi pubblici",beta:true},
@@ -5096,7 +5097,6 @@ const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: st
   {id:"travelocity",name:"Newton",channel:"Travelocity",detail:"Schede e tariffe pubbliche",beta:true},
   {id:"trip",name:"Turing",channel:"Trip.com",detail:"Identità e tariffe, ove visibili",beta:true},
   {id:"priceline",name:"Pitagora",channel:"Priceline",detail:"Schede e prezzi pubblici",beta:true},
-  {id:"official_site",name:"Leonardo",channel:"Sito diretto",detail:"Navigazione, foto e contenuti"},
   {id:"reviews",name:"Ipazia",channel:"Recensioni",detail:"Reputazione e temi ricorrenti"}
 ];
 const FUTURE_AGENTS = [
@@ -6560,11 +6560,32 @@ export default function App() {
           setAgentRunClock(startedAt);
         }
       };
-      // Booking is the date authority, not just another parallel agent.
-      // Finish its availability search before launching any other pricing OTA.
+      // Leonardo starts first as direct commercial master. Booking then
+      // validates the same stay windows and remains the date lock authority
+      // for the remaining OTAs. Reviews remain independent.
       const needsBooking=ids.some(id=>id!=="booking" && id!=="reviews" && id!=="official_site");
+      const needsLeonardo=needsBooking || ids.includes("booking") || ids.includes("official_site");
+      if(needsLeonardo){
+        setSpecialistMessage("Fase 1/3: Leonardo verifica il sito diretto e il booking engine.");
+        await startSpecialistAgent("official_site",false,"public",()=>onAccepted("official_site"));
+        const siteCheck=await fetch(
+          localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),
+          {mode:"cors",cache:"no-store"}
+        );
+        if(!siteCheck.ok) throw new Error("Leonardo non ha prodotto il report diretto.");
+        const siteReport=await siteCheck.json() as {
+          bookingEngine?:{status?:string};
+          directCommercialAudit?:{status?:string;verifiedQuotes?:unknown[]}
+        };
+        setSpecialistMessage(siteReport.bookingEngine?.status==="not_found_in_page" ||
+          siteReport.bookingEngine?.status==="request_only"
+          ? "Leonardo: booking engine assente nel campione o solo richiesta. Procedo con Booking; diretto non confrontabile."
+          : siteReport.directCommercialAudit?.verifiedQuotes?.length
+            ? "Leonardo: preventivi diretti acquisiti. Ora confronto con Booking."
+            : "Leonardo: booking engine individuato, ma preventivi non verificati. Ora confronto con Booking.");
+      }
       if(needsBooking || ids.includes("booking")){
-        setSpecialistMessage("Fase 1/2: Booking determina le date disponibili per tutte le OTA.");
+        setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
         await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
         const bookingCheck=await fetch(
           localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
@@ -6586,16 +6607,16 @@ export default function App() {
           };
           const locks=bookingDates.bookingReferenceStays||[];
           if(!locks.length || locks.some(lock=>
-            !["initial_dates_available","shifted_to_available_booking_dates"].includes(lock.status||"")
+            !["initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock"].includes(lock.status||"")
             || !lock.checkin || !lock.checkout
           )){
             throw new Error("Booking non ha confermato tutte le finestre di soggiorno: ricerca OTA sospesa per evitare date asimmetriche.");
           }
         }
       }
-      const remaining=ids.filter(id=>id!=="booking");
+      const remaining=ids.filter(id=>id!=="booking" && id!=="official_site");
       if(remaining.length){
-        setSpecialistMessage("Fase 2/2: avvio agenti OTA sulle date Booking già confermate.");
+        setSpecialistMessage("Fase 3/3: agenti OTA e recensioni sulle date Booking confermate.");
         await Promise.all(remaining.map(id=>startSpecialistAgent(id,false,"public",()=>onAccepted(id))));
       }
       if (acceptedIds.length===0) {
