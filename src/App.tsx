@@ -3810,6 +3810,7 @@ type BrowserPilotResult = {
   directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;
       navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;pageReached?:boolean;reason?:string;fallbackUsed?:boolean};
+      formReadiness?:{ready?:boolean;checkin?:boolean;checkout?:boolean;controls?:number;frameUrl?:string;reason?:string};
       searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string;trace?:string[];method?:string;displayedDates?:{checkin?:string;checkout?:string}};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
@@ -10203,6 +10204,13 @@ export default function App() {
                         {sample.navigation.httpStatus!=null?" · HTTP "+sample.navigation.httpStatus:""}
                         {sample.navigation.siteHttpStatus!=null?" · Sito ufficiale HTTP "+sample.navigation.siteHttpStatus:""}
                         {sample.navigation.reason?" · "+sample.navigation.reason:""}
+                      </p>}
+                      {sample.formReadiness && <p className={"mt-1 font-bold "+(sample.formReadiness.ready?"text-emerald-700":"text-rose-700")}>
+                        Modulo date dopo caricamento: {sample.formReadiness.ready?"PRONTO":"NON PRONTO"} ·
+                        Arrivo {sample.formReadiness.checkin?"visibile":"non rilevato"} ·
+                        Partenza {sample.formReadiness.checkout?"visibile":"non rilevata"} ·
+                        {sample.formReadiness.controls??0} controlli ·
+                        {sample.formReadiness.reason||""}
                       </p>}
                       <p className="mt-1">Esito: {sample.status==="search_submitted_dates_confirmed"?"Ricerca inviata e date confermate":
                         sample.status==="search_submitted_dates_unconfirmed"?"Ricerca inviata, date non confermate nel risultato":
