@@ -27,7 +27,8 @@ def eligible_stays(rows, *, limit=4):
         # Booking con un'altra finestra realmente confermata. In tal caso
         # manteniamo la finestra confermata, senza ripristinare la richiesta.
         status=str(item.get("status") or "")
-        if status not in {"initial_dates_available","shifted_to_available_booking_dates"}:
+        if status not in {"initial_dates_available","shifted_to_available_booking_dates",
+                          "reused_minerva_lock"}:
             continue
         try:
             nights=(date.fromisoformat(departure)-date.fromisoformat(arrival)).days
