@@ -300,46 +300,86 @@ async def _select_visual_calendar_date(scope, iso, trace=None):
 
 
 async def _bedzzle_focus_box(scope, name):
-    """Click the actual check-in/check-out DATE BOX, not its menu or title."""
+    """Open the real date control even if empty or labelled in Italian.
+
+    Do not require a pre-filled date: many booking engines begin with empty
+    check-in and check-out fields. A visible labeled input takes priority
+    over a generic text wrapper.
+    """
     try:
         found=await scope.evaluate(r"""kind => {
           const visible=e=>{
             const r=e.getBoundingClientRect();
             return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
           };
-          const text=e=>(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();
-          const label=kind==='checkin' ? /check[\s-]?in/i : /check[\s-]?out/i;
-          const date=/\b\d{1,2}[\/.-]\d{1,2}[\/.-]20\d{2}\b/;
+          const txt=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim();
+          const date=/\b\d{1,2}[\/.-]\d{1,2}[\/.-](?:20)?\d{2}\b/;
+          const checkIn=/(?:check[\s-]?in|data\s+(?:di\s+)?arrivo|arrivo|arrival|inizio soggiorno)/i;
+          const checkOut=/(?:check[\s-]?out|data\s+(?:di\s+)?partenza|partenza|departure|fine soggiorno)/i;
+          const wanted=kind==='checkin'?checkIn:checkOut;
+          const other=kind==='checkin'?checkOut:checkIn;
           const marker='data-velora-bedzzle-focus';
           document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
           const candidates=[];
-          for(const e of document.querySelectorAll('div,button,a,label,section,span')){
-            if(!visible(e))continue;
-            const t=text(e);
-            if(t.length>120 || !label.test(t)||!date.test(t))continue;
-            if(kind==='checkin' && /check[\s-]?out/i.test(t))continue;
-            if(kind==='checkout' && /check[\s-]?in/i.test(t))continue;
-            const r=e.getBoundingClientRect();
-            const value=(t.match(date)||[])[0]||'';
-            const score=r.width*r.height;
-            if(value)candidates.push({e,score,value});
+          for(const input of document.querySelectorAll('input,button,[role=combobox],[role=textbox]')){
+            if(!visible(input))continue;
+            const fields=[
+              input.getAttribute('placeholder'),input.getAttribute('aria-label'),
+              input.getAttribute('name'),input.id,input.getAttribute('data-testid'),
+              input.labels&&[...input.labels].map(txt).join(' '),
+              input.closest('label')&&txt(input.closest('label'))
+            ].filter(Boolean).join(' ');
+            if(!wanted.test(fields)||other.test(fields))continue;
+            const r=input.getBoundingClientRect();
+            candidates.push({e:input,rank:100,area:r.width*r.height,
+              displayed:input.value||input.getAttribute('value')||''});
           }
-          candidates.sort((a,b)=>a.score-b.score);
+          for(const e of document.querySelectorAll(
+            'label,span,div,button,a,section,[role=button],[onclick],[ng-click]')){
+            if(!visible(e))continue;
+            const t=txt(e);
+            if(t.length>130||!wanted.test(t)||other.test(t))continue;
+            let chosen=e;
+            for(let hops=0;chosen&&hops<4;hops++,chosen=chosen.parentElement){
+              const parentText=txt(chosen);
+              if(parentText.length>220||other.test(parentText))break;
+              const clickable=chosen.matches(
+                'button,a,input,[role=button],[onclick],[ng-click],[data-ng-click]') ||
+                getComputedStyle(chosen).cursor==='pointer';
+              if(clickable){
+                const r=chosen.getBoundingClientRect();
+                candidates.push({e:chosen,rank:clickable?80:35,
+                  area:r.width*r.height,displayed:(parentText.match(date)||[])[0]||''});
+                break;
+              }
+              if(hops===0){
+                const r=e.getBoundingClientRect();
+                candidates.push({e,rank:20,area:r.width*r.height,
+                  displayed:(t.match(date)||[])[0]||''});
+              }
+            }
+          }
+          candidates.sort((a,b)=>b.rank-a.rank||a.area-b.area);
           const chosen=candidates[0];
-          if(!chosen)return {found:false,reason:'Box '+kind+' con data non identificato'};
+          if(!chosen)return {found:false,
+            reason:'Nessun campo '+(kind==='checkin'?'Data arrivo':'Data partenza')+
+              ' visibile (anche vuoto)'};
           chosen.e.setAttribute(marker,'selected');
-          return {found:true,displayed:chosen.value};
+          return {found:true,displayed:chosen.displayed||'',
+            candidates:candidates.length,kind:chosen.e.tagName.toLowerCase()};
         }""",name)
         if not found.get("found"):
             return found
         el=scope.locator('[data-velora-bedzzle-focus="selected"]')
         if await el.count()!=1:
-            return {"found":False,"reason":"Box "+name+" non univoco"}
+            return {"found":False,"reason":"Campo "+name+" non univoco"}
         await el.click(timeout=3000)
-        await asyncio.sleep(0.12)
-        return {"found":True,"displayed":found.get("displayed")}
+        await asyncio.sleep(0.2)
+        return {"found":True,"displayed":found.get("displayed"),
+                "fieldKind":found.get("kind"),"candidateCount":found.get("candidates")}
     except Exception as exc:
-        return {"found":False,"reason":"Impossibile attivare "+name+": "+type(exc).__name__}
+        return {"found":False,"reason":"Apertura "+name+" fallita: "+
+                type(exc).__name__+" "+str(exc)[:180]}
 
 
 async def _bedzzle_navigate_calendar(scope, iso, trace):
