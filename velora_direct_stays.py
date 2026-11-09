@@ -642,6 +642,19 @@ async def _visual_date_values(scope):
           const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
           const text=e=>(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();
           const regex=/\b\d{1,2}[\/.-]\d{1,2}[\/.-]20\d{2}\b/;
+          const monthNames=['gennaio','febbraio','marzo','aprile','maggio','giugno',
+            'luglio','agosto','settembre','ottobre','novembre','dicembre'];
+          const wordDate=/\b(\d{1,2})\s+(gen(?:naio)?|feb(?:braio)?|mar(?:zo)?|apr(?:ile)?|mag(?:gio)?|giu(?:gno)?|lug(?:lio)?|ago(?:sto)?|set(?:tembre)?|ott(?:obre)?|nov(?:embre)?|dic(?:embre)?)\s+(20\d{2})\b/i;
+          const parseDate=s=>{
+            const numeric=s.match(regex);
+            if(numeric)return numeric[0];
+            const match=s.match(wordDate);
+            if(!match)return '';
+            const month=monthNames.findIndex(n=>n.startsWith(match[2].toLowerCase().slice(0,3)))+1;
+            return month>0
+              ?match[1].padStart(2,'0')+'/'+String(month).padStart(2,'0')+'/'+match[3]
+              :'';
+          };
           const fields={checkin:'',checkout:''};
           const labels=[...document.querySelectorAll('label,span,div,strong,p,button')]
               .filter(visible).filter(e=>text(e).length<90);
@@ -657,10 +670,10 @@ async def _visual_date_values(scope):
               for(let hops=0;parent&&hops<4;hops++,parent=parent.parentElement){
                 const t=text(parent);
                 if(t.length>145||other.test(t))break;
-                const dates=t.match(new RegExp(regex.source,'g'))||[];
-                if(dates.length===1){
+                const parsed=parseDate(t);
+                if(parsed){
                   const r=parent.getBoundingClientRect();
-                  candidates.push({value:dates[0],size:t.length,area:r.width*r.height});
+                  candidates.push({value:parsed,size:t.length,area:r.width*r.height});
                 }
               }
             }
