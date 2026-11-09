@@ -6568,21 +6568,34 @@ export default function App() {
       if(needsLeonardo){
         setSpecialistMessage("Fase 1/3: Leonardo verifica il sito diretto e il booking engine.");
         await startSpecialistAgent("official_site",false,"public",()=>onAccepted("official_site"));
-        const siteCheck=await fetch(
-          localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),
+        const siteStatusResponse=await fetch(
+          localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
           {mode:"cors",cache:"no-store"}
         );
-        if(!siteCheck.ok) throw new Error("Leonardo non ha prodotto il report diretto.");
-        const siteReport=await siteCheck.json() as {
-          bookingEngine?:{status?:string};
-          directCommercialAudit?:{status?:string;verifiedQuotes?:unknown[]}
-        };
-        setSpecialistMessage(siteReport.bookingEngine?.status==="not_found_in_page" ||
-          siteReport.bookingEngine?.status==="request_only"
-          ? "Leonardo: booking engine assente nel campione o solo richiesta. Procedo con Booking; diretto non confrontabile."
-          : siteReport.directCommercialAudit?.verifiedQuotes?.length
-            ? "Leonardo: preventivi diretti acquisiti. Ora confronto con Booking."
-            : "Leonardo: booking engine individuato, ma preventivi non verificati. Ora confronto con Booking.");
+        const siteStatus=siteStatusResponse.ok
+          ? await siteStatusResponse.json() as {agents?:Record<string,SpecialistAgentState>}
+          : {agents:{}} as {agents?:Record<string,SpecialistAgentState>};
+        if(siteStatus.agents?.official_site?.state==="completed"){
+          const siteCheck=await fetch(
+            localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),
+            {mode:"cors",cache:"no-store"}
+          );
+          if(siteCheck.ok){
+            const siteReport=await siteCheck.json() as {
+              propertyId?:string;bookingEngine?:{status?:string};
+              directCommercialAudit?:{status?:string;verifiedQuotes?:unknown[]}
+            };
+            if(siteReport.propertyId!==activeAuditData.id)throw new Error("L'audit diretto ricevuto appartiene a un'altra struttura.");
+            setSpecialistMessage(siteReport.bookingEngine?.status==="not_found_in_page" ||
+              siteReport.bookingEngine?.status==="request_only"
+              ? "Leonardo: booking engine assente nel campione o solo richiesta. Procedo con Booking; diretto non confrontabile."
+              : siteReport.directCommercialAudit?.verifiedQuotes?.length
+                ? "Leonardo: preventivi diretti acquisiti. Ora confronto con Booking."
+                : "Leonardo: sito esaminato, preventivi da verificare. Ora confronto con Booking.");
+          }
+        }else{
+          setSpecialistMessage("Leonardo non ha concluso l'audit. Il sito diretto resta non verificato; Booking prosegue per le altre OTA.");
+        }
       }
       if(needsBooking || ids.includes("booking")){
         setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
