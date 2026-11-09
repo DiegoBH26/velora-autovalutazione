@@ -67,7 +67,9 @@ class VeloraSpecialistContracts(unittest.TestCase):
         self.assertIn('await startSpecialistAgent("booking"', app)
         self.assertIn('await Promise.all(remaining.map(id=>startSpecialistAgent(id,false,"public"', app)
         self.assertIn("acceptedIds.push(id)", app)
-        self.assertIn("await requireSpecialistAccountProfiles(ids)", app)
+        self.assertIn("await requireSpecialistAccountProfiles([agentId])", app)
+        batch = app[app.index("async function launchAgentBatch("):app.index("async function loadAgentChat(")]
+        self.assertNotIn("await requireSpecialistAccountProfiles(ids)", batch)
         self.assertIn('const readiness = await fetch(localAgentUrl("/api/agents/config")', app)
         self.assertIn("accepted = true;", app)
         self.assertIn("if (trackProgress) {", app)
