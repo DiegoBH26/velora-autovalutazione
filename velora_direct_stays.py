@@ -202,11 +202,11 @@ async def _select_visual_calendar_date(scope, iso):
             if(days.length<20) continue;
             const months=leaves.filter(e=>guessMonth(txt(e)));
             const years=leaves.filter(e=>/^20\d{2}$/.test(txt(e)));
-            const combined=leaves.filter(e=>guessMonth(txt(e)) && /\b20\d{2}$/.test(txt(e)));
+            const combined=leaves.filter(e=>guessMonth(txt(e)) && /\\b20\d{2}$/.test(txt(e)));
             const m=months[0]||combined[0], y=years[0]||combined[0];
             if (!m || !y) continue;
             const month=guessMonth(txt(m));
-            const year=Number((txt(y).match(/\b20\d{2}\b/)||[])[0]||0);
+            const year=Number((txt(y).match(/\\b20\d{2}\\b/)||[])[0]||0);
             if(!month||!year)continue;
             options.push({root,leaves,days,m,y,month,year,area:root.getBoundingClientRect().width*
               root.getBoundingClientRect().height});
