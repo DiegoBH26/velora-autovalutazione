@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-engine-prenota-first-20261109-r3"
+LEONARDO_BUILD = "direct-engine-bedzzle-dates-20261109-r4"
 
 import asyncio
 import re
