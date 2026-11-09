@@ -221,6 +221,19 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("search_not_executed",app)
         self.assertIn("Rete fermata prima di Booking.",app)
 
+    def test_leonardo_windows_and_frontend_versions_match(self):
+        from velora_direct_stays import LEONARDO_BUILD
+        expected="direct-engine-cta-httpdiag-20261109-r1"
+        self.assertEqual(LEONARDO_BUILD,expected)
+        frontend=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
+        server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
+        updater=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
+        self.assertIn('const EXPECTED_LEONARDO_BUILD = "'+expected+'"',frontend)
+        self.assertIn('actual.leonardoBuild!==EXPECTED_LEONARDO_BUILD',frontend)
+        self.assertIn('"leonardoBuild":getattr(leonardo_direct_engine',server)
+        self.assertIn(expected,updater)
+        self.assertIn('sample.navigation.httpStatus',frontend)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
         for filename in ("velora_direct_commercial.py","velora_direct_stays.py","velora_shared_intelligence.py"):
