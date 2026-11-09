@@ -776,9 +776,15 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 parity,
                 f"{len(samples_direct)} finestre sito diretto controllate rispetto a {len(booking_locks)} riferimenti Booking."
                 + (" Date e ospiti coincidenti." if parity else " Confronto non convalidato."))
-            add(agent, "direct_search_windows", "Ricerca date dirette",
-                bool(samples_direct),
-                f"{len(samples_direct)} finestre Booking analizzate; esito {commercial.get('status','n.d.')}")
+            searched_direct=[sample for sample in samples_direct
+                             if sample.get("status")=="date_context_observed"
+                             and sample.get("searchSubmitted") is True]
+            add(agent, "direct_search_windows", "Ricerche datate sul booking engine diretto",
+                bool(searched_direct),
+                f"{len(searched_direct)} ricerche effettivamente inviate su "
+                f"{len(samples_direct)} finestre del sito diretto. "
+                f"Esito: {commercial.get('status','n.d.')}. "
+                "Input date senza invio non provano la disponibilita'.")
             add(agent, "direct_dated_prices", "Tariffe dirette datate",
                 bool(commercial.get("verifiedQuotes")),
                 "Nessun prezzo diretto entra nel delta senza preventivo datato, stanza equivalente e condizioni verificate")
