@@ -180,6 +180,47 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn('sample.get("searchSubmitted") is True',reviewer)
         self.assertIn('"direct_master_inventory_alert"',reviewer)
 
+    def test_direct_search_dates_are_explicit_and_calendar_formats_are_safe(self):
+        from velora_direct_stays import _date_renderings,_date_is_present
+        formats=_date_renderings("2027-08-04")
+        self.assertIn("04/08/2027",formats)
+        self.assertIn("4 agosto 2027",formats)
+        self.assertTrue(_date_is_present(["4 agosto 2027"],"2027-08-04"))
+        self.assertTrue(_date_is_present(["04/08/2027"],"2027-08-04"))
+        self.assertFalse(_date_is_present(["04/08/2026"],"2027-08-04"))
+        self.assertFalse(_date_is_present(["05/08/2027"],"2027-08-04"))
+
+    def test_direct_search_requires_real_submission_and_reports_nonsearch(self):
+        import inspect
+        from velora_direct_stays import (
+            probe_direct_stays,_apply_dates,_submit_availability_search,
+            _select_explicit_calendar_date,
+        )
+        run=inspect.getsource(probe_direct_stays)
+        self.assertIn("page.frames",run)
+        self.assertIn("active=scope",run)
+        self.assertIn("submitted=await _submit_availability_search(active)",run)
+        self.assertIn('sample["searchSubmitted"]=True',run)
+        self.assertIn('result["status"]="search_not_executed"',run)
+        self.assertIn('result["searchedTotal"]+=1',run)
+        self.assertIn('if date_confirmed and occupancy.get("confirmed") and sample["searchSubmitted"]:',run)
+        controls=inspect.getsource(_apply_dates)
+        for label in ("aria","testid","label","readOnly"):
+            self.assertIn(label,controls)
+        calendar=inspect.getsource(_select_explicit_calendar_date)
+        self.assertIn("next_buttons.count()!=1",calendar)
+        cta=inspect.getsource(_submit_availability_search)
+        self.assertIn("matched",cta)
+        self.assertIn("len(matched)!=1",cta)
+        self.assertNotIn("prenota|book now",cta)
+
+    def test_leonardo_ui_shows_search_coverage_and_prevents_premature_batch(self):
+        app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
+        self.assertIn("ricerche date effettivamente inviate",app)
+        self.assertIn("Ricerca disponibilità inviata:",app)
+        self.assertIn("search_not_executed",app)
+        self.assertIn("Rete fermata: apri Audit commerciale",app)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
         for filename in ("velora_direct_commercial.py","velora_direct_stays.py","velora_shared_intelligence.py"):
