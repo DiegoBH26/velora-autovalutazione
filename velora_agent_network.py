@@ -15,7 +15,7 @@ from pathlib import Path
 import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields, follow_booking_cta
-from velora_direct_stays import probe_direct_stays, planned_direct_stays
+from velora_direct_stays import probe_direct_stays, planned_direct_stays, discover_direct_engine
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
@@ -452,6 +452,43 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             },data["id"],agent)
             _write(output,result)
             return result
+        # PRIORITÀ LEONARDO: il primo obiettivo è la ricerca commerciale,
+        # non il tour delle tipologie camera o l'audit foto del sito.
+        # Il preflight legge SOLO la homepage e individua la vera CTA Prenota.
+        try:
+            today=datetime.now().date()
+            plan=(pilot.custom_date_plan(today,custom_period) if custom_period
+                  else pilot.monthly_plan(today,limit=(13 if months==12 else max(1,months))))
+            direct_limit=min(len(plan),24)
+            direct_windows=planned_direct_stays(plan,limit=direct_limit)
+            plan_error=""
+        except (ValueError,KeyError,TypeError) as exc:
+            plan=[]
+            direct_windows=[]
+            plan_error="Piano date del sito diretto non valido: "+str(exc)[:180]
+        try:
+            preflight_engine=await discover_direct_engine(site)
+        except Exception as exc:
+            preflight_engine={"status":"error","url":"","provider":"",
+                              "evidence":["Discovery Prenota: "+type(exc).__name__]}
+        booking_url=preflight_engine.get("url") or ""
+        direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],
+                      "observedRoomPrices":[],"searchedTotal":0,"evidence":[]}
+        if booking_url:
+            try:
+                direct_stays=await probe_direct_stays(
+                    booking_url,direct_windows,limit=len(direct_windows) or 1,
+                    ghost=ghost,site_url=site)
+            except Exception as exc:
+                direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
+                              "observedRoomPrices":[],"searchedTotal":0,
+                              "evidence":["Ricerca prezzi sito diretto non completata: "+
+                                          type(exc).__name__]}
+        else:
+            direct_stays["status"]="preflight_booking_cta_not_found"
+            direct_stays["evidence"].extend(preflight_engine.get("evidence") or [])
+        direct_stays["executionPriority"]="commercial_before_site_and_photos"
+        # Solo ora si analizzano contenuti, foto e navigazione generale.
         audit = await build_site_audit({
             "propertyId": data["id"],
             "website": site,
@@ -502,23 +539,6 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 "availability": "not_verified", "datedPrices": [],
                 "evidence": ["Verifica booking engine non conclusa: " + type(exc).__name__],
             }
-        # Leonardo e' il PRIMO agente: parte dalle finestre richieste
-        # dall'utente e non attende un'esecuzione Booking preesistente.
-        # Booking viene lanciato DOPO e le confronta; i risultati di
-        # scansioni vecchie non possono cambiare il master attuale.
-        try:
-            today=datetime.now().date()
-            plan=(pilot.custom_date_plan(today, custom_period) if custom_period
-                else pilot.monthly_plan(today,limit=(13 if months==12 else max(1,months))))
-            # Copri l'intero periodo mensile; nelle ricerche giornaliere
-            # il limite di 24 finestre evita richieste eccessive.
-            direct_limit=min(len(plan),24)
-            direct_windows=planned_direct_stays(plan,limit=direct_limit)
-            plan_error=""
-        except (ValueError,KeyError,TypeError) as exc:
-            plan=[]
-            direct_windows=[]
-            plan_error="Piano date del sito diretto non valido: "+str(exc)[:180]
         booking_windows=(peer_evidence.get("booking") or {}).get("bookingReferenceStays") or []
         if not booking_windows:
             # Solo a titolo di confronto storico, mai per scegliere il
@@ -530,29 +550,36 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                     booking_windows=prior.get("bookingReferenceStays") or []
             except (OSError,ValueError,TypeError):
                 pass
-        direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
-        booking_url=(audit.get("bookingEngine") or {}).get("url") or ""
-        if booking_url:
-            # La CTA confermata e' gia' una prova del percorso: un controllo
-            # preliminare inconclusivo non deve impedire una diagnostica datata.
-            # probe_direct_stays applica separatamente i controlli su data,
-            # robots.txt, accesso e quote. Nessuna tariffa dedotta.
-            try:
-                direct_stays=await probe_direct_stays(
-                    booking_url, direct_windows,limit=len(direct_windows) or 1,
-                    ghost=ghost,site_url=site)
-            except Exception as exc:
-                direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
-                              "evidence":["Preventivi non completati: "+type(exc).__name__]}
-        else:
-            engine_status=(audit.get("bookingEngine") or {}).get("status") or ""
-            direct_stays["status"]=(
-                "booking_engine_not_found" if engine_status=="not_found_in_page"
-                else "request_only_no_booking_engine" if engine_status=="request_only"
-                else "engine_url_missing")
-            direct_stays["evidence"].append(
-                "Nessun motore di prenotazione con prezzi e disponibilita' identificato sul sito diretto. "
-                "Se esiste un modulo soltanto di richiesta, non e' equivalente a un booking engine.")
+        # Un sito senza CTA nella discovery veloce può comunque avere un
+        # engine rilevato dal successivo audit; tenta SOLO in questo caso.
+        if not booking_url:
+            booking_url=(audit.get("bookingEngine") or {}).get("url") or ""
+            if booking_url:
+                try:
+                    direct_stays=await probe_direct_stays(
+                        booking_url,direct_windows,limit=len(direct_windows) or 1,
+                        ghost=ghost,site_url=site)
+                    direct_stays["executionPriority"]="fallback_after_site_audit"
+                except Exception as exc:
+                    direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
+                                  "observedRoomPrices":[],"searchedTotal":0,
+                                  "evidence":["Ricerca prezzi dopo audit non conclusa: "+
+                                              type(exc).__name__]}
+            else:
+                engine_status=(audit.get("bookingEngine") or {}).get("status") or ""
+                direct_stays["status"]=(
+                    "booking_engine_not_found" if engine_status=="not_found_in_page"
+                    else "request_only_no_booking_engine" if engine_status=="request_only"
+                    else "engine_url_missing")
+                direct_stays.setdefault("evidence",[]).append(
+                    "Non è stata individuata una destinazione pubblica del pulsante Prenota.")
+        elif (audit.get("bookingEngine") or {}).get("status")!="provider_identified":
+            audit["bookingEngine"]={
+                "status":preflight_engine.get("status") or "provider_unknown",
+                "provider":preflight_engine.get("provider") or "",
+                "url":booking_url,"mode":"link dal sito",
+                "evidence":"Link Prenota identificato sulla homepage prima dell'audit completo.",
+            }
         # L'esito della vera ricerca commerciale prevale sulla sola ispezione
         # preliminare del motore fatta in una sessione separata.
         searched=int(direct_stays.get("searchedTotal") or 0)
