@@ -320,11 +320,46 @@ async def _choose_visual_date_field(scope, name):
     return False
 
 
-async def _apply_dates(scope, stay):
-    """Compila check-in/out per date native e calendar widget. Nell'engine
-    visuale seleziona soltanto un giorno del mese/anno esatti.
+async def _visual_date_values(scope):
+    """Legge i valori realmente visualizzati nei box Check in / Check out.
+
+    Non deduce il successo dal clic su un giorno: il box deve mostrare
+    esattamente le nuove date, non quelle iniziali del portale.
     """
-    controls=await scope.evaluate("""() => {
+    try:
+        return await scope.evaluate(r"""() => {
+          const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+          const text=e=>(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();
+          const regex=/\b\d{1,2}[\/.-]\d{1,2}[\/.-]20\d{2}\b/;
+          const fields={checkin:'',checkout:''};
+          const labels=[...document.querySelectorAll('label,span,div,strong,p,button')]
+              .filter(visible).filter(e=>text(e).length<36);
+          for(const [key,pattern] of [
+            ['checkin',/^(check[\s-]?in|arrivo|data d.arrivo)$/i],
+            ['checkout',/^(check[\s-]?out|partenza|data di partenza)$/i]]){
+            const matches=labels.filter(e=>pattern.test(text(e)));
+            const candidates=[];
+            for(const label of matches){
+              let parent=label;
+              for(let hops=0;parent&&hops<4;hops++,parent=parent.parentElement){
+                const t=text(parent);
+                if(t.length>170)break;
+                const dates=t.match(new RegExp(regex.source,'g'))||[];
+                if(dates.length===1)candidates.push({value:dates[0],size:t.length});
+              }
+            }
+            candidates.sort((a,b)=>a.size-b.size);
+            if(candidates.length)fields[key]=candidates[0].value;
+          }
+          return fields;
+        }""")
+    except Exception:
+        return {"checkin":"","checkout":""}
+
+
+async def _apply_dates(scope, stay):
+    """Imposta check-in e check-out SOLO per il periodo richiesto in Velora."""
+    controls=await scope.evaluate(r"""() => {
       const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
       return [...document.querySelectorAll('input')].filter(visible).slice(0,100).map(e=>({
         name:(e.name||'').toLowerCase(),id:(e.id||'').toLowerCase(),
@@ -340,61 +375,85 @@ async def _apply_dates(scope, stay):
         "checkin":r"check[\s_-]?in|arriv|data[\s_-]?(?:dal|inizio|ingresso)|start[\s_-]?date|from[\s_-]?date|entry[\s_-]?date|ingresso",
         "checkout":r"check[\s_-]?out|partenz|data[\s_-]?(?:al|fine|uscita)|end[\s_-]?date|to[\s_-]?date|departure|uscita",
     }
+    inputs=scope.locator("input:visible")
     targets={}
     for name,pattern in patterns.items():
-        candidates=[]
+        matches=[]
         for i,row in enumerate(controls):
             if row["type"] not in ("date","text","search","tel"):continue
             label=" ".join(str(row.get(k) or "") for k in ("name","id","placeholder","aria","testid","label"))
-            if re.search(pattern,label):
-                candidates.append((i,row))
-        # In Bedzzle e simili i campi date sono box cliccabili, non input.
-        # Non scegliere un input a caso: il fallback usa il calendario visivo.
-        targets[name]=candidates[0] if len(candidates)==1 else (None,None)
-    inputs=scope.locator("input:visible")
+            if re.search(pattern,label):matches.append((i,row))
+        targets[name]=matches[0] if len(matches)==1 else (None,None)
     methods=[]
-    chosen_visual=set()
+    traces=[]
     for name in ("checkin","checkout"):
         index,row=targets[name]
-        value=stay[name]
+        requested=stay[name]
         try:
             if index is None:
-                focused=await _choose_visual_date_field(scope,name)
-                if not focused and name=="checkout":
-                    return {"applied":False,"reason":"Box Check out non identificato: calendario non selezionato"}
-                if not await _select_visual_calendar_date(scope,value):
-                    return {"applied":False,"reason":f"Calendario visuale: {name} {value} non selezionato"}
-                chosen_visual.add(name)
+                await _choose_visual_date_field(scope,name)
+                path=[]
+                if not await _select_visual_calendar_date(scope,requested,path):
+                    traces.extend(path[-5:])
+                    return {"applied":False,"reason":(
+                        "Calendario "+name+" "+requested+" non selezionato: "+
+                        " | ".join(path[-3:]))[:600],"trace":traces}
                 methods.append("visual-calendar")
+                traces.extend(path[-5:])
                 continue
             field=inputs.nth(index)
             if row["readOnly"]:
-                selected=await _select_explicit_calendar_date(scope,field,value)
-                if not selected:
-                    selected=await _select_visual_calendar_date(scope,value)
-                if not selected:
+                explicit=await _select_explicit_calendar_date(scope,field,requested)
+                if not explicit:
+                    path=[]
+                    explicit=await _select_visual_calendar_date(scope,requested,path)
+                    traces.extend(path[-5:])
+                if not explicit:
                     return {"applied":False,"reason":(
-                        f"Calendario {name}: giorno {value} non selezionabile in modo univoco")}
-                chosen_visual.add(name)
+                        "Calendario "+name+" "+requested+
+                        " non selezionabile; "+" | ".join(traces[-3:]))[:600],
+                        "trace":traces}
                 methods.append("calendar")
             else:
+                formatted=requested
                 if row["type"]!="date":
-                    y,m,d=value.split("-")
-                    value=f"{d}/{m}/{y}"
-                await field.fill(value,timeout=4500)
+                    y,m,d=requested.split("-")
+                    formatted=f"{d}/{m}/{y}"
+                await field.fill(formatted,timeout=4500)
                 await field.press("Tab",timeout=2500)
-                methods.append(row["type"])
+                if not _date_is_present([await field.input_value()],requested):
+                    # Il campo è controllato da JavaScript: riapri il
+                    # calendario e usa i pulsanti reali, non una falsa fill.
+                    await field.click(timeout=2500)
+                    path=[]
+                    if not await _select_visual_calendar_date(scope,requested,path):
+                        traces.extend(path[-5:])
+                        return {"applied":False,"reason":(
+                            "Il campo "+name+" non accetta la data e il calendario "+
+                            "non la seleziona: "+" | ".join(path[-3:]))[:600],
+                            "trace":traces}
+                    methods.append("calendar-fallback")
+                    traces.extend(path[-5:])
+                else:
+                    methods.append(row["type"])
         except Exception as exc:
-            return {"applied":False,"reason":f"Campo {name} non compilato: {type(exc).__name__}"}
-    await asyncio.sleep(0.2)
-    current=await scope.evaluate("""() => [...document.querySelectorAll('input')]
+            return {"applied":False,"reason":(
+                "Data "+name+" non impostata: "+type(exc).__name__), "trace":traces}
+    await asyncio.sleep(0.3)
+    current=await scope.evaluate(r"""() => [...document.querySelectorAll('input')]
       .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
       .map(e=>e.value)""")
-    valid=all(name in chosen_visual or _date_is_present(current,stay[name])
+    visual=await _visual_date_values(scope)
+    # Un click su un numero NON è prova che le date siano corrette.
+    valid=all(_date_is_present([*current,visual.get(name)],stay[name])
               for name in ("checkin","checkout"))
-    return {"applied":valid,"method":"/".join(methods),
-            "reason":("Check-in/out selezionati e confermati dai controlli del booking engine"
-                      if valid else "Il booking engine non conferma check-in/out")}
+    return {"applied":valid,"method":"/".join(methods),"trace":traces[-12:],
+            "displayedDates":visual,
+            "reason":("Check-in e check-out 2027 letti nuovamente dai box del motore"
+                      if valid else
+                      "Il motore mostra ancora date diverse: "+
+                      str(visual.get("checkin") or "check-in non visibile")+" / "+
+                      str(visual.get("checkout") or "check-out non visibile"))}
 
 
 async def _submit_availability_search(scope):
