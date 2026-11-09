@@ -11,7 +11,7 @@ from datetime import date
 from urllib.parse import urlparse
 
 _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_PRICE_PATTERN=re.compile(r"(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*€)")
+_PRICE_PATTERN=re.compile(r"(?:(?:€|EUR)\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(?:€|EUR))",re.I)
 
 def eligible_stays(rows, *, limit=4):
     """Accetta soltanto date richieste sul diretto o effettivamente confermate da Booking."""
@@ -735,6 +735,14 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
         result["status"]="verified_rates"
     elif result["searchedTotal"]==0:
         result["status"]="search_not_executed"
+    elif result["observedRoomPrices"]:
+        confirmed=all(x["dateContextConfirmed"] and x["occupancyConfirmed"]
+                      for x in result["observedRoomPrices"])
+        result["status"]=("room_prices_observed" if confirmed
+                           else "room_prices_observed_context_unconfirmed")
+    elif any(s.get("availability")=="unavailable_reported"
+             for s in result["samples"]):
+        result["status"]="unavailable_reported"
     elif any(s["status"]=="search_submitted_dates_confirmed"
              for s in result["samples"]):
         result["status"]="search_executed_rates_unverified"
