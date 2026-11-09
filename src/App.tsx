@@ -10018,11 +10018,21 @@ export default function App() {
           <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
             <div className="space-y-3 px-4 pb-4 text-xs text-[#23124A]">
-              <p className="text-[#50627F]">Leonardo utilizza soltanto le date Booking confermate e uguali a quelle richieste. Gli importi generici non vengono scambiati per tariffe di soggiorno.</p>
+              <p className="text-[#50627F]">Leonardo lavora per primo sulle date del periodo scelto e cerca prezzi e disponibilità nel booking engine del sito diretto. Booking verifica successivamente gli stessi soggiorni e guida il confronto con le altre OTA. Un importo generico non è un preventivo verificato.</p>
               {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit ?
                 <>
                   <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
-                    <b>Esito commerciale:</b> {browserPilotResult.directCommercialAudit.status||"Non verificato"} ·
+                    <b>Esito commerciale:</b> {({
+                      booking_engine_not_found:"Booking engine non individuato sul sito",
+                      request_only_no_booking_engine:"Solo modulo di richiesta, nessun motore di preventivazione",
+                      website_not_configured:"Sito ufficiale non configurato",
+                      engine_url_missing:"Percorso di prenotazione non verificato",
+                      missing_booking_reference:"Date da confermare",
+                      robots_unverified:"Accesso al booking engine non consentito o non verificabile",
+                      verified_rates:"Preventivi diretti verificati",
+                      samples_observed:"Ricerca eseguita, preventivi da verificare"
+                    } as Record<string,string>)[browserPilotResult.directCommercialAudit.status||""] ||
+                    browserPilotResult.directCommercialAudit.status||"Non verificato"} ·
                     {(browserPilotResult.directCommercialAudit.samples||[]).length} finestre esaminate ·
                     {(browserPilotResult.directCommercialAudit.verifiedQuotes||[]).length} preventivi verificati.
                     <p className="mt-1 text-[#50627F]">Una tariffa entra nel confronto soltanto quando data, ospiti, camera, totale e condizioni sono confermati.</p>
@@ -10061,9 +10071,9 @@ export default function App() {
                     </div>
                   )}
                   {!(browserPilotResult.directCommercialAudit.samples||[]).length &&
-                    <p className="text-amber-800">{(browserPilotResult.directCommercialAudit.evidence||[]).join(" ")||"Nessuna finestra prenotabile confermata da Booking per il confronto."}</p>}
+                    <p className="text-amber-800">{(browserPilotResult.directCommercialAudit.evidence||[]).join(" ")||"Nessun preventivo diretto confermato per le date scelte."}</p>}
                 </>:
-                <p className="text-[#50627F]">Nessun audit commerciale diretto importato. Avvia Leonardo dopo una verifica Booking sulle stesse date.</p>}
+                <p className="text-[#50627F]">Nessun audit del diretto importato. Avvia Leonardo prima di Booking e delle altre OTA.</p>}
             </div>
           </details>
           <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
@@ -10233,7 +10243,7 @@ export default function App() {
           </details>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
-            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Booking determina sempre per primo la finestra di date realmente disponibile</b>; quella stessa coppia check-in/check-out viene poi bloccata e replicata identica su ogni OTA selezionata, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>scheda struttura → stesse date Booking → 2 adulti → Cerca/Verifica disponibilità → tariffe visibili</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Leonardo analizza per primo il sito diretto sulle date selezionate</b>; poi Booking verifica il primo confronto e determina le date confermate da replicare identiche sulle altre OTA, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>sito diretto → date e ospiti selezionati → booking engine → camere e prezzi → confronto Booking → altre OTA</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${localPilotGhost ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-[#E5DDF1] bg-white text-[#50627F]"}`}>
                 <input
@@ -10312,7 +10322,7 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-black uppercase tracking-wide text-[#23124A]">1 · Parametri della scansione</p>
-                    <p className="mt-1 text-[11px] text-[#64748B]">Lo stesso calendario è utilizzato dai diversi agenti OTA; Booking resta il riferimento per le date.</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Sequenza automatica: 1. Leonardo (sito diretto, MASTER commerciale), 2. Booking (primo confronto e lock date), 3. altre OTA.</p>
                   </div>
                   <span className="rounded-full border border-[#E5DDF1] bg-[#F4F0F8] px-3 py-1.5 text-[11px] font-black text-[#23124A]">{localPilotSelectedChannels.length + selectedSupportAgents.length}/12 agenti selezionati</span>
                 </div>
@@ -10960,7 +10970,7 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8C8A5] bg-[#FFFBF2] p-4">
                   <div>
                     <p className="text-sm font-black text-[#23124A]">3 · Avvio della scansione</p>
-                    <p className="mt-1 text-[11px] text-[#64748B]">Prima Booking conferma una finestra con tariffa e disponibilità per ciascun soggiorno; poi gli altri agenti cercano solo sulle stesse date e per gli stessi ospiti. Se Booking non conferma le date, il confronto non parte. Expedia, Vrbo e Holidu richiedono il profilo Account salvato. Giove si avvia manualmente.</p>
+                    <p className="mt-1 text-[11px] text-[#64748B]">Leonardo parte per primo sul booking engine diretto. Booking viene eseguito subito dopo per confrontare camere, disponibilità e tariffe e confermare le date di ricerca per le altre OTA. Se il booking engine diretto è assente, Leonardo lo segnala e Booking prosegue come riferimento per le OTA. Se Booking non conferma date e ospiti, gli ulteriori confronti non partono. Expedia, Vrbo e Holidu richiedono il profilo Account salvato. Giove si avvia manualmente.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={launchingBatch || localPilotRunning || (localPilotSelectedChannels.length+selectedSupportAgents.length)===0}
