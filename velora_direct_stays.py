@@ -498,7 +498,7 @@ async def _visible_offer_candidates(page):
           for(const el of nodes){
             const raw=(el.innerText||'').trim();
             if(!raw || raw.length>2500 || !/(€|EUR)\s*\d|\d[\d.,]*\s*(€|EUR)/i.test(raw))continue;
-            const lines=raw.split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
+            const lines=raw.split(/\\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
             const all=lines.join(' ').slice(0,2000);
             const heading=[...el.querySelectorAll(
               'h2,h3,h4,h5,[class*=room-name],[class*=roomName],[class*=room-title],'+
@@ -506,7 +506,7 @@ async def _visible_offer_candidates(page):
               .map(e=>(e.textContent||'').replace(/\s+/g,' ').trim())
               .find(t=>t.length>2&&t.length<130&&!/(€|EUR)/.test(t))||'';
             const likely=lines.find(t=>t.length>3&&t.length<120&&
-              /\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\b/i.test(t) &&
+              /\\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\\b/i.test(t) &&
               !/(€|EUR)/.test(t))||'';
             const name=heading||likely;
             if(!name)continue;
@@ -514,14 +514,14 @@ async def _visible_offer_candidates(page):
             if(seen.has(key))continue;
             seen.add(key);
             result.push({roomType:name.slice(0,140),text:all,
-              hasBookingAction:/\b(prenota|book now|seleziona|select room|scegli)\b/i.test(all),
+              hasBookingAction:/\\b(prenota|book now|seleziona|select room|scegli)\\b/i.test(all),
               textLength:all.length});
           }
           // Fallback neutrale per booking engine con contenitori <div>
           // senza nomi CSS "room"/"rate", ma con prezzo vicino al nome camera.
           if(!result.length){
             const txtPrice=e=>(e.innerText||'').replace(/\s+/g,' ').trim();
-            const words=/\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\b/i;
+            const words=/\\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\\b/i;
             const prices=[...document.querySelectorAll('span,strong,b,p,div')]
               .filter(visible).filter(e=>{
                 const t=txtPrice(e);
@@ -533,14 +533,14 @@ async def _visible_offer_candidates(page):
               for(let hops=0;parent && hops<5;hops++,parent=parent.parentElement){
                 const raw=(parent.innerText||'').trim();
                 if(!raw||raw.length>1800)break;
-                const lines=raw.split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
+                const lines=raw.split(/\\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
                 const title=lines.find(x=>words.test(x)&&x.length<130&&!/(€|EUR)/.test(x))||'';
                 if(!title)continue;
                 const key=title.toLowerCase()+'|'+raw.slice(0,180);
                 if(!seen.has(key)){
                   seen.add(key);
                   result.push({roomType:title,text:lines.join(' ').slice(0,1800),
-                    hasBookingAction:/\b(prenota|book now|seleziona|scegli)\b/i.test(raw),
+                    hasBookingAction:/\\b(prenota|book now|seleziona|scegli)\\b/i.test(raw),
                     textLength:raw.length});
                 }
                 break;
