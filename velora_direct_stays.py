@@ -673,10 +673,8 @@ async def _visual_date_values(scope):
         return {"checkin":"","checkout":""}
 
 
-async def _apply_dates(scope, stay):
-    """Imposta check-in e check-out SOLO per il periodo richiesto in Velora."""
-    if "booking.bedzzle.com" in str(getattr(scope,"url","")).lower():
-        return await _apply_bedzzle_dates(scope,stay)
+async def _apply_dates_generic(scope, stay):
+    """Generic form fallback if the Bedzzle calendar cannot be operated."""
     controls=await scope.evaluate(r"""() => {
       const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
       return [...document.querySelectorAll('input')].filter(visible).slice(0,100).map(e=>({
@@ -772,6 +770,29 @@ async def _apply_dates(scope, stay):
                       "Il motore mostra ancora date diverse: "+
                       str(visual.get("checkin") or "check-in non visibile")+" / "+
                       str(visual.get("checkout") or "check-out non visibile"))}
+
+
+async def _apply_dates(scope, stay):
+    """Use Bedzzle date boxes first; try native inputs if custom calendar fails."""
+    if "booking.bedzzle.com" in str(getattr(scope,"url","")).lower():
+        specialized=await _apply_bedzzle_dates(scope,stay)
+        if specialized.get("applied"):
+            return specialized
+        try:
+            generic=await _apply_dates_generic(scope,stay)
+        except Exception as exc:
+            generic={"applied":False,"reason":"Campi data standard: "+
+                     type(exc).__name__+" "+str(exc)[:100],"trace":[]}
+        if generic.get("applied"):
+            return generic
+        return {"applied":False,"method":"bedzzle-plus-generic",
+                "reason":"Bedzzle: "+str(specialized.get("reason") or "")[:240]+
+                         "; campi standard: "+str(generic.get("reason") or "")[:220],
+                "trace":(specialized.get("trace") or [])[-12:]+
+                        (generic.get("trace") or [])[-4:],
+                "displayedDates":specialized.get("displayedDates") or
+                                 generic.get("displayedDates") or {}}
+    return await _apply_dates_generic(scope,stay)
 
 
 async def _submit_availability_search(scope):
