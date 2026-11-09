@@ -219,7 +219,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("ricerche date effettivamente inviate",app)
         self.assertIn("Ricerca disponibilità inviata:",app)
         self.assertIn("search_not_executed",app)
-        self.assertIn("Rete fermata: apri Audit commerciale",app)
+        self.assertIn("Rete fermata prima di Booking.",app)
 
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
