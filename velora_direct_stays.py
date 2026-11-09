@@ -517,8 +517,38 @@ async def _visible_offer_candidates(page):
               hasBookingAction:/\b(prenota|book now|seleziona|select room|scegli)\b/i.test(all),
               textLength:all.length});
           }
-          // Il contenitore minore evita di attribuire ad una camera i prezzi
-          // delle camere vicine annidate nel medesimo elemento.
+          // Fallback neutrale per booking engine con contenitori <div>
+          // senza nomi CSS "room"/"rate", ma con prezzo vicino al nome camera.
+          if(!result.length){
+            const txtPrice=e=>(e.innerText||'').replace(/\s+/g,' ').trim();
+            const words=/\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\b/i;
+            const prices=[...document.querySelectorAll('span,strong,b,p,div')]
+              .filter(visible).filter(e=>{
+                const t=txtPrice(e);
+                return t.length>1&&t.length<75&&
+                  /(?:€|EUR)\s*\d|\d[\d.,]*\s*(?:€|EUR)/i.test(t);
+              }).slice(0,200);
+            for(const price of prices){
+              let parent=price.parentElement;
+              for(let hops=0;parent && hops<5;hops++,parent=parent.parentElement){
+                const raw=(parent.innerText||'').trim();
+                if(!raw||raw.length>1800)break;
+                const lines=raw.split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
+                const title=lines.find(x=>words.test(x)&&x.length<130&&!/(€|EUR)/.test(x))||'';
+                if(!title)continue;
+                const key=title.toLowerCase()+'|'+raw.slice(0,180);
+                if(!seen.has(key)){
+                  seen.add(key);
+                  result.push({roomType:title,text:lines.join(' ').slice(0,1800),
+                    hasBookingAction:/\b(prenota|book now|seleziona|scegli)\b/i.test(raw),
+                    textLength:raw.length});
+                }
+                break;
+              }
+            }
+          }
+          // Il contenitore più piccolo con nome e prezzo evita attribuzioni
+          // errate a camere vicine nella stessa pagina.
           return result.sort((a,b)=>a.textLength-b.textLength).slice(0,100);
         }""")
     except Exception:
