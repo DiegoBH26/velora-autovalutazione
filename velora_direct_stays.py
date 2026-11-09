@@ -350,90 +350,124 @@ async def _visible_offer_candidates(page):
     return offers
 
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
-    # Keep date validation unit-testable without launching or importing a browser.
+    """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
+
+    Un sito/engine trovato NON equivale a una ricerca completata. Il risultato
+    distingue ricerca effettuata, prezzi osservati e preventivi verificati.
+    """
     from playwright.async_api import async_playwright
     from site_audit_builder import public_url, robots_allowed
     stays=eligible_stays(rows,limit=limit)
-    result={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
+    result={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[],
+            "searchedTotal":0,"plannedTotal":len(stays)}
     if not stays:
-        result["status"]="missing_booking_reference"
-        result["evidence"].append("Nessuna finestra futura esatta confermata da Booking; prezzi diretti non confrontabili.")
+        result["status"]="missing_direct_dates"
+        result["evidence"].append("Nessuna data futura/occupazione valida selezionata per il sito diretto.")
         return result
     try:
         url=public_url(url)
     except ValueError:
-        result["status"]="missing_engine_url";return result
+        result["status"]="missing_engine_url"
+        result["evidence"].append("URL del booking engine non valido.")
+        return result
     if robots_allowed(url,{}) is not True:
-        result["status"]="robots_unverified";result["evidence"].append("Navigazione non autorizzata o robots.txt non conclusivo.");return result
+        result["status"]="robots_unverified"
+        result["evidence"].append(
+            "Booking engine non analizzabile: accesso robots.txt negato o non verificabile.")
+        return result
     async with async_playwright() as pw:
-        # Modalità normale: browser Chrome visibile, come per la ricerca OTA.
-        # Ghost mantiene l'esecuzione senza finestra; nessun bypass di blocchi.
         browser=await pw.chromium.launch(channel="chrome",headless=bool(ghost))
         try:
-            context=await browser.new_context(locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
+            context=await browser.new_context(
+                locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
             for stay in stays:
                 sample={**stay,"status":"not_verified","sourceUrl":url,"quotes":[],
-                        "availability":"not_verified","evidence":[]}
+                        "availability":"not_verified","searchSubmitted":False,
+                        "evidence":[]}
                 page=await context.new_page()
                 try:
-                    response=await page.goto(url,wait_until="domcontentloaded",timeout=18000)
+                    response=await page.goto(url,wait_until="domcontentloaded",timeout=22000)
                     if not response or response.status>=400:
-                        sample["status"]="navigation_error";sample["evidence"].append("Pagina non accessibile")
+                        sample["status"]="navigation_error"
+                        sample["evidence"].append("Booking engine non raggiungibile.")
                     else:
-                        await page.wait_for_timeout(1100)
-                        sample["formDiagnostic"]=await _form_diagnostic(page)
-                        applied=await _apply_dates(page,stay)
-                        sample["controls"]=applied
-                        if not applied["applied"]:
+                        await page.wait_for_timeout(1200)
+                        # I booking engine sono spesso in iframe cross-origin:
+                        # Playwright vi accede con gli stessi controlli dell'utente.
+                        scopes=[page.main_frame]+[frame for frame in page.frames
+                            if frame!=page.main_frame and frame.url.startswith(("https://","http://"))]
+                        attempts=[]
+                        active=None
+                        for scope in scopes:
+                            try:
+                                applied=await _apply_dates(scope,stay)
+                                attempts.append({"frameUrl":scope.url.split("?")[0][:220],
+                                                 "dates":applied})
+                                if applied.get("applied"):
+                                    active=scope
+                                    sample["controls"]=applied
+                                    break
+                            except Exception as exc:
+                                attempts.append({"frameUrl":scope.url.split("?")[0][:220],
+                                                 "error":type(exc).__name__})
+                        sample["dateAttempts"]=attempts[:12]
+                        if active is None:
                             sample["status"]="dates_not_selectable"
-                            sample["evidence"].append(applied["reason"])
+                            sample["formDiagnostic"]=await _form_diagnostic(page.main_frame)
+                            sample["evidence"].append(
+                                "Le date non sono state selezionate. "
+                                "Possibile calendario personalizzato, iframe non accessibile "
+                                "o campi non identificati in modo univoco.")
                         else:
-                            occupancy=await _apply_guests(page,stay["guests"])
+                            sample["formDiagnostic"]=await _form_diagnostic(active)
+                            occupancy=await _apply_guests(active,stay["guests"])
                             sample["occupancyControl"]=occupancy
-                            # Submit exclusively an explicit *search/availability* CTA.
-                            # Never click generic 'Prenota', checkout or payment buttons.
-                            # Without an observed search, prices may belong to stale dates.
                             sample["searchSubmitted"]=False
-                            buttons=page.get_by_role("button",name=re.compile(
-                                r"^(?:cerca(?: disponibilit[aà])?|search(?: availability)?|"
-                                r"verifica disponibilit[aà]|check availability|mostra disponibilit[aà]|"
-                                r"verifica prezzi|trova camere|cerca camere|"
-                                r"mostra (?:risultati|prezzi|camere)|visualizza (?:camere|prezzi)|"
-                                r"show (?:results|rooms|prices)|find (?:rooms|rates))$",re.I))
-                            if await buttons.count()==1:
-                                await buttons.first.click(timeout=4500)
-                                await page.wait_for_timeout(1300)
+                            submitted=await _submit_availability_search(active)
+                            sample["searchAction"]=submitted
+                            if submitted["submitted"]:
                                 sample["searchSubmitted"]=True
+                                result["searchedTotal"]+=1
+                                await page.wait_for_timeout(1600)
                             else:
-                                sample["evidence"].append(
-                                    "Nessun pulsante di ricerca univoco: il preventivo non e' confermato per le date scelte.")
-                            current=await page.evaluate("""() => ({
-                              fields:[...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(x=>x.value).slice(0,100),
+                                sample["evidence"].append(submitted["reason"])
+                            # Leggere *dopo* l'invio: niente prezzi di un periodo precedente.
+                            current=await active.evaluate("""() => ({
+                              fields:[...document.querySelectorAll('input')]
+                                .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
+                                .map(x=>x.value).slice(0,100),
                               url:location.href,
                               text:(document.body?.innerText||'').slice(0,22000)
                             })""")
                             page_text=current["text"]
-                            actual_dates=set(current["fields"])
-                            def contains_date(key):
-                                year,month,day=stay[key].split("-")
-                                return stay[key] in actual_dates or f"{day}/{month}/{year}" in actual_dates
-                            date_confirmed=contains_date("checkin") and contains_date("checkout")
-                            sample["status"]=("date_context_observed" if date_confirmed and sample["searchSubmitted"]
-                                else "date_inputs_observed_no_search" if date_confirmed else "dates_unconfirmed")
-                            sample["sourceUrl"]=page.url.split("?")[0].split("#")[0]
+                            current_values=current["fields"]
+                            displayed=" ".join((page_text,current["url"]))
+                            date_confirmed=all(
+                                _date_is_present(current_values,stay[key]) or
+                                any(token.lower() in displayed.lower()
+                                    for token in _date_renderings(stay[key])[:4])
+                                for key in ("checkin","checkout"))
+                            sample["datesConfirmedAfterSearch"]=bool(date_confirmed)
+                            # Mai usare query string e frammenti con possibili token sensibili.
+                            sample["sourceUrl"]=active.url.split("?")[0].split("#")[0]
                             prices=[{"amount":_money(m.group(0)),"text":m.group(0)}
-                                    for m in list(_PRICE_PATTERN.finditer(page_text))[:20]]
-                            sample["visiblePrices"]=[p for p in prices if p["amount"] is not None][:12]
-                            sample["quotes"]=await _visible_offer_candidates(page)
-                            # Conferma soltanto prezzi con camera, totale soggiorno,
-                            # date/ospiti, disponibilita' e condizioni esplicite.
+                                for m in list(_PRICE_PATTERN.finditer(page_text))[:25]]
+                            sample["visiblePrices"]=[p for p in prices
+                                if p["amount"] is not None][:14]
+                            sample["quotes"]=await _visible_offer_candidates(active)
+                            sample["status"]=(
+                                "search_submitted_dates_confirmed"
+                                if date_confirmed and sample["searchSubmitted"] else
+                                "search_submitted_dates_unconfirmed"
+                                if sample["searchSubmitted"] else
+                                "date_inputs_observed_no_search")
                             if date_confirmed and occupancy.get("confirmed") and sample["searchSubmitted"]:
                                 if not sample["quotes"] and re.search(
-                                    r"nessuna disponibilit[aà]|non ci sono camere disponibili|no availability|no rooms available",
-                                    page_text,re.I):
+                                    r"nessuna disponibilit[aà]|non ci sono camere disponibili|"
+                                    r"no availability|no rooms available",page_text,re.I):
                                     sample["availability"]="unavailable_reported"
                                     sample["evidence"].append(
-                                        "Il booking engine dichiara indisponibilità per le date/ospiti confermati.")
+                                        "Il booking engine segnala indisponibilità per date e occupazione confermate.")
                                 for offer in sample["quotes"]:
                                     complete=(offer.get("displayedBasis")=="stay_total_claimed"
                                         and offer.get("bookingActionVisible")
@@ -448,19 +482,23 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                                         "taxes":offer["taxes"],"audience":"public",
                                         "sourceUrl":sample["sourceUrl"],
                                         "verified":True,
-                                        "evidence":"Stesse date/ospiti, camera, prezzo totale e condizioni esplicite",
+                                        "evidence":"Ricerca confermata: date, occupazione, camera, totale e condizioni.",
                                     })
                                 if any(q.get("verified") for q in sample["quotes"]):
                                     sample["availability"]="price_and_booking_action_observed"
                             sample["evidence"].append(
-                                f"{len(sample['quotes'])} prezzi-candidati associati a intestazioni camera; "
-                                "nessuna parità tariffaria senza conferma completa di soggiorno e condizioni.")
-                            sample["evidence"].append("Contesto date presente; gli importi generici non indicano camera, totale, tasse o condizioni.")
-                            # Never advertise dated quotes without confirmed room/type,
-                            # total-stay basis, rate conditions and availability.
+                                f"Ricerca inviata={sample['searchSubmitted']}; "
+                                f"date presenti dopo ricerca={date_confirmed}; "
+                                f"occupazione confermata={occupancy.get('confirmed')}; "
+                                f"prezzi visibili={len(sample['visiblePrices'])}; "
+                                f"offerte-candidato={len(sample['quotes'])}.")
+                            if sample["quotes"] and not any(q.get("verified") for q in sample["quotes"]):
+                                sample["evidence"].append(
+                                    "Prezzi osservati ma non ancora confrontabili: "
+                                    "verificare totale soggiorno e condizioni mancanti.")
                 except Exception as exc:
                     sample["status"]="navigation_error"
-                    sample["evidence"].append("Navigazione incompleta: "+type(exc).__name__)
+                    sample["evidence"].append("Ricerca non completata: "+type(exc).__name__)
                 finally:
                     await page.close()
                 result["samples"].append(sample)
@@ -468,6 +506,17 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
             await context.close()
         finally:
             await browser.close()
-    result["status"]="verified_rates" if result["verifiedQuotes"] else "samples_observed"
-    result["evidence"].append("Solo le quotazioni che riportano tutte le condizioni richieste sono candidate al confronto con la medesima tipologia OTA.")
+    if result["verifiedQuotes"]:
+        result["status"]="verified_rates"
+    elif result["searchedTotal"]==0:
+        result["status"]="search_not_executed"
+    elif any(s["status"]=="search_submitted_dates_confirmed"
+             for s in result["samples"]):
+        result["status"]="search_executed_rates_unverified"
+    else:
+        result["status"]="search_executed_dates_unconfirmed"
+    result["evidence"].append(
+        f"Ricerche disponibilità realmente inviate: {result['searchedTotal']}/{len(stays)}. "
+        f"Preventivi completi verificati: {len(result['verifiedQuotes'])}. "
+        "Le tariffe senza date, occupazione e condizioni confermate non entrano nel confronto OTA.")
     return result
