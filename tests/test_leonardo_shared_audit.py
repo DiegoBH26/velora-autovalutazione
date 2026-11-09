@@ -126,6 +126,38 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn('"verifiedQuotes":[]',source)
         self.assertIn('visible_offer_candidates',source)
 
+    def test_direct_first_date_search_without_booking_run(self):
+        from datetime import date,timedelta
+        from velora_direct_stays import planned_direct_stays,eligible_stays
+        first=(date.today()+timedelta(days=50)).isoformat()
+        last=(date.today()+timedelta(days=53)).isoformat()
+        plan=[{"checkin":first,"checkout":last,"adults":2,"nights":3}]
+        direct=planned_direct_stays(plan)
+        self.assertEqual(direct[0]["status"],"direct_master_requested")
+        self.assertEqual(direct[0]["source"],"direct_initial_plan")
+        eligible=eligible_stays(direct)
+        self.assertEqual([(stay["checkin"],stay["checkout"],stay["guests"]) for stay in eligible],
+                         [(first,last,2)])
+
+    def test_leonardo_first_and_explicit_engine_absence(self):
+        network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
+        self.assertIn('AGENTS = {\\n    "official_site"',network)
+        self.assertIn('"status":"website_not_configured"',network)
+        self.assertIn('"booking_engine_not_found" if engine_status=="not_found_in_page"',network)
+        self.assertIn('pilot.custom_date_plan(today, custom_period)',network)
+        self.assertIn('planned_direct_stays(plan,limit=direct_limit)',network)
+        self.assertIn('direct_windows,limit=len(direct_windows) or 1',network)
+        batch=app.index('async function launchAgentBatch(')
+        self.assertLess(app.index('await startSpecialistAgent("official_site"',batch),
+                        app.index('await startSpecialistAgent("booking"',batch))
+        agents=app.index('const SPECIALIST_AGENTS:')
+        self.assertLess(app.index('{id:"official_site"',agents),
+                        app.index('{id:"booking"',agents))
+        self.assertIn('directRoomParityFor',app)
+        self.assertIn('6 · Camere / Sito diretto',app)
+        self.assertIn('Perché Leonardo non è riuscito a cercare',app)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
         for filename in ("velora_direct_commercial.py","velora_direct_stays.py","velora_shared_intelligence.py"):
