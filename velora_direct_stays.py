@@ -477,19 +477,47 @@ def _explicit_conditions(text):
     return {"board":board,"refund":refund,"taxes":taxes}
 
 async def _visible_offer_candidates(page):
-    """Raccoglie prezzi e nomi camera nello stesso contenitore visibile;
-    non presume che l'importo sia il totale confrontabile."""
+    """Legge la griglia delle camere visibili nella pagina risultati.
+    Il prezzo esposto viene registrato anche se il piano o le imposte non
+    sono indicati: solo la parità OTA necessita condizioni identiche.
+    """
     try:
         cards=await page.evaluate("""() => {
           const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
-          const nodes=[...document.querySelectorAll(
-            'article,[data-testid*=room],[data-testid*=rate],[class*=room-card],[class*=roomCard],[class*=rate-card],[class*=room-type],[class*=roomType]')];
-          return nodes.filter(visible).slice(0,80).map(el=>{
-            const text=(el.innerText||'').replace(/\\s+/g,' ').trim().slice(0,1400);
-            const head=el.querySelector('h2,h3,h4,[class*=room-name],[class*=roomName]')?.textContent||'';
-            return {roomType:String(head).replace(/\\s+/g,' ').trim().slice(0,140),
-                    text,hasBookingAction:/\\b(prenota|book now|seleziona|select room)\\b/i.test(text)};
-          }).filter(x=>x.roomType&&x.text&&/[€]/.test(x.text)).slice(0,30);
+          const selectors=[
+            'article','table tbody tr','[data-testid*=room]','[data-testid*=rate]',
+            '[class*=room]','[class*=Room]','[class*=rate]','[class*=Rate]',
+            '[class*=offer]','[class*=Offer]','[class*=product]','[class*=Product]',
+            '[class*=accommodation]','[class*=Accommodation]'
+          ].join(',');
+          const nodes=[...document.querySelectorAll(selectors)].filter(visible).slice(0,650);
+          const result=[];
+          const seen=new Set();
+          for(const el of nodes){
+            const raw=(el.innerText||'').trim();
+            if(!raw || raw.length>2500 || !/(€|EUR)\s*\d|\d[\d.,]*\s*(€|EUR)/i.test(raw))continue;
+            const lines=raw.split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
+            const all=lines.join(' ').slice(0,2000);
+            const heading=[...el.querySelectorAll(
+              'h2,h3,h4,h5,[class*=room-name],[class*=roomName],[class*=room-title],'+
+              '[class*=roomTitle],[class*=name],[class*=Name],[class*=title],[class*=Title],strong,b')]
+              .map(e=>(e.textContent||'').replace(/\s+/g,' ').trim())
+              .find(t=>t.length>2&&t.length<130&&!/(€|EUR)/.test(t))||'';
+            const likely=lines.find(t=>t.length>3&&t.length<120&&
+              /\b(camera|camere|room|suite|deluxe|classic|superior|family|apartment|appartamento|trullo|pajara|matrimoniale|doppia|standard)\b/i.test(t) &&
+              !/(€|EUR)/.test(t))||'';
+            const name=heading||likely;
+            if(!name)continue;
+            const key=name.toLowerCase()+'|'+all.slice(0,180);
+            if(seen.has(key))continue;
+            seen.add(key);
+            result.push({roomType:name.slice(0,140),text:all,
+              hasBookingAction:/\b(prenota|book now|seleziona|select room|scegli)\b/i.test(all),
+              textLength:all.length});
+          }
+          // Il contenitore minore evita di attribuire ad una camera i prezzi
+          // delle camere vicine annidate nel medesimo elemento.
+          return result.sort((a,b)=>a.textLength-b.textLength).slice(0,100);
         }""")
     except Exception:
         return []
@@ -497,30 +525,33 @@ async def _visible_offer_candidates(page):
     seen=set()
     for card in cards:
         text=card.get("text") or ""
-        matches=list(_PRICE_PATTERN.finditer(text))[:6]
-        for match in matches:
+        room=str(card.get("roomType") or "").strip()[:140]
+        if not room:continue
+        for match in list(_PRICE_PATTERN.finditer(text))[:8]:
             amount=_money(match.group(0))
             if amount is None:continue
-            near=text[max(0,match.start()-75):min(len(text),match.end()+75)]
-            basis="stay_total_claimed" if re.search(
-                r"totale|prezzo complessivo|total price|total for stay|intero soggiorno",near,re.I) else "unknown"
-            room=str(card.get("roomType") or "")[:140]
-            key=(room.lower(),amount,basis)
+            near=text[max(0,match.start()-85):min(len(text),match.end()+85)]
+            basis=("stay_total_claimed" if re.search(
+                r"totale|prezzo complessivo|total price|total for stay|intero soggiorno",
+                near,re.I) else "unknown")
+            key=(room.casefold(),amount,basis)
             if key in seen:continue
             seen.add(key)
             terms=_explicit_conditions(text)
             offers.append({
                 "roomType":room,"displayedAmount":amount,"currency":"EUR",
-                "displayedBasis":basis,"bookingActionVisible":bool(card.get("hasBookingAction")),
+                "displayedBasis":basis,
+                "bookingActionVisible":bool(card.get("hasBookingAction")),
                 "conditions":text[-220:],"board":terms["board"],
                 "refund":terms["refund"],"taxes":terms["taxes"],
                 "verified":False,
-                "evidence":"Importo e intestazione camera nella stessa scheda: "
-                    +"totale soggiorno indicato" if basis=="stay_total_claimed"
-                    else "Importo osservato, natura del prezzo non confermata",
+                "evidence":("Prezzo mostrato accanto alla camera nella pagina risultati; "
+                    +("totale soggiorno dichiarato" if basis=="stay_total_claimed"
+                      else "base del prezzo non specificata")),
             })
-            if len(offers)>=20:return offers
+            if len(offers)>=80:return offers
     return offers
+
 
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
