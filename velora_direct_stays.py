@@ -648,8 +648,11 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                                 "domcontentloaded",timeout=7000)
                             except Exception:pass
                             if _engine_destination_matches(destination.url,engine_url):
-                                body=(await destination.locator("body").inner_text(
-                                    timeout=3500)).lower()[:9000]
+                                try:
+                                    body=(await destination.locator("body").inner_text(
+                                        timeout=3500)).lower()[:9000]
+                                except Exception:
+                                    body=""
                                 if re.search(
                                     r"access denied|accesso negato|forbidden|captcha|"
                                     r"too many requests|temporarily blocked|blocked by",
