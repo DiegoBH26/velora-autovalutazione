@@ -553,6 +553,28 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             direct_stays["evidence"].append(
                 "Nessun motore di prenotazione con prezzi e disponibilita' identificato sul sito diretto. "
                 "Se esiste un modulo soltanto di richiesta, non e' equivalente a un booking engine.")
+        # L'esito della vera ricerca commerciale prevale sulla sola ispezione
+        # preliminare del motore fatta in una sessione separata.
+        searched=int(direct_stays.get("searchedTotal") or 0)
+        if searched:
+            samples=direct_stays.get("samples") or []
+            dates_ok=any(sample.get("datesConfirmedAfterSearch") is True
+                         for sample in samples if sample.get("searchSubmitted") is True)
+            guests_ok=any((sample.get("occupancyControl") or {}).get("confirmed") is True
+                          for sample in samples if sample.get("searchSubmitted") is True)
+            direct_verification["navigation"]="reached"
+            direct_verification["status"]="commercial_search_observed"
+            direct_verification["bookingFlow"]="availability_search_submitted"
+            direct_verification["controls"]={
+                "dates":bool(dates_ok),"guests":bool(guests_ok),"bookingAction":True}
+            direct_verification["evidence"]=list(direct_verification.get("evidence") or [])+[
+                f"Ricerca commerciale Leonardo: {searched} invii realmente eseguiti; "
+                f"date confermate={dates_ok}; adulti confermati={guests_ok}. "
+                "I prezzi sono mostrati separatamente dai preventivi omogenei."]
+        elif direct_stays.get("status")=="search_not_executed":
+            direct_verification["evidence"]=list(direct_verification.get("evidence") or [])+[
+                "Ricerca commerciale non avviata: "+
+                " | ".join((direct_stays.get("samples") or [{}])[0].get("evidence") or [])[:350]]
         direct_stays["referenceSource"]="sito_diretto"
         direct_stays["plannedStays"]=direct_windows
         direct_stays["plannedTotal"]=len(plan) if not plan_error else 0
