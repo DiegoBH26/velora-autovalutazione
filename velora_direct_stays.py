@@ -83,6 +83,45 @@ def _money(raw):
         return round(v,2) if 10<=v<=100000 else None
     except ValueError:return None
 
+async def _form_diagnostic(page):
+    """Visibile nell'audit: diagnostica del modulo SENZA credenziali o valori."""
+    try:
+        return await page.evaluate("""() => {
+          const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+          const fields=[...document.querySelectorAll('input,select')].filter(visible).slice(0,35)
+            .map(e=>({type:(e.type||'').slice(0,24),
+              label:((e.getAttribute('aria-label')||'')+' '+(e.placeholder||'')+' '+(e.name||''))
+                .trim().slice(0,100),readOnly:Boolean(e.readOnly)}));
+          const actions=[...document.querySelectorAll('button,[role=button]')].filter(visible).slice(0,40)
+            .map(e=>(e.innerText||e.getAttribute('aria-label')||'').trim().slice(0,90))
+            .filter(Boolean);
+          return {fieldSamples:fields,searchActions:actions,
+                  dateWidgets:document.querySelectorAll('[role=grid],[role=datepicker],[data-date]').length};
+        }""")
+    except Exception:
+        return {"fieldSamples":[],"searchActions":[],"dateWidgets":0}
+
+async def _select_explicit_calendar_date(page, field, iso):
+    """Solo giorno con attributo ISO esplicito; mai click su date presunte."""
+    y,m,d=iso.split("-")
+    candidates=[
+        f'[data-date="{iso}"]',f'[data-day="{iso}"]',
+        f'[data-value="{iso}"]',f'[datetime="{iso}"]',
+        f'[aria-label="{iso}"]',f'[title="{iso}"]',
+        f'[aria-label="{d}/{m}/{y}"]',
+    ]
+    try:
+        await field.click(timeout=1800)
+        await page.wait_for_timeout(200)
+        for selector in candidates:
+            nodes=page.locator(selector)
+            if await nodes.count()==1 and await nodes.first.is_visible():
+                await nodes.first.click(timeout=2200)
+                return True
+    except Exception:
+        pass
+    return False
+
 async def _apply_dates(page, stay):
     """Date input native: no guessing in datepicker widgets."""
     controls=await page.evaluate("""() => {
@@ -114,8 +153,14 @@ async def _apply_dates(page, stay):
         if modes[name]=="text":
             year,month,day=value.split("-")
             value=f"{day}/{month}/{year}"
-        await inputs.nth(index).fill(value,timeout=4500)
-        await inputs.nth(index).press("Tab",timeout=2500)
+        field=inputs.nth(index)
+        if await field.get_attribute("readonly") is not None:
+            selected=await _select_explicit_calendar_date(page,field,stay[name])
+            if not selected:
+                return {"applied":False,"reason":"Calendario personalizzato: giorno richiesto non identificabile con certezza"}
+        else:
+            await field.fill(value,timeout=4500)
+            await field.press("Tab",timeout=2500)
     await page.wait_for_timeout(250)
     actual=await page.evaluate("""() => [...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(e=>e.value)""")
     def has_date(key):
@@ -241,7 +286,8 @@ async def probe_direct_stays(url, rows, *, limit=4):
                     if not response or response.status>=400:
                         sample["status"]="navigation_error";sample["evidence"].append("Pagina non accessibile")
                     else:
-                        await page.wait_for_timeout(800)
+                        await page.wait_for_timeout(1100)
+                        sample["formDiagnostic"]=await _form_diagnostic(page)
                         applied=await _apply_dates(page,stay)
                         sample["controls"]=applied
                         if not applied["applied"]:
