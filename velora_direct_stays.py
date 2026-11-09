@@ -156,6 +156,126 @@ async def _select_explicit_calendar_date(scope, field, iso):
     return False
 
 
+async def _select_visual_calendar_date(scope, iso):
+    """Fallback per calendari visuali (anche Bedzzle): mese/anno visibili,
+    giorno selezionato SOLO nel mese corretto. Nessun giorno presunto.
+    """
+    month_names=("gennaio","febbraio","marzo","aprile","maggio","giugno",
+                 "luglio","agosto","settembre","ottobre","novembre","dicembre")
+    wanted=date.fromisoformat(iso)
+    for _ in range(17):
+        status=await scope.evaluate("""(target) => {
+          const MONTHS=[
+            ['gen','january','jan'],['feb','february'],['mar','march'],
+            ['apr','april'],['mag','maggio','may'],['giu','giugno','jun','june'],
+            ['lug','luglio','jul','july'],['ago','agosto','aug','august'],
+            ['set','sett','settembre','sep','september'],['ott','ottobre','oct','october'],
+            ['nov','november'],['dic','dicembre','dec','december']
+          ];
+          const visible=e=>{
+            if (!e || !(e.offsetWidth||e.offsetHeight||e.getClientRects().length)) return false;
+            const r=e.getBoundingClientRect();
+            return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
+          };
+          const txt=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
+          const leafs=root=>[...root.querySelectorAll('span,a,button,td,div,[role=gridcell]')]
+             .filter(e=>visible(e) && txt(e).length<35 && e.children.length<4);
+          const guessMonth=s=>{
+            s=(s||'').toLowerCase().trim();
+            for(let i=0;i<12;i++) if(MONTHS[i].some(m=>s===m)) return i+1;
+            return 0;
+          };
+          const roots=[...document.querySelectorAll(
+            '[class*="calendar"],[class*="datepicker"],[role=grid],table,[class*="month-view"]')]
+             .filter(visible).slice(0,180);
+          if (!roots.length) roots.push(...[...document.querySelectorAll('aside,section,div')]
+             .filter(visible).slice(0,450));
+          const options=[];
+          for(const root of roots){
+            const leaves=leafs(root);
+            const days=leaves.filter(e=>/^\d{1,2}$/.test(txt(e)) &&
+              Number(txt(e))>=1 && Number(txt(e))<=31);
+            if(days.length<20) continue;
+            const months=leaves.filter(e=>guessMonth(txt(e)));
+            const years=leaves.filter(e=>/^20\d{2}$/.test(txt(e)));
+            if (!months.length||!years.length) continue;
+            const m=months[0], y=years[0];
+            const month=guessMonth(txt(m)), year=Number(txt(y));
+            options.push({root,leaves,days,m,y,month,year,area:root.getBoundingClientRect().width*
+              root.getBoundingClientRect().height});
+          }
+          options.sort((a,b)=>a.area-b.area);
+          const cal=options[0];
+          if(!cal) return {action:'missing',reason:'Calendario mensile non riconosciuto'};
+          const current=cal.year*12+cal.month;
+          const wanted=target.year*12+target.month;
+          const marker='data-velora-calendar-target';
+          document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
+          if(current===wanted){
+            const disabled=e=>!!(e.closest('[disabled],[aria-disabled=true],.disabled,.off,.old,.new,.outside,.not-current-month'));
+            const cells=cal.days.filter(e=>Number(txt(e))===target.day && !disabled(e));
+            const tags=cells.filter(e=>['TD','BUTTON','A'].includes(e.tagName)||e.getAttribute('role')==='gridcell');
+            const usable=tags.length?tags:cells.filter(e=>e.children.length===0);
+            if(usable.length!==1) return {action:'missing',reason:'Giorno '+target.day+
+              ' non univoco nel calendario '+cal.month+'/'+cal.year};
+            usable[0].setAttribute(marker,'day');
+            return {action:'day',month:cal.month,year:cal.year};
+          }
+          const isYear=cal.year!==target.year;
+          const anchor=isYear?cal.y:cal.m;
+          const right=wanted>current;
+          const rect=anchor.getBoundingClientRect();
+          const midX=(rect.left+rect.right)/2, midY=(rect.top+rect.bottom)/2;
+          const nav=[...cal.root.querySelectorAll('button,a,[role=button],[class*=arrow],[class*=chevron],[class*=next],[class*=prev]')]
+            .filter(e=>visible(e)&&!e.closest('[disabled],[aria-disabled=true],.disabled'))
+            .map(e=>{
+              const r=e.getBoundingClientRect();
+              const x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;
+              const dx=x-midX;
+              const distance=Math.abs(dx)+Math.abs(y-midY)*2;
+              return {e,dx,distance,y};
+            })
+            .filter(v=>(right?v.dx>6:v.dx< -6) &&
+              Math.abs(v.y-midY)<26 && Math.abs(v.dx)<110)
+            .sort((a,b)=>a.distance-b.distance);
+          if(!nav.length) return {action:'missing',reason:'Freccia calendario '+(isYear?'anno':'mese')+' assente'};
+          nav[0].e.setAttribute(marker,'nav');
+          return {action:'nav',month:cal.month,year:cal.year};
+        }""",{"year":wanted.year,"month":wanted.month,"day":wanted.day})
+        action=status.get("action")
+        if action not in ("nav","day"):
+            return False
+        el=scope.locator('[data-velora-calendar-target="'+action+'"]')
+        if await el.count()!=1:
+            return False
+        await el.first.click(timeout=3000)
+        if action=="day":
+            return True
+        await asyncio.sleep(0.17)
+    return False
+
+
+async def _choose_visual_date_field(scope, name):
+    """Se il booking engine usa DIV al posto di input, usa la voce visiva
+    Check in/Check out. Non inventa le date con click generici.
+    """
+    pattern=(r"^\s*check[\s-]?in\s*$|^\s*arrivo\s*$|^\s*data d.arrivo\s*$"
+             if name=="checkin" else
+             r"^\s*check[\s-]?out\s*$|^\s*partenza\s*$|^\s*data di partenza\s*$")
+    labels=scope.get_by_text(re.compile(pattern,re.I))
+    if await labels.count()==1 and await labels.first.is_visible():
+        await labels.first.click(timeout=2500)
+        return True
+    # È ammessa anche una etichetta che contenga la data già selezionata:
+    # l'intero box è cliccabile e aggiorna il calendario a lato.
+    broad=scope.get_by_text(re.compile(
+        r"check[\s-]?in" if name=="checkin" else r"check[\s-]?out",re.I))
+    if await broad.count()==1 and await broad.first.is_visible():
+        await broad.first.click(timeout=2500)
+        return True
+    return False
+
+
 async def _apply_dates(scope, stay):
     """Identifica date etichettate anche con aria-label, label o data-testid.
     Funziona sul documento principale e sugli iframe pubblici del booking engine.
