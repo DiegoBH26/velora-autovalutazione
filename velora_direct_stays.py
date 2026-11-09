@@ -582,22 +582,27 @@ async def _visual_date_values(scope):
           const regex=/\b\d{1,2}[\/.-]\d{1,2}[\/.-]20\d{2}\b/;
           const fields={checkin:'',checkout:''};
           const labels=[...document.querySelectorAll('label,span,div,strong,p,button')]
-              .filter(visible).filter(e=>text(e).length<36);
+              .filter(visible).filter(e=>text(e).length<90);
           for(const [key,pattern] of [
-            ['checkin',/^(check[\s-]?in|arrivo|data d.arrivo)$/i],
-            ['checkout',/^(check[\s-]?out|partenza|data di partenza)$/i]]){
-            const matches=labels.filter(e=>pattern.test(text(e)));
+            ['checkin',/check[\s-]?in|arrivo|data d.arrivo/i],
+            ['checkout',/check[\s-]?out|partenza|data di partenza/i]]){
+            const other=key==='checkin'?/check[\s-]?out/i:/check[\s-]?in/i;
             const candidates=[];
-            for(const label of matches){
+            for(const label of labels){
+              const own=text(label);
+              if(!pattern.test(own)||other.test(own))continue;
               let parent=label;
               for(let hops=0;parent&&hops<4;hops++,parent=parent.parentElement){
                 const t=text(parent);
-                if(t.length>170)break;
+                if(t.length>145||other.test(t))break;
                 const dates=t.match(new RegExp(regex.source,'g'))||[];
-                if(dates.length===1)candidates.push({value:dates[0],size:t.length});
+                if(dates.length===1){
+                  const r=parent.getBoundingClientRect();
+                  candidates.push({value:dates[0],size:t.length,area:r.width*r.height});
+                }
               }
             }
-            candidates.sort((a,b)=>a.size-b.size);
+            candidates.sort((a,b)=>a.size-b.size||a.area-b.area);
             if(candidates.length)fields[key]=candidates[0].value;
           }
           return fields;
