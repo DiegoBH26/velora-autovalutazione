@@ -257,7 +257,7 @@ async def _visible_offer_candidates(page):
             if len(offers)>=20:return offers
     return offers
 
-async def probe_direct_stays(url, rows, *, limit=4):
+async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
     # Keep date validation unit-testable without launching or importing a browser.
     from playwright.async_api import async_playwright
     from site_audit_builder import public_url, robots_allowed
@@ -274,7 +274,9 @@ async def probe_direct_stays(url, rows, *, limit=4):
     if robots_allowed(url,{}) is not True:
         result["status"]="robots_unverified";result["evidence"].append("Navigazione non autorizzata o robots.txt non conclusivo.");return result
     async with async_playwright() as pw:
-        browser=await pw.chromium.launch(channel="chrome",headless=True)
+        # Modalità normale: browser Chrome visibile, come per la ricerca OTA.
+        # Ghost mantiene l'esecuzione senza finestra; nessun bypass di blocchi.
+        browser=await pw.chromium.launch(channel="chrome",headless=bool(ghost))
         try:
             context=await browser.new_context(locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
             for stay in stays:
@@ -298,7 +300,7 @@ async def probe_direct_stays(url, rows, *, limit=4):
                             sample["occupancyControl"]=occupancy
                             # Avoid submitting forms with unknown side effects.
                             # Search CTA is allowed only when explicitly a search, never checkout.
-                            buttons=page.get_by_role("button",name=re.compile(r"^(cerca|search|verifica disponibilit[aà]|check availability|mostra disponibilit[aà])$",re.I))
+                            buttons=page.get_by_role("button",name=re.compile(r"^(?:cerca(?: disponibilit[aà])?|search(?: availability)?|verifica disponibilit[aà]|check availability|mostra disponibilit[aà]|verifica prezzi|trova camere|cerca camere)$",re.I))
                             if await buttons.count()==1:
                                 await buttons.first.click(timeout=4500)
                                 await page.wait_for_timeout(1300)
