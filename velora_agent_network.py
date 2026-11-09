@@ -497,13 +497,24 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             except (OSError,ValueError,TypeError):
                 pass
         direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
-        if (direct_verification.get("navigation")=="reached" and audit.get("bookingEngine",{}).get("url")):
+        booking_url=(audit.get("bookingEngine") or {}).get("url") or ""
+        if booking_url:
+            # La CTA confermata e' gia' una prova del percorso: un controllo
+            # preliminare inconclusivo non deve impedire una diagnostica datata.
+            # probe_direct_stays applica separatamente i controlli su data,
+            # robots.txt, accesso e quote. Nessuna tariffa dedotta.
             try:
-                direct_stays=await probe_direct_stays(
-                    audit["bookingEngine"]["url"], booking_windows, limit=4)
+                direct_stays=await probe_direct_stays(booking_url, booking_windows, limit=4)
             except Exception as exc:
                 direct_stays={"status":"error","samples":[],"verifiedQuotes":[],
                               "evidence":["Preventivi non completati: "+type(exc).__name__]}
+        else:
+            direct_stays["status"]="engine_url_missing"
+            direct_stays["evidence"].append("Nessun URL del booking engine associato alla struttura.")
+        if not booking_windows:
+            direct_stays.setdefault("evidence",[]).append(
+                "Nessuna finestra Booking confermata disponibile nella memoria o negli archivi locali; "
+                "Leonardo non puo' scegliere date autonome per il confronto.")
         direct_verification["ctaNavigation"]=cta_verification
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
@@ -516,7 +527,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "directBookingVerification": direct_verification,
             "directCommercialAudit": direct_stays,
             "navigationAudit": (audit.get("_autoAudit") or {}).get("navigationChecks") or {},
-            "peerBookingDates": (peer_evidence.get("booking") or {}).get("bookingReferenceStays") or [],
+            "peerBookingDates": booking_windows,
             "evidence": "Audit sito e fotografie; percorso booking engine verificato solo nei limiti delle prove esplicite; prezzi datati ancora non confermati.",
         }, data["id"], agent)
     else:  # reviews only
