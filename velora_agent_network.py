@@ -510,6 +510,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             direct_windows=planned_direct_stays(plan,limit=direct_limit)
             plan_error=""
         except (ValueError,KeyError,TypeError) as exc:
+            plan=[]
             direct_windows=[]
             plan_error="Piano date del sito diretto non valido: "+str(exc)[:180]
         booking_windows=(peer_evidence.get("booking") or {}).get("bookingReferenceStays") or []
