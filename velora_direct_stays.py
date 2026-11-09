@@ -686,6 +686,54 @@ async def _visible_offer_candidates(page):
     return offers
 
 
+async def discover_direct_engine(site_url):
+    """Rapid homepage-only booking-CTA discovery BEFORE site/photo audits.
+
+    Does not crawl room pages or guess an engine URL. The observed, public
+    booking link will be used as the target for the real dated search.
+    """
+    from playwright.async_api import async_playwright
+    from site_audit_builder import public_url, robots_allowed, dismiss_cookie
+    from booking_engine import detect_booking_engine
+    result={"status":"not_verified","url":"","provider":"","evidence":[]}
+    try:
+        site_url=public_url(site_url)
+    except ValueError:
+        result["evidence"].append("Sito ufficiale non valido.")
+        return result
+    if robots_allowed(site_url,{}) is not True:
+        result["evidence"].append("Visita homepage non autorizzata o robots.txt non verificabile.")
+        return result
+    async with async_playwright() as pw:
+        browser=await pw.chromium.launch(channel="chrome",headless=True)
+        try:
+            context=await browser.new_context(locale="it-IT",timezone_id="Europe/Rome")
+            try:
+                page=await context.new_page()
+                response=await page.goto(site_url,wait_until="domcontentloaded",timeout=20000)
+                if response is None or response.status>=400:
+                    result["evidence"].append(
+                        "Homepage non raggiunta: HTTP "+str(response.status if response else "assente"))
+                    return result
+                await dismiss_cookie(page)
+                await page.wait_for_timeout(400)
+                detected=detect_booking_engine(page.url,await page.content(),page.url)
+                result.update(status=detected.get("status") or "not_verified",
+                              url=detected.get("url") or "",
+                              provider=detected.get("provider") or "")
+                result["evidence"].append(
+                    "Discovery iniziale pulsante Prenota: "+
+                    (detected.get("evidence") or "nessuna destinazione identificata"))
+            except Exception as exc:
+                result["evidence"].append(
+                    "Discovery iniziale non riuscita: "+type(exc).__name__)
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+    return result
+
+
 def _engine_destination_matches(candidate, engine_url):
     """Check both provider and structure identity (Bedzzle public apikey)."""
     expected=urlparse(engine_url)
