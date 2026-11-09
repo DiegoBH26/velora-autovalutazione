@@ -822,15 +822,17 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
             context=await browser.new_context(
                 locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
             blocked_status=None
+            systemic_calendar_failure=""
             for stay in stays:
                 sample={**stay,"status":"not_verified","sourceUrl":url.split("?")[0],"quotes":[],
                         "availability":"not_verified","searchSubmitted":False,
                         "evidence":[]}
-                if blocked_status is not None:
-                    sample["status"]="access_blocked"
+                if blocked_status is not None or systemic_calendar_failure:
+                    sample["status"]="access_blocked" if blocked_status is not None else "calendar_not_navigable"
                     sample["evidence"].append(
-                        "Ricerca sospesa dopo HTTP "+str(blocked_status)+
-                        " del booking engine. Non riprovo le altre date per evitare richieste ripetute.")
+                        ("Ricerca sospesa dopo HTTP "+str(blocked_status) if blocked_status is not None
+                         else "Calendario non navigabile: "+systemic_calendar_failure)+
+                        ". Evito di riaprire inutilmente le settimane successive.")
                     result["samples"].append(sample)
                     continue
                 page=await context.new_page()
@@ -879,6 +881,12 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                                 "Ricerca NON eseguita: non è stato possibile selezionare check-in e check-out.")
                             sample["evidence"].extend(
                                 "Calendario: "+reason for reason in reasons if reason)
+                            for reason in reasons:
+                                if any(fragment in reason.lower() for fragment in (
+                                    "freccia", "è rimasto su", "nessun calendario",
+                                    "calendario non utilizzabile","limite di 24 passaggi")):
+                                    systemic_calendar_failure=reason[:220]
+                                    break
                         else:
                             sample["formDiagnostic"]=await _form_diagnostic(active)
                             occupancy=await _apply_guests(active,stay["guests"])
