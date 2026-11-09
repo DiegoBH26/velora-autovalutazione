@@ -22,6 +22,7 @@ type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
 type AuditData = typeof santantonioAudit | typeof perlaAudit | typeof braAudit;
 
 const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
+const EXPECTED_LEONARDO_BUILD = "direct-engine-cta-httpdiag-20261109-r1";
 function localAgentUrl(path: string): string {
   return window.location.hostname === "127.0.0.1" && window.location.port === "8768" ? path : LOCAL_AGENT_BASE + path;
 }
@@ -5297,6 +5298,7 @@ export default function App() {
       const config = await response.json() as {
         token?: string;
         agentVersion?: string;
+        leonardoBuild?: string;
         autoAudit?: boolean;
         catalog?: { loaded?: boolean; count?: number; websites?: number; emails?: number; fileName?: string; error?: string };
       };
@@ -5307,7 +5309,10 @@ export default function App() {
         : config.catalog?.error
           ? " · Database locale non leggibile"
           : " · Database locale non caricato";
-      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + catalogLabel + ".");
+      const leonardoStatus=config.leonardoBuild===EXPECTED_LEONARDO_BUILD
+        ? " · Leonardo aggiornato ("+config.leonardoBuild+")"
+        : " · ATTENZIONE: motore Leonardo Windows non aggiornato ("+(config.leonardoBuild||"versione non dichiarata")+")";
+      setLocalPilotMessage("Agente locale connesso" + (config.agentVersion ? " · " + config.agentVersion : "") + leonardoStatus + catalogLabel + ".");
       return config.token;
     } catch {
       setLocalPilotToken("");
@@ -6389,6 +6394,19 @@ export default function App() {
     try {
       const token = await connectLocalAgent(false);
       if (!token) throw new Error("Avvia prima l'agente Velora sul PC.");
+      if(agentId==="official_site"){
+        const engineResponse=await fetch(localAgentUrl("/api/pilot/config"),{
+          mode:"cors",cache:"no-store"
+        });
+        if(!engineResponse.ok) throw new Error("Impossibile leggere la versione reale di Leonardo Windows.");
+        const actual=await engineResponse.json() as {leonardoBuild?:string};
+        if(actual.leonardoBuild!==EXPECTED_LEONARDO_BUILD) {
+          throw new Error("Leonardo Windows non aggiornato: codice in esecuzione "+
+            (actual.leonardoBuild||"sconosciuto")+
+            ", richiesto "+EXPECTED_LEONARDO_BUILD+
+            ". Chiudi tutte le finestre dell'agente, esegui AGGIORNA_VELORA_COMPLETO.bat nella cartella avviata e riapri AVVIA_AGENTE_VELORA.bat.");
+        }
+      }
       await requireSpecialistAccountProfiles([agentId]);
       const readiness = await fetch(localAgentUrl("/api/agents/config"),{mode:"cors",cache:"no-store"});
       if (!readiness.ok) {
