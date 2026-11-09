@@ -656,10 +656,12 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                         if active is None:
                             sample["status"]="dates_not_selectable"
                             sample["formDiagnostic"]=await _form_diagnostic(page.main_frame)
+                            reasons=[(entry.get("dates") or {}).get("reason") or entry.get("error") or ""
+                                     for entry in attempts]
                             sample["evidence"].append(
-                                "Le date non sono state selezionate. "
-                                "Possibile calendario personalizzato, iframe non accessibile "
-                                "o campi non identificati in modo univoco.")
+                                "Ricerca NON eseguita: non è stato possibile selezionare check-in e check-out.")
+                            sample["evidence"].extend(
+                                "Calendario: "+reason for reason in reasons if reason)
                         else:
                             sample["formDiagnostic"]=await _form_diagnostic(active)
                             occupancy=await _apply_guests(active,stay["guests"])
