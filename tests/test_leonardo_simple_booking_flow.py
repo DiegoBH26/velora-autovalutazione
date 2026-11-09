@@ -174,7 +174,8 @@ class TestLeonardoBookingFlow(unittest.TestCase):
     def test_displayed_dates_required_before_declaring_success(self):
         import inspect
         from velora_direct_stays import _apply_dates,_visual_date_values
-        body=inspect.getsource(_apply_dates)
+        from velora_direct_stays import _apply_dates_generic
+        body=inspect.getsource(_apply_dates_generic)
         self.assertIn('visual=await _visual_date_values(scope)',body)
         self.assertIn('valid=all(_date_is_present(',body)
         self.assertIn('if not await _select_visual_calendar_date(scope,requested,path)',body)
