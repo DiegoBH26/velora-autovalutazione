@@ -630,12 +630,21 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                             occupancy=await _apply_guests(active,stay["guests"])
                             sample["occupancyControl"]=occupancy
                             sample["searchSubmitted"]=False
+                            before_pages=set(context.pages)
                             submitted=await _submit_availability_search(active)
                             sample["searchAction"]=submitted
                             if submitted["submitted"]:
                                 sample["searchSubmitted"]=True
                                 result["searchedTotal"]+=1
                                 await page.wait_for_timeout(1600)
+                                # Alcuni motori mostrano i risultati in una nuova
+                                # scheda. La lettura deve seguire la pagina aperta.
+                                new_pages=[p for p in context.pages if p not in before_pages]
+                                if new_pages:
+                                    result_page=new_pages[-1]
+                                    try:await result_page.wait_for_load_state("domcontentloaded",timeout=5000)
+                                    except Exception:pass
+                                    active=result_page.main_frame
                             else:
                                 sample["evidence"].append(submitted["reason"])
                             # Leggere *dopo* l'invio: niente prezzi di un periodo precedente.
@@ -661,7 +670,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
                                 for m in list(_PRICE_PATTERN.finditer(page_text))[:25]]
                             sample["visiblePrices"]=[p for p in prices
                                 if p["amount"] is not None][:14]
-                            sample["quotes"]=await _visible_offer_candidates(active)
+                            sample["quotes"]=(await _visible_offer_candidates(active)
+                                if sample["searchSubmitted"] else [])
                             # Il compito primario di Leonardo è trascrivere i prezzi
                             # delle camere dopo la ricerca. Queste righe restano
                             # separate dai preventivi comparabili con le OTA.
