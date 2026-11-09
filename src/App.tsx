@@ -10089,6 +10089,13 @@ export default function App() {
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
             <div className="space-y-3 px-4 pb-4 text-xs text-[#23124A]">
               <p className="text-[#50627F]">Leonardo lavora per primo sulle date del periodo scelto e cerca prezzi e disponibilità nel booking engine del sito diretto. Booking verifica successivamente gli stessi soggiorni e guida il confronto con le altre OTA. Un importo generico non è un preventivo verificato.</p>
+              {directDateDiscrepancies.length>0 && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                <b>Controllo date sito diretto / Booking: {directDateDiscrepancies.length} discrepanze da verificare.</b>
+                {directDateDiscrepancies.slice(0,8).map((item,i)=><p key={i} className="mt-1">
+                  {item.checkin} → {item.checkout} · {item.reason}
+                </p>)}
+                <p className="mt-2">Una data diversa non dimostra da sola una camera mancante. Non calcolare delta diretti su soggiorni non identici.</p>
+              </div>}
               {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit ?
                 <>
                   <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3">
@@ -10231,6 +10238,10 @@ export default function App() {
                 Il <b>sito diretto è il master commerciale</b> per tutti i canali. <b>Booking</b> è il primo confronto del diretto e determina le date comuni alle altre OTA. Per ogni canale: presenza scheda, fotografie, tipologie, tariffe e corrispondenza camere rispetto al diretto. Una camera vendibile sul diretto ma non trovata su una OTA richiede verifica delle stesse date, ospiti e unità fisica.
                 Il verde indica un riscontro positivo nel campione, il rosso una criticità rilevata, l'ambra un dato incompleto e il grigio una verifica ancora impossibile.
               </p>
+              {directDateDiscrepancies.length>0 && <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] font-bold text-amber-900">
+                {directDateDiscrepancies.length} finestre del sito diretto non coincidono con il riferimento Booking.
+                Verificare disponibilità e stessa tipologia; confronto diretto/OTA sospeso per quelle finestre.
+              </p>}
               <p className="mt-1 text-[10px] font-semibold text-[#64748B]">
                 Una scheda non individuata non è necessariamente inesistente. Le immagini uguali non si deducono dal solo numero di foto.
                 Differenze tariffarie soltanto con stessa camera verificata, date, ospiti e condizioni.
@@ -11334,7 +11345,7 @@ export default function App() {
                   <td className="p-2 font-black">€{quote.total.toFixed(2)}</td>
                   <td className="p-2">Totale diretto verificato · parità camera/condizioni OTA da confermare</td>
                 </tr>) : <tr className="border-t border-[#E5DDF1] bg-[#FFF9EC]">
-                  <td className="p-2">Date Booking da verificare</td>
+                  <td className="p-2">Date sito diretto · da verificare</td>
                   <td className="p-2 font-black">Sito diretto · MASTER</td>
                   <td className="p-2">—</td><td className="p-2">n.d.</td>
                   <td className="p-2">Leonardo: nessun preventivo datato verificato</td>
