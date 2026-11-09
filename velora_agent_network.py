@@ -798,6 +798,65 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
             add(agent, "sample", "Campione recensioni verificato",
                 rep.get("status") == "sampled" and bool(rep.get("sampleSize", 0)),
                 f"Stato: {rep.get('status', 'n.d.')}; campione: {rep.get('sampleSize', 0)}")
+    # Il sito diretto e' MASTER di disponibilita'/prezzi; Booking deve
+    # rispondere sulle finestre richieste da Leonardo. Se Booking le sposta,
+    # segnalarlo come asimmetria POTENZIALE, non come conferma di sold-out.
+    direct_path=outputs.get("official_site")
+    booking_path=outputs.get("booking")
+    if direct_path and booking_path:
+        try:
+            direct_report=json.loads(direct_path.read_text(encoding="utf-8"))
+            booking_report=json.loads(booking_path.read_text(encoding="utf-8"))
+            if (direct_report.get("propertyId")==property_id
+                    and booking_report.get("propertyId")==property_id):
+                master=direct_report.get("directCommercialAudit") or {}
+                requested=master.get("plannedStays") or master.get("samples") or []
+                booking_rows=booking_report.get("bookingReferenceStays") or []
+                expected={
+                    (str(w.get("checkin") or ""),str(w.get("checkout") or ""),
+                     int(w.get("adults") or w.get("guests") or 0))
+                    for w in requested if (w.get("adults") or w.get("guests"))
+                }
+                by_requested={
+                    (str(w.get("requestedCheckin") or ""),
+                     str(w.get("requestedCheckout") or ""),int(w.get("adults") or 0)):w
+                    for w in booking_rows if w.get("requestedCheckin")
+                    and w.get("requestedCheckout") and w.get("adults")
+                }
+                shared=expected & set(by_requested)
+                shifted=[key for key in shared if (
+                    str(by_requested[key].get("checkin") or "")!=key[0]
+                    or str(by_requested[key].get("checkout") or "")!=key[1])]
+                incomplete=expected-set(by_requested)
+                green=bool(expected and shared) and not shifted and not incomplete
+                add("booking","direct_master_date_alignment",
+                    "Booking confrontato sulle date del sito diretto",
+                    green,
+                    f"Leonardo: {len(expected)} finestre richieste; Booking: "
+                    f"{len(shared)} richieste corrispondenti, {len(shifted)} date spostate, "
+                    f"{len(incomplete)} non confermate. "
+                    +("Asimmetria potenziale: verificare la stessa camera sul diretto "
+                      "prima di dichiarare l'inventario mancante su Booking."
+                      if shifted or incomplete else "Date richieste allineate.")
+                )
+                direct_rates=master.get("verifiedQuotes") or []
+                direct_available={
+                    (str(q.get("checkin") or ""),str(q.get("checkout") or ""),
+                     int(q.get("guests") or 0))
+                    for q in direct_rates if q.get("verified") and q.get("guests")
+                }
+                availability_gaps=direct_available & set(shifted)
+                if availability_gaps:
+                    add("booking","direct_master_inventory_alert",
+                        "Possibile differenza disponibilità diretto / Booking",
+                        False,
+                        f"{len(availability_gaps)} soggiorni con preventivo sul diretto "
+                        "e ricerca Booking spostata. Verificare tipologia identica e "
+                        "condizioni prima di qualificare l'asimmetria.")
+        except (OSError,ValueError,TypeError,KeyError):
+            add("booking","direct_master_date_alignment",
+                "Booking confrontato sulle date del sito diretto",False,
+                "Lettura dell'allineamento diretto/Booking non conclusa.")
     comparisons=[]
     cover_candidates={
         agent: (sample.get("photoOrderSample") or [None])[0]
