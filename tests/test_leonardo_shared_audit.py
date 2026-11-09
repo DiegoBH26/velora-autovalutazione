@@ -142,7 +142,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
     def test_leonardo_first_and_explicit_engine_absence(self):
         network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
         app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
-        self.assertIn('AGENTS = {\\n    "official_site"',network)
+        self.assertIn('AGENTS = {\n    "official_site"',network)
         self.assertIn('"status":"website_not_configured"',network)
         self.assertIn('"booking_engine_not_found" if engine_status=="not_found_in_page"',network)
         self.assertIn('pilot.custom_date_plan(today, custom_period)',network)
