@@ -9728,6 +9728,28 @@ export default function App() {
         matched
       };
     };
+    const directRoomParityFor=(otaId:string)=>{
+      if(!verifiedDirectRates.length){
+        return {state:"unverified",label:"Camere dirette: preventivi non verificati"};
+      }
+      const directWithKey=verifiedDirectRates.filter(d=>Boolean(d.referenceRoomKey));
+      if(!directWithKey.length){
+        return {state:"unverified",label:
+          verifiedDirectRates.length+" preventivi diretti · identità delle camere OTA non ancora collegata"};
+      }
+      const confirmed=rateQuotes.filter(q=>q.otaId===otaId && q.pilotVerified===true
+        && q.roomMatchStatus==="same-room" && q.referenceRoomKey && q.total>0);
+      const matches=directWithKey.filter(d=>confirmed.some(q=>
+        q.referenceRoomKey===d.referenceRoomKey
+        && q.stayDate===d.checkin && q.nights===d.nights && q.guests===d.guests));
+      return {
+        state:matches.length===directWithKey.length?"present":"candidate",
+        label:matches.length+" / "+directWithKey.length+
+          " camere dirette confermate sulla OTA per pari date e ospiti"+
+          (matches.length<directWithKey.length?" · mancanze da verificare":"")
+      };
+    };
+
     // Booking resta una riga OTA; tutte le OTA hanno un confronto aggiuntivo
     // con il diretto. L'assenza di una scheda non prova che non esista.
     const otaAsymmetryRows = pricingAccordionIds.map(otaId=>{
@@ -9832,10 +9854,11 @@ export default function App() {
           ? otaQuotes.length+" preventivi letti · condizioni/unità da abbinare"
           : "Nessun prezzo comparabile acquisito";
       const directComparison=directRateComparisonFor(otaId);
+      const directRoomComparison=directRoomParityFor(otaId);
       return {
         otaId,platform,presence,presenceLabel,presenceNote:manual?.note||"",
         photosState,photosLabel,roomState,roomLabel,priceState,priceLabel,
-        directComparison,
+        directComparison,directRoomComparison,
         roomCount:otaRoomCount,bookingRoomCount,sharedStay,
         photoSource:photoPair?"Confronto Giove (foto caricate, non equivalenza immagini)":snapshot?.sourceUrl||"",
         url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||
@@ -9868,6 +9891,12 @@ export default function App() {
           ? verifiedDirectRates.length+" preventivi diretti verificati · riferimento commerciale"
           : "Fornitore rilevato · prezzi e disponibilità diretti da verificare",
         matched:[]
+      },
+      directRoomComparison:{
+        state:verifiedDirectRates.length?"present":"unverified",
+        label:verifiedDirectRates.length
+          ? "Camere dirette verificate · riferimento delle OTA"
+          : "Tipologie dirette non ancora verificate"
       },
       roomCount:0,bookingRoomCount:0,sharedStay:undefined,
       photoSource:"Audit fotografico Leonardo",matchedPrices:[],differentPrices:[]
@@ -10172,11 +10201,11 @@ export default function App() {
               </p>
             </div>
             <div className="overflow-x-auto">
-              <div className="min-w-[1120px]">
-                <div className="grid grid-cols-[152px_repeat(5,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
+              <div className="min-w-[1350px]">
+                <div className="grid grid-cols-[152px_repeat(6,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
                   <div>Canale</div><div>1 · Presenza scheda</div><div>2 · Fotografie</div>
                   <div>3 · Tipologie / Booking</div><div>4 · Tariffe / Booking</div>
-                  <div>5 · Tariffe / Sito diretto</div>
+                  <div>5 · Tariffe / Sito diretto</div><div>6 · Camere / Sito diretto</div>
                 </div>
                 {asymmetryWithDirect.map(row=>{
                   const styleFor=(state:string)=>state==="present"
@@ -10189,7 +10218,7 @@ export default function App() {
                       </div>
                       <p className="mt-1.5 text-[10px] font-semibold leading-[1.4] text-[#34435B]">{label}</p>
                     </div>);
-                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[152px_repeat(5,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
+                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[152px_repeat(6,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
                     <div>
                       <p className="text-xs font-black text-[#23124A]">{row.platform}</p>
                       {row.url && <a className="mt-1 inline-block break-all text-[10px] font-semibold text-[#50627F] underline" href={row.url} target="_blank" rel="noopener noreferrer">{row.otaId==="sito"?"Apri booking engine":"Apri scheda"}</a>}
@@ -10243,6 +10272,7 @@ export default function App() {
                           `${item.delta>0?"+":""}${item.delta.toFixed(1)}%`).join(" · ")}
                       </p>}
                     </div>
+                    {cell(row.directRoomComparison.state,row.directRoomComparison.label)}
                   </div>;
                 })}
               </div>
