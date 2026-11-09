@@ -224,10 +224,11 @@ async def _apply_dates(scope, stay):
 
 
 async def _submit_availability_search(scope):
-    """Esegue soltanto la CTA esplicita di ricerca, mai prenota/checkout/paga."""
-    selector="button:visible,input[type=submit]:visible,[role=button]:visible,a[href]:visible"
-    controls=scope.locator(selector)
-    matched=[]
+    """Nel caso di due CTA identiche preferisce il pulsante del form (non il menu).
+    Interrompe il flusso se non riesce a distinguere il comando di ricerca.
+    """
+    controls=scope.locator(
+        "button:visible,input[type=submit]:visible,[role=button]:visible,a[href]:visible")
     pattern=re.compile(
         r"^(?:cerca(?: (?:la )?disponibilit[aà]| camere| alloggi| prezzi| ora)?|"
         r"search(?: availability| rooms| rates)?|"
@@ -238,57 +239,99 @@ async def _submit_availability_search(scope):
         r"visualizza (?:camere|prezzi|disponibilit[aà])|"
         r"show (?:results|rooms|prices|rates)|find (?:rooms|rates))"
         r"(?:\s*[›»→])?$",re.I)
+    matched=[]
     for i in range(min(await controls.count(),120)):
         el=controls.nth(i)
         try:
-            label=(await el.evaluate("""e=>(e.innerText||
+            label=await el.evaluate("""e=>(e.innerText||
               e.getAttribute('aria-label')||e.value||e.title||'')
-              .replace(/\s+/g,' ').trim()"""))
-            if not pattern.fullmatch(label):continue
-            if not await el.is_enabled():continue
-            matched.append((el,label))
+              .replace(/\s+/g,' ').trim()""")
+            if not pattern.fullmatch(label) or not await el.is_enabled():continue
+            hints=await el.evaluate("""e=>{
+              const rect=e.getBoundingClientRect();
+              const container=e.closest('form,[class*=booking],[class*=search],[class*=availability]');
+              const txt=(container?.innerText||'').slice(0,2000);
+              return {y:Math.round(rect.y),tag:e.tagName.toLowerCase(),
+                form:!!e.closest('form'),
+                inputs:container?.querySelectorAll('input,select')?.length||0,
+                occupancy:/adulti|adults|ospiti|guests|camera 1/i.test(txt),
+                dates:/check.?in|check.?out|arrivo|partenza/i.test(txt),
+                header:!!e.closest('header,nav,[role=navigation]')};
+            }""")
+            score=(6 if hints.get("form") else 0)+(4 if hints.get("inputs",0)>=2 else 0)
+            score+=(3 if hints.get("occupancy") else 0)+(3 if hints.get("dates") else 0)
+            score+=(1 if hints.get("tag") in ("button","input") else 0)
+            score-=10 if hints.get("header") else 0
+            matched.append((el,label,score,hints.get("y",0)))
         except Exception:
             continue
     if len(matched)!=1:
-        return {"submitted":False,"reason":(
-            "Nessun pulsante univoco per la ricerca disponibilità "
-            f"({len(matched)} azioni compatibili); non clicco 'Prenota' o 'Paga'.")}
-    button,label=matched[0]
+        if not matched:
+            return {"submitted":False,"reason":"Pulsante 'Verifica disponibilità' non trovato."}
+        # Due voci con lo stesso nome (menu in alto + pulsante del modulo):
+        # il pulsante con più indizi di form prevale; a parità non si clicca.
+        ranked=sorted(matched,key=lambda x:(x[2],x[3]),reverse=True)
+        if len(ranked)>1 and ranked[0][2]==ranked[1][2] and ranked[0][3]==ranked[1][3]:
+            return {"submitted":False,"reason":"Più pulsanti di ricerca indistinguibili."}
+        button,label=ranked[0][:2]
+    else:
+        button,label=matched[0][:2]
     try:
-        await button.click(timeout=6000)
-        return {"submitted":True,"action":label,"reason":"Ricerca disponibilità inviata"}
+        await button.click(timeout=6500)
+        return {"submitted":True,"action":label,"reason":"Clic sul pulsante di ricerca disponibilità"}
     except Exception as exc:
-        return {"submitted":False,"reason":f"Invio ricerca non riuscito: {type(exc).__name__}"}
+        return {"submitted":False,"reason":f"Ricerca non inviata: {type(exc).__name__}"}
 
 
-async def _apply_guests(page, adults):
-    """Prova soltanto controlli nativi esplicitamente etichettati adulti/ospiti."""
+async def _apply_guests(scope, adults):
+    """Imposta adulti (e legge il valore di controllo) nel form pubblico.
+    Non confonde il selettore bambini con quello adulti.
+    """
     try:
-        inputs=page.locator("input:visible,select:visible")
-        count=min(await inputs.count(),100)
+        controls=scope.locator("input:visible,select:visible")
+        count=min(await controls.count(),100)
+        candidates=[]
         for i in range(count):
-            el=inputs.nth(i)
-            label=await el.evaluate("""e=>[
-                e.name||'',e.id||'',e.getAttribute('aria-label')||'',
-                e.placeholder||'',e.closest('label')?.innerText||''
-            ].join(' ').toLowerCase()""")
-            if not re.search(r"adulti|adults|ospiti|guests",label):
-                continue
-            tag=await el.evaluate("e=>e.tagName.toLowerCase()")
-            if tag=="select":
-                try:await el.select_option(str(adults),timeout=2500)
-                except Exception:continue
-            elif await el.get_attribute("type") in ("number","text","tel"):
-                try:await el.fill(str(adults),timeout=2500)
-                except Exception:continue
-            else:
-                continue
-            value=await el.input_value()
-            if value==str(adults):
-                return {"confirmed":True,"evidence":"Occupazione impostata nel campo pubblico"}
-    except Exception:
-        pass
-    return {"confirmed":False,"evidence":"Occupazione non confermata nel motore di prenotazione"}
+            el=controls.nth(i)
+            info=await el.evaluate("""e=>{
+              const own=[e.name,e.id,e.getAttribute('aria-label'),
+                e.placeholder,e.closest('label')?.innerText,
+                e.parentElement?.previousElementSibling?.innerText].filter(Boolean).join(' ');
+              const nearby=(e.parentElement?.innerText||'').slice(0,90);
+              return {own:own.toLowerCase(),nearby:nearby.toLowerCase(),
+                tag:e.tagName.toLowerCase(),type:(e.type||'').toLowerCase()};
+            }""")
+            own=info["own"]
+            nearby=info["nearby"]
+            if re.search(r"bambin|child|infant|coupon",own):continue
+            exact=bool(re.search(r"adult|adulti|ospiti|guests",own))
+            fallback=bool(re.search(r"adulti|adults",nearby)) and not re.search(
+                r"bambin|children",nearby)
+            if exact or fallback:
+                candidates.append((el,info,2 if exact else 1))
+        if not candidates:
+            return {"confirmed":False,"evidence":"Campo Adulti non identificato nel form."}
+        candidates.sort(key=lambda t:t[2],reverse=True)
+        if len(candidates)>1 and candidates[0][2]==candidates[1][2]:
+            return {"confirmed":False,"evidence":"Più campi adulti indistinguibili."}
+        el,info,_=candidates[0]
+        if info["tag"]=="select":
+            try:await el.select_option(str(adults),timeout=3000)
+            except Exception:
+                try:await el.select_option(label=str(adults),timeout=3000)
+                except Exception:return {"confirmed":False,"evidence":"Selettore adulti non impostabile."}
+        elif info["type"] in ("number","text","tel"):
+            await el.fill(str(adults),timeout=3000)
+            await el.press("Tab",timeout=2000)
+        else:
+            return {"confirmed":False,"evidence":"Controllo adulti non modificabile."}
+        current=await el.input_value()
+        return {"confirmed":current==str(adults),
+                "evidence":("Adulti="+current+" confermati dal form" if current==str(adults)
+                            else "Il booking engine ha modificato il numero di adulti")}
+    except Exception as exc:
+        return {"confirmed":False,"evidence":"Occupazione non confermata: "+type(exc).__name__}
+
 
 def _explicit_conditions(text):
     low=str(text or "").lower()
