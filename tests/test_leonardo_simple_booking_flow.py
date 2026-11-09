@@ -80,6 +80,18 @@ class TestLeonardoBookingFlow(unittest.TestCase):
                                 capture_output=True,timeout=15)
             self.assertEqual(proc.returncode,0,proc.stderr)
 
+    def test_calendar_supports_separate_and_combined_month_year(self):
+        import ast
+        source=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
+        tree=ast.parse(source)
+        scripts=[n.value for n in ast.walk(tree)
+                 if isinstance(n,ast.Constant) and isinstance(n.value,str)
+                 and "Calendario mensile non riconosciuto" in n.value]
+        self.assertEqual(len(scripts),1)
+        self.assertNotIn("\x08",scripts[0])
+        self.assertIn("const combined=leaves.filter",scripts[0])
+        self.assertIn("const year=Number",scripts[0])
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
