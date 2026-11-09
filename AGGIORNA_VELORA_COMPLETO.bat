@@ -71,15 +71,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_direct_commercial.py?nocache=%RANDOM%' -OutFile 'velora_direct_commercial.py.new'"
 if errorlevel 1 goto :errore
 
+echo [11/12] Scarico la memoria condivisa degli agenti...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_shared_intelligence.py?nocache=%RANDOM%' -OutFile 'velora_shared_intelligence.py.new'"
+if errorlevel 1 goto :errore
+
 echo [12/12] Scarico il motore di ricerca prezzi diretti...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_direct_stays.py?nocache=%RANDOM%' -OutFile 'velora_direct_stays.py.new'"
 if errorlevel 1 goto :errore
 
-echo [11/12] Scarico la memoria condivisa degli agenti...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_shared_intelligence.py?nocache=%RANDOM%' -OutFile 'velora_shared_intelligence.py.new'"
-if errorlevel 1 goto :errore
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try{$c=Get-Content 'velora_portal_credentials.py.new' -Raw; if($c -notmatch 'class WindowsPortalVault'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
@@ -94,6 +95,23 @@ for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_buil
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s=Get-Content 'local_audit_server.py.new' -Raw; $p=Get-Content 'browser_audit_pilot.py.new' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'velora-browser-pilot-v(\d+)').Groups[1].Value; if(-not $sv -or -not $pv -or $sv -ne $pv){ Write-Host ('ERRORE VERSIONI: agente v'+$sv+' / pilot v'+$pv); exit 2 } else { Write-Host ('Versioni scaricate sincronizzate: v'+$sv) }"
+if errorlevel 1 goto :errore
+
+rem Verifica sintassi di TUTTI i sorgenti PRIMA di sostituire quelli funzionanti.
+set "VELORA_PY="
+if exist ".venv\Scripts\python.exe" set "VELORA_PY=.venv\Scripts\python.exe"
+if not defined VELORA_PY (
+  where py >nul 2>nul
+  if not errorlevel 1 set "VELORA_PY=py -3"
+)
+if not defined VELORA_PY (
+  where python >nul 2>nul
+  if not errorlevel 1 set "VELORA_PY=python"
+)
+if not defined VELORA_PY goto :errore
+echo.
+echo Verifico la sintassi dei moduli PRIMA della sostituzione...
+%VELORA_PY% -c "import ast,pathlib; fs=['local_audit_server.py','browser_audit_pilot.py','site_audit_builder.py','booking_engine.py','velora_quote_history.py','velora_agent_network.py','velora_direct_commercial.py','velora_direct_stays.py','velora_shared_intelligence.py','velora_portal_sessions.py','velora_portal_credentials.py']; [ast.parse(pathlib.Path(f+'.new').read_text(encoding='utf-8-sig'),filename=f) for f in fs]; print('OK: sintassi verificata, aggiornamento consentito')"
 if errorlevel 1 goto :errore
 
 move /Y "local_audit_server.py.new" "local_audit_server.py" >nul
@@ -120,17 +138,7 @@ if exist "__pycache__" (
   del /Q "__pycache__\velora_portal_credentials*.pyc" 2>nul
 )
 
-rem Verifica reale: file scaricati non significa agenti importabili.
-set "VELORA_PY="
-if exist ".venv\Scripts\python.exe" set "VELORA_PY=.venv\Scripts\python.exe"
-if defined VELORA_PY goto :verifica_import
-where py >nul 2>nul
-if not errorlevel 1 set "VELORA_PY=py -3"
-if defined VELORA_PY goto :verifica_import
-where python >nul 2>nul
-if not errorlevel 1 set "VELORA_PY=python"
-:verifica_import
-if not defined VELORA_PY goto :errore_import
+rem Verifica import dopo la sostituzione: i moduli devono essere effettivamente caricabili.
 echo.
 echo Verifico import e registrazione dei 12 agenti e di Giove...
 %VELORA_PY% -c "import velora_agent_network as n; import velora_direct_commercial as d; import velora_direct_stays as ds; import velora_shared_intelligence as m; import velora_portal_sessions as p; import velora_portal_credentials as c; assert hasattr(c,'WindowsPortalVault'); assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
