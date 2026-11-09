@@ -277,8 +277,8 @@ async def _choose_visual_date_field(scope, name):
 
 
 async def _apply_dates(scope, stay):
-    """Identifica date etichettate anche con aria-label, label o data-testid.
-    Funziona sul documento principale e sugli iframe pubblici del booking engine.
+    """Compila check-in/out per date native e calendar widget. Nell'engine
+    visuale seleziona soltanto un giorno del mese/anno esatti.
     """
     controls=await scope.evaluate("""() => {
       const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
@@ -304,23 +304,34 @@ async def _apply_dates(scope, stay):
             label=" ".join(str(row.get(k) or "") for k in ("name","id","placeholder","aria","testid","label"))
             if re.search(pattern,label):
                 candidates.append((i,row))
-        if len(candidates)!=1:
-            return {"applied":False,"reason":(
-                f"Campo {name} non identificabile con certezza "
-                f"({len(candidates)} candidati): verificare il calendario del booking engine")}
-        targets[name]=candidates[0]
+        # In Bedzzle e simili i campi date sono box cliccabili, non input.
+        # Non scegliere un input a caso: il fallback usa il calendario visivo.
+        targets[name]=candidates[0] if len(candidates)==1 else (None,None)
     inputs=scope.locator("input:visible")
     methods=[]
+    chosen_visual=set()
     for name in ("checkin","checkout"):
         index,row=targets[name]
-        field=inputs.nth(index)
         value=stay[name]
         try:
+            if index is None:
+                focused=await _choose_visual_date_field(scope,name)
+                if not focused and name=="checkout":
+                    return {"applied":False,"reason":"Box Check out non identificato: calendario non selezionato"}
+                if not await _select_visual_calendar_date(scope,value):
+                    return {"applied":False,"reason":f"Calendario visuale: {name} {value} non selezionato"}
+                chosen_visual.add(name)
+                methods.append("visual-calendar")
+                continue
+            field=inputs.nth(index)
             if row["readOnly"]:
-                if not await _select_explicit_calendar_date(scope,field,value):
+                selected=await _select_explicit_calendar_date(scope,field,value)
+                if not selected:
+                    selected=await _select_visual_calendar_date(scope,value)
+                if not selected:
                     return {"applied":False,"reason":(
-                        f"Calendario {name}: giorno {value} non selezionabile "
-                        "da attributi di data espliciti")}
+                        f"Calendario {name}: giorno {value} non selezionabile in modo univoco")}
+                chosen_visual.add(name)
                 methods.append("calendar")
             else:
                 if row["type"]!="date":
@@ -335,12 +346,11 @@ async def _apply_dates(scope, stay):
     current=await scope.evaluate("""() => [...document.querySelectorAll('input')]
       .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
       .map(e=>e.value)""")
-    valid=all(_date_is_present(current,stay[name]) for name in ("checkin","checkout"))
-    return {"applied":valid,
-            "method":"/".join(methods),
-            "reason":("Date richieste inserite e lette nuovamente nei campi"
-                      if valid else
-                      "Il booking engine non conferma le date nei propri campi")}
+    valid=all(name in chosen_visual or _date_is_present(current,stay[name])
+              for name in ("checkin","checkout"))
+    return {"applied":valid,"method":"/".join(methods),
+            "reason":("Check-in/out selezionati e confermati dai controlli del booking engine"
+                      if valid else "Il booking engine non conferma check-in/out")}
 
 
 async def _submit_availability_search(scope):
