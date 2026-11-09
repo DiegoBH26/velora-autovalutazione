@@ -9872,7 +9872,12 @@ export default function App() {
       otaId:"sito",platform:"Sito diretto · MASTER",
       presence:(directEngine?.status==="provider_identified"?"present":"unverified"),
       presenceLabel:directEngine?.status==="provider_identified"
-        ? "Booking engine identificato · Leonardo":"Booking engine non verificato",
+        ? "Booking engine identificato · Leonardo"
+        : directEngine?.status==="not_found_in_page"
+          ? "BOOKING ENGINE NON INDIVIDUATO nel campione"
+          : directEngine?.status==="request_only"
+            ? "Solo modulo richiesta · preventivi diretti non disponibili"
+            : "Booking engine non verificato",
       presenceNote:"",url:directEngine?.url||"",
       photosState:directPhotos?.imageCount?"present":"unverified",
       photosLabel:directPhotos?.imageCount
@@ -10037,7 +10042,12 @@ export default function App() {
               <textarea value={answers["audit-booking-engine-evidence"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-evidence", { note: event.target.value })} placeholder="Dove porta Prenota, cosa compare, data della prova, cosa non è stato verificato" className="mt-1 block min-h-[70px] w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
             </label>
             {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-[#D8D3E2] bg-[#F8F6FC] p-3 text-[11px] text-[#23124A]">
-              <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.provider || "Fornitore non identificato"} · {browserPilotResult.bookingEngine.evidence}
+              <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.provider ||
+                (browserPilotResult.bookingEngine.status==="not_found_in_page"
+                  ? "BOOKING ENGINE NON RILEVATO nel campione del sito"
+                  : browserPilotResult.bookingEngine.status==="request_only"
+                    ? "Solo modulo di richiesta · nessun booking engine di prezzi e disponibilità"
+                    : "Fornitore non identificato")} · {browserPilotResult.bookingEngine.evidence}
               {browserPilotResult.directBookingVerification && <p className="mt-2">
                 Pagina booking engine: {browserPilotResult.directBookingVerification.navigation === "reached" ? "raggiunta" : "non verificata"} ·
                 Date: {browserPilotResult.directBookingVerification.controls?.dates ? "controlli rilevati" : "non confermate"} ·
@@ -10202,7 +10212,7 @@ export default function App() {
             <div className="border-b border-[#E5DDF1] bg-[#F8F5FC] p-4">
               <h4 className="text-sm font-black text-[#23124A]">Barra delle asimmetrie · Sito diretto MASTER · Booking riferimento tra OTA</h4>
               <p className="mt-1 text-[11px] leading-5 text-[#50627F]">
-                Il <b>sito diretto è il master commerciale</b> per tutti i canali. <b>Booking</b> resta il master delle date e del confronto fra OTA. Per ogni canale: presenza scheda, fotografie, tipologie quotate, tariffe rispetto a Booking e tariffe rispetto al sito diretto.
+                Il <b>sito diretto è il master commerciale</b> per tutti i canali. <b>Booking</b> è il primo confronto del diretto e determina le date comuni alle altre OTA. Per ogni canale: presenza scheda, fotografie, tipologie, tariffe e corrispondenza camere rispetto al diretto. Una camera vendibile sul diretto ma non trovata su una OTA richiede verifica delle stesse date, ospiti e unità fisica.
                 Il verde indica un riscontro positivo nel campione, il rosso una criticità rilevata, l'ambra un dato incompleto e il grigio una verifica ancora impossibile.
               </p>
               <p className="mt-1 text-[10px] font-semibold text-[#64748B]">
