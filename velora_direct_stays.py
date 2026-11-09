@@ -101,73 +101,165 @@ async def _form_diagnostic(page):
     except Exception:
         return {"fieldSamples":[],"searchActions":[],"dateWidgets":0}
 
-async def _select_explicit_calendar_date(page, field, iso):
-    """Solo giorno con attributo ISO esplicito; mai click su date presunte."""
-    y,m,d=iso.split("-")
-    candidates=[
+def _date_renderings(iso):
+    """Formati espliciti ammessi per verificare giorno, mese e anno, mai date dedotte."""
+    value=date.fromisoformat(iso)
+    d,m,y=value.day,value.month,value.year
+    months_it=("gennaio","febbraio","marzo","aprile","maggio","giugno",
+               "luglio","agosto","settembre","ottobre","novembre","dicembre")
+    months_en=("january","february","march","april","may","june",
+               "july","august","september","october","november","december")
+    return (iso,f"{d:02d}/{m:02d}/{y}",f"{d}/{m}/{y}",
+            f"{d:02d}-{m:02d}-{y}",f"{d} {months_it[m-1]} {y}",
+            f"{d} {months_en[m-1]} {y}",f"{months_en[m-1]} {d}, {y}")
+
+
+def _date_is_present(values, iso):
+    tokens=[str(v or "").strip().lower() for v in values]
+    return any(form.lower() in tokens for form in _date_renderings(iso))
+
+
+async def _select_explicit_calendar_date(scope, field, iso):
+    """Seleziona un giorno con identificatore completo e avanza solo se il controllo
+    'mese successivo' è univoco. Non clicca mai un semplice numero di giorno.
+    """
+    day=date.fromisoformat(iso)
+    css=[
         f'[data-date="{iso}"]',f'[data-day="{iso}"]',
         f'[data-value="{iso}"]',f'[datetime="{iso}"]',
         f'[aria-label="{iso}"]',f'[title="{iso}"]',
-        f'[aria-label="{d}/{m}/{y}"]',
+        f'[aria-label="{day.day:02d}/{day.month:02d}/{day.year}"]',
+        f'[aria-label="{day.day}/{day.month}/{day.year}"]',
     ]
+    for text in _date_renderings(iso)[4:]:
+        css.extend((f'[aria-label="{text}"]',f'[title="{text}"]'))
     try:
-        await field.click(timeout=1800)
-        await page.wait_for_timeout(200)
-        for selector in candidates:
-            nodes=page.locator(selector)
-            if await nodes.count()==1 and await nodes.first.is_visible():
-                await nodes.first.click(timeout=2200)
-                return True
+        await field.click(timeout=3000)
+        await asyncio.sleep(0.2)
+        for _ in range(15):
+            for selector in css:
+                nodes=scope.locator(selector)
+                if await nodes.count()==1 and await nodes.first.is_visible():
+                    await nodes.first.click(timeout=2800)
+                    return True
+            # Calendari lunghi (es. agosto 2027): avanti un mese per volta.
+            # Mai avanzare se l'interfaccia presenta più frecce non distinguibili.
+            next_buttons=scope.get_by_role("button",name=re.compile(
+                r"^(?:mese successivo|next month|mese seguente|"
+                r"successivo mese|next calendar month)$",re.I))
+            if await next_buttons.count()!=1:
+                break
+            await next_buttons.first.click(timeout=2500)
+            await asyncio.sleep(0.12)
     except Exception:
         pass
     return False
 
-async def _apply_dates(page, stay):
-    """Date input native: no guessing in datepicker widgets."""
-    controls=await page.evaluate("""() => {
-      const all=[...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length);
-      return all.map(e=>({name:(e.name||'').toLowerCase(),id:(e.id||'').toLowerCase(),
-        placeholder:(e.placeholder||'').toLowerCase(),type:e.type,value:e.value})).slice(0,100);
+
+async def _apply_dates(scope, stay):
+    """Identifica date etichettate anche con aria-label, label o data-testid.
+    Funziona sul documento principale e sugli iframe pubblici del booking engine.
+    """
+    controls=await scope.evaluate("""() => {
+      const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+      return [...document.querySelectorAll('input')].filter(visible).slice(0,100).map(e=>({
+        name:(e.name||'').toLowerCase(),id:(e.id||'').toLowerCase(),
+        placeholder:(e.placeholder||'').toLowerCase(),type:(e.type||'').toLowerCase(),
+        aria:(e.getAttribute('aria-label')||'').toLowerCase(),
+        testid:(e.getAttribute('data-testid')||'').toLowerCase(),
+        label:([...e.labels].map(l=>l.innerText||'').join(' ')||
+          e.closest('label')?.innerText||'').toLowerCase().slice(0,120),
+        value:e.value,readOnly:Boolean(e.readOnly)
+      }));
     }""")
+    patterns={
+        "checkin":r"check[\s_-]?in|arriv|data[\s_-]?(?:dal|inizio|ingresso)|start[\s_-]?date|from[\s_-]?date|entry[\s_-]?date|ingresso",
+        "checkout":r"check[\s_-]?out|partenz|data[\s_-]?(?:al|fine|uscita)|end[\s_-]?date|to[\s_-]?date|departure|uscita",
+    }
     targets={}
-    for i,row in enumerate(controls):
-        label=" ".join([row["name"],row["id"],row["placeholder"]])
-        if row["type"]=="date" and re.search(r"check.?in|arriv|start|from|entrata",label):targets["checkin"]=i
-        elif row["type"]=="date" and re.search(r"check.?out|partenz|end|to|uscita",label):targets["checkout"]=i
-    # Testo data esplicitamente etichettato, se il booking engine non usa input date.
-    modes={"checkin":"date","checkout":"date"}
-    if len(targets)!=2:
-        targets={}
+    for name,pattern in patterns.items():
+        candidates=[]
         for i,row in enumerate(controls):
-            label=" ".join([row["name"],row["id"],row["placeholder"]])
-            if row["type"] not in ("text","search","tel"):continue
-            if re.search(r"check.?in|arriv|data di ingresso|start.date",label):
-                targets["checkin"]=i;modes["checkin"]="text"
-            elif re.search(r"check.?out|partenz|data di uscita|end.date",label):
-                targets["checkout"]=i;modes["checkout"]="text"
-    if len(targets)!=2:return {"applied":False,"reason":"Selettore date personalizzato o campi non riconosciuti"}
-    inputs=page.locator("input:visible")
-    # Only explicitly identified date controls: never submit checkout/payment.
-    for name,index in targets.items():
-        value=stay[name]
-        if modes[name]=="text":
-            year,month,day=value.split("-")
-            value=f"{day}/{month}/{year}"
+            if row["type"] not in ("date","text","search","tel"):continue
+            label=" ".join(str(row.get(k) or "") for k in ("name","id","placeholder","aria","testid","label"))
+            if re.search(pattern,label):
+                candidates.append((i,row))
+        if len(candidates)!=1:
+            return {"applied":False,"reason":(
+                f"Campo {name} non identificabile con certezza "
+                f"({len(candidates)} candidati): verificare il calendario del booking engine")}
+        targets[name]=candidates[0]
+    inputs=scope.locator("input:visible")
+    methods=[]
+    for name in ("checkin","checkout"):
+        index,row=targets[name]
         field=inputs.nth(index)
-        if await field.get_attribute("readonly") is not None:
-            selected=await _select_explicit_calendar_date(page,field,stay[name])
-            if not selected:
-                return {"applied":False,"reason":"Calendario personalizzato: giorno richiesto non identificabile con certezza"}
-        else:
-            await field.fill(value,timeout=4500)
-            await field.press("Tab",timeout=2500)
-    await page.wait_for_timeout(250)
-    actual=await page.evaluate("""() => [...document.querySelectorAll('input')].filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length).map(e=>e.value)""")
-    def has_date(key):
-        y,m,d=stay[key].split("-")
-        return any(v in actual for v in (stay[key],f"{d}/{m}/{y}"))
-    valid=has_date("checkin") and has_date("checkout")
-    return {"applied":valid,"reason":"Date inserite e confermate" if valid else "Le date sono state modificate o rifiutate dal booking engine"}
+        value=stay[name]
+        try:
+            if row["readOnly"]:
+                if not await _select_explicit_calendar_date(scope,field,value):
+                    return {"applied":False,"reason":(
+                        f"Calendario {name}: giorno {value} non selezionabile "
+                        "da attributi di data espliciti")}
+                methods.append("calendar")
+            else:
+                if row["type"]!="date":
+                    y,m,d=value.split("-")
+                    value=f"{d}/{m}/{y}"
+                await field.fill(value,timeout=4500)
+                await field.press("Tab",timeout=2500)
+                methods.append(row["type"])
+        except Exception as exc:
+            return {"applied":False,"reason":f"Campo {name} non compilato: {type(exc).__name__}"}
+    await asyncio.sleep(0.2)
+    current=await scope.evaluate("""() => [...document.querySelectorAll('input')]
+      .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
+      .map(e=>e.value)""")
+    valid=all(_date_is_present(current,stay[name]) for name in ("checkin","checkout"))
+    return {"applied":valid,
+            "method":"/".join(methods),
+            "reason":("Date richieste inserite e lette nuovamente nei campi"
+                      if valid else
+                      "Il booking engine non conferma le date nei propri campi")}
+
+
+async def _submit_availability_search(scope):
+    """Esegue soltanto la CTA esplicita di ricerca, mai prenota/checkout/paga."""
+    selector="button:visible,input[type=submit]:visible,[role=button]:visible,a[href]:visible"
+    controls=scope.locator(selector)
+    matched=[]
+    pattern=re.compile(
+        r"^(?:cerca(?: (?:la )?disponibilit[aà]| camere| alloggi| prezzi| ora)?|"
+        r"search(?: availability| rooms| rates)?|"
+        r"verifica(?: (?:la )?disponibilit[aà]| prezzi| tariffe)?|"
+        r"controlla disponibilit[aà]|vedi disponibilit[aà]|"
+        r"check availability|show availability|"
+        r"mostra (?:disponibilit[aà]|risultati|prezzi|camere|tariffe)|"
+        r"visualizza (?:camere|prezzi|disponibilit[aà])|"
+        r"show (?:results|rooms|prices|rates)|find (?:rooms|rates))"
+        r"(?:\s*[›»→])?$",re.I)
+    for i in range(min(await controls.count(),120)):
+        el=controls.nth(i)
+        try:
+            label=(await el.evaluate("""e=>(e.innerText||
+              e.getAttribute('aria-label')||e.value||e.title||'')
+              .replace(/\s+/g,' ').trim()"""))
+            if not pattern.fullmatch(label):continue
+            if not await el.is_enabled():continue
+            matched.append((el,label))
+        except Exception:
+            continue
+    if len(matched)!=1:
+        return {"submitted":False,"reason":(
+            "Nessun pulsante univoco per la ricerca disponibilità "
+            f"({len(matched)} azioni compatibili); non clicco 'Prenota' o 'Paga'.")}
+    button,label=matched[0]
+    try:
+        await button.click(timeout=6000)
+        return {"submitted":True,"action":label,"reason":"Ricerca disponibilità inviata"}
+    except Exception as exc:
+        return {"submitted":False,"reason":f"Invio ricerca non riuscito: {type(exc).__name__}"}
+
 
 async def _apply_guests(page, adults):
     """Prova soltanto controlli nativi esplicitamente etichettati adulti/ospiti."""
