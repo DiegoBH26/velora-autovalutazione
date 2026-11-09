@@ -234,11 +234,11 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn('specialized=await _apply_bedzzle_dates(scope,stay)',body)
         self.assertIn('generic=await _apply_dates_generic(scope,stay)',body)
         navigation=inspect.getsource(module._bedzzle_navigate_calendar)
-        self.assertIn("changeYear=year!==target.year",navigation)
-        self.assertIn("previous=(year,month,state[\"kind\"]",navigation)
-        self.assertIn("getUTCDay()+6",navigation)
-        self.assertIn("data-velora-bedzzle-date",navigation)
-        self.assertIn("cal.root",navigation)
+        self.assertIn("name=\"Next Year\" if wanted.year>year",navigation)
+        self.assertIn('name="Next Month" if wanted.month>month',navigation)
+        self.assertIn("_bedzzle_named_calendar_day(scope,iso,state[\"gridBounds\"])",navigation)
+        self.assertIn("data-velora-bedzzle-named-arrow",navigation)
+        self.assertIn("data-velora-bedzzle-day",navigation)
         async def focus(scope,name):
             return {"found":True,"displayed":"09/11/2026"}
         async def select(scope,iso,trace):
@@ -273,7 +273,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         tree=ast.parse((ROOT/"velora_direct_stays.py").read_text(encoding="utf-8"))
         scripts=[n.value for n in ast.walk(tree)
                  if isinstance(n,ast.Constant) and isinstance(n.value,str)
-                 and "data-velora-bedzzle-date" in n.value and "const MONTHS=" in n.value]
+                 and "data-velora-bedzzle-named-arrow" in n.value and "const names=" in n.value]
         self.assertEqual(len(scripts),1)
         script=scripts[0]
         self.assertNotIn("\x08",script)
