@@ -9648,9 +9648,53 @@ export default function App() {
       count: allRows.filter(({ item }) => answers[item.id]?.auditStatus === option.value).length,
     }));
 
-    // Four independent frontend signals. Booking is the reference, never a row.
-    // Absence in one search is a finding, not proof that the listing does not exist.
-    const otaAsymmetryRows = pricingAccordionIds.filter(otaId=>otaId!=="booking").map(otaId=>{
+    // Il diretto e' la fonte commerciale master; Booking e' il riferimento
+    // per le date e per il confronto fra le OTA. Nessun prezzo non verificato
+    // viene promosso a delta, ne' un nome camera prova la stessa unita' fisica.
+    const directAudit = browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.directCommercialAudit : undefined;
+    const directEngine = browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.bookingEngine : undefined;
+    const directPhotos = browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.photoAudit : undefined;
+    const verifiedDirectRates = (directAudit?.verifiedQuotes||[]).filter(q=>
+      q.verified===true && Number.isFinite(q.total) && q.total>0 && q.nights>0 && q.guests>0);
+    const directVisibleCandidates = (directAudit?.samples||[]).flatMap(sample=>
+      (sample.quotes||[]).map(quote=>({sample,quote})));
+    const directRateComparisonFor = (otaId:string) => {
+      const channelRates=rateQuotes.filter(q=>q.otaId===otaId && q.pilotVerified===true
+        && q.total>0 && q.referenceRoomKey);
+      const matched=verifiedDirectRates.flatMap(direct=>{
+        // L'identita' della stessa stanza non puo' essere dedotta dal nome.
+        // Richiede il referenceRoomKey esplicito in ENTRAMBI i canali.
+        const reference=(direct as typeof direct & {referenceRoomKey?:string}).referenceRoomKey;
+        if(!reference)return [];
+        return channelRates.filter(ota=>
+          ota.referenceRoomKey===reference &&
+          ota.stayDate===direct.checkin && ota.nights===direct.nights &&
+          ota.guests===direct.guests &&
+          normalizedRateToken(ota.board)===normalizedRateToken(direct.board) &&
+          normalizedRateToken(ota.refund)===normalizedRateToken(direct.refund) &&
+          normalizedRateToken(ota.taxes)===normalizedRateToken(direct.taxes) &&
+          normalizedRateToken(ota.audience)===normalizedRateToken(direct.audience))
+          .map(ota=>({ota,direct,delta:(ota.total/direct.total-1)*100}));
+      });
+      return {
+        state:matched.length ? matched.some(v=>Math.abs(v.delta)>=0.01)?"missing":"present":"unverified",
+        label:matched.length
+          ? matched.length+" preventivi omogenei · "+
+            (matched.some(v=>Math.abs(v.delta)>=0.01)?"differenza dal diretto":"prezzi allineati al diretto")
+          : !verifiedDirectRates.length
+            ? "Leonardo: nessun preventivo diretto verificato"
+            : channelRates.length
+              ? "Diretto e OTA rilevati · abbinamento stessa unità da confermare"
+              : "Nessuna tariffa OTA confrontabile con il diretto",
+        matched
+      };
+    };
+    // Booking resta una riga OTA; tutte le OTA hanno un confronto aggiuntivo
+    // con il diretto. L'assenza di una scheda non prova che non esista.
+    const otaAsymmetryRows = pricingAccordionIds.map(otaId=>{
       const platform=activeAuditData.otaPresence.find(item=>item.id===otaId)?.platform
         || PILOT_OTA_LABELS[otaId] || otaId;
       const manual=answers["audit-ota-"+otaId];
@@ -9743,16 +9787,19 @@ export default function App() {
       const differentPrices=matchedPrices.filter(row=>Math.abs(row.delta)>=0.01);
       const priceState=matchedPrices.length
         ? differentPrices.length?"missing":"present" : "unverified";
-      const priceLabel=matchedPrices.length
+      const priceLabel=otaId==="booking"?"Riferimento prezzi tra OTA · vedi colonna Diretto"
+        : matchedPrices.length
         ? differentPrices.length
           ? differentPrices.length+" / "+matchedPrices.length+" prezzi diversi da Booking"
           : matchedPrices.length+" prezzi comparabili · nessun delta"
         : otaQuotes.length
           ? otaQuotes.length+" preventivi letti · condizioni/unità da abbinare"
           : "Nessun prezzo comparabile acquisito";
+      const directComparison=directRateComparisonFor(otaId);
       return {
         otaId,platform,presence,presenceLabel,presenceNote:manual?.note||"",
         photosState,photosLabel,roomState,roomLabel,priceState,priceLabel,
+        directComparison,
         roomCount:otaRoomCount,bookingRoomCount,sharedStay,
         photoSource:photoPair?"Confronto Giove (foto caricate, non equivalenza immagini)":snapshot?.sourceUrl||"",
         url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||
