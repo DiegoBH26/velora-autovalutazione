@@ -10487,8 +10487,8 @@ export default function App() {
                   </div>
                   <div className="space-y-5">
                     {([
-                      {id:"access",title:"Agenti con accesso",subtitle:"Expedia, Vrbo e Holidu · schede operative allineate"},
-                      {id:"standard",title:"Altri agenti",subtitle:"OTA, sito diretto e recensioni · schede compatte"}
+                      {id:"standard",title:"1 · Leonardo MASTER → Booking → altre OTA",subtitle:"Sito diretto prima di Booking; recensioni indipendenti"},
+                      {id:"access",title:"2 · Agenti con accesso",subtitle:"Expedia, Vrbo e Holidu · schede operative allineate"}
                     ] as const).map(group=>(
                       <section key={group.id} className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
