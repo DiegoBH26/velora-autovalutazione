@@ -497,7 +497,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             except (OSError,ValueError,TypeError):
                 pass
         direct_stays={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
-        if (direct_verification.get("navigation")=="reached" and audit.get("bookingEngine",{}).get("url"):
+        if (direct_verification.get("navigation")=="reached" and audit.get("bookingEngine",{}).get("url")):
             try:
                 direct_stays=await probe_direct_stays(
                     audit["bookingEngine"]["url"], booking_windows, limit=4)
