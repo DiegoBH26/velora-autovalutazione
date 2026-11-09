@@ -1259,7 +1259,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
             "Booking engine non analizzabile: accesso robots.txt negato o non verificabile.")
         return result
     async with async_playwright() as pw:
-        browser=await pw.chromium.launch(channel="chrome",headless=bool(ghost))
+        browser=await pw.chromium.launch(channel="chrome",headless=bool(ghost),
+                                         slow_mo=(180 if not ghost else 0))
         try:
             context=await browser.new_context(
                 locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
@@ -1317,8 +1318,11 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                                     sample["controls"]=applied
                                     break
                             except Exception as exc:
+                                diagnostic=re.sub(r"(?i)(apikey|token|session)=[^&\s]+",
+                                                  r"\1=[redacted]",str(exc))
                                 attempts.append({"frameUrl":scope.url.split("?")[0][:220],
-                                                 "error":type(exc).__name__})
+                                                 "error":type(exc).__name__+
+                                                    ": "+diagnostic[:180]})
                         sample["dateAttempts"]=attempts[:12]
                         if active is None:
                             sample["status"]="dates_not_selectable"
@@ -1329,6 +1333,11 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                                 "Ricerca NON eseguita: non è stato possibile selezionare check-in e check-out.")
                             sample["evidence"].extend(
                                 "Calendario: "+reason for reason in reasons if reason)
+                            if not ghost:
+                                # In visual mode leave the failed calendar visible
+                                # long enough to see which control was not clicked.
+                                try:await engine_page.wait_for_timeout(3500)
+                                except Exception:pass
                             if (urlparse(url).hostname or "").lower()=="booking.bedzzle.com":
                                 # Le altre settimane hanno lo stesso calendario:
                                 # non ripetere la medesima selezione fallita.
@@ -1449,8 +1458,12 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                                     "Prezzi osservati ma non ancora confrontabili: "
                                     "verificare totale soggiorno e condizioni mancanti.")
                 except Exception as exc:
-                    sample["status"]="navigation_error"
-                    sample["evidence"].append("Ricerca non completata: "+type(exc).__name__)
+                    sample["status"]="technical_error"
+                    diagnostic=re.sub(r"(?i)(apikey|token|session)=[^&\s]+",
+                                      r"\1=[redacted]",str(exc))
+                    sample["evidence"].append(
+                        "Errore tecnico ricerca date: "+type(exc).__name__+
+                        " · "+diagnostic[:220])
                 finally:
                     for additional in list(context.pages):
                         if additional != page:
