@@ -31,6 +31,7 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 import browser_audit_pilot as browser_pilot
+import velora_direct_stays as leonardo_direct_engine
 try:
     from velora_portal_sessions import ManualPortalSessions, PORTALS as LOGIN_PORTALS
 except ImportError:
@@ -1466,6 +1467,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "onlineBridge":True,
                 "autoAudit":True,
                 "agentVersion":"velora-local-agent-v125",
+                "leonardoBuild":getattr(leonardo_direct_engine,"LEONARDO_BUILD","legacy"),
                 "catalog":catalog_public_summary(),
                 "pilotBuild":getattr(browser_pilot,"PILOT_BUILD","legacy"),
                 "pilotSync":getattr(browser_pilot,"PILOT_BUILD","legacy")==EXPECTED_PILOT_BUILD,
