@@ -540,6 +540,8 @@ async def _bedzzle_navigate_calendar(scope, iso, trace):
                 trace.append(state.get("reason","Comandi mese/anno non riconosciuti"))
                 return False
             year,month=int(state["year"]),int(state["month"])
+            if not any("comandi Previous/Next" in entry for entry in trace):
+                trace.append("Bedzzle: comandi Previous/Next Month e Year riconosciuti")
             if (year,month)==(wanted.year,wanted.month):
                 day=await _bedzzle_named_calendar_day(scope,iso,state["gridBounds"])
                 if not day.get("found"):
@@ -603,6 +605,7 @@ async def _apply_bedzzle_dates(scope, stay):
         trace.append("Bedzzle: aperto "+name+" ("+str(focus.get("displayed") or "")+")")
         if not await _bedzzle_navigate_calendar(scope,stay[name],trace):
             return {"applied":False,
+                    "namedControls":any("comandi Previous/Next" in step for step in trace),
                     "reason":"Bedzzle: calendario "+name+" non impostato; "+ " | ".join(trace[-3:]),
                     "trace":trace[-19:]}
         await asyncio.sleep(0.28)
@@ -801,6 +804,10 @@ async def _apply_dates(scope, stay):
     if "booking.bedzzle.com" in str(getattr(scope,"url","")).lower():
         specialized=await _apply_bedzzle_dates(scope,stay)
         if specialized.get("applied"):
+            return specialized
+        # If Bedzzle exposes its four labeled arrow buttons, never revert
+        # to guessing an unlabeled nearby arrow (the verified r5 failure).
+        if specialized.get("namedControls"):
             return specialized
         try:
             generic=await _apply_dates_generic(scope,stay)
