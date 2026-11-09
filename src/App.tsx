@@ -6478,9 +6478,12 @@ export default function App() {
                 if(agentId==="official_site"){
                   const commercial=specialistPartial.directCommercialAudit;
                   setSpecialistMessage((commercial?.searchedTotal||0)>0
-                    ? (commercial?.verifiedQuotes?.length
-                      ? "Leonardo: date e disponibilità cercate; preventivi diretti acquisiti. Verifica il confronto OTA."
-                      : "Leonardo: ricerca date inviata, ma tariffe non ancora verificabili. Controlla i dettagli commerciali.")
+                    ? (commercial?.observedRoomPrices?.length
+                      ? "Leonardo: " + commercial.observedRoomPrices.length +
+                        " prezzi delle camere letti dopo la ricerca. Apri Audit commerciale per il dettaglio."
+                      : commercial?.verifiedQuotes?.length
+                        ? "Leonardo: preventivi diretti verificati. Ora è possibile confrontare le OTA."
+                        : "Leonardo: ricerca inviata, ma nessun prezzo camera acquisito. Controlla il motivo.")
                     : "ATTENZIONE Leonardo: booking engine esaminato, ma nessuna ricerca date e tariffe eseguita. Apri Audit commerciale per il motivo; non considerarlo completato."); 
                 }
               } else {
@@ -10097,7 +10100,7 @@ export default function App() {
               </p>}
             </div>}
           </section>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
+          <details open className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
             <div className="space-y-3 px-4 pb-4 text-xs text-[#23124A]">
               <p className="text-[#50627F]">Leonardo lavora per primo sulle date del periodo scelto e cerca prezzi e disponibilità nel booking engine del sito diretto. Booking verifica successivamente gli stessi soggiorni e guida il confronto con le altre OTA. Un importo generico non è un preventivo verificato.</p>
@@ -10120,7 +10123,10 @@ export default function App() {
                       missing_direct_dates:"Date e ospiti da selezionare",
                       search_not_executed:"ATTENZIONE: nessuna ricerca date e tariffe realmente eseguita",
                       search_executed_dates_unconfirmed:"Ricerca inviata, date da confermare nel risultato",
-                      search_executed_rates_unverified:"Ricerca eseguita, tariffe e condizioni da verificare",
+                      search_executed_rates_unverified:"Ricerca eseguita, ma nessun prezzo camera verificato",
+                      room_prices_observed:"Camere e prezzi acquisiti dal booking engine",
+                      room_prices_observed_context_unconfirmed:"Prezzi delle camere acquisiti, date o occupazione da confermare",
+                      unavailable_reported:"Nessuna camera disponibile secondo il booking engine",
                       robots_unverified:"Accesso al booking engine non consentito o non verificabile",
                       verified_rates:"Preventivi diretti verificati",
                       samples_observed:"Ricerca parziale, preventivi da verificare"
