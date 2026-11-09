@@ -722,10 +722,18 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
         try:
             context=await browser.new_context(
                 locale="it-IT",timezone_id="Europe/Rome",accept_downloads=False)
+            blocked_status=None
             for stay in stays:
                 sample={**stay,"status":"not_verified","sourceUrl":url.split("?")[0],"quotes":[],
                         "availability":"not_verified","searchSubmitted":False,
                         "evidence":[]}
+                if blocked_status is not None:
+                    sample["status"]="access_blocked"
+                    sample["evidence"].append(
+                        "Ricerca sospesa dopo HTTP "+str(blocked_status)+
+                        " del booking engine. Non riprovo le altre date per evitare richieste ripetute.")
+                    result["samples"].append(sample)
+                    continue
                 page=await context.new_page()
                 try:
                     engine_page,navigation=await _navigate_booking_engine(
@@ -738,6 +746,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                         if navigation.get("httpStatus") is not None:
                             sample["evidence"].append(
                                 "Codice HTTP: "+str(navigation["httpStatus"]))
+                            if navigation["httpStatus"] in (401,403,429):
+                                blocked_status=navigation["httpStatus"]
                     else:
                         sample["evidence"].append(
                             "Apertura booking engine: "+navigation["openingMethod"]+".")
