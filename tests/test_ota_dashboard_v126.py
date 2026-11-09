@@ -14,7 +14,10 @@ class OtaDashboardContracts(unittest.TestCase):
         self.assertIn('min-h-[110px]',APP)
         self.assertIn('group.id==="access"',APP)
         self.assertIn('Agenti con accesso',APP)
-        self.assertIn('Altri agenti',APP)
+        self.assertIn('1 · Leonardo MASTER → Booking → altre OTA',APP)
+        self.assertIn('2 · Agenti con accesso',APP)
+        self.assertLess(APP.index('{id:"standard",title:"1 · Leonardo MASTER'),
+                        APP.index('{id:"access",title:"2 · Agenti con accesso'))
         self.assertIn('Come funzionano gli accessi Expedia, Vrbo e Holidu',APP)
         self.assertIn("Accessi, credenziali e test avanzati",APP)
         self.assertIn("Expedia · risultati acquisiti",APP)
