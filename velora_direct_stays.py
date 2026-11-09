@@ -181,7 +181,9 @@ async def _select_visual_calendar_date(scope, iso):
           const leafs=root=>[...root.querySelectorAll('span,a,button,td,div,[role=gridcell]')]
              .filter(e=>visible(e) && txt(e).length<35 && e.children.length<4);
           const guessMonth=s=>{
-            s=(s||'').toLowerCase().trim();
+            s=(s||'').toLowerCase().trim().replace(/\s+20\d{2}$/,'');
+            // Bedzzle può rendere "Nov" e "2026" in due celle, oppure
+            // "Nov 2026" in un unico titolo del calendario.
             for(let i=0;i<12;i++) if(MONTHS[i].some(m=>s===m)) return i+1;
             return 0;
           };
@@ -200,9 +202,12 @@ async def _select_visual_calendar_date(scope, iso):
             if(days.length<20) continue;
             const months=leaves.filter(e=>guessMonth(txt(e)));
             const years=leaves.filter(e=>/^20\d{2}$/.test(txt(e)));
-            if (!months.length||!years.length) continue;
-            const m=months[0], y=years[0];
-            const month=guessMonth(txt(m)), year=Number(txt(y));
+            const combined=leaves.filter(e=>guessMonth(txt(e)) && /\b20\d{2}$/.test(txt(e)));
+            const m=months[0]||combined[0], y=years[0]||combined[0];
+            if (!m || !y) continue;
+            const month=guessMonth(txt(m));
+            const year=Number((txt(y).match(/\b20\d{2}\b/)||[])[0]||0);
+            if(!month||!year)continue;
             options.push({root,leaves,days,m,y,month,year,area:root.getBoundingClientRect().width*
               root.getBoundingClientRect().height});
           }
