@@ -10128,6 +10128,7 @@ export default function App() {
                       <b>{sample.checkin} → {sample.checkout}</b> · {sample.nights} notti · {sample.guests} ospiti
                       <p className="mt-1">Esito: {sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
                         sample.status==="dates_not_selectable"?"Calendario non gestibile automaticamente":
+                        sample.status==="date_inputs_observed_no_search"?"Date inserite ma ricerca di disponibilità non avviata":
                         sample.status==="dates_unconfirmed"?"Date non confermate dopo ricerca":
                         "Verifica non completata"}</p>
                       <p className="mt-1 text-[#50627F]">Disponibilità: {sample.availability==="unavailable_reported"?"Indisponibilità dichiarata dal sito diretto":
