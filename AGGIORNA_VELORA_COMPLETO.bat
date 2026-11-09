@@ -100,7 +100,7 @@ if errorlevel 1 goto :errore
 
 rem Leonardo ha una versione indipendente: la vecchia sigla v125 non basta.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$f=Get-Content 'velora_direct_stays.py.new' -Raw; if($f -notmatch 'LEONARDO_BUILD\s*=\s*.+direct-engine-cta-httpdiag-20261109-r1'){ Write-Host 'ERRORE: motore Leonardo non aggiornato. Non sostituisco i file.'; exit 2 } else { Write-Host 'OK: motore Leonardo aggiornato.' }"
+  "$f=Get-Content 'velora_direct_stays.py.new' -Raw; if($f -notmatch 'LEONARDO_BUILD\s*=\s*.+direct-engine-calendar-20261109-r2'){ Write-Host 'ERRORE: motore Leonardo non aggiornato. Non sostituisco i file.'; exit 2 } else { Write-Host 'OK: motore Leonardo aggiornato.' }"
 if errorlevel 1 goto :errore
 
 rem Verifica sintassi di TUTTI i sorgenti PRIMA di sostituire quelli funzionanti.
