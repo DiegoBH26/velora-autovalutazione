@@ -1189,6 +1189,48 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
     return page,diagnostic
 
 
+async def _wait_for_booking_search_form(page, *, seconds=13):
+    """Wait until the SPA renders arrival/departure fields.
+
+    Navigation success alone is not proof that Bedzzle mounted its widget.
+    """
+    loop=asyncio.get_running_loop()
+    deadline=loop.time()+seconds
+    last={"ready":False,"reason":"Modulo non ancora renderizzato"}
+    while loop.time()<deadline:
+        for frame in list(page.frames):
+            try:
+                state=await frame.evaluate(r"""() => {
+                  const visible=e=>{
+                    const r=e.getBoundingClientRect();
+                    return r.width>0&&r.height>0;
+                  };
+                  const inputs=[...document.querySelectorAll('input,select,button,[role=button]')]
+                     .filter(visible).slice(0,100);
+                  const labels=inputs.map(e=>[
+                    e.getAttribute('placeholder'),e.getAttribute('aria-label'),
+                    e.getAttribute('name'),e.id,e.textContent
+                  ].filter(Boolean).join(' ').slice(0,130)).join(' ').toLowerCase();
+                  const body=(document.body?.innerText||'').slice(0,10000).toLowerCase();
+                  const merged=labels+' '+body;
+                  const checkin=/check[\s-]?in|arriv|arrival|inizio soggiorno/.test(merged);
+                  const checkout=/check[\s-]?out|partenz|departure|fine soggiorno/.test(merged);
+                  return {ready:checkin&&checkout,checkin,checkout,
+                    controls:inputs.length,readyState:document.readyState,
+                    title:document.title?.slice(0,80)||''};
+                }""")
+                state["frameUrl"]=frame.url.split("?")[0][:160]
+                if state.get("ready"):
+                    return state
+                if state.get("controls",0)>last.get("controls",0):
+                    last=state
+            except Exception:
+                continue
+        await page.wait_for_timeout(450)
+    last["reason"]="Il booking engine si apre, ma il modulo Data arrivo/partenza non diventa pronto."
+    return last
+
+
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
 
@@ -1252,11 +1294,17 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                     else:
                         sample["evidence"].append(
                             "Apertura booking engine: "+navigation["openingMethod"]+".")
-                        await engine_page.wait_for_timeout(1200)
+                        readiness=await _wait_for_booking_search_form(engine_page)
+                        sample["formReadiness"]=readiness
+                        if not readiness.get("ready"):
+                            sample["evidence"].append(readiness.get("reason") or "Modulo non pronto")
                         # I booking engine sono spesso in iframe cross-origin:
                         # Playwright vi accede con gli stessi controlli dell'utente.
-                        scopes=[engine_page.main_frame]+[frame for frame in engine_page.frames
-                            if frame!=engine_page.main_frame and frame.url.startswith(("https://","http://"))]
+                        scopes=([frame for frame in engine_page.frames if
+                            frame.url.split("?")[0]==readiness.get("frameUrl")]
+                            +[frame for frame in engine_page.frames
+                              if frame.url.split("?")[0]!=readiness.get("frameUrl")])
+                        scopes=[frame for frame in scopes if frame.url.startswith(("https://","http://"))]
                         attempts=[]
                         active=None
                         for scope in scopes:
