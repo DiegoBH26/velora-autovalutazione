@@ -11,14 +11,26 @@ class AccountLaunchGuard(unittest.TestCase):
         cls.frontend=(ROOT/"src/App.tsx").read_text(encoding="utf-8")
         cls.server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
 
-    def test_all_account_agents_preflight_before_batch_progress(self):
+    def test_batch_starts_direct_master_before_booking_without_global_login_gate(self):
         app=self.frontend
         begin=app.index("async function launchAgentBatch(")
-        end=app.index("async function validateSpecialistNetwork()",begin)
+        end=app.index("async function loadAgentChat(",begin)
         batch=app[begin:end]
+        # Expedia/Vrbo/Holidu authentication must not block Leonardo or Booking.
+        # Every account specialist is checked independently by startSpecialistAgent.
+        self.assertNotIn("await requireSpecialistAccountProfiles(ids)",batch)
         self.assertLess(
-            batch.index("await requireSpecialistAccountProfiles(ids)"),
+            batch.index('await startSpecialistAgent("official_site"'),
+            batch.index('await startSpecialistAgent("booking"')
+        )
+        self.assertLess(
+            batch.index('await startSpecialistAgent("booking"'),
             batch.index("await Promise.all(remaining.map(")
+        )
+        single=app[app.index("async function startSpecialistAgent("):begin]
+        self.assertLess(
+            single.index("await requireSpecialistAccountProfiles([agentId])"),
+            single.index('const started = await fetch(localAgentUrl("/api/agents/start")')
         )
         self.assertIn("acceptedIds.push(id)",batch)
         self.assertIn("if(acceptedIds.length===1)",batch)
