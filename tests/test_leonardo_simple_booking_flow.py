@@ -224,6 +224,65 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn("detect_booking_engine(page.url,await page.content(),page.url)",preflight)
         self.assertNotIn("frontend_photo_audit",preflight)
 
+    def test_bedzzle_uses_dedicated_date_boxes_before_generic_calendar(self):
+        import inspect
+        from unittest.mock import patch
+        import velora_direct_stays as module
+        body=inspect.getsource(module._apply_dates)
+        self.assertIn('"booking.bedzzle.com" in str(getattr(scope,"url","")).lower()',body)
+        self.assertIn('return await _apply_bedzzle_dates(scope,stay)',body)
+        navigation=inspect.getsource(module._bedzzle_navigate_calendar)
+        self.assertIn("changeYear=year!==target.year",navigation)
+        self.assertIn("previous=(year,month,state[\"kind\"]",navigation)
+        self.assertIn("getUTCDay()+6",navigation)
+        self.assertIn("data-velora-bedzzle-date",navigation)
+        self.assertIn("cal.root",navigation)
+        async def focus(scope,name):
+            return {"found":True,"displayed":"09/11/2026"}
+        async def select(scope,iso,trace):
+            trace.append("Selezionato "+iso)
+            return True
+        async def display(scope):
+            return {"checkin":"01/08/2027","checkout":"04/08/2027"}
+        class Scope:
+            url="https://booking.bedzzle.com/desktop/"
+        stay={"checkin":"2027-08-01","checkout":"2027-08-04","guests":2}
+        with patch.object(module,"_bedzzle_focus_box",focus), \
+             patch.object(module,"_bedzzle_navigate_calendar",select), \
+             patch.object(module,"_visual_date_values",display):
+            applied=asyncio.run(module._apply_dates(Scope(),stay))
+        self.assertTrue(applied["applied"])
+        self.assertEqual(applied["method"],"bedzzle-calendar")
+        self.assertEqual(applied["displayedDates"]["checkout"],"04/08/2027")
+        async def unchanged(scope):
+            return {"checkin":"09/11/2026","checkout":"11/11/2026"}
+        with patch.object(module,"_bedzzle_focus_box",focus), \
+             patch.object(module,"_bedzzle_navigate_calendar",select), \
+             patch.object(module,"_visual_date_values",unchanged):
+            rejected=asyncio.run(module._apply_dates(Scope(),stay))
+        self.assertFalse(rejected["applied"])
+        self.assertIn("non confermata",rejected["reason"])
+
+    def test_bedzzle_calendar_javascript_is_valid_without_date_guesses(self):
+        import ast
+        import json
+        import shutil
+        import subprocess
+        tree=ast.parse((ROOT/"velora_direct_stays.py").read_text(encoding="utf-8"))
+        scripts=[n.value for n in ast.walk(tree)
+                 if isinstance(n,ast.Constant) and isinstance(n.value,str)
+                 and "data-velora-bedzzle-date" in n.value]
+        self.assertEqual(len(scripts),1)
+        script=scripts[0]
+        self.assertNotIn("\x08",script)
+        self.assertIn("if(year===target.year&&month===target.month)",script)
+        self.assertIn("Math.abs(v.x-cx)",script) if "Math.abs(v.x-cx)" in script else None
+        if shutil.which("node"):
+            result=subprocess.run(["node","--check","-"],
+              input="new Function("+json.dumps(script)+");",
+              text=True,capture_output=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stderr)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
