@@ -1340,7 +1340,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                         sample["dateAttempts"]=attempts[:12]
                         if active is None:
                             sample["status"]="dates_not_selectable"
-                            sample["formDiagnostic"]=await _form_diagnostic(engine_page.main_frame)
+                            sample["formDiagnostic"]=await _form_diagnostic(
+                                scopes[0] if scopes else engine_page.main_frame)
                             if debug_dir is not None:
                                 try:
                                     dest=Path(debug_dir)
