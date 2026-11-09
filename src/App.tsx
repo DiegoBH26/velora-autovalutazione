@@ -3807,7 +3807,9 @@ type BrowserPilotResult = {
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   directCommercialAudit?: { status?: string; evidence?: string[]; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;controls?:{applied?:boolean;reason?:string};
-      visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;evidence?:string[]}> };
+      visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
+      formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
+      evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
   discoveredSources?: Record<string, DiscoveredPilotSource>;
   otaProfiles?: Record<string, BrowserPilotOtaProfile>;
@@ -10109,6 +10111,14 @@ export default function App() {
                         <p className="text-amber-800">Valori osservati, esclusi dal delta fino a conferma di date, ospiti, camera e condizioni.</p>
                       </div>}
                       {(sample.quotes||[]).length===0 && (sample.visiblePrices||[]).length>0 && <p className="mt-1 text-amber-800">Sono visibili importi, ma non sono attribuibili con certezza a camere e soggiorni: esclusi dal delta.</p>}
+                      {["dates_not_selectable","dates_unconfirmed","navigation_error"].includes(sample.status)
+                        && sample.formDiagnostic && <details className="mt-2 rounded-lg border border-[#E5DDF1] p-2">
+                        <summary className="cursor-pointer font-bold text-[#23124A]">Perché Leonardo non è riuscito a cercare · diagnostica modulo</summary>
+                        <p className="mt-2 text-[#50627F]">Campi visualizzati: {(sample.formDiagnostic.fieldSamples||[]).map(f=>
+                          [f.label||"senza etichetta",f.type||"",f.readOnly?"sola lettura":""].filter(Boolean).join(" · ")).join(" | ")||"nessun campo riconosciuto"}</p>
+                        <p className="mt-1 text-[#50627F]">Pulsanti visibili: {(sample.formDiagnostic.searchActions||[]).join(" | ")||"nessuno"}</p>
+                        <p className="mt-1 text-[#50627F]">Calendari custom: {sample.formDiagnostic.dateWidgets??0}</p>
+                      </details>}
                       {(sample.evidence||[]).map((ev,k)=><p key={k} className="text-[#50627F]">{ev}</p>)}
                     </div>
                   )}
