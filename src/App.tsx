@@ -11207,8 +11207,8 @@ export default function App() {
               </details>
             </>}
           </div>
-          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking · {rateQuotes.length} rilevazioni salvate · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali per OTA e scostamento da Booking</h4>
-          <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri una OTA per consultare le tariffe rilevate. Le sezioni sono inizialmente chiuse per rendere l'audit navigabile anche con centinaia di prezzi. I prezzi rimangono disponibili per camera, data e piano tariffario; un delta omogeneo appare solo quando le condizioni sono confrontabili.</p>
+          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto master commerciale, Booking riferimento OTA</h4>
+          <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri il sito diretto o una OTA per consultare le tariffe rilevate. Il sito diretto è il master commerciale; Booking è il riferimento per date e confronto tra OTA. Ogni canale rimane chiuso inizialmente. Un delta è mostrato soltanto per la stessa unità verificata, con date, ospiti e condizioni equivalenti.</p>
           {priceRangeRows.length>0 && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
             <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi per OTA e soggiorno</p>
             <p className="mb-2 text-[10px] text-[#50627F]">Range dei totali effettivamente letti: non equivale a una differenza tariffaria sulla stessa camera.</p>
@@ -11226,6 +11226,54 @@ export default function App() {
             </table>
           </div>}
           <div className="mt-3 flex flex-col gap-2">
+            <details id="velora-pricing-ota-sito" className="group scroll-mt-24 rounded-xl border-2 border-[#C8A96B] bg-white open:shadow-[0_8px_20px_rgba(35,18,74,0.06)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl bg-[#FFF9EC] px-4 py-3 text-xs font-black text-[#23124A]">
+                <span className="flex items-center gap-3"><span aria-hidden="true" className="text-[#73558D] transition-transform group-open:rotate-90">▸</span>Sito diretto · MASTER commerciale</span>
+                <span className="rounded-lg bg-white px-3 py-1 text-[10px]">
+                  {verifiedDirectRates.length
+                    ? verifiedDirectRates.length+" preventivi verificati"
+                    : directVisibleCandidates.length
+                      ? directVisibleCandidates.length+" importi su camere · da verificare"
+                      : "Preventivi non verificati"}
+                </span>
+              </summary>
+              <div className="space-y-3 border-t border-[#E5DDF1] p-3 text-[11px] text-[#23124A]">
+                <p>Fornitore: <b>{directEngine?.provider||"Non identificato"}</b>.
+                  {directEngine?.url && <>{" "}<a href={directEngine.url} target="_blank" rel="noopener noreferrer" className="break-all font-bold underline">Apri il booking engine</a>.</>}
+                  {" "}Booking definisce le finestre di soggiorno da confrontare: il sito diretto è la base dei prezzi, non la fonte delle date.</p>
+                {verifiedDirectRates.length>0 && <div className="overflow-x-auto">
+                  <table className="w-full min-w-[790px] border-collapse text-left">
+                    <thead className="bg-[#23124A] text-white"><tr>
+                      <th className="p-2">Soggiorno</th><th className="p-2">Camera</th><th className="p-2">Totale diretto</th>
+                      <th className="p-2">€/notte</th><th className="p-2">Condizioni</th><th className="p-2">Confronto OTA</th>
+                    </tr></thead>
+                    <tbody>{verifiedDirectRates.map((rate,i)=><tr key={rate.checkin+"-"+rate.roomType+"-"+i} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]">
+                      <td className="p-2">{rate.checkin} → {rate.checkout}<span className="block text-[#50627F]">{rate.nights} notti · {rate.guests} ospiti</span></td>
+                      <td className="p-2 font-bold">{rate.roomType}</td>
+                      <td className="p-2 font-black">€ {rate.total.toLocaleString("it-IT",{minimumFractionDigits:2})}</td>
+                      <td className="p-2">€ {(rate.total/rate.nights).toLocaleString("it-IT",{minimumFractionDigits:2})}</td>
+                      <td className="p-2">{rate.board} · {rate.refund} · {rate.taxes} · {rate.audience}</td>
+                      <td className="p-2">Richiede corrispondenza certa della stessa unità fisica</td>
+                    </tr>)}</tbody>
+                  </table>
+                </div>}
+                {directVisibleCandidates.length>0 && <details className="rounded-lg border border-amber-200 bg-amber-50">
+                  <summary className="cursor-pointer p-3 font-black text-amber-950">Importi rilevati sul sito diretto ma non verificati · {directVisibleCandidates.length} · apri/chiudi</summary>
+                  <div className="space-y-1 px-3 pb-3">
+                    {directVisibleCandidates.slice(0,40).map(({sample,quote},i)=><p key={i} className="border-t border-amber-200 pt-1">
+                      {sample.checkin} → {sample.checkout} · {quote.roomType} · €
+                      {Number(quote.displayedAmount).toLocaleString("it-IT",{minimumFractionDigits:2})}
+                      {" "}({quote.displayedBasis==="stay_total_claimed"?"Possibile totale soggiorno":"Base prezzo non accertata"})
+                    </p>)}
+                    <p className="font-semibold text-amber-950">Non confrontare questi importi con le OTA senza verifica di totale soggiorno, stessa camera, ospiti e condizioni.</p>
+                  </div>
+                </details>}
+                {!verifiedDirectRates.length && !directVisibleCandidates.length &&
+                  <p className="font-semibold text-amber-800">Leonardo non ha ancora confermato tariffe datate del sito diretto.
+                    {(directAudit?.evidence||[]).length>0 && <span className="block mt-1">{directAudit?.evidence?.join(" ")}</span>}
+                  </p>}
+              </div>
+            </details>
             {pricingAccordionIds.map((otaId) => {
               const published = publishedPricingFor(otaId);
               const rows = detailedPricingFor(otaId);
