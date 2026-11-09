@@ -425,14 +425,36 @@ async def _bedzzle_navigate_calendar(scope, iso, trace):
                   const disabled=e=>Boolean(e.closest(
                     '[disabled],[aria-disabled=true],.disabled,.off,.old,.new,.outside,.other-month,.muted'));
                   const weekDay=(new Date(Date.UTC(target.year,target.month-1,target.day)).getUTCDay()+6)%7;
-                  const columns=[...cal.root.querySelectorAll('th')].map(text);
-                  const monday=columns.some(c=>c==='l'||c==='lun'||c==='mon'||c==='monday');
+                  const weekdayLabels=[...cal.root.querySelectorAll('th,div,span')]
+                    .filter(visible).filter(e=>/^(?:[lmgvsd]|lun|mar|mer|gio|ven|sab|dom)$/i.test(text(e)))
+                    .map(e=>{const r=e.getBoundingClientRect();return {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,t:text(e)};});
+                  const monday=weekdayLabels.some(c=>c.t==='l'||c.t==='lun');
                   const safe=days.map(e=>e.closest('td,[role=gridcell],button')||e)
                       .filter(visible).filter(e=>!disabled(e));
                   candidates=[...new Set(safe)];
                   if(monday&&candidates.length>1){
-                    candidates=candidates.filter(e=>e.tagName==='TD'&&e.cellIndex===weekDay ||
-                      e.closest('td')?.cellIndex===weekDay);
+                    const columns=candidates.filter(e=>e.tagName==='TD'?
+                      e.cellIndex===weekDay:e.closest('td')?.cellIndex===weekDay);
+                    if(columns.length===1)candidates=columns;
+                    else {
+                      // Some calendars render the weekday row as DIV/SPAN,
+                      // not TH. Match the target day to its weekday column.
+                      const headerRows=[];
+                      for(const h of weekdayLabels){
+                        const row=weekdayLabels.filter(e=>Math.abs(e.y-h.y)<6)
+                          .sort((a,b)=>a.x-b.x);
+                        if(row.length>=7&&row.length<=9)headerRows.push(row);
+                      }
+                      const header=headerRows.sort((a,b)=>a[0].y-b[0].y)[0];
+                      if(header&&header[weekDay]){
+                        const expectedX=header[weekDay].x;
+                        const colCandidates=candidates.filter(e=>{
+                          const r=e.getBoundingClientRect();
+                          return Math.abs((r.left+r.right)/2-expectedX)<18;
+                        });
+                        if(colCandidates.length===1)candidates=colCandidates;
+                      }
+                    }
                   }
                 }
                 candidates=[...new Set(candidates)].filter(visible);
