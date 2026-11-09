@@ -94,6 +94,22 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertTrue(all(stay["checkin"]==checkin and stay["checkout"]==checkout for stay in found))
         self.assertTrue(any(stay["bookingConfirmation"]=="shifted_to_available_booking_dates" for stay in found))
 
+    def test_leonardo_uses_reused_minerva_reference_and_no_preflight_gate(self):
+        from velora_direct_stays import eligible_stays
+        from datetime import date,timedelta
+        first=(date.today()+timedelta(days=30)).isoformat()
+        last=(date.today()+timedelta(days=33)).isoformat()
+        dates=eligible_stays([{
+            "status":"reused_minerva_lock", "checkin":first, "checkout":last,
+            "requestedCheckin":first, "requestedCheckout":last, "adults":2
+        }])
+        self.assertEqual([(row["checkin"],row["checkout"],row["guests"]) for row in dates],
+                         [(first,last,2)])
+        source=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        self.assertIn('if booking_url:',source)
+        self.assertNotIn('if (direct_verification.get("navigation")=="reached"',source)
+        self.assertIn('"peerBookingDates": booking_windows',source)
+
     def test_bedzzle_public_booking_key_is_preserved(self):
         public_url,provider=booking_url_helpers()
         target="https://booking.bedzzle.com/desktop/?apikey=publicPropertyKey&lang=it&session=secret"
