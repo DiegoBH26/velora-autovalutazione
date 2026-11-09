@@ -183,7 +183,12 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn("fields={checkin:'',checkout:''}",helper)
 
     def test_real_official_homepage_prenota_pattern_maps_to_bedzzle(self):
-        from booking_engine import detect_booking_engine
+        try:
+            from booking_engine import detect_booking_engine
+        except ModuleNotFoundError as exc:
+            if exc.name=="selectolax":
+                self.skipTest("selectolax assente nel runner: verifica DOM sul PC Windows")
+            raise
         homepage="https://www.specolizzi.it/"
         engine="https://booking.bedzzle.com/desktop/?apikey=public-example&lang=it"
         html='<nav><a href="'+engine+'">Prenota</a></nav>'
