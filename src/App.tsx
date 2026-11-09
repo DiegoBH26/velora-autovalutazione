@@ -9726,6 +9726,7 @@ export default function App() {
         ?[{checkin:stay.checkin,checkout:stay.checkout,
           reason:"Booking ha spostato la ricerca a "+(lock.checkin||"n.d.")+" → "+(lock.checkout||"n.d.")}]:[];
     });
+    const observedDirectRates = directAudit?.observedRoomPrices||[];
     const verifiedDirectRates = (directAudit?.verifiedQuotes||[]).filter(q=>
       q.verified===true && Number.isFinite(q.total) && q.total>0 && q.nights>0 && q.guests>0);
     const directVisibleCandidates = (directAudit?.samples||[]).flatMap(sample=>
@@ -9914,27 +9915,34 @@ export default function App() {
       photosLabel:directPhotos?.imageCount
         ? directPhotos.imageCount+" immagini rilevate sul sito · riferimento fotografico"
         : "Galleria del sito non verificata",
-      roomState:verifiedDirectRates.length?"present":"unverified",
+      roomState:verifiedDirectRates.length?"present":observedDirectRates.length?"candidate":"unverified",
       roomLabel:verifiedDirectRates.length
         ? new Set(verifiedDirectRates.map(q=>normalizedRateToken(q.roomType))).size+
           " tipologie con preventivo diretto verificato"
-        : directVisibleCandidates.length
-          ? directVisibleCandidates.length+" prezzi su schede camere · da verificare"
-          : "Nessuna tipologia datata verificata",
+        : observedDirectRates.length
+          ? new Set(observedDirectRates.map(q=>normalizedRateToken(q.roomType))).size+
+            " tipologie camera con prezzi visualizzati da Leonardo"
+          : directVisibleCandidates.length
+            ? directVisibleCandidates.length+" prezzi su schede camere · da verificare"
+            : "Nessuna camera con prezzo rilevata",
       priceState:"unverified",
       priceLabel:"Booking determina le date e il confronto tra OTA",
       directComparison:{
-        state:verifiedDirectRates.length?"present":"unverified",
+        state:verifiedDirectRates.length?"present":observedDirectRates.length?"candidate":"unverified",
         label:verifiedDirectRates.length
           ? verifiedDirectRates.length+" preventivi diretti verificati · riferimento commerciale"
-          : "Fornitore rilevato · prezzi e disponibilità diretti da verificare",
+          : observedDirectRates.length
+            ? observedDirectRates.length+" prezzi acquisiti dal booking engine · delta OTA da verificare"
+            : "Fornitore rilevato · prezzi e disponibilità diretti da verificare",
         matched:[]
       },
       directRoomComparison:{
-        state:verifiedDirectRates.length?"present":"unverified",
+        state:verifiedDirectRates.length?"present":observedDirectRates.length?"candidate":"unverified",
         label:verifiedDirectRates.length
           ? "Camere dirette verificate · riferimento delle OTA"
-          : "Tipologie dirette non ancora verificate"
+          : observedDirectRates.length
+            ? "Camere con prezzo viste sul sito · abbinamento unità fisiche OTA da verificare"
+            : "Tipologie dirette non ancora verificate"
       },
       roomCount:0,bookingRoomCount:0,sharedStay:undefined,
       photoSource:"Audit fotografico Leonardo",matchedPrices:[],differentPrices:[]
