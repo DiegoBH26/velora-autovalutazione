@@ -158,6 +158,28 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn('6 · Camere / Sito diretto',app)
         self.assertIn('Perché Leonardo non è riuscito a cercare',app)
 
+    def test_direct_first_workflow_does_not_precheck_all_ota_logins(self):
+        app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
+        batch=app[app.index("async function launchAgentBatch("):
+                  app.index("async function loadAgentChat(")]
+        self.assertIn('await startSpecialistAgent("official_site"',batch)
+        self.assertIn('await startSpecialistAgent("booking"',batch)
+        self.assertLess(batch.index('await startSpecialistAgent("official_site"'),
+                        batch.index('await startSpecialistAgent("booking"'))
+        self.assertNotIn("await requireSpecialistAccountProfiles(ids);",batch)
+        self.assertIn("bookingReferenceStays:agentId===\"booking\"",app)
+        self.assertIn("directDateDiscrepancies",app)
+
+    def test_direct_price_requires_actual_availability_search(self):
+        source=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
+        self.assertIn('sample["searchSubmitted"]=False',source)
+        self.assertIn('sample["searchSubmitted"]=True',source)
+        self.assertIn('and sample["searchSubmitted"]:',source)
+        self.assertIn('date_inputs_observed_no_search',source)
+        reviewer=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        self.assertIn('sample.get("searchSubmitted") is True',reviewer)
+        self.assertIn('"direct_master_inventory_alert"',reviewer)
+
     def test_windows_updater_downloads_new_modules(self):
         script=(ROOT/"AGGIORNA_VELORA_COMPLETO.bat").read_text(encoding="utf-8")
         for filename in ("velora_direct_commercial.py","velora_direct_stays.py","velora_shared_intelligence.py"):
