@@ -457,7 +457,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         # Il preflight legge SOLO la homepage e individua la vera CTA Prenota.
         try:
             today=datetime.now().date()
-            plan=(pilot.custom_date_plan(today,custom_period) if custom_period
+            plan=(pilot.custom_date_plan(today, custom_period) if custom_period
                   else pilot.monthly_plan(today,limit=(13 if months==12 else max(1,months))))
             direct_limit=min(len(plan),24)
             direct_windows=planned_direct_stays(plan,limit=direct_limit)
