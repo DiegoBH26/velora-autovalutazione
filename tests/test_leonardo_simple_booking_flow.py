@@ -59,6 +59,27 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertTrue(form.clicked)
         self.assertFalse(menu.clicked)
 
+    def test_browser_results_javascript_is_parseable(self):
+        # Estrae la stringa JavaScript esatta dopo le escape di Python;
+        # un \\b scritto male diventerebbe un carattere backspace.
+        import ast
+        import json
+        import shutil
+        import subprocess
+        tree=ast.parse((ROOT/"velora_direct_stays.py").read_text(encoding="utf-8"))
+        scripts=[n.value for n in ast.walk(tree)
+                 if isinstance(n,ast.Constant) and isinstance(n.value,str)
+                 and "const selectors=" in n.value and "roomType" in n.value]
+        self.assertEqual(len(scripts),1)
+        script=scripts[0]
+        self.assertNotIn("\x08",script)
+        self.assertIn("raw.split(/\\n+/)",script)
+        if shutil.which("node"):
+            js="new Function("+json.dumps(script)+");"
+            proc=subprocess.run(["node","--check","-"],input=js,text=True,
+                                capture_output=True,timeout=15)
+            self.assertEqual(proc.returncode,0,proc.stderr)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
