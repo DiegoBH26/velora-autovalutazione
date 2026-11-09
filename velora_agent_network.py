@@ -22,6 +22,7 @@ from playwright.async_api import async_playwright
 NETWORK_SCHEMA = "velora-specialist-network-v1"
 REVIEWER_NAME = "Giove"
 AGENTS = {
+    "official_site": {"name": "Leonardo", "label": "Sito diretto · MASTER", "kind": "site", "ready": True, "knowledge": "booking engine, prezzi, disponibilita', foto e contenuti"},
     "booking": {"name": "Minerva", "label": "Booking.com", "kind": "ota", "channel": "booking", "ready": True, "knowledge": "identità, date, camere, disponibilità, tariffe verificabili"},
     "agoda": {"name": "Galileo", "label": "Agoda", "kind": "ota", "channel": "agoda", "ready": True, "knowledge": "scheda hotel, date, candidate tariffarie, base prezzo"},
     "airbnb": {"name": "Apollo", "label": "Airbnb", "kind": "ota", "channel": "airbnb", "ready": True, "knowledge": "annunci multipli, identità, date e preventivi pubblici"},
@@ -32,7 +33,6 @@ AGENTS = {
     "travelocity": {"name": "Newton", "label": "Travelocity", "kind": "ota", "channel": "travelocity", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot, controllo redirect Expedia"},
     "trip": {"name": "Turing", "label": "Trip.com", "kind": "ota", "channel": "trip", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot; login richiesto se la pagina lo mostra"},
     "priceline": {"name": "Pitagora", "label": "Priceline", "kind": "ota", "channel": "priceline", "ready": True, "beta": True, "knowledge": "adapter pubblico del pilot, rilevazioni tariffarie da verificare"},
-    "official_site": {"name": "Leonardo", "label": "Sito ufficiale", "kind": "site", "ready": True, "knowledge": "navigazione, contenuti, conversione, immagini e asimmetrie"},
     "reviews": {"name": "Ipazia", "label": "Recensioni", "kind": "reviews", "ready": True, "knowledge": "campioni recensioni, temi ricorrenti, reputazione Google"},
 }
 # Reserved names only. These agents have NOT been implemented or enabled.
@@ -550,8 +550,14 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             direct_stays.setdefault("evidence",[]).append(
                 "Nessuna finestra di soggiorno valida nel periodo scelto per il sito diretto.")
         if booking_windows:
-            confirmed={(str(w.get("checkin") or ""),str(w.get("checkout") or ""),
-                        int(w.get("adults") or 0)) for w in booking_windows}
+            confirmed=set()
+            for w in booking_windows:
+                try:
+                    adults=int(w.get("adults") or 0)
+                except (ValueError,TypeError):
+                    continue
+                confirmed.add((str(w.get("checkin") or ""),
+                               str(w.get("checkout") or ""),adults))
             direct_stays["bookingHistoricalDateMatches"]=sum(
                 1 for w in direct_windows
                 if (w.get("checkin"),w.get("checkout"),w.get("adults")) in confirmed)
