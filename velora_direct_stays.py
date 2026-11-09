@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import date
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin, parse_qsl
 
 _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PRICE_PATTERN=re.compile(r"(?:(?:€|EUR)\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(?:€|EUR))",re.I)
@@ -590,7 +590,94 @@ async def _visible_offer_candidates(page):
     return offers
 
 
-async def probe_direct_stays(url, rows, *, limit=4, ghost=False):
+def _engine_destination_matches(candidate, engine_url):
+    """Check both provider and structure identity (Bedzzle public apikey)."""
+    expected=urlparse(engine_url)
+    observed=urlparse(candidate)
+    if observed.scheme not in ("http","https") or not observed.hostname:
+        return False
+    if (expected.hostname or "").lower()!=(observed.hostname or "").lower():
+        return False
+    expected_q={k.lower():v for k,v in parse_qsl(expected.query)}
+    observed_q={k.lower():v for k,v in parse_qsl(observed.query)}
+    if expected_q.get("apikey"):
+        return observed_q.get("apikey")==expected_q["apikey"]
+    if expected.path not in ("","/") and not observed.path.startswith(expected.path.rstrip("/")):
+        return False
+    return True
+
+
+async def _navigate_booking_engine(page, context, engine_url, site_url=None):
+    """Enter via official website as a guest, or try one direct navigation.
+    Never treat an HTTP failure as evidence the hotel has no availability.
+    """
+    from site_audit_builder import public_url, robots_allowed
+    diagnostic={"openingMethod":"not_attempted","httpStatus":None,
+                "pageReached":False,"reason":"","fallbackUsed":False}
+    if site_url:
+        try:
+            website=public_url(site_url)
+            if robots_allowed(website,{}) is True:
+                site_response=await page.goto(
+                    website,wait_until="domcontentloaded",timeout=20000)
+                diagnostic["siteHttpStatus"]=site_response.status if site_response else None
+                if site_response and site_response.status<400:
+                    links=page.locator("a[href]:visible")
+                    candidates=[]
+                    for i in range(min(await links.count(),180)):
+                        anchor=links.nth(i)
+                        href=await anchor.get_attribute("href") or ""
+                        dest=urljoin(page.url,href)
+                        if not _engine_destination_matches(dest,engine_url):
+                            continue
+                        label=(await anchor.inner_text(timeout=1200)).strip()
+                        score=2 if re.search(r"prenot|book|disponibilit|availability",label,re.I) else 0
+                        candidates.append((score,anchor))
+                    if candidates:
+                        candidates.sort(key=lambda item:item[0],reverse=True)
+                        before=set(context.pages)
+                        try:
+                            await candidates[0][1].click(timeout=6500)
+                            await page.wait_for_timeout(1400)
+                            new_pages=[item for item in context.pages if item not in before]
+                            destination=new_pages[-1] if new_pages else page
+                            try:await destination.wait_for_load_state(
+                                "domcontentloaded",timeout=7000)
+                            except Exception:pass
+                            if _engine_destination_matches(destination.url,engine_url):
+                                diagnostic.update(openingMethod="official_site_cta",
+                                                  pageReached=True,
+                                                  reason="Link Prenota del sito ufficiale seguito.")
+                                return destination,diagnostic
+                            diagnostic["reason"]="Il link Prenota non ha raggiunto il motore previsto."
+                        except Exception as exc:
+                            diagnostic["reason"]="Clic Prenota non riuscito: "+type(exc).__name__
+                    else:
+                        diagnostic["reason"]="Link Prenota verso il motore configurato non individuato."
+                else:
+                    diagnostic["reason"]="Sito ufficiale: HTTP "+str(
+                        diagnostic.get("siteHttpStatus") or "nessuna risposta")
+            else:
+                diagnostic["reason"]="Navigazione del sito ufficiale non autorizzata o verificabile."
+        except Exception as exc:
+            diagnostic["reason"]="Visita sito ufficiale: "+type(exc).__name__
+    # Only one direct fallback, never aggressive retries on a blocked page.
+    diagnostic["fallbackUsed"]=bool(site_url)
+    try:
+        response=await page.goto(engine_url,wait_until="domcontentloaded",timeout=22000)
+        status=response.status if response else None
+        diagnostic.update(openingMethod="direct_url",httpStatus=status,
+                          pageReached=bool(response and status<400))
+        diagnostic["reason"]=("Motore raggiunto tramite URL diretto." if response and status<400
+                              else "Motore: HTTP "+str(status) if status is not None
+                              else "Motore: nessuna risposta HTTP.")
+    except Exception as exc:
+        diagnostic.update(openingMethod="direct_url",pageReached=False,
+                          reason="Motore: "+type(exc).__name__)
+    return page,diagnostic
+
+
+async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
 
     Un sito/engine trovato NON equivale a una ricerca completata. Il risultato
