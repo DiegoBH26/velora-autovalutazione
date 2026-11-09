@@ -9,8 +9,6 @@ import asyncio
 import re
 from datetime import date
 from urllib.parse import urlparse
-from playwright.async_api import async_playwright
-from site_audit_builder import public_url, robots_allowed
 
 _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PRICE_PATTERN=re.compile(r"(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*€)")
@@ -191,6 +189,9 @@ async def _visible_offer_candidates(page):
     return offers
 
 async def probe_direct_stays(url, rows, *, limit=4):
+    # Keep date validation unit-testable without launching or importing a browser.
+    from playwright.async_api import async_playwright
+    from site_audit_builder import public_url, robots_allowed
     stays=eligible_stays(rows,limit=limit)
     result={"status":"not_checked","samples":[],"verifiedQuotes":[],"evidence":[]}
     if not stays:
