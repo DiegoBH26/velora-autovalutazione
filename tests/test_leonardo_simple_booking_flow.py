@@ -92,6 +92,29 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn("const combined=leaves.filter",scripts[0])
         self.assertIn("const year=Number",scripts[0])
 
+    def test_engine_navigation_keeps_the_correct_structure(self):
+        from velora_direct_stays import _engine_destination_matches
+        expected="https://booking.bedzzle.com/desktop/?apikey=specolizzi-test&lang=it"
+        self.assertTrue(_engine_destination_matches(
+            "https://booking.bedzzle.com/desktop/?lang=it&apikey=specolizzi-test",expected))
+        self.assertFalse(_engine_destination_matches(
+            "https://booking.bedzzle.com/desktop/?apikey=another-hotel&lang=it",expected))
+        self.assertFalse(_engine_destination_matches(
+            "https://another-booking-platform.example/desktop/?apikey=specolizzi-test",expected))
+
+    def test_leonardo_opens_from_site_and_reports_http_response(self):
+        import inspect
+        from velora_direct_stays import _navigate_booking_engine,probe_direct_stays
+        helper=inspect.getsource(_navigate_booking_engine)
+        self.assertIn("site_response=await page.goto(",helper)
+        self.assertIn('await candidates[0][1].click',helper)
+        self.assertIn('httpStatus=status',helper)
+        runner=inspect.getsource(probe_direct_stays)
+        self.assertIn('site_url=site_url',runner)
+        self.assertIn('sample["navigation"]=navigation',runner)
+        network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        self.assertIn("ghost=ghost,site_url=site",network)
+
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
         self.assertNotIn("01/08/2026",_date_renderings("2027-08-01"))
