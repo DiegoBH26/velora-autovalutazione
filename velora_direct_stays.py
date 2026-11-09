@@ -10,6 +10,7 @@ LEONARDO_BUILD = "direct-engine-bedzzle-form-20261109-r5"
 import asyncio
 import re
 from datetime import date
+from pathlib import Path
 from urllib.parse import urlparse, urljoin, parse_qsl
 
 _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1244,7 +1245,7 @@ async def _wait_for_booking_search_form(page, *, seconds=13):
     return last
 
 
-async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
+async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, debug_dir=None):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
 
     Un sito/engine trovato NON equivale a una ricerca completata. Il risultato
@@ -1340,6 +1341,20 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                         if active is None:
                             sample["status"]="dates_not_selectable"
                             sample["formDiagnostic"]=await _form_diagnostic(engine_page.main_frame)
+                            if debug_dir is not None:
+                                try:
+                                    dest=Path(debug_dir)
+                                    dest.mkdir(parents=True,exist_ok=True)
+                                    snap=dest / "leonardo_calendario_non_compilato.png"
+                                    await engine_page.screenshot(path=str(snap),
+                                        full_page=False,timeout=5000)
+                                    sample["diagnosticScreenshot"]=str(snap.resolve())
+                                    sample["evidence"].append(
+                                        "Schermata esatta dell'errore salvata in: "+str(snap.resolve()))
+                                except Exception as snap_error:
+                                    sample["evidence"].append(
+                                        "Schermata diagnostica non salvata: "+
+                                        type(snap_error).__name__)
                             reasons=[(entry.get("dates") or {}).get("reason") or entry.get("error") or ""
                                      for entry in attempts]
                             sample["evidence"].append(
