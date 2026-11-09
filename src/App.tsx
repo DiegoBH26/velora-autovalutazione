@@ -9807,7 +9807,36 @@ export default function App() {
         matchedPrices,differentPrices
       };
     });
-
+    const directMasterRow={
+      otaId:"sito",platform:"Sito diretto · MASTER",
+      presence:(directEngine?.status==="provider_identified"?"present":"unverified"),
+      presenceLabel:directEngine?.status==="provider_identified"
+        ? "Booking engine identificato · Leonardo":"Booking engine non verificato",
+      presenceNote:"",url:directEngine?.url||"",
+      photosState:directPhotos?.imageCount?"present":"unverified",
+      photosLabel:directPhotos?.imageCount
+        ? directPhotos.imageCount+" immagini rilevate sul sito · riferimento fotografico"
+        : "Galleria del sito non verificata",
+      roomState:verifiedDirectRates.length?"present":"unverified",
+      roomLabel:verifiedDirectRates.length
+        ? new Set(verifiedDirectRates.map(q=>normalizedRateToken(q.roomType))).size+
+          " tipologie con preventivo diretto verificato"
+        : directVisibleCandidates.length
+          ? directVisibleCandidates.length+" prezzi su schede camere · da verificare"
+          : "Nessuna tipologia datata verificata",
+      priceState:"unverified",
+      priceLabel:"Booking determina le date e il confronto tra OTA",
+      directComparison:{
+        state:verifiedDirectRates.length?"present":"unverified",
+        label:verifiedDirectRates.length
+          ? verifiedDirectRates.length+" preventivi diretti verificati · riferimento commerciale"
+          : "Fornitore rilevato · prezzi e disponibilità diretti da verificare",
+        matched:[]
+      },
+      roomCount:0,bookingRoomCount:0,sharedStay:undefined,
+      photoSource:"Audit fotografico Leonardo",matchedPrices:[],differentPrices:[]
+    };
+    const asymmetryWithDirect=[directMasterRow,...otaAsymmetryRows];
 
     const visibleData = EXTERNAL_WEB_AUDIT_DATA.map((macro) => ({
       ...macro,
