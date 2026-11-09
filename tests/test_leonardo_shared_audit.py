@@ -204,7 +204,8 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn('result["status"]="search_not_executed"',run)
         self.assertIn('result["searchedTotal"]+=1',run)
         self.assertIn('if date_confirmed and occupancy.get("confirmed") and sample["searchSubmitted"]:',run)
-        controls=inspect.getsource(_apply_dates)
+        from velora_direct_stays import _apply_dates_generic
+        controls=inspect.getsource(_apply_dates_generic)
         for label in ("aria","testid","label","readOnly"):
             self.assertIn(label,controls)
         calendar=inspect.getsource(_select_explicit_calendar_date)
