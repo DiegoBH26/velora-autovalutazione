@@ -231,7 +231,8 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         import velora_direct_stays as module
         body=inspect.getsource(module._apply_dates)
         self.assertIn('"booking.bedzzle.com" in str(getattr(scope,"url","")).lower()',body)
-        self.assertIn('return await _apply_bedzzle_dates(scope,stay)',body)
+        self.assertIn('specialized=await _apply_bedzzle_dates(scope,stay)',body)
+        self.assertIn('generic=await _apply_dates_generic(scope,stay)',body)
         navigation=inspect.getsource(module._bedzzle_navigate_calendar)
         self.assertIn("changeYear=year!==target.year",navigation)
         self.assertIn("previous=(year,month,state[\"kind\"]",navigation)
@@ -283,6 +284,27 @@ class TestLeonardoBookingFlow(unittest.TestCase):
               input="new Function("+json.dumps(script)+");",
               text=True,capture_output=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_empty_arrival_and_departure_boxes_supported(self):
+        import inspect
+        from velora_direct_stays import _bedzzle_focus_box,_wait_for_booking_search_form
+        focus=inspect.getsource(_bedzzle_focus_box)
+        self.assertIn("data\\s+(?:di\\s+)?arrivo",focus)
+        self.assertIn("data\\s+(?:di\\s+)?partenza",focus)
+        self.assertIn("input,button,[role=combobox]",focus)
+        self.assertIn("Nessun campo",focus)
+        self.assertNotIn("date.test(t)",focus)
+        ready=inspect.getsource(_wait_for_booking_search_form)
+        self.assertIn("checkin&&checkout",ready)
+        self.assertIn("seconds=13",ready)
+
+    def test_date_picker_fallback_traces_initial_failure(self):
+        import inspect
+        from velora_direct_stays import _apply_dates
+        body=inspect.getsource(_apply_dates)
+        self.assertIn("specialized=await _apply_bedzzle_dates(scope,stay)",body)
+        self.assertIn("generic=await _apply_dates_generic(scope,stay)",body)
+        self.assertIn("bedzzle-plus-generic",body)
 
     def test_calendar_keeps_correct_year(self):
         self.assertIn("01/08/2027",_date_renderings("2027-08-01"))
