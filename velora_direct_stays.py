@@ -158,109 +158,144 @@ async def _select_explicit_calendar_date(scope, field, iso):
     return False
 
 
-async def _select_visual_calendar_date(scope, iso):
-    """Fallback per calendari visuali (anche Bedzzle): mese/anno visibili,
-    giorno selezionato SOLO nel mese corretto. Nessun giorno presunto.
+async def _select_visual_calendar_date(scope, iso, trace=None):
+    """Seleziona anno, mese e giorno nel calendario visibile, senza deduzioni.
+
+    Bedzzle ha frecce DIVERSE per anno e mese. Individuiamo i due titoli
+    vicino alla griglia e clicchiamo solo la freccia adiacente corretta;
+    dopo OGNI click verifichiamo che il titolo sia effettivamente cambiato.
     """
-    month_names=("gennaio","febbraio","marzo","aprile","maggio","giugno",
-                 "luglio","agosto","settembre","ottobre","novembre","dicembre")
     wanted=date.fromisoformat(iso)
-    for _ in range(17):
-        status=await scope.evaluate("""(target) => {
-          const MONTHS=[
-            ['gen','january','jan'],['feb','february'],['mar','march'],
-            ['apr','april'],['mag','maggio','may'],['giu','giugno','jun','june'],
-            ['lug','luglio','jul','july'],['ago','agosto','aug','august'],
-            ['set','sett','settembre','sep','september'],['ott','ottobre','oct','october'],
-            ['nov','november'],['dic','dicembre','dec','december']
-          ];
-          const visible=e=>{
-            if (!e || !(e.offsetWidth||e.offsetHeight||e.getClientRects().length)) return false;
-            const r=e.getBoundingClientRect();
-            return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
-          };
-          const txt=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
-          const leafs=root=>[...root.querySelectorAll('span,a,button,td,div,[role=gridcell]')]
-             .filter(e=>visible(e) && txt(e).length<35 && e.children.length<4);
-          const guessMonth=s=>{
-            s=(s||'').toLowerCase().trim().replace(/\s+20\d{2}$/,'');
-            // Bedzzle può rendere "Nov" e "2026" in due celle, oppure
-            // "Nov 2026" in un unico titolo del calendario.
-            for(let i=0;i<12;i++) if(MONTHS[i].some(m=>s===m)) return i+1;
-            return 0;
-          };
-          // Il mese e l'anno possono stare sopra la tabella del calendario:
-          // considera anche il contenitore padre del widget, non solo il TABLE.
-          const roots=[...document.querySelectorAll(
-            '[class*="calendar"],[class*="datepicker"],[role=grid],table,[class*="month-view"]')]
-             .filter(visible).slice(0,180);
-          roots.push(...[...document.querySelectorAll('aside,section,div')]
-             .filter(visible).slice(0,650));
-          const options=[];
-          for(const root of roots){
-            const leaves=leafs(root);
-            const days=leaves.filter(e=>/^\d{1,2}$/.test(txt(e)) &&
-              Number(txt(e))>=1 && Number(txt(e))<=31);
-            if(days.length<20) continue;
-            const months=leaves.filter(e=>guessMonth(txt(e)));
-            const years=leaves.filter(e=>/^20\d{2}$/.test(txt(e)));
-            const combined=leaves.filter(e=>guessMonth(txt(e)) && /\\b20\d{2}$/.test(txt(e)));
-            const m=months[0]||combined[0], y=years[0]||combined[0];
-            if (!m || !y) continue;
-            const month=guessMonth(txt(m));
-            const year=Number((txt(y).match(/\\b20\d{2}\\b/)||[])[0]||0);
-            if(!month||!year)continue;
-            options.push({root,leaves,days,m,y,month,year,area:root.getBoundingClientRect().width*
-              root.getBoundingClientRect().height});
-          }
-          options.sort((a,b)=>a.area-b.area);
-          const cal=options[0];
-          if(!cal) return {action:'missing',reason:'Calendario mensile non riconosciuto'};
-          const current=cal.year*12+cal.month;
-          const wanted=target.year*12+target.month;
-          const marker='data-velora-calendar-target';
-          document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
-          if(current===wanted){
-            const disabled=e=>!!(e.closest('[disabled],[aria-disabled=true],.disabled,.off,.old,.new,.outside,.not-current-month'));
-            const cells=cal.days.filter(e=>Number(txt(e))===target.day && !disabled(e));
-            const tags=cells.filter(e=>['TD','BUTTON','A'].includes(e.tagName)||e.getAttribute('role')==='gridcell');
-            const usable=tags.length?tags:cells.filter(e=>e.children.length===0);
-            if(usable.length!==1) return {action:'missing',reason:'Giorno '+target.day+
-              ' non univoco nel calendario '+cal.month+'/'+cal.year};
-            usable[0].setAttribute(marker,'day');
-            return {action:'day',month:cal.month,year:cal.year};
-          }
-          const isYear=cal.year!==target.year;
-          const anchor=isYear?cal.y:cal.m;
-          const right=wanted>current;
-          const rect=anchor.getBoundingClientRect();
-          const midX=(rect.left+rect.right)/2, midY=(rect.top+rect.bottom)/2;
-          const nav=[...cal.root.querySelectorAll('button,a,[role=button],[class*=arrow],[class*=chevron],[class*=next],[class*=prev]')]
-            .filter(e=>visible(e)&&!e.closest('[disabled],[aria-disabled=true],.disabled'))
-            .map(e=>{
-              const r=e.getBoundingClientRect();
-              const x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;
-              const dx=x-midX;
-              const distance=Math.abs(dx)+Math.abs(y-midY)*2;
-              return {e,dx,distance,y};
-            })
-            .filter(v=>(right?v.dx>6:v.dx< -6) &&
-              Math.abs(v.y-midY)<26 && Math.abs(v.dx)<110)
-            .sort((a,b)=>a.distance-b.distance);
-          if(!nav.length) return {action:'missing',reason:'Freccia calendario '+(isYear?'anno':'mese')+' assente'};
-          nav[0].e.setAttribute(marker,'nav');
-          return {action:'nav',month:cal.month,year:cal.year};
-        }""",{"year":wanted.year,"month":wanted.month,"day":wanted.day})
-        action=status.get("action")
-        if action not in ("nav","day"):
+    trace=trace if trace is not None else []
+    last_navigation=None
+    for attempt in range(24):
+        try:
+            state=await scope.evaluate(r"""target => {
+              const MON=[
+                ['gen','gennaio','jan','january'],
+                ['feb','febbraio','february'],['mar','marzo','march'],
+                ['apr','aprile','april'],['mag','maggio','may'],
+                ['giu','giugno','jun','june'],['lug','luglio','jul','july'],
+                ['ago','agosto','aug','august'],['set','sett','settembre','sep','september'],
+                ['ott','ottobre','oct','october'],['nov','novembre','november'],
+                ['dic','dicembre','dec','december']];
+              const visible=e=>{
+                if(!e || !(e.offsetWidth||e.offsetHeight||e.getClientRects().length))return false;
+                const r=e.getBoundingClientRect();
+                return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
+              };
+              const text=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim().toLowerCase();
+              const monthOf=s=>{
+                const normalized=(s||'').replace(/\s+20\d{2}$/,'').trim();
+                for(let i=0;i<12;i++)if(MON[i].includes(normalized))return i+1;
+                return 0;
+              };
+              const marker='data-velora-calendar-target';
+              document.querySelectorAll('['+marker+']').forEach(e=>e.removeAttribute(marker));
+              const roots=[...document.querySelectorAll(
+                '[class*="calendar"],[class*="datepicker"],[role=grid],table,[class*="month"],section,aside,div'
+              )].filter(visible).slice(0,1100);
+              const options=[];
+              for(const root of roots){
+                const leaves=[...root.querySelectorAll('button,a,span,td,div,th,[role=gridcell]')]
+                  .filter(e=>visible(e) && text(e).length<32 && e.children.length<4);
+                const dates=leaves.filter(e=>/^\d{1,2}$/.test(text(e))&&
+                   Number(text(e))>=1&&Number(text(e))<=31);
+                if(dates.length<20)continue;
+                const months=leaves.filter(e=>monthOf(text(e))>0);
+                const years=leaves.filter(e=>/^20\d{2}$/.test(text(e)));
+                const combined=leaves.filter(e=>monthOf(text(e)) && /\b20\d{2}$/.test(text(e)));
+                const m=months[0]||combined[0],y=years[0]||combined[0];
+                if(!m||!y)continue;
+                const month=monthOf(text(m));
+                const year=Number((text(y).match(/\b20\d{2}\b/)||[])[0]||0);
+                if(year<2020||year>2045||!month)continue;
+                const rect=root.getBoundingClientRect();
+                options.push({root,dates,m,y,month,year,area:rect.width*rect.height});
+              }
+              options.sort((a,b)=>a.area-b.area);
+              const cal=options[0];
+              if(!cal)return {action:'fail',reason:'Nessun calendario con mese, anno e giorni visibili'};
+              const now=cal.year*12+cal.month,goal=target.year*12+target.month;
+              if(now===goal){
+                const disabled=e=>Boolean(e.closest(
+                  '[disabled],[aria-disabled="true"],.disabled,.off,.old,.new,.outside,.not-current-month'));
+                const matches=cal.dates.filter(e=>Number(text(e))===target.day&&!disabled(e));
+                const clickables=matches.map(e=>
+                  e.closest('button,a,[role=gridcell],[data-date],td')||e
+                ).filter(e=>visible(e)&&!disabled(e));
+                const unique=[...new Set(clickables)];
+                // Se è il giorno duplicato del mese adiacente NON fare clic a caso.
+                if(unique.length!==1)return {
+                  action:'fail',reason:'Giorno '+target.day+
+                    ' ambiguo/indisponibile in '+cal.month+'/'+cal.year,
+                  currentMonth:cal.month,currentYear:cal.year};
+                unique[0].setAttribute(marker,'day');
+                return {action:'day',currentMonth:cal.month,currentYear:cal.year};
+              }
+              const yearStep=cal.year!==target.year;
+              const anchor=yearStep?cal.y:cal.m;
+              const targetIsLater=goal>now;
+              const r=anchor.getBoundingClientRect();
+              const cx=(r.left+r.right)/2,cy=(r.top+r.bottom)/2;
+              const candidates=[...cal.root.querySelectorAll(
+                'button,a,[role=button],[onclick],[ng-click],[data-ng-click],'+
+                '[class*="arrow"],[class*="chevron"],[class*="next"],'+
+                '[class*="prev"],[class*="glyphicon"],svg,i,span'
+              )].filter(visible).map(e=>{
+                const clickable=e.closest('button,a,[role=button],[onclick],[ng-click],[data-ng-click]')
+                  ||e.closest('[class*="arrow"],[class*="chevron"],[class*="next"],'+
+                       '[class*="prev"],[class*="glyphicon"]')
+                  ||(getComputedStyle(e).cursor==='pointer'?e:null);
+                return clickable;
+              }).filter(Boolean);
+              const nav=[...new Set(candidates)].map(e=>{
+                const r=e.getBoundingClientRect();
+                const x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;
+                return {e,x,y,distance:Math.abs(x-cx)+2*Math.abs(y-cy),width:r.width};
+              }).filter(v=>visible(v.e)&&v.width<100&&
+                 Math.abs(v.y-cy)<32&&Math.abs(v.x-cx)<125&&
+                 (targetIsLater?v.x>cx+8:v.x<cx-8))
+                .sort((a,b)=>a.distance-b.distance);
+              if(!nav.length)return {action:'fail',
+                reason:'Freccia '+(yearStep?'anno':'mese')+
+                 ' '+(targetIsLater?'successivo':'precedente')+' non trovata',
+                currentMonth:cal.month,currentYear:cal.year};
+              nav[0].e.setAttribute(marker,'nav');
+              return {action:'nav',kind:yearStep?'year':'month',
+                currentMonth:cal.month,currentYear:cal.year,
+                direction:targetIsLater?'forward':'backward'};
+            }""",{"year":wanted.year,"month":wanted.month,"day":wanted.day})
+            action=state.get("action")
+            if last_navigation and (
+                state.get("currentMonth"),state.get("currentYear"))==last_navigation:
+                trace.append("La freccia è stata cliccata ma il calendario è rimasto su "+
+                    f"{state.get('currentMonth')}/{state.get('currentYear')}")
+                return False
+            if action=="fail":
+                trace.append(str(state.get("reason") or "Calendario non utilizzabile"))
+                return False
+            if action not in ("nav","day"):
+                trace.append("Calendario: comando inatteso")
+                return False
+            locator=scope.locator('[data-velora-calendar-target="'+action+'"]')
+            if await locator.count()!=1:
+                trace.append("Calendario: pulsante/giorno non identificato in modo univoco")
+                return False
+            await locator.first.click(timeout=3500)
+            if action=="day":
+                trace.append("Giorno selezionato nel calendario "+
+                    f"{state.get('currentMonth')}/{state.get('currentYear')}")
+                return True
+            last_navigation=(state.get("currentMonth"),state.get("currentYear"))
+            trace.append("Navigazione "+str(state.get("kind"))+" "+
+                f"{state.get('currentMonth')}/{state.get('currentYear')} "+
+                str(state.get("direction")))
+            await asyncio.sleep(0.28)
+        except Exception as exc:
+            trace.append("Errore calendario: "+type(exc).__name__)
             return False
-        el=scope.locator('[data-velora-calendar-target="'+action+'"]')
-        if await el.count()!=1:
-            return False
-        await el.first.click(timeout=3000)
-        if action=="day":
-            return True
-        await asyncio.sleep(0.17)
+    trace.append("Calendario: raggiunto limite di 24 passaggi senza trovare "+iso)
     return False
 
 
