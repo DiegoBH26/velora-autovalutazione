@@ -10108,13 +10108,16 @@ export default function App() {
               </div>
             </div>
           </details>
-          <h3 className="mt-7 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
+          <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
+            <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Prezzi e asimmetrie · sito diretto master / Booking riferimento OTA · apri/chiudi</summary>
+            <div className="px-4 pb-4">
+          <h3 className="mt-4 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
           <section className="mt-4 overflow-hidden rounded-2xl border border-[#D5D0E7] bg-white" aria-label="Asimmetrie OTA per sezione">
             <div className="border-b border-[#E5DDF1] bg-[#F8F5FC] p-4">
-              <h4 className="text-sm font-black text-[#23124A]">Barra delle asimmetrie · Booking come riferimento</h4>
+              <h4 className="text-sm font-black text-[#23124A]">Barra delle asimmetrie · Sito diretto MASTER · Booking riferimento tra OTA</h4>
               <p className="mt-1 text-[11px] leading-5 text-[#50627F]">
-                Quattro verifiche separate per ciascuna OTA: <b>presenza scheda</b>, <b>fotografie</b>, <b>tipologie con prezzo</b> e <b>tariffe</b>.
+                Il <b>sito diretto è il master commerciale</b> per tutti i canali. <b>Booking</b> resta il master delle date e del confronto fra OTA. Per ogni canale: presenza scheda, fotografie, tipologie quotate, tariffe rispetto a Booking e tariffe rispetto al sito diretto.
                 Il verde indica un riscontro positivo nel campione, il rosso una criticità rilevata, l'ambra un dato incompleto e il grigio una verifica ancora impossibile.
               </p>
               <p className="mt-1 text-[10px] font-semibold text-[#64748B]">
@@ -10123,12 +10126,13 @@ export default function App() {
               </p>
             </div>
             <div className="overflow-x-auto">
-              <div className="min-w-[900px]">
-                <div className="grid grid-cols-[132px_repeat(4,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
-                  <div>OTA</div><div>1 · Presenza scheda</div><div>2 · Fotografie</div>
+              <div className="min-w-[1120px]">
+                <div className="grid grid-cols-[152px_repeat(5,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
+                  <div>Canale</div><div>1 · Presenza scheda</div><div>2 · Fotografie</div>
                   <div>3 · Tipologie / Booking</div><div>4 · Tariffe / Booking</div>
+                  <div>5 · Tariffe / Sito diretto</div>
                 </div>
-                {otaAsymmetryRows.map(row=>{
+                {asymmetryWithDirect.map(row=>{
                   const styleFor=(state:string)=>state==="present"
                     ? "bg-emerald-500" : state==="missing"?"bg-rose-500"
                     : state==="candidate"?"bg-amber-400":"bg-slate-300";
@@ -10139,13 +10143,14 @@ export default function App() {
                       </div>
                       <p className="mt-1.5 text-[10px] font-semibold leading-[1.4] text-[#34435B]">{label}</p>
                     </div>);
-                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[132px_repeat(4,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
+                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[152px_repeat(5,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
                     <div>
                       <p className="text-xs font-black text-[#23124A]">{row.platform}</p>
-                      {row.url && <a className="mt-1 inline-block break-all text-[10px] font-semibold text-[#50627F] underline" href={row.url} target="_blank" rel="noopener noreferrer">Apri scheda</a>}
+                      {row.url && <a className="mt-1 inline-block break-all text-[10px] font-semibold text-[#50627F] underline" href={row.url} target="_blank" rel="noopener noreferrer">{row.otaId==="sito"?"Apri booking engine":"Apri scheda"}</a>}
                     </div>
                     <div>
                       {cell(row.presence,row.presenceLabel)}
+                      {row.otaId!=="sito" && <>
                       <select aria-label={`Verifica presenza ${row.platform}`}
                         value={answers["audit-ota-"+row.otaId]?.auditStatus||""}
                         onChange={event=>updateAnswer("audit-ota-"+row.otaId,{
@@ -10177,12 +10182,19 @@ export default function App() {
                           }}/>
                         <span>Confermo identità dopo verifica nome, località e foto</span>
                       </label>}
+                      </>}
                     </div>
                     {cell(row.photosState,row.photosLabel)}
                     {cell(row.roomState,row.roomLabel)}
                     <div>{cell(row.priceState,row.priceLabel)}
                       {row.differentPrices.length>0 && <p className="mt-1 text-[10px] text-rose-700">
                         Δ prezzi confrontabili: {row.differentPrices.slice(0,3).map(item=>`+${item.delta.toFixed(1)}%`.replace("+-","-")).join(" · ")}
+                      </p>}
+                    </div>
+                    <div>{cell(row.directComparison.state,row.directComparison.label)}
+                      {row.directComparison.matched.length>0 && <p className="mt-1 text-[10px] font-bold text-[#23124A]">
+                        Δ da sito diretto: {row.directComparison.matched.slice(0,3).map(item=>
+                          `${item.delta>0?"+":""}${item.delta.toFixed(1)}%`).join(" · ")}
                       </p>}
                     </div>
                   </div>;
@@ -10194,6 +10206,8 @@ export default function App() {
               Senza pari date e ospiti, l'assenza di tariffe non equivale a indisponibilità o a una scheda mancante.
             </p>
           </section>
+            </div>
+          </details>
           <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Booking determina sempre per primo la finestra di date realmente disponibile</b>; quella stessa coppia check-in/check-out viene poi bloccata e replicata identica su ogni OTA selezionata, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>scheda struttura → stesse date Booking → 2 adulti → Cerca/Verifica disponibilità → tariffe visibili</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
