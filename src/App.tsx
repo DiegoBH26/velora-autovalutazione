@@ -6600,13 +6600,27 @@ export default function App() {
           if(siteCheck.ok){
             const siteReport=await siteCheck.json() as {
               propertyId?:string;bookingEngine?:{status?:string};
-              directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[]}
+              directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[];
+                evidence?:string[];samples?:Array<{status?:string;controls?:{reason?:string};searchAction?:{reason?:string};
+                dateAttempts?:Array<{dates?:{reason?:string};error?:string}>;evidence?:string[]}>}
             };
             if(siteReport.propertyId!==activeAuditData.id)throw new Error("L'audit diretto ricevuto appartiene a un'altra struttura.");
             const noEngine=siteReport.bookingEngine?.status==="not_found_in_page" ||
               siteReport.bookingEngine?.status==="request_only";
             if(!noEngine && !(siteReport.directCommercialAudit?.searchedTotal||0)){
-              throw new Error("Leonardo ha raggiunto il sito, ma non ha eseguito alcuna ricerca con date e ospiti. Rete fermata: apri Audit commerciale, correggi il problema e ripeti Leonardo prima di Booking.");
+              const commercial=siteReport.directCommercialAudit;
+              const sample=commercial?.samples?.[0];
+              const diagnostics=[
+                sample?.controls?.reason,
+                sample?.searchAction?.reason,
+                ...(sample?.dateAttempts||[]).map(item=>item.dates?.reason||item.error||""),
+                ...(sample?.evidence||[]),
+                ...(commercial?.evidence||[])
+              ].filter(Boolean).slice(0,3).join(" · ").slice(0,520);
+              throw new Error("Leonardo: nessuna ricerca date e ospiti effettuata. "+
+                "Stato="+(commercial?.status||"non disponibile")+
+                (diagnostics?" · Motivo: "+diagnostics:" · Apri Audit commerciale per i dettagli")+
+                ". Rete fermata prima di Booking.");
             }
             setSpecialistMessage(noEngine
               ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
