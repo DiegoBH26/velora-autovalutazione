@@ -62,7 +62,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("host === 'booking.bedzzle.com'",app)
         self.assertIn("const provider = engine.provider || resolved?.provider",app)
 
-    def test_stay_lock_no_shift_no_missing_guests(self):
+    def test_stay_lock_uses_booking_confirmed_shift_and_never_invents_guests(self):
         from velora_direct_stays import eligible_stays
         from datetime import date,timedelta
         checkin=(date.today()+timedelta(days=45)).isoformat()
@@ -76,10 +76,10 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
              "requestedCheckout":checkout,"checkin":checkin,"checkout":checkout,"adults":3}
         ]
         found=eligible_stays(rows)
-        self.assertEqual(len(found),1)
-        self.assertEqual(found[0]["guests"],3)
-        self.assertEqual(found[0]["checkin"],checkin)
-        self.assertEqual(found[0]["checkout"],checkout)
+        self.assertEqual(len(found),2)
+        self.assertEqual({stay["guests"] for stay in found},{2,3})
+        self.assertTrue(all(stay["checkin"]==checkin and stay["checkout"]==checkout for stay in found))
+        self.assertTrue(any(stay["bookingConfirmation"]=="shifted_to_available_booking_dates" for stay in found))
 
     def test_bedzzle_public_booking_key_is_preserved(self):
         from booking_engine import detect_booking_engine
