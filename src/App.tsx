@@ -3808,7 +3808,9 @@ type BrowserPilotResult = {
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
   directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
-    samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
+    samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;
+      navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;pageReached?:boolean;reason?:string;fallbackUsed?:boolean};
+      searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
       evidence?:string[]}> };
@@ -6619,7 +6621,9 @@ export default function App() {
             const siteReport=await siteCheck.json() as {
               propertyId?:string;bookingEngine?:{status?:string};
               directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[];
-                evidence?:string[];samples?:Array<{status?:string;controls?:{reason?:string};searchAction?:{reason?:string};
+                evidence?:string[];samples?:Array<{status?:string;
+                navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;reason?:string};
+                controls?:{reason?:string};searchAction?:{reason?:string};
                 dateAttempts?:Array<{dates?:{reason?:string};error?:string}>;evidence?:string[]}>}
             };
             if(siteReport.propertyId!==activeAuditData.id)throw new Error("L'audit diretto ricevuto appartiene a un'altra struttura.");
@@ -6629,6 +6633,9 @@ export default function App() {
               const commercial=siteReport.directCommercialAudit;
               const sample=commercial?.samples?.[0];
               const diagnostics=[
+                sample?.navigation?.httpStatus!=null?"Motore HTTP "+sample.navigation.httpStatus:"",
+                sample?.navigation?.siteHttpStatus!=null?"Sito HTTP "+sample.navigation.siteHttpStatus:"",
+                sample?.navigation?.reason,
                 sample?.controls?.reason,
                 sample?.searchAction?.reason,
                 ...(sample?.dateAttempts||[]).map(item=>item.dates?.reason||item.error||""),
@@ -10190,6 +10197,13 @@ export default function App() {
                   {(browserPilotResult.directCommercialAudit.samples||[]).map((sample,i)=>
                     <div key={sample.checkin+"-"+sample.checkout+"-"+i} className="rounded-xl border border-[#E5DDF1] bg-white p-3">
                       <b>{sample.checkin} → {sample.checkout}</b> · {sample.nights} notti · {sample.guests} ospiti
+                      {sample.navigation && <p className={"mt-1 font-bold "+(sample.navigation.pageReached?"text-emerald-700":"text-rose-700")}>
+                        Accesso booking engine: {sample.navigation.pageReached?"raggiunto":"NON RAGGIUNTO"} ·
+                        via {sample.navigation.openingMethod==="official_site_cta"?"pulsante Prenota del sito":sample.navigation.openingMethod==="direct_url"?"URL diretto":"percorso non confermato"}
+                        {sample.navigation.httpStatus!=null?" · HTTP "+sample.navigation.httpStatus:""}
+                        {sample.navigation.siteHttpStatus!=null?" · Sito ufficiale HTTP "+sample.navigation.siteHttpStatus:""}
+                        {sample.navigation.reason?" · "+sample.navigation.reason:""}
+                      </p>}
                       <p className="mt-1">Esito: {sample.status==="search_submitted_dates_confirmed"?"Ricerca inviata e date confermate":
                         sample.status==="search_submitted_dates_unconfirmed"?"Ricerca inviata, date non confermate nel risultato":
                         sample.status==="date_context_observed"?"Date impostate; preventivo ancora non verificato":
