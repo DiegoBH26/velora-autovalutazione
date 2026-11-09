@@ -778,12 +778,24 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                             continue
                         try:label=(await anchor.inner_text(timeout=1200)).strip()
                         except Exception:label=""
-                        score=2 if re.search(r"prenot|book|disponibilit|availability",label,re.I) else 0
-                        candidates.append((score,anchor))
+                        if not label:
+                            label=((await anchor.get_attribute("aria-label")) or
+                                   (await anchor.get_attribute("title")) or "").strip()
+                        # La CTA "Prenota" nell'header prevale sulle pagine
+                        # camere e sui link di contenuto, ma SOLO se la
+                        # destinazione è il booking engine della struttura.
+                        score=(8 if re.fullmatch(r"prenot(?:a|a ora)|book(?: now)?",label,re.I)
+                               else 4 if re.search(r"prenot|book|disponibilit|availability",label,re.I)
+                               else 0)
+                        candidates.append((score,anchor,label[:70]))
+                    diagnostic["ctaCandidates"]=len(candidates)
                     if candidates:
                         candidates.sort(key=lambda item:item[0],reverse=True)
+                        diagnostic["ctaLabel"]=candidates[0][2]
                         before=set(context.pages)
                         try:
+                            # Questo è il comando pubblico Prenota, non una
+                            # visita alle pagine Camere.
                             await candidates[0][1].click(timeout=6500)
                             await page.wait_for_timeout(1400)
                             new_pages=[item for item in context.pages if item not in before]
@@ -807,7 +819,8 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                                 else:
                                     diagnostic.update(openingMethod="official_site_cta",
                                                       pageReached=True,
-                                                      reason="Link Prenota del sito ufficiale seguito.")
+                                                      ctaClicked=True,
+                                                      reason="Clic effettuato sulla CTA Prenota del sito ufficiale.")
                                     return destination,diagnostic
                             diagnostic["reason"]="Il link Prenota non ha raggiunto il motore previsto."
                         except Exception as exc:
