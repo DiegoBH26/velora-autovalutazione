@@ -14,7 +14,7 @@ _DATE_PATTERN=re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PRICE_PATTERN=re.compile(r"(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*€)")
 
 def eligible_stays(rows, *, limit=4):
-    """Non usare slittamenti automatici e non inventare date."""
+    """Accetta soltanto date richieste sul diretto o effettivamente confermate da Booking."""
     selected=[]
     for item in rows or []:
         if not isinstance(item,dict): continue
@@ -28,7 +28,7 @@ def eligible_stays(rows, *, limit=4):
         # manteniamo la finestra confermata, senza ripristinare la richiesta.
         status=str(item.get("status") or "")
         if status not in {"initial_dates_available","shifted_to_available_booking_dates",
-                          "reused_minerva_lock"}:
+                          "reused_minerva_lock","direct_master_requested"}:
             continue
         try:
             nights=(date.fromisoformat(departure)-date.fromisoformat(arrival)).days
@@ -47,6 +47,29 @@ def eligible_stays(rows, *, limit=4):
                          "requestedCheckout":str(item.get("requestedCheckout") or "")})
         if len(selected)>=limit:break
     return selected
+
+def planned_direct_stays(plan, *, limit=4):
+    """Crea il campione iniziale del sito diretto SENZA dati Booking inventati.
+
+    Booking eseguirà poi il controllo delle medesime richieste e potrà
+    confermare o spostare la finestra. Le differenze restano esplicite.
+    """
+    if not isinstance(plan,list):
+        return []
+    rows=[]
+    for stay in plan[:max(limit*3,12)]:
+        if not isinstance(stay,dict):
+            continue
+        rows.append({
+            "checkin":str(stay.get("checkin") or ""),
+            "checkout":str(stay.get("checkout") or ""),
+            "requestedCheckin":str(stay.get("checkin") or ""),
+            "requestedCheckout":str(stay.get("checkout") or ""),
+            "adults":stay.get("adults"),
+            "status":"direct_master_requested",
+            "source":"direct_initial_plan"
+        })
+    return rows[:limit]
 
 def _money(raw):
     s=re.sub(r"[^0-9.,]","",str(raw or ""))
