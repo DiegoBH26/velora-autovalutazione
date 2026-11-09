@@ -1198,12 +1198,19 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                                 "Ricerca NON eseguita: non è stato possibile selezionare check-in e check-out.")
                             sample["evidence"].extend(
                                 "Calendario: "+reason for reason in reasons if reason)
-                            for reason in reasons:
-                                if any(fragment in reason.lower() for fragment in (
-                                    "freccia", "è rimasto su", "nessun calendario",
-                                    "calendario non utilizzabile","limite di 24 passaggi")):
-                                    systemic_calendar_failure=reason[:220]
-                                    break
+                            if (urlparse(url).hostname or "").lower()=="booking.bedzzle.com":
+                                # Le altre settimane hanno lo stesso calendario:
+                                # non ripetere la medesima selezione fallita.
+                                systemic_calendar_failure=next(
+                                    (reason[:220] for reason in reasons if reason),
+                                    "Il calendario Bedzzle non ha accettato le date")
+                            else:
+                                for reason in reasons:
+                                    if any(fragment in reason.lower() for fragment in (
+                                        "freccia", "è rimasto su", "nessun calendario",
+                                        "calendario non utilizzabile","limite di 24 passaggi")):
+                                        systemic_calendar_failure=reason[:220]
+                                        break
                         else:
                             sample["formDiagnostic"]=await _form_diagnostic(active)
                             occupancy=await _apply_guests(active,stay["guests"])
