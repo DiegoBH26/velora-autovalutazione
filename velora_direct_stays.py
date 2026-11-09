@@ -611,7 +611,7 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
     """Enter via official website as a guest, or try one direct navigation.
     Never treat an HTTP failure as evidence the hotel has no availability.
     """
-    from site_audit_builder import public_url, robots_allowed
+    from site_audit_builder import public_url, robots_allowed, dismiss_cookie
     diagnostic={"openingMethod":"not_attempted","httpStatus":None,
                 "pageReached":False,"reason":"","fallbackUsed":False}
     if site_url:
@@ -622,6 +622,8 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                     website,wait_until="domcontentloaded",timeout=20000)
                 diagnostic["siteHttpStatus"]=site_response.status if site_response else None
                 if site_response and site_response.status<400:
+                    await page.wait_for_timeout(500)
+                    await dismiss_cookie(page)
                     links=page.locator("a[href]:visible")
                     candidates=[]
                     for i in range(min(await links.count(),180)):
@@ -630,7 +632,8 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                         dest=urljoin(page.url,href)
                         if not _engine_destination_matches(dest,engine_url):
                             continue
-                        label=(await anchor.inner_text(timeout=1200)).strip()
+                        try:label=(await anchor.inner_text(timeout=1200)).strip()
+                        except Exception:label=""
                         score=2 if re.search(r"prenot|book|disponibilit|availability",label,re.I) else 0
                         candidates.append((score,anchor))
                     if candidates:
@@ -645,10 +648,20 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
                                 "domcontentloaded",timeout=7000)
                             except Exception:pass
                             if _engine_destination_matches(destination.url,engine_url):
-                                diagnostic.update(openingMethod="official_site_cta",
-                                                  pageReached=True,
-                                                  reason="Link Prenota del sito ufficiale seguito.")
-                                return destination,diagnostic
+                                body=(await destination.locator("body").inner_text(
+                                    timeout=3500)).lower()[:9000]
+                                if re.search(
+                                    r"access denied|accesso negato|forbidden|captcha|"
+                                    r"too many requests|temporarily blocked|blocked by",
+                                    body,re.I):
+                                    diagnostic["reason"]=(
+                                        "Il portale mostra una limitazione d'accesso "
+                                        "dopo il clic dal sito ufficiale.")
+                                else:
+                                    diagnostic.update(openingMethod="official_site_cta",
+                                                      pageReached=True,
+                                                      reason="Link Prenota del sito ufficiale seguito.")
+                                    return destination,diagnostic
                             diagnostic["reason"]="Il link Prenota non ha raggiunto il motore previsto."
                         except Exception as exc:
                             diagnostic["reason"]="Clic Prenota non riuscito: "+type(exc).__name__
@@ -726,6 +739,8 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None):
                             sample["evidence"].append(
                                 "Codice HTTP: "+str(navigation["httpStatus"]))
                     else:
+                        sample["evidence"].append(
+                            "Apertura booking engine: "+navigation["openingMethod"]+".")
                         await engine_page.wait_for_timeout(1200)
                         # I booking engine sono spesso in iframe cross-origin:
                         # Playwright vi accede con gli stessi controlli dell'utente.
