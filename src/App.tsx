@@ -6606,8 +6606,34 @@ export default function App() {
       const needsBooking=ids.some(id=>id!=="booking" && id!=="reviews" && id!=="official_site");
       const needsLeonardo=needsBooking || ids.includes("booking") || ids.includes("official_site");
       if(needsLeonardo){
-        setSpecialistMessage("Fase 1/3: Leonardo verifica il sito diretto e il booking engine.");
-        await startSpecialistAgent("official_site",false,"public",()=>onAccepted("official_site"));
+        // Reuse a completed, correctly identified, priced direct master.
+        // Selecting only Minerva must NEVER repeat Leonardo's calendar scan.
+        let reuseDirectMaster=false;
+        if(!ids.includes("official_site")){
+          const existing=await fetch(
+            localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),
+            {mode:"cors",cache:"no-store"}
+          );
+          if(existing.ok){
+            const prior=await existing.json() as {
+              propertyId?:string;propertyName?:string;
+              directCommercialAudit?:{masterStay?:{
+                checkin?:string;checkout?:string;status?:string;nights?:number;adults?:number
+              }}
+            };
+            const lock=prior.directCommercialAudit?.masterStay;
+            reuseDirectMaster=prior.propertyId===activeAuditData.id
+              &&prior.propertyName===activeAuditData.name
+              &&lock?.status==="direct_price_observed"
+              &&Boolean(lock.checkin&&lock.checkout&&lock.nights&&lock.adults);
+          }
+        }
+        if(reuseDirectMaster){
+          setSpecialistMessage("Leonardo MASTER già acquisito: riutilizzo le date e i prezzi senza ripetere lo scraping. Minerva richiede il riferimento nella chat.");
+        } else {
+          setSpecialistMessage("Fase 1/3: Leonardo verifica il sito diretto e il booking engine.");
+          await startSpecialistAgent("official_site",false,"public",()=>onAccepted("official_site"));
+        }
         const siteStatusResponse=await fetch(
           localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
           {mode:"cors",cache:"no-store"}
