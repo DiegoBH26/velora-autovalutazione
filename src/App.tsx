@@ -6691,8 +6691,43 @@ export default function App() {
         }
       }
       if(needsBooking || ids.includes("booking")){
-        setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
-        await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
+        // Un singolo specialista come Galileo deve riutilizzare il lavoro
+        // completato da Minerva, senza rifare una scansione Booking.
+        let reuseMinerva=false;
+        if(!ids.includes("booking")){
+          const [savedResponse,directResponse]=await Promise.all([
+            fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=booking"),{mode:"cors",cache:"no-store"}),
+            fetch(localAgentUrl("/api/agents/result?propertyId="+encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),{mode:"cors",cache:"no-store"})
+          ]);
+          if(savedResponse.ok && directResponse.ok){
+            const saved=await savedResponse.json() as {
+              propertyId?:string;propertyName?:string;
+              bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
+            };
+            const direct=await directResponse.json() as {
+              propertyId?:string;propertyName?:string;
+              directCommercialAudit?:{masterStay?:{checkin?:string;checkout?:string;adults?:number;status?:string}}
+            };
+            const master=direct.directCommercialAudit?.masterStay;
+            const locks=saved.bookingReferenceStays||[];
+            reuseMinerva=saved.propertyId===activeAuditData.id
+              &&saved.propertyName===activeAuditData.name
+              &&direct.propertyId===activeAuditData.id
+              &&direct.propertyName===activeAuditData.name
+              &&master?.status==="direct_price_observed"
+              &&locks.length===1
+              &&locks[0].status==="direct_master_checked"
+              &&locks[0].checkin===master.checkin
+              &&locks[0].checkout===master.checkout
+              &&Number(locks[0].adults)===Number(master.adults);
+          }
+        }
+        if(reuseMinerva){
+          setSpecialistMessage("Minerva ha già verificato le date MASTER. Galileo e gli altri specialisti riutilizzano il risultato salvato, senza ripetere Booking.");
+        } else {
+          setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
+          await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
+        }
         const bookingCheck=await fetch(
           localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
           {mode:"cors",cache:"no-store"}
@@ -11252,7 +11287,7 @@ export default function App() {
                     <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
                       {agentChatEvents.map((event,index)=><div key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
                         <div className="flex flex-wrap justify-between gap-2 text-[11px]">
-                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":"Giove"}</span>
+                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":event.to==="official_site"?"Leonardo":event.to==="agoda"?"Galileo":event.to==="giove"?"Giove":event.to}</span>
                           <span className="text-[#64748B]">{event.createdAt?new Date(event.createdAt).toLocaleString("it-IT"):""}</span>
                         </div>
                         <p className="mt-1 text-xs font-semibold text-[#374151]">{({
