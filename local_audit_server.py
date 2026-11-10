@@ -680,6 +680,13 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
             # La finestra con PREZZI realmente osservati da Leonardo prevale
             # su date richieste non verificate. Solo per la stessa struttura.
             if agent_id=="booking":
+                # Actual mailbox request precedes reading Leonardo's saved result.
+                agent_mailbox_publish(property_id,"booking","help_request",{
+                    "propertyName":str(data.get("name") or ""),
+                    "recipient":"official_site",
+                    "strategy":"reuse_direct_master",
+                    "message":"Minerva a Leonardo: inviami le date, le notti e gli ospiti della prima ricerca con tariffe prenotabili. Userò lo stesso periodo su Booking.",
+                })
                 try:
                     direct=json.loads(agent_output(property_id,"official_site").read_text(encoding="utf-8"))
                     lock=(direct.get("directCommercialAudit") or {}).get("masterStay") or {}
@@ -687,6 +694,16 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                         and direct.get("propertyName")==data.get("name")
                         and lock.get("status")=="direct_price_observed"):
                         data["_directMasterStay"]=lock
+                        agent_mailbox_publish(property_id,"official_site","help_reply",{
+                            "propertyName":str(data.get("name") or ""),
+                            "recipient":"booking",
+                            "strategy":"direct_master_confirmed",
+                            "windows":[lock],
+                            "status":"direct_price_observed",
+                            "priceCount":int(lock.get("priceCount") or 0),
+                            "roomCount":int(lock.get("roomCount") or 0),
+                            "message":"Leonardo a Minerva: questi sono i parametri della ricerca con tariffe osservate. Confrontali su Booking senza modificare le date.",
+                        })
                         print_agent_status(agent_id,"Leonardo MASTER","RICEVUTA",
                             str(lock.get("checkin"))+" → "+str(lock.get("checkout")))
                 except (OSError,ValueError,TypeError):
