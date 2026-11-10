@@ -22,7 +22,7 @@ type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
 type AuditData = typeof santantonioAudit | typeof perlaAudit | typeof braAudit;
 
 const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
-const EXPECTED_LEONARDO_BUILD = "direct-engine-submit-r7-20261110";
+const EXPECTED_LEONARDO_BUILD = "direct-june-master-r8-20261110";
 function localAgentUrl(path: string): string {
   return window.location.hostname === "127.0.0.1" && window.location.port === "8768" ? path : LOCAL_AGENT_BASE + path;
 }
@@ -5210,13 +5210,14 @@ export default function App() {
   const [localPilotAssisted, setLocalPilotAssisted] = useState(() => window.localStorage.getItem("velora-pilot-assisted") === "1");
   const [localPilotPeriod, setLocalPilotPeriod] = useState<LocalPilotPeriod>(() => {
     const stored = Number(window.localStorage.getItem("velora-pilot-period") || "1");
+    if (!window.localStorage.getItem("velora-pilot-period")) return "custom";
     return window.localStorage.getItem("velora-pilot-period") === "custom" ? "custom" : stored === 6 || stored === 12 ? stored : 1;
   });
-  const [customPilotStart,setCustomPilotStart]=useState("2027-08-01");
-  const [customPilotEnd,setCustomPilotEnd]=useState("2027-08-31");
+  const [customPilotStart,setCustomPilotStart]=useState("2027-06-01");
+  const [customPilotEnd,setCustomPilotEnd]=useState("2027-06-30");
   const [customPilotNights,setCustomPilotNights]=useState(3);
   const [customPilotAdults,setCustomPilotAdults]=useState(2);
-  const [customPilotFrequency,setCustomPilotFrequency]=useState<"daily"|"weekly"|"biweekly">("weekly");
+  const [customPilotFrequency,setCustomPilotFrequency]=useState<"daily"|"weekly"|"biweekly">("daily");
   const [localPilotSelectedChannels, setLocalPilotSelectedChannels] = useState<string[]>(() => {
     try {
       const parsed = JSON.parse(window.localStorage.getItem("velora-pilot-selected-channels") || "[]");
