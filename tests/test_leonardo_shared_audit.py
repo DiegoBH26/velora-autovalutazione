@@ -124,7 +124,9 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         from velora_direct_stays import probe_direct_stays
         source=inspect.getsource(probe_direct_stays)
         self.assertIn('"verifiedQuotes":[]',source)
-        self.assertIn('visible_offer_candidates',source)
+        self.assertIn('_read_booking_results',source)
+        from velora_direct_stays import _read_booking_results
+        self.assertIn('_visible_offer_candidates',inspect.getsource(_read_booking_results))
 
     def test_direct_first_date_search_without_booking_run(self):
         from datetime import date,timedelta
@@ -224,7 +226,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
 
     def test_leonardo_windows_and_frontend_versions_match(self):
         from velora_direct_stays import LEONARDO_BUILD
-        expected="direct-engine-bedzzle-named-arrows-20261109-r6"
+        expected="direct-engine-results-r6-20261110"
         self.assertEqual(LEONARDO_BUILD,expected)
         frontend=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
         server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
