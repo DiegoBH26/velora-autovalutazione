@@ -11287,7 +11287,7 @@ export default function App() {
                     <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
                       {agentChatEvents.map((event,index)=><div key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
                         <div className="flex flex-wrap justify-between gap-2 text-[11px]">
-                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":"Giove"}</span>
+                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":event.to==="official_site"?"Leonardo":event.to==="agoda"?"Galileo":event.to==="giove"?"Giove":event.to}</span>
                           <span className="text-[#64748B]">{event.createdAt?new Date(event.createdAt).toLocaleString("it-IT"):""}</span>
                         </div>
                         <p className="mt-1 text-xs font-semibold text-[#374151]">{({
