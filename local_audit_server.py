@@ -52,7 +52,7 @@ def specialist_unavailable_message():
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-r8-master"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
@@ -463,7 +463,7 @@ def agent_mailbox_result(property_id,agent_id):
     if agent_id=="booking":
         locks=[row for row in result.get("bookingReferenceStays") or []
                if isinstance(row,dict) and row.get("status") in {
-                   "initial_dates_available","shifted_to_available_booking_dates"}]
+                   "initial_dates_available","shifted_to_available_booking_dates","direct_master_checked"}]
         if locks:
             agent_mailbox_publish(property_id,"booking","booking_reference",{
                 "propertyName":result.get("propertyName",""),
@@ -1891,7 +1891,7 @@ class Handler(SimpleHTTPRequestHandler):
                         by_key={}
                         for row in locks:
                             if not isinstance(row,dict) or row.get("status") not in {
-                                "initial_dates_available","shifted_to_available_booking_dates"
+                                "initial_dates_available","shifted_to_available_booking_dates","direct_master_checked"
                             }:
                                 continue
                             key=(str(row.get("requestedCheckin")),str(row.get("requestedCheckout")),
