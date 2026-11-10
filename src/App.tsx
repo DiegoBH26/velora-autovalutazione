@@ -6716,7 +6716,7 @@ export default function App() {
               &&direct.propertyName===activeAuditData.name
               &&master?.status==="direct_price_observed"
               &&locks.length===1
-              &&locks[0].status==="direct_master_checked"
+              &&["direct_master_checked","initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock"].includes(locks[0].status||"")
               &&locks[0].checkin===master.checkin
               &&locks[0].checkout===master.checkout
               &&Number(locks[0].adults)===Number(master.adults);
@@ -6725,17 +6725,25 @@ export default function App() {
         if(reuseMinerva){
           setSpecialistMessage("Minerva ha già verificato le date MASTER. Galileo e gli altri specialisti riutilizzano il risultato salvato, senza ripetere Booking.");
         } else {
+          if(!ids.includes("booking")){
+            throw new Error("Galileo non può partire: manca un risultato Minerva salvato con date e ospiti identici al MASTER di Leonardo. Controlla l'esito Booking e le date in Chat agenti; non ripeto automaticamente le scansioni.");
+          }
           setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
           await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
         }
-        const bookingCheck=await fetch(
-          localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
-          {mode:"cors",cache:"no-store"}
-        );
-        if(!bookingCheck.ok) throw new Error("Impossibile verificare la conclusione di Booking.");
-        const bookingState=await bookingCheck.json() as {agents?:Record<string,SpecialistAgentState>};
-        if(bookingState.agents?.booking?.state!=="completed"){
-          throw new Error("Booking non ha concluso la ricerca: le altre OTA non possono partire con date diverse.");
+        // Dopo un riavvio Windows, AGENT_RUNS è vuoto anche se il file
+        // result.json di Minerva esiste: non usare uno stato volatile
+        // per rifiutare un lock persistente già verificato.
+        if(!reuseMinerva){
+          const bookingCheck=await fetch(
+            localAgentUrl("/api/agents/status?propertyId="+encodeURIComponent(activeAuditData.id)),
+            {mode:"cors",cache:"no-store"}
+          );
+          if(!bookingCheck.ok) throw new Error("Impossibile verificare la conclusione di Booking.");
+          const bookingState=await bookingCheck.json() as {agents?:Record<string,SpecialistAgentState>};
+          if(bookingState.agents?.booking?.state!=="completed"){
+            throw new Error("Booking non ha concluso la ricerca: le altre OTA non possono partire con date diverse.");
+          }
         }
         if(needsBooking){
           const datesResponse=await fetch(
