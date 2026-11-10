@@ -214,7 +214,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("next_buttons.count()!=1",calendar)
         cta=inspect.getsource(_submit_availability_search)
         self.assertIn("matched",cta)
-        self.assertIn("len(matched)!=1",cta)
+        self.assertIn("if not matched:",cta)
         self.assertNotIn("prenota|book now",cta)
 
     def test_leonardo_ui_shows_search_coverage_and_prevents_premature_batch(self):
@@ -226,7 +226,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
 
     def test_leonardo_windows_and_frontend_versions_match(self):
         from velora_direct_stays import LEONARDO_BUILD
-        expected="direct-engine-results-r6-20261110"
+        expected="direct-engine-submit-r7-20261110"
         self.assertEqual(LEONARDO_BUILD,expected)
         frontend=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
         server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")

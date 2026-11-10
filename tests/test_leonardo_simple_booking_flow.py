@@ -12,9 +12,11 @@ class Element:
     def __init__(self,label,hints):
         self.label,self.hints,self.clicked=label,hints,False
     async def evaluate(self,js):
-        return self.hints if "getBoundingClientRect" in js else self.label
+        return {**self.hints, "label":self.label, "enabled":True} if "getBoundingClientRect" in js else self.label
     async def is_enabled(self):
         return True
+    async def scroll_into_view_if_needed(self,timeout=0):
+        return None
     async def click(self,timeout=0):
         self.clicked=True
 
@@ -58,6 +60,14 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertTrue(found["submitted"])
         self.assertTrue(form.clicked)
         self.assertFalse(menu.clicked)
+
+    def test_bedzzle_availability_button_after_dates(self):
+        action=Element("DISPONIBILITÀ",
+            {"y":740,"tag":"button","form":True,"inputs":4,
+             "occupancy":True,"dates":True,"header":False})
+        found=asyncio.run(_submit_availability_search(Scope([action])))
+        self.assertTrue(found["submitted"],found)
+        self.assertTrue(action.clicked)
 
     def test_browser_results_javascript_is_parseable(self):
         # Estrae la stringa JavaScript esatta dopo le escape di Python;
