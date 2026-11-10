@@ -6623,7 +6623,7 @@ export default function App() {
           if(siteCheck.ok){
             const siteReport=await siteCheck.json() as {
               propertyId?:string;bookingEngine?:{status?:string};
-              directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[];
+              directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[];masterStay?:{checkin?:string;checkout?:string;adults?:number};
                 evidence?:string[];samples?:Array<{status?:string;
                 navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;reason?:string};
                 controls?:{reason?:string};searchAction?:{reason?:string};
@@ -6649,6 +6649,10 @@ export default function App() {
                 "Stato="+(commercial?.status||"non disponibile")+
                 (diagnostics?" · Motivo: "+diagnostics:" · Apri Audit commerciale per i dettagli")+
                 ". Rete fermata prima di Booking.");
+            }
+            if (!noEngine && !siteReport.directCommercialAudit?.masterStay?.checkin) {
+              throw new Error("Leonardo non ha identificato una finestra con tariffe effettivamente prenotabili sul sito diretto. " +
+                "Gli altri agenti non partiranno con date arbitrarie. Apri l'audit diretto per la diagnosi.");
             }
             setSpecialistMessage(noEngine
               ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
@@ -6683,7 +6687,7 @@ export default function App() {
           };
           const locks=bookingDates.bookingReferenceStays||[];
           if(!locks.length || locks.some(lock=>
-            !["initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock"].includes(lock.status||"")
+            !["initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock","direct_master_checked"].includes(lock.status||"")
             || !lock.checkin || !lock.checkout
           )){
             throw new Error("Booking non ha confermato tutte le finestre di soggiorno: ricerca OTA sospesa per evitare date asimmetriche.");
@@ -11218,11 +11222,12 @@ export default function App() {
                     <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
                       {agentChatEvents.map((event,index)=><div key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
                         <div className="flex flex-wrap justify-between gap-2 text-[11px]">
-                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":"Giove"}</span>
+                          <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":"Giove"}</span>
                           <span className="text-[#64748B]">{event.createdAt?new Date(event.createdAt).toLocaleString("it-IT"):""}</span>
                         </div>
                         <p className="mt-1 text-xs font-semibold text-[#374151]">{({
-                          booking_reference:"Date Booking confermate e condivise",
+                          direct_master:"Leonardo · Tariffe dirette trovate e date inviate a Minerva",
+                          booking_reference:"Minerva · Date ricevute e condivise con le OTA",
                           pricing_read_failure:"Difficoltà nella lettura delle tariffe",
                           pricing_observed:"Acquisizione tariffe registrata",
                           technical_block:"Problema tecnico segnalato",
@@ -11233,7 +11238,7 @@ export default function App() {
                         } as Record<string,string>)[event.type]||event.type}</p>
                         {event.details?.message && <p className="mt-1 text-xs leading-relaxed text-[#374151]">{event.details.message}</p>}
                         {event.details?.windows?.map((stay,i)=><p key={i} className="mt-1 text-[11px] text-[#50627F]">
-                          {stay.requestedCheckin} → {stay.requestedCheckout} · Date confermate: {stay.checkin} → {stay.checkout}
+                          {stay.requestedCheckin && stay.requestedCheckout ? stay.requestedCheckin+" → "+stay.requestedCheckout+" · " : ""}Date di ricerca: {stay.checkin} → {stay.checkout} · {stay.adults||2} ospiti
                         </p>)}
                         {(typeof event.details?.observedPriceCount==="number" || typeof event.details?.roomCount==="number") && <p className="mt-1 text-[11px] text-[#50627F]">Elementi prezzo osservati: {event.details?.observedPriceCount??0} · Camere individuate: {event.details?.roomCount??0}</p>}
                         {typeof event.details?.priceCount==="number" && <p className="mt-1 text-[11px] text-[#50627F]">Offerte tariffarie validate: {event.details.priceCount}</p>}
