@@ -52,7 +52,7 @@ def specialist_unavailable_message():
 
 CHANNELS=browser_pilot.CHANNELS
 run=browser_pilot.run
-EXPECTED_PILOT_BUILD="velora-browser-pilot-r8-master"
+EXPECTED_PILOT_BUILD="velora-browser-pilot-v125"
 PILOT_RAW_URL="https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main/browser_audit_pilot.py"
 
 
