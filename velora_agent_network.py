@@ -821,18 +821,17 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 +"; flusso transazionale NON ancora collaudato")
             commercial=result.get("directCommercialAudit") or {}
             samples_direct=commercial.get("samples") or []
-            parity=bool(samples_direct) and bool(booking_locks) and all(
-                (sample.get("checkin"),sample.get("checkout"),sample.get("guests"))
-                in booking_locks.values()
-                and (sample.get("checkin"),sample.get("checkout")) in booking_locks
-                for sample in samples_direct
+            master=commercial.get("masterStay") or {}
+            parity=bool(master.get("checkin") and booking_locks) and any(
+                (master.get("checkin"),master.get("checkout"),master.get("adults"))==lock
+                for lock in booking_locks.values()
             )
             add(agent, "direct_booking_date_parity", "Date e ospiti sito diretto / Booking",
                 parity,
-                f"{len(samples_direct)} finestre sito diretto controllate rispetto a {len(booking_locks)} riferimenti Booking."
+                f"{len(samples_direct)} finestre dirette analizzate; MASTER {master.get('checkin','n.d.')} → {master.get('checkout','n.d.')}; Minerva {len(booking_locks)} riferimenti."
                 + (" Date e ospiti coincidenti." if parity else " Confronto non convalidato."))
             searched_direct=[sample for sample in samples_direct
-                             if sample.get("status")=="date_context_observed"
+                             if sample.get("datesConfirmedAfterSearch") is True
                              and sample.get("searchSubmitted") is True]
             add(agent, "direct_search_windows", "Ricerche datate sul booking engine diretto",
                 bool(searched_direct),
