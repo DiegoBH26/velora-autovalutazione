@@ -264,7 +264,7 @@ def agent_output(property_id,agent_id):
 # executable commands, credentials, browser control or cross-OTA navigation.
 # Giove can audit the exchange, which never overrides evidence from the portal.
 MAILBOX_LOCK=threading.RLock()
-MAILBOX_EVENT_TYPES={"booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision","identity_rejected"}
+MAILBOX_EVENT_TYPES={"direct_master","booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision","identity_rejected"}
 MAILBOX_LIMIT=120
 
 
@@ -447,20 +447,43 @@ def agent_mailbox_result(property_id,agent_id):
         result=json.loads(agent_output(property_id,agent_id).read_text(encoding="utf-8"))
     except (OSError,ValueError,TypeError):
         return
+    if agent_id=="official_site":
+        lock=(result.get("directCommercialAudit") or {}).get("masterStay") or {}
+        if lock.get("status")=="direct_price_observed" and lock.get("checkin") and lock.get("checkout"):
+            agent_mailbox_publish(property_id,"official_site","direct_master",{
+                "propertyName":result.get("propertyName",""),
+                "recipient":"booking",
+                "status":"direct_price_observed",
+                "windows":[lock],
+                "roomCount":int(lock.get("roomCount") or 0),
+                "priceCount":int(lock.get("priceCount") or 0),
+                "message":"Leonardo: tariffe dirette trovate. Minerva, verifica esattamente queste date e questi ospiti senza spostarle.",
+            },reset=True)
+        return
     if agent_id=="booking":
         locks=[row for row in result.get("bookingReferenceStays") or []
                if isinstance(row,dict) and row.get("status") in {
-                   "initial_dates_available","shifted_to_available_booking_dates"}]
+                   "initial_dates_available","shifted_to_available_booking_dates","direct_master_checked"}]
         if locks:
+            counted=sum(len(row.get("quotes") or [])
+                for row in result.get("observations") or []
+                if row.get("otaId")=="booking")
+            from_direct=any(row.get("status")=="direct_master_checked" for row in locks)
             agent_mailbox_publish(property_id,"booking","booking_reference",{
                 "propertyName":result.get("propertyName",""),
                 "sourceRun":result.get("createdAt",""),
                 "windows":locks,
-                "roomCount":sum(len(row.get("quotes") or [])
-                    for row in result.get("observations") or []
-                    if row.get("otaId")=="booking"),
-                "status":"booking_dates_confirmed",
-            },reset=True)
+                "roomCount":counted,
+                "status":"direct_master_checked" if from_direct else "booking_dates_confirmed",
+                "message":(
+                    "Minerva: ho cercato le date fornite da Leonardo senza modificarle. "
+                    +str(counted)+" offerte Booking osservate. "
+                    +"Le altre OTA devono cercare identiche date e occupazione; "
+                    +"l'assenza di prezzo Booking richiede verifica dell'asimmetria."
+                    if from_direct else
+                    "Minerva: date di riferimento Booking condivise con gli altri specialisti."
+                ),
+            },reset=False)
         return
     if agent_id not in {"official_site","reviews"}:
         rows=[row for row in result.get("observations") or []
@@ -654,6 +677,20 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                     raise RuntimeError("Prima effettua «Accedi e verifica» nella scheda dell\'agente e completa la verifica con codice; scansione non avviata.")
                 else:
                     print_agent_status(agent_id,"Profilo Chrome","DA VERIFICARE","Profilo locale presente; login non confermato")
+            # La finestra con PREZZI realmente osservati da Leonardo prevale
+            # su date richieste non verificate. Solo per la stessa struttura.
+            if agent_id=="booking":
+                try:
+                    direct=json.loads(agent_output(property_id,"official_site").read_text(encoding="utf-8"))
+                    lock=(direct.get("directCommercialAudit") or {}).get("masterStay") or {}
+                    if (direct.get("propertyId")==property_id
+                        and direct.get("propertyName")==data.get("name")
+                        and lock.get("status")=="direct_price_observed"):
+                        data["_directMasterStay"]=lock
+                        print_agent_status(agent_id,"Leonardo MASTER","RICEVUTA",
+                            str(lock.get("checkin"))+" → "+str(lock.get("checkout")))
+                except (OSError,ValueError,TypeError):
+                    pass
             # Handoff is informative: each worker stays inside its own OTA.
             if agent_id not in {"booking","official_site","reviews"}:
                 reference=agent_mailbox_reference(property_id,str(data.get("name") or ""))
@@ -1826,6 +1863,26 @@ class Handler(SimpleHTTPRequestHandler):
                 # Never use a stale partial snapshot, a similarly named property,
                 # or a lock from another requested interval.
                 data.pop("_specialistBookingLocks",None)
+                # Tutti gli specialisti lavorano sulla finestra di Leonardo
+                # che Minerva deve avere verificato, non su tutte le date vuote.
+                direct_master=None
+                try:
+                    direct_result=json.loads(agent_output(property_id,"official_site").read_text(encoding="utf-8"))
+                    candidate=(direct_result.get("directCommercialAudit") or {}).get("masterStay") or {}
+                    if (direct_result.get("propertyId")==property_id
+                        and direct_result.get("propertyName")==data.get("name")
+                        and candidate.get("status")=="direct_price_observed"
+                        and candidate.get("checkin") and candidate.get("checkout")):
+                        direct_master=candidate
+                except (OSError,ValueError,TypeError):
+                    pass
+                if direct_master and agent_id!="official_site":
+                    custom_period={
+                        "start":direct_master["checkin"],"end":direct_master["checkout"],
+                        "nights":int(direct_master["nights"]),
+                        "adults":int(direct_master["adults"]),"frequency":"daily"}
+                    if agent_id=="booking":
+                        data["_directMasterStay"]=direct_master
                 if agent_id not in {"booking","official_site","reviews"}:
                     try:
                         booking_result=json.loads(agent_output(property_id,"booking").read_text(encoding="utf-8"))
@@ -1844,7 +1901,7 @@ class Handler(SimpleHTTPRequestHandler):
                         by_key={}
                         for row in locks:
                             if not isinstance(row,dict) or row.get("status") not in {
-                                "initial_dates_available","shifted_to_available_booking_dates"
+                                "initial_dates_available","shifted_to_available_booking_dates","direct_master_checked"
                             }:
                                 continue
                             key=(str(row.get("requestedCheckin")),str(row.get("requestedCheckout")),

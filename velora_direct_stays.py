@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-engine-submit-r7-20261110"
+LEONARDO_BUILD = "direct-june-master-r8-20261110"
 
 import asyncio
 import re
@@ -1385,6 +1385,30 @@ async def _read_booking_results(engine_page, active, stay, *, timeout_seconds=14
     return last
 
 
+def direct_master_candidate(stay, sample):
+    """Return a date lock only after a real submitted, dated, bookable offer."""
+    if not (sample.get("searchSubmitted") and
+            sample.get("datesConfirmedAfterSearch") and
+            (sample.get("occupancyControl") or {}).get("confirmed")):
+        return None
+    matched_offers=[
+        offer for offer in sample.get("quotes") or []
+        if offer.get("bookingActionVisible")
+        and offer.get("roomType")
+        and isinstance(offer.get("displayedAmount"),(int,float))
+        and offer.get("displayedAmount")>0
+    ]
+    if not matched_offers:
+        return None
+    return {
+        "checkin":stay["checkin"],"checkout":stay["checkout"],
+        "nights":stay["nights"],"adults":stay["guests"],
+        "status":"direct_price_observed","source":"official_site",
+        "roomCount":len({x["roomType"] for x in matched_offers}),
+        "priceCount":len(matched_offers),
+    }
+
+
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, debug_dir=None):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
 
@@ -1395,7 +1419,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
     from site_audit_builder import public_url, robots_allowed
     stays=eligible_stays(rows,limit=limit)
     result={"status":"not_checked","samples":[],"verifiedQuotes":[],
-            "observedRoomPrices":[],"evidence":[],
+            "observedRoomPrices":[],"evidence":[], "masterStay":None,
             "searchedTotal":0,"plannedTotal":len(stays)}
     if not stays:
         result["status"]="missing_direct_dates"
@@ -1647,6 +1671,18 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                             except Exception:pass
                     await page.close()
                 result["samples"].append(sample)
+                # Il primo soggiorno davvero prenotabile sul sito diretto
+                # diventa la finestra MASTER, non un semplice input calendario.
+                # Richiede risultati di camera con prezzo, date confermate
+                # e almeno un'azione di prenotazione visibile.
+                direct_master=direct_master_candidate(stay,sample)
+                if direct_master:
+                    result["masterStay"]=direct_master
+                    result["evidence"].append(
+                        "Finestra MASTER sito diretto: "+stay["checkin"]+
+                        " → "+stay["checkout"]+"; tariffe osservate su camere "
+                        "prenotabili; inoltrare queste date a Minerva.")
+                    break
                 await asyncio.sleep(0.25)
             await context.close()
         finally:

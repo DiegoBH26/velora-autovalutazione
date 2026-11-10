@@ -459,7 +459,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             today=datetime.now().date()
             plan=(pilot.custom_date_plan(today, custom_period) if custom_period
                   else pilot.monthly_plan(today,limit=(13 if months==12 else max(1,months))))
-            direct_limit=min(len(plan),24)
+            direct_limit=min(len(plan),31)
             direct_windows=planned_direct_stays(plan,limit=direct_limit)
             plan_error=""
         except (ValueError,KeyError,TypeError) as exc:
@@ -614,7 +614,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         if len(plan)>len(direct_windows):
             direct_stays.setdefault("evidence",[]).append(
                 f"Periodo esteso: {len(direct_windows)} soggiorni analizzati "
-                f"su {len(plan)} programmati (limite operativo massimo 24).")
+                f"su {len(plan)} programmati (limite operativo massimo 31).")
         direct_stays["bookingHistoricalReference"]=bool(booking_windows)
         if plan_error:
             direct_stays.setdefault("evidence",[]).append(plan_error)
@@ -639,7 +639,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         audit["directCommercialAudit"] = direct_stays
         audit["bookingEngineFields"] = engine_fields
         result = _safe_result({
-            "schema": NETWORK_SCHEMA, "auditData": audit, "photoAudit": photos,
+            "schema": NETWORK_SCHEMA, "propertyName":data.get("name",""), "auditData": audit, "photoAudit": photos,
             "bookingEngine": audit.get("bookingEngine") or {},
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
@@ -821,18 +821,17 @@ def evaluate(property_id: str, outputs: dict[str, Path]) -> dict:
                 +"; flusso transazionale NON ancora collaudato")
             commercial=result.get("directCommercialAudit") or {}
             samples_direct=commercial.get("samples") or []
-            parity=bool(samples_direct) and bool(booking_locks) and all(
-                (sample.get("checkin"),sample.get("checkout"),sample.get("guests"))
-                in booking_locks.values()
-                and (sample.get("checkin"),sample.get("checkout")) in booking_locks
-                for sample in samples_direct
+            master=commercial.get("masterStay") or {}
+            parity=bool(master.get("checkin") and booking_locks) and any(
+                (master.get("checkin"),master.get("checkout"),master.get("adults"))==lock
+                for lock in booking_locks.values()
             )
             add(agent, "direct_booking_date_parity", "Date e ospiti sito diretto / Booking",
                 parity,
-                f"{len(samples_direct)} finestre sito diretto controllate rispetto a {len(booking_locks)} riferimenti Booking."
+                f"{len(samples_direct)} finestre dirette analizzate; MASTER {master.get('checkin','n.d.')} → {master.get('checkout','n.d.')}; Minerva {len(booking_locks)} riferimenti."
                 + (" Date e ospiti coincidenti." if parity else " Confronto non convalidato."))
             searched_direct=[sample for sample in samples_direct
-                             if sample.get("status")=="date_context_observed"
+                             if sample.get("datesConfirmedAfterSearch") is True
                              and sample.get("searchSubmitted") is True]
             add(agent, "direct_search_windows", "Ricerche datate sul booking engine diretto",
                 bool(searched_direct),

@@ -12957,6 +12957,20 @@ async def run(args: argparse.Namespace) -> dict:
     custom_settings=getattr(args,"custom_period",None)
     plan_limit = 13 if args.months == 12 else args.months
     plan = custom_date_plan(today,custom_settings) if custom_settings else monthly_plan(today, limit=plan_limit)
+    direct_master=data.get("_directMasterStay") or {}
+    if direct_master.get("status")=="direct_price_observed":
+        # For Booking, dates found with bookable offers by Leonardo cannot
+        # be shifted silently. A missing Booking price is an asymmetry.
+        checkin=str(direct_master.get("checkin") or "")
+        checkout=str(direct_master.get("checkout") or "")
+        try:
+            assert (date.fromisoformat(checkout)-date.fromisoformat(checkin)).days==int(direct_master["nights"])
+            assert date.fromisoformat(checkin)>=today
+            assert int(direct_master["adults"])>=1
+        except (AssertionError,ValueError,KeyError,TypeError):
+            raise ValueError("Leonardo MASTER non valido: date e ospiti")
+        plan=[{"month":checkin[:7],"checkin":checkin,"checkout":checkout,
+               "nights":int(direct_master["nights"]),"adults":int(direct_master["adults"])}]
     channels = [part.strip() for part in args.channels.split(",") if part.strip()]
     unknown = set(channels) - set(CHANNELS)
     if unknown:
@@ -13825,18 +13839,33 @@ async def run(args: argparse.Namespace) -> dict:
                             )[:900]
                         initial_booking=fallback_booking
 
-                    effective_stay,precomputed_booking,resolution=await booking_resolve_reference_stay(
-                        context,
-                        booking_source,
-                        data.get("name",""),
-                        data.get("city",""),
-                        effective_stay,
-                        robots,
-                        initial_booking,
-                        max_shifts=2 if reference_for_specialist else None,
-                        allowed_checkout=range_checkout,
-                        used_windows=booked_windows if not reference_for_specialist else None,
-                    )
+                    if direct_master.get("status")=="direct_price_observed" and specialist_id=="booking":
+                        # Do not auto-shift Booking away from priced direct dates.
+                        # The absence of Booking quotes remains explicit.
+                        precomputed_booking=initial_booking
+                        resolution={
+                            "status":"direct_master_checked",
+                            "requestedCheckin":planned_stay["checkin"],
+                            "requestedCheckout":planned_stay["checkout"],
+                            "resolvedCheckin":effective_stay["checkin"],
+                            "resolvedCheckout":effective_stay["checkout"],
+                            "attempts":1,
+                            "evidence":"Minerva ha cercato le date con prezzo del sito diretto, senza spostamento automatico. "
+                                "Assenza di tariffe OTA = possibile asimmetria da verificare.",
+                        }
+                    else:
+                        effective_stay,precomputed_booking,resolution=await booking_resolve_reference_stay(
+                            context,
+                            booking_source,
+                            data.get("name",""),
+                            data.get("city",""),
+                            effective_stay,
+                            robots,
+                            initial_booking,
+                            max_shifts=2 if reference_for_specialist else None,
+                            allowed_checkout=range_checkout,
+                            used_windows=booked_windows if not reference_for_specialist else None,
+                        )
                     if resolution.get("status") in {
                         "initial_dates_available","shifted_to_available_booking_dates"
                     }:
