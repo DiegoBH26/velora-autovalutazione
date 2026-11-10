@@ -1783,7 +1783,9 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
             await context.close()
         finally:
             await browser.close()
-    if result["verifiedQuotes"]:
+    if result.get("status")=="first_price_needs_validation":
+        pass
+    elif result["verifiedQuotes"]:
         result["status"]="verified_rates"
     elif result["searchedTotal"]==0:
         result["status"]="search_not_executed"
