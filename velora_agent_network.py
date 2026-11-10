@@ -639,7 +639,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         audit["directCommercialAudit"] = direct_stays
         audit["bookingEngineFields"] = engine_fields
         result = _safe_result({
-            "schema": NETWORK_SCHEMA, "auditData": audit, "photoAudit": photos,
+            "schema": NETWORK_SCHEMA, "propertyName":data.get("name",""), "auditData": audit, "photoAudit": photos,
             "bookingEngine": audit.get("bookingEngine") or {},
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
