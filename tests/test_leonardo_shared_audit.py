@@ -214,7 +214,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("next_buttons.count()!=1",calendar)
         cta=inspect.getsource(_submit_availability_search)
         self.assertIn("matched",cta)
-        self.assertIn("len(matched)!=1",cta)
+        self.assertIn("if not matched:",cta)
         self.assertNotIn("prenota|book now",cta)
 
     def test_leonardo_ui_shows_search_coverage_and_prevents_premature_batch(self):
