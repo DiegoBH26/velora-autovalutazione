@@ -1767,6 +1767,18 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                         "prenotabili; inoltrare queste date a Minerva.")
                     _save_direct_checkpoint(debug_dir,result)
                     break
+                # Prezzi realmente visibili: non continuare inutilmente per
+                # tutte le date. Se manca una conferma, segnala il dettaglio
+                # e conserva il campione; NON inviare un master non verificato.
+                if sample.get("searchSubmitted") and (
+                        sample.get("quotes") or sample.get("visiblePrices")):
+                    result["status"]="first_price_needs_validation"
+                    result["evidence"].append(
+                        "Prezzi individuati al primo soggiorno utile, ma il lock MASTER "
+                        "richiede verifica dei dati. Leonardo interrompe le altre date "
+                        "anziché ripetere l'operazione.")
+                    _save_direct_checkpoint(debug_dir,result)
+                    break
                 await asyncio.sleep(0.25)
             await context.close()
         finally:
