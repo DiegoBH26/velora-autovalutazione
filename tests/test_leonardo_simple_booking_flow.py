@@ -61,6 +61,14 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertTrue(form.clicked)
         self.assertFalse(menu.clicked)
 
+    def test_bedzzle_availability_button_after_dates(self):
+        action=Element("DISPONIBILITÀ",
+            {"y":740,"tag":"button","form":True,"inputs":4,
+             "occupancy":True,"dates":True,"header":False})
+        found=asyncio.run(_submit_availability_search(Scope([action])))
+        self.assertTrue(found["submitted"],found)
+        self.assertTrue(action.clicked)
+
     def test_browser_results_javascript_is_parseable(self):
         # Estrae la stringa JavaScript esatta dopo le escape di Python;
         # un \\b scritto male diventerebbe un carattere backspace.
