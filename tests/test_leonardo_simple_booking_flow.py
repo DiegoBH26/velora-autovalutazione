@@ -12,9 +12,11 @@ class Element:
     def __init__(self,label,hints):
         self.label,self.hints,self.clicked=label,hints,False
     async def evaluate(self,js):
-        return self.hints if "getBoundingClientRect" in js else self.label
+        return {**self.hints, "label":self.label, "enabled":True} if "getBoundingClientRect" in js else self.label
     async def is_enabled(self):
         return True
+    async def scroll_into_view_if_needed(self,timeout=0):
+        return None
     async def click(self,timeout=0):
         self.clicked=True
 
