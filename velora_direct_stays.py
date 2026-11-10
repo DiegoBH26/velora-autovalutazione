@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-engine-results-r6-20261110"
+LEONARDO_BUILD = "direct-engine-submit-r7-20261110"
 
 import asyncio
 import re
@@ -827,63 +827,105 @@ async def _apply_dates(scope, stay):
 
 
 async def _submit_availability_search(scope):
-    """Nel caso di due CTA identiche preferisce il pulsante del form (non il menu).
-    Interrompe il flusso se non riesce a distinguere il comando di ricerca.
+    """Activate the booking search CTA after confirming dates.
+
+    Bedzzle and similar engines sometimes label the action simply
+    'Disponibilità' rather than 'Verifica disponibilità'. Prefer the control
+    associated with search/date/guest fields and reject ambiguous navigation.
+    A click is not proof of results: the caller verifies them separately.
     """
     controls=scope.locator(
-        "button:visible,input[type=submit]:visible,[role=button]:visible,a[href]:visible")
+        "button:visible,input[type=submit]:visible,input[type=button]:visible,"
+        "[role=button]:visible,a[href]:visible,"
+        "[data-testid*=search i]:visible,[data-testid*=availability i]:visible")
     pattern=re.compile(
-        r"^(?:cerca(?: (?:la )?disponibilit[aà]| camere| alloggi| prezzi| ora)?|"
+        r"^(?:"
+        r"(?:verifica|controlla|vedi|mostra|visualizza|trova|cerca|consulta|"
+        r"ricerca|scopri|verifica la|controlla la)\\s*"
+        r"(?:la\\s+)?(?:disponibilit[aà]|camere|alloggi|prezzi|tariffe|offerte|"
+        r"availability|rooms|rates)?|"
+        r"disponibilit[aà]|verifica disponibilit[aà]|"
         r"search(?: availability| rooms| rates)?|"
-        r"verifica(?: (?:la )?disponibilit[aà]| prezzi| tariffe)?|"
-        r"controlla disponibilit[aà]|vedi disponibilit[aà]|"
-        r"check availability|show availability|"
-        r"mostra (?:disponibilit[aà]|risultati|prezzi|camere|tariffe)|"
-        r"visualizza (?:camere|prezzi|disponibilit[aà])|"
-        r"show (?:results|rooms|prices|rates)|find (?:rooms|rates))"
-        r"(?:\s*[›»→])?$",re.I)
+        r"check(?: availability| rates| rooms)?|"
+        r"show (?:availability|results|rooms|prices|rates)|"
+        r"find (?:availability|rooms|rates)|"
+        r"book now|prenota ora"
+        r")(?:[\\s:!›»→\\-]*)$",re.I)
     matched=[]
-    for i in range(min(await controls.count(),120)):
+    candidates=[]
+    for i in range(min(await controls.count(),160)):
         el=controls.nth(i)
         try:
-            label=await el.evaluate("""e=>(e.innerText||
-              e.getAttribute('aria-label')||e.value||e.title||'')
-              .replace(/\s+/g,' ').trim()""")
-            if not pattern.fullmatch(label) or not await el.is_enabled():continue
-            hints=await el.evaluate("""e=>{
+            info=await el.evaluate("""e=>{
+              const clean=s=>(s||'').replace(/\\s+/g,' ').trim();
+              const label=clean(e.innerText||e.textContent||e.value||
+                e.getAttribute('aria-label')||e.title);
+              const alternate=clean([e.getAttribute('aria-label'),e.getAttribute('title'),
+                e.getAttribute('data-testid'),e.value].filter(Boolean).join(' '));
               const rect=e.getBoundingClientRect();
-              const container=e.closest('form,[class*=booking],[class*=search],[class*=availability]');
-              const txt=(container?.innerText||'').slice(0,2000);
-              return {y:Math.round(rect.y),tag:e.tagName.toLowerCase(),
-                form:!!e.closest('form'),
-                inputs:container?.querySelectorAll('input,select')?.length||0,
-                occupancy:/adulti|adults|ospiti|guests|camera 1/i.test(txt),
-                dates:/check.?in|check.?out|arrivo|partenza/i.test(txt),
-                header:!!e.closest('header,nav,[role=navigation]')};
+              const container=e.closest('form,[class*=booking],[class*=Booking],'
+                +'[class*=search],[class*=Search],[class*=availability],'
+                +'[class*=Availability],[class*=date],[class*=Date]');
+              const txt=(container?.innerText||'').slice(0,2400);
+              const inputs=container?.querySelectorAll('input,select')?.length||0;
+              return {label,alternate,y:Math.round(rect.y),
+                tag:e.tagName.toLowerCase(),form:!!e.closest('form'),
+                inputs,occupancy:/adulti|adults|ospiti|guests|camera 1/i.test(txt),
+                dates:/check.?in|check.?out|arrivo|partenza|arrival|departure/i.test(txt),
+                header:!!e.closest('header,nav,[role=navigation]'),
+                navigation:!!e.closest('nav,[role=navigation]'),
+                href:e.getAttribute('href')||'',
+                type:(e.getAttribute('type')||'').toLowerCase(),
+                enabled:!e.disabled&&e.getAttribute('aria-disabled')!=='true'};
             }""")
-            score=(6 if hints.get("form") else 0)+(4 if hints.get("inputs",0)>=2 else 0)
-            score+=(3 if hints.get("occupancy") else 0)+(3 if hints.get("dates") else 0)
-            score+=(1 if hints.get("tag") in ("button","input") else 0)
-            score-=10 if hints.get("header") else 0
-            matched.append((el,label,score,hints.get("y",0)))
+            label=info.get("label") or ""
+            alternative=info.get("alternate") or ""
+            if not info.get("enabled"):continue
+            valid=bool(pattern.fullmatch(label))
+            # Icon-only buttons are allowed only with an explicit search label.
+            if not valid and not label:
+                valid=bool(re.search(
+                    r"search|verifica.disponibilit|check.availability|"
+                    r"availability|disponibilit",alternative,re.I))
+            if not valid:continue
+            if info.get("navigation") or info.get("header"):
+                # Navigation links lead away from the dated booking form.
+                candidates.append({"label":label[:90],"excluded":"navigation"})
+                continue
+            score=(7 if info["form"] else 0)+(4 if info["inputs"]>=2 else 0)
+            score+=(4 if info["dates"] else 0)+(3 if info["occupancy"] else 0)
+            score+=(2 if info["tag"] in ("button","input") else 0)
+            score+=(3 if re.search(r"verifica|cerca|search|check|show",label,re.I) else 0)
+            score+=(2 if info["type"]=="submit" else 0)
+            if re.fullmatch(r"disponibilit[aà]",label,re.I):score+=3
+            if info["href"] and not info["form"] and info["inputs"]<2:score-=4
+            matched.append((el,label or alternative[:90],score,info["y"]))
+            candidates.append({"label":(label or alternative)[:90],"score":score})
         except Exception:
             continue
-    if len(matched)!=1:
-        if not matched:
-            return {"submitted":False,"reason":"Pulsante 'Verifica disponibilità' non trovato."}
-        # Due voci con lo stesso nome (menu in alto + pulsante del modulo):
-        # il pulsante con più indizi di form prevale; a parità non si clicca.
-        ranked=sorted(matched,key=lambda x:(x[2],x[3]),reverse=True)
-        if len(ranked)>1 and ranked[0][2]==ranked[1][2] and ranked[0][3]==ranked[1][3]:
-            return {"submitted":False,"reason":"Più pulsanti di ricerca indistinguibili."}
-        button,label=ranked[0][:2]
-    else:
-        button,label=matched[0][:2]
+    if not matched:
+        return {"submitted":False,"reason":"Comando di ricerca disponibilità non trovato.",
+                "candidates":candidates[:14]}
+    ranked=sorted(matched,key=lambda x:(x[2],x[3]),reverse=True)
+    if len(ranked)>1 and ranked[0][2]==ranked[1][2] and ranked[0][3]==ranked[1][3]:
+        return {"submitted":False,"reason":"Più pulsanti di ricerca indistinguibili.",
+                "candidates":candidates[:14]}
+    button,label,score,_=ranked[0]
+    # Standalone links require contextual evidence: do not navigate from a
+    # correctly dated form to an unrelated generic booking landing page.
+    if score<2:
+        return {"submitted":False,"reason":"CTA non collegata con sufficiente certezza al modulo date.",
+                "candidates":candidates[:14]}
     try:
-        await button.click(timeout=6500)
-        return {"submitted":True,"action":label,"reason":"Clic sul pulsante di ricerca disponibilità"}
+        await button.scroll_into_view_if_needed(timeout=3000)
+        await button.click(timeout=7000)
+        return {"submitted":True,"action":label,
+                "reason":"Clic effettuato sul comando di verifica disponibilità",
+                "candidates":candidates[:14]}
     except Exception as exc:
-        return {"submitted":False,"reason":f"Ricerca non inviata: {type(exc).__name__}"}
+        return {"submitted":False,
+                "reason":f"Clic disponibilità non riuscito: {type(exc).__name__}",
+                "candidates":candidates[:14]}
 
 
 async def _apply_guests(scope, adults):
