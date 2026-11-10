@@ -10664,6 +10664,10 @@ export default function App() {
                           </span>
                           {agent.beta&&<span className="shrink-0 rounded-md bg-white/75 px-1.5 py-0.5 text-[9px] font-black">TEST</span>}
                         </button>
+                        {agent.id==="official_site" && <p className="mt-2 rounded-md border border-amber-300/60 bg-white/85 px-2 py-1.5 text-[10px] font-semibold text-[#6B4F06]" role="status">
+                          Versione Leonardo richiesta dal sito: <span className="font-mono break-all">{EXPECTED_LEONARDO_BUILD}</span>
+                          <span className="block text-[9px] font-normal opacity-80">La versione Windows in esecuzione viene verificata al collegamento.</span>
+                        </p>}
                         <div className="mt-2.5 flex items-center justify-between gap-2">
                           <span className="min-w-0 text-[10px] font-bold opacity-80">{stateText}</span>
                           {!loginPortal ? <button type="button" disabled={working||localPilotRunning}
