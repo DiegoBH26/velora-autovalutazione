@@ -1431,8 +1431,11 @@ async def _confirm_visible_guest_count(scope, adults):
               .filter(Boolean).join(' ').slice(0,180).toLowerCase();
             if(!/adulti|adults/.test(own) || /bambini|children|coupon/.test(own))continue;
             const value=String(e.value||text(e)||'').trim();
-            const match=value.match(/(?:^|\\b)(\\d{1,2})(?:\\b|$)/);
-            if(match && Number(match[1])===wanted)return {confirmed:true,
+            const contextual=own+' '+value;
+            const labeled=contextual.match(/(?:adulti|adults)\\s*:?\\s*(\\d{1,2})/i);
+            const exact=value.match(/^(\\d{1,2})$/);
+            const selected=labeled||exact;
+            if(selected && Number(selected[1])===wanted)return {confirmed:true,
               evidence:'Numero adulti visibile nel form dopo la ricerca: '+wanted};
           }
           return {confirmed:false,evidence:'Adulti non verificabili dal widget'};
