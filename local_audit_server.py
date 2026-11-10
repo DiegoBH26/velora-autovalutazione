@@ -489,6 +489,19 @@ def agent_mailbox_result(property_id,agent_id):
         rows=[row for row in result.get("observations") or []
               if row.get("otaId")==agent_id]
         if not rows:
+            if agent_id=="airbnb":
+                agent_mailbox_publish(property_id,"airbnb","pricing_read_failure",{
+                    "propertyName":result.get("propertyName",""),
+                    "recipient":"booking","ota":"airbnb",
+                    "status":"no_ota_observations",
+                    "message":"Apollo a Minerva: ho terminato la ricerca Airbnb, ma non ho una scheda con identità e tariffe verificabili. Non considero questa situazione una prova che l'annuncio sia assente; segnalo il confronto come non verificato.",
+                })
+                agent_mailbox_publish(property_id,"airbnb","pricing_read_failure",{
+                    "propertyName":result.get("propertyName",""),
+                    "recipient":"giove","ota":"airbnb",
+                    "status":"reviews_unverified",
+                    "message":"Apollo a Giove: non ho una scheda Airbnb verificata per questa struttura, quindi non posso confermare numero o valutazione delle recensioni. Registra la copertura reputazionale come non verificata, non come zero recensioni.",
+                })
             return
         prices=sum(len([q for q in row.get("quotes") or [] if q.get("verified")])
                    for row in rows)
@@ -504,25 +517,81 @@ def agent_mailbox_result(property_id,agent_id):
                         for row in rows),default=0)
         seen_prices=max((int((row.get("rateDiagnostics") or {}).get("numericEuroPrices") or 0)
                          for row in rows),default=0)
+        explicit_absence=bool(rows) and all(
+            row.get("status") in {"listing_not_found","not_listed","no_listing_confirmed",
+                                  "listing_absent_confirmed"}
+            and row.get("sourceIdentityVerified") is not True
+            for row in rows
+        )
         event_type=("identity_rejected" if rejected and prices==0 else
                     "technical_block" if errors else
-                    "pricing_read_failure" if weak and prices==0 else "pricing_observed")
+                    "pricing_read_failure" if (weak or explicit_absence or prices==0) else
+                    "pricing_observed")
         diagnostic=", ".join(dict.fromkeys(
             str(row.get("status") or "") for row in (rejected or errors or weak)))[:180]
-        sender_name={"agoda":"Galileo","airbnb":"Airbnb","vrbo":"Atlante",
+        sender_name={"agoda":"Galileo","airbnb":"Apollo","vrbo":"Atlante",
                      "expedia":"Ercole"}.get(agent_id,agent_id.title())
         message=(
             f"{sender_name} a Minerva: ho scartato un annuncio che appartiene a un'altra struttura. "
 
             "Nessun prezzo attribuito e nessuna prova di assenza su questa OTA."
             if event_type=="identity_rejected" else
-            f"{sender_name} a Minerva: ho esaminato la mia OTA e trovato {room_count} intestazioni camera "
-            f"e {seen_prices} elementi di prezzo, ma solo {prices} offerte validate. "
-            f"Esito: {diagnostic or 'lettura conclusa'}."
+            (f"{sender_name} a Minerva: la ricerca su Airbnb non ha individuato una scheda verificabile della struttura. Segnalo una possibile assenza dell'annuncio, ma senza prova sufficiente non dichiaro che la struttura non sia presente. Verifichiamo la distribuzione e le recensioni."
+             if explicit_absence else
+             f"{sender_name} a Minerva: ho esaminato la mia OTA e trovato {room_count} intestazioni camera "
+             f"e {seen_prices} elementi di prezzo, ma solo {prices} offerte validate. "
+             f"Esito: {diagnostic or 'lettura non conclusiva'}. Non deduco indisponibilità dalla sola mancanza di prezzi.")
             if event_type=="pricing_read_failure" else
             f"{sender_name} a Minerva: ricerca conclusa sulle date ricevute. Tariffe validate: {prices}. "
             f"Esito: {diagnostic or 'nessun blocco documentato'}."
         )
+        if agent_id=="airbnb":
+            # Review figures come exclusively from identity-verified page evidence;
+            # do not infer missing reviews from an absent listing.
+            profiles=result.get("otaProfiles") or {}
+            airbnb_profile=profiles.get("airbnb") or {}
+            review_count=airbnb_profile.get("reviewCount")
+            rating=airbnb_profile.get("rating")
+            if airbnb_profile.get("status")=="sampled" and (rating is not None or review_count is not None):
+                for colleague in ("booking","agoda"):
+                    try:
+                        colleague_result=json.loads(agent_output(property_id,colleague).read_text(encoding="utf-8"))
+                        if colleague_result.get("propertyId")!=property_id or colleague_result.get("propertyName")!=result.get("propertyName"):
+                            continue
+                        other=(colleague_result.get("otaProfiles") or {}).get(colleague) or {}
+                        if other.get("status")!="sampled":
+                            continue
+                        their_count=other.get("reviewCount")
+                        their_rating=other.get("rating")
+                        if review_count is not None and their_count is not None:
+                            agent_mailbox_publish(property_id,"airbnb","review_decision",{
+                                "propertyName":result.get("propertyName",""),
+                                "recipient":"giove","ota":"airbnb",
+                                "status":"review_count_difference_observed",
+                                "message":f"Apollo a Giove: Airbnb mostra {review_count} recensioni, {colleague.capitalize()} ne mostra {their_count}. È una differenza di copertura e volume delle recensioni, non necessariamente un errore di distribuzione.",
+                            })
+                        if rating is not None and their_rating is not None and airbnb_profile.get("ratingScale") and airbnb_profile.get("ratingScale")==other.get("ratingScale"):
+                            agent_mailbox_publish(property_id,"airbnb","review_decision",{
+                                "propertyName":result.get("propertyName",""),
+                                "recipient":"giove","ota":"airbnb",
+                                "status":"review_rating_difference_observed",
+                                "message":f"Apollo a Giove: sulla stessa scala di valutazione Airbnb mostra {rating}, {colleague.capitalize()} {their_rating}. Verifica la differenza prima di qualificarla come asimmetria reputazionale.",
+                            })
+                    except (OSError,ValueError,TypeError):
+                        continue
+                agent_mailbox_publish(property_id,"airbnb","pricing_observed",{
+                    "propertyName":result.get("propertyName",""),
+                    "recipient":"giove","ota":"airbnb",
+                    "status":"review_evidence",
+                    "message":f"Apollo a Giove: sulla scheda Airbnb associata alla struttura ho letto valutazione {rating if rating is not None else 'non visibile'} e {review_count if review_count is not None else 'numero non visibile'} recensioni. Confronta questi dati con Booking e Agoda, se disponibili; differenze e assenze richiedono verifica.",
+                })
+            else:
+                agent_mailbox_publish(property_id,"airbnb","pricing_read_failure",{
+                    "propertyName":result.get("propertyName",""),
+                    "recipient":"giove","ota":"airbnb",
+                    "status":"reviews_unverified",
+                    "message":"Apollo a Giove: non ho un dato di recensioni Airbnb verificato per questa struttura. Segnalo il confronto reputazionale come incompleto, senza attribuire zero recensioni né inventare differenze.",
+                })
         agent_mailbox_publish(property_id,agent_id,event_type,{
             "ota":agent_id,"priceCount":prices,"roomCount":room_count,
             "observedPriceCount":seen_prices,
