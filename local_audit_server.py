@@ -496,6 +496,12 @@ def agent_mailbox_result(property_id,agent_id):
                     "status":"no_ota_observations",
                     "message":"Apollo a Minerva: ho terminato la ricerca Airbnb, ma non ho una scheda con identità e tariffe verificabili. Non considero questa situazione una prova che l'annuncio sia assente; segnalo il confronto come non verificato.",
                 })
+                agent_mailbox_publish(property_id,"airbnb","pricing_read_failure",{
+                    "propertyName":result.get("propertyName",""),
+                    "recipient":"giove","ota":"airbnb",
+                    "status":"reviews_unverified",
+                    "message":"Apollo a Giove: non ho una scheda Airbnb verificata per questa struttura, quindi non posso confermare numero o valutazione delle recensioni. Registra la copertura reputazionale come non verificata, non come zero recensioni.",
+                })
             return
         prices=sum(len([q for q in row.get("quotes") or [] if q.get("verified")])
                    for row in rows)
