@@ -896,9 +896,9 @@ async def _submit_availability_search(scope):
             score+=(4 if info["dates"] else 0)+(3 if info["occupancy"] else 0)
             score+=(2 if info["tag"] in ("button","input") else 0)
             score+=(3 if re.search(r"verifica|cerca|search|check|show",label,re.I) else 0)
-            score+=(2 if info["type"]=="submit" else 0)
+            score+=(2 if info.get("type")=="submit" else 0)
             if re.fullmatch(r"disponibilit[aà]",label,re.I):score+=3
-            if info["href"] and not info["form"] and info["inputs"]<2:score-=4
+            if info.get("href") and not info["form"] and info["inputs"]<2:score-=4
             matched.append((el,label or alternative[:90],score,info["y"]))
             candidates.append({"label":(label or alternative)[:90],"score":score})
         except Exception:
