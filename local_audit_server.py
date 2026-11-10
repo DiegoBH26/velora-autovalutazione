@@ -509,15 +509,18 @@ def agent_mailbox_result(property_id,agent_id):
                     "pricing_read_failure" if weak and prices==0 else "pricing_observed")
         diagnostic=", ".join(dict.fromkeys(
             str(row.get("status") or "") for row in (rejected or errors or weak)))[:180]
+        sender_name={"agoda":"Galileo","airbnb":"Airbnb","vrbo":"Atlante",
+                     "expedia":"Ercole"}.get(agent_id,agent_id.title())
         message=(
-            f"{agent_id}: annuncio di altra struttura scartato. "
+            f"{sender_name} a Minerva: ho scartato un annuncio che appartiene a un'altra struttura. "
+
             "Nessun prezzo attribuito e nessuna prova di assenza su questa OTA."
             if event_type=="identity_rejected" else
-            f"{agent_id}: sulla mia OTA ho osservato {room_count} intestazioni camera "
+            f"{sender_name} a Minerva: ho esaminato la mia OTA e trovato {room_count} intestazioni camera "
             f"e {seen_prices} elementi di prezzo, ma solo {prices} offerte validate. "
             f"Esito: {diagnostic or 'lettura conclusa'}."
             if event_type=="pricing_read_failure" else
-            f"{agent_id}: verifica completata. Prezzi validati: {prices}. "
+            f"{sender_name} a Minerva: ricerca conclusa sulle date ricevute. Tariffe validate: {prices}. "
             f"Esito: {diagnostic or 'nessun blocco documentato'}."
         )
         agent_mailbox_publish(property_id,agent_id,event_type,{
@@ -708,14 +711,45 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                             str(lock.get("checkin"))+" → "+str(lock.get("checkout")))
                 except (OSError,ValueError,TypeError):
                     pass
-            # Handoff is informative: each worker stays inside its own OTA.
+            # Dialogo operativo: richiesta e risposta registrate soltanto
+            # dopo che il server ha già validato l'exact-date lock di Minerva.
+            # Non è una simulazione di un risultato OTA; la risposta comunica
+            # esclusivamente le date della ricerca precedente.
             if agent_id not in {"booking","official_site","reviews"}:
                 reference=agent_mailbox_reference(property_id,str(data.get("name") or ""))
-                if reference:
-                    print_agent_status(
-                        agent_id,"Mailbox Booking","RICEVUTA",
-                        f"{len(reference.get('windows') or [])} finestre confermate · stessa struttura"
-                    )
+                locks=data.get("_specialistBookingLocks") or []
+                if reference and locks:
+                    first=locks[0]
+                    wanted=(str(first.get("checkin") or ""),str(first.get("checkout") or ""))
+                    from_mailbox=any(
+                        (str(w.get("checkin") or ""),str(w.get("checkout") or ""))==wanted
+                        for w in reference.get("windows") or [] if isinstance(w,dict))
+                    if from_mailbox:
+                        names={"agoda":"Galileo","airbnb":"Airbnb","expedia":"Ercole",
+                               "vrbo":"Atlante","holidu":"Holidu"}
+                        colleague=names.get(agent_id,agent_id.title())
+                        interval=wanted[0]+" → "+wanted[1]
+                        guests=int(first.get("adults") or 2)
+                        nights=int(first.get("nights") or 0)
+                        agent_mailbox_publish(property_id,agent_id,"help_request",{
+                            "propertyName":str(data.get("name") or ""),
+                            "recipient":"booking","strategy":"exact_date_handoff",
+                            "message":f"{colleague} a Minerva: sto per controllare la mia OTA. Mi confermi le date e gli ospiti che hai confrontato con Leonardo?",
+                        })
+                        agent_mailbox_publish(property_id,"booking","help_reply",{
+                            "propertyName":str(data.get("name") or ""),
+                            "recipient":agent_id,"strategy":"exact_date_handoff",
+                            "windows":locks,"status":"reused_minerva_lock",
+                            "message":f"Minerva a {colleague}: confermo {interval}, {nights} notti e {guests} adulti. Leonardo ha identificato il periodo sul sito diretto. Cerca queste stesse date e segnalami eventuali differenze.",
+                        })
+                        agent_mailbox_publish(property_id,agent_id,"help_reply",{
+                            "propertyName":str(data.get("name") or ""),
+                            "recipient":"booking","strategy":"exact_date_handoff_ack",
+                            "message":f"{colleague} a Minerva: ricevuto. Verificherò {interval} per {guests} adulti su {agent_id.capitalize()}; non cambierò il periodo per trovare prezzi diversi.",
+                        })
+                        print_agent_status(agent_id,"Mailbox Booking","RICEVUTA",
+                            f"{len(locks)} finestre, identità struttura verificata")
+
             peer_callback=(
                 lambda stage,stay,facts: specialist_peer_consultation(
                     property_id,agent_id,str(data.get("name") or ""),
