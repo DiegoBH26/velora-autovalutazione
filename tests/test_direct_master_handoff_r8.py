@@ -34,6 +34,18 @@ class DirectMasterHandoff(unittest.TestCase):
         self.assertEqual(lock["adults"],2)
         self.assertEqual(lock["priceCount"],1)
 
+    def test_confirmed_input_dates_and_guests_accepted(self):
+        sample={**SAMPLE,"datesConfirmedAfterSearch":False,
+                "controls":{"applied":True},
+                "occupancyControl":{"confirmed":False},
+                "occupancyAfterSearch":{"confirmed":True}}
+        self.assertEqual(direct_master_candidate(STAY,sample)["checkin"],STAY["checkin"])
+
+    def test_no_bookable_room_must_continue(self):
+        sample={**SAMPLE,"quotes":[{"roomType":"Camera Classic",
+                    "displayedAmount":121.0,"bookingActionVisible":False}]}
+        self.assertIsNone(direct_master_candidate(STAY,sample))
+
     def test_no_price_no_master(self):
         for change in ({"quotes":[]},
                        {"searchSubmitted":False},

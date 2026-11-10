@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-june-master-r8-20261110"
+LEONARDO_BUILD = "direct-first-price-r9-20261110"
 
 import asyncio
 import re
@@ -1386,27 +1386,99 @@ async def _read_booking_results(engine_page, active, stay, *, timeout_seconds=14
 
 
 def direct_master_candidate(stay, sample):
-    """Return a date lock only after a real submitted, dated, bookable offer."""
-    if not (sample.get("searchSubmitted") and
-            sample.get("datesConfirmedAfterSearch") and
-            (sample.get("occupancyControl") or {}).get("confirmed")):
+    """Choose the first actually displayed dated room offer, not every June day.
+
+    Some engines use custom guest dropdowns with no native input, or put the
+    date boxes in an iframe separate from room prices. Explicit confirmation
+    from the input phase can therefore count, but only with a submitted search
+    and an actual bookable priced room in its results.
+    """
+    if not sample.get("searchSubmitted"):
+        return None
+    if not (sample.get("datesConfirmedAfterSearch") or
+            (sample.get("controls") or {}).get("applied")):
+        return None
+    if not (sample.get("occupancyControl") or {}).get("confirmed") and not (
+        sample.get("occupancyAfterSearch") or {}).get("confirmed"):
         return None
     matched_offers=[
         offer for offer in sample.get("quotes") or []
-        if offer.get("bookingActionVisible")
-        and offer.get("roomType")
+        if offer.get("roomType")
         and isinstance(offer.get("displayedAmount"),(int,float))
-        and offer.get("displayedAmount")>0
+        and offer["displayedAmount"]>0
+        and offer.get("bookingActionVisible")
     ]
     if not matched_offers:
         return None
-    return {
-        "checkin":stay["checkin"],"checkout":stay["checkout"],
-        "nights":stay["nights"],"adults":stay["guests"],
-        "status":"direct_price_observed","source":"official_site",
-        "roomCount":len({x["roomType"] for x in matched_offers}),
-        "priceCount":len(matched_offers),
-    }
+    return {"checkin":stay["checkin"],"checkout":stay["checkout"],
+            "nights":stay["nights"],"adults":stay["guests"],
+            "status":"direct_price_observed","source":"official_site",
+            "roomCount":len({x["roomType"] for x in matched_offers}),
+            "priceCount":len(matched_offers)}
+
+
+async def _confirm_visible_guest_count(scope, adults):
+    """Read the rendered adult selector when the widget isn't a native input."""
+    try:
+        return await scope.evaluate("""wanted => {
+          const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+          const text=e=>(e.innerText||e.textContent||'').replace(/\\s+/g,' ').trim();
+          const items=[...document.querySelectorAll('select,input,[role=combobox],button,div,span')]
+            .filter(visible).slice(0,1400);
+          for(const e of items){
+            const own=[e.getAttribute('aria-label'),e.getAttribute('name'),
+              e.id,e.getAttribute('placeholder'),e.parentElement?.innerText]
+              .filter(Boolean).join(' ').slice(0,180).toLowerCase();
+            if(!/adulti|adults/.test(own) || /bambini|children|coupon/.test(own))continue;
+            const value=String(e.value||text(e)||'').trim();
+            const contextual=own+' '+value;
+            const labeled=contextual.match(/(?:adulti|adults)\\s*:?\\s*(\\d{1,2})/i);
+            const exact=value.match(/^(\\d{1,2})$/);
+            const selected=labeled||exact;
+            if(selected && Number(selected[1])===wanted)return {confirmed:true,
+              evidence:'Numero adulti visibile nel form dopo la ricerca: '+wanted};
+          }
+          return {confirmed:false,evidence:'Adulti non verificabili dal widget'};
+        }""",adults)
+    except Exception as exc:
+        return {"confirmed":False,"evidence":"Adulti: lettura widget "+type(exc).__name__}
+
+
+async def _dates_visible_in_engine(page, stay):
+    """Dates can remain in the date form while results mount in a sibling frame."""
+    for frame in list(page.frames):
+        try:
+            state=await frame.evaluate("""() => ({
+                fields:[...document.querySelectorAll('input')]
+                    .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
+                    .map(e=>e.value).slice(0,100),
+                text:(document.body?.innerText||'').slice(0,6000),
+                url:location.href
+            })""")
+            displayed=" ".join((state.get("text") or "",state.get("url") or ""))
+            if all(_date_is_present(state.get("fields") or [],stay[key]) or
+                   any(token.lower() in displayed.lower()
+                       for token in _date_renderings(stay[key])[:4])
+                   for key in ("checkin","checkout")):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _save_direct_checkpoint(debug_dir, result):
+    """Atomic partial result: do not lose a priced stay if later audits fail."""
+    if debug_dir is None:
+        return
+    try:
+        import json
+        dest=Path(debug_dir)/"leonardo_direct_checkpoint.json"
+        dest.parent.mkdir(parents=True,exist_ok=True)
+        tmp=dest.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(result,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
+        tmp.replace(dest)
+    except (OSError,TypeError,ValueError):
+        pass
 
 
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, debug_dir=None):
@@ -1547,6 +1619,10 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                         else:
                             sample["formDiagnostic"]=await _form_diagnostic(active)
                             occupancy=await _apply_guests(active,stay["guests"])
+                            if not occupancy.get("confirmed"):
+                                observed=await _confirm_visible_guest_count(active,stay["guests"])
+                                if observed.get("confirmed"):
+                                    occupancy=observed
                             sample["occupancyControl"]=occupancy
                             sample["searchSubmitted"]=False
                             before_pages=set(context.pages)
@@ -1578,7 +1654,12 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                             # la ricerca sia stata realmente inviata.
                             page_text=current["text"]
                             date_confirmed=bool(current.get("datesConfirmed"))
+                            if sample["searchSubmitted"] and not date_confirmed:
+                                date_confirmed=await _dates_visible_in_engine(result_page,stay)
                             sample["datesConfirmedAfterSearch"]=date_confirmed
+                            if sample["searchSubmitted"] and not occupancy.get("confirmed"):
+                                sample["occupancyAfterSearch"]=await _confirm_visible_guest_count(
+                                    active,stay["guests"])
                             sample["resultsReady"]=bool(current["resultsReady"])
                             sample["resultDiagnostic"]=current["diagnostic"]
                             sample["sourceUrl"]=current["url"].split("?")[0].split("#")[0]
@@ -1671,6 +1752,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                             except Exception:pass
                     await page.close()
                 result["samples"].append(sample)
+                _save_direct_checkpoint(debug_dir,result)
                 # Il primo soggiorno davvero prenotabile sul sito diretto
                 # diventa la finestra MASTER, non un semplice input calendario.
                 # Richiede risultati di camera con prezzo, date confermate
@@ -1678,16 +1760,32 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                 direct_master=direct_master_candidate(stay,sample)
                 if direct_master:
                     result["masterStay"]=direct_master
+                    result["status"]="room_prices_observed"
                     result["evidence"].append(
                         "Finestra MASTER sito diretto: "+stay["checkin"]+
                         " → "+stay["checkout"]+"; tariffe osservate su camere "
                         "prenotabili; inoltrare queste date a Minerva.")
+                    _save_direct_checkpoint(debug_dir,result)
+                    break
+                # Prezzi realmente visibili: non continuare inutilmente per
+                # tutte le date. Se manca una conferma, segnala il dettaglio
+                # e conserva il campione; NON inviare un master non verificato.
+                if sample.get("searchSubmitted") and (
+                        sample.get("quotes") or sample.get("visiblePrices")):
+                    result["status"]="first_price_needs_validation"
+                    result["evidence"].append(
+                        "Prezzi individuati al primo soggiorno utile, ma il lock MASTER "
+                        "richiede verifica dei dati. Leonardo interrompe le altre date "
+                        "anziché ripetere l'operazione.")
+                    _save_direct_checkpoint(debug_dir,result)
                     break
                 await asyncio.sleep(0.25)
             await context.close()
         finally:
             await browser.close()
-    if result["verifiedQuotes"]:
+    if result.get("status")=="first_price_needs_validation":
+        pass
+    elif result["verifiedQuotes"]:
         result["status"]="verified_rates"
     elif result["searchedTotal"]==0:
         result["status"]="search_not_executed"
