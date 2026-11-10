@@ -465,14 +465,24 @@ def agent_mailbox_result(property_id,agent_id):
                if isinstance(row,dict) and row.get("status") in {
                    "initial_dates_available","shifted_to_available_booking_dates","direct_master_checked"}]
         if locks:
+            counted=sum(len(row.get("quotes") or [])
+                for row in result.get("observations") or []
+                if row.get("otaId")=="booking")
+            from_direct=any(row.get("status")=="direct_master_checked" for row in locks)
             agent_mailbox_publish(property_id,"booking","booking_reference",{
                 "propertyName":result.get("propertyName",""),
                 "sourceRun":result.get("createdAt",""),
                 "windows":locks,
-                "roomCount":sum(len(row.get("quotes") or [])
-                    for row in result.get("observations") or []
-                    if row.get("otaId")=="booking"),
-                "status":"booking_dates_confirmed",
+                "roomCount":counted,
+                "status":"direct_master_checked" if from_direct else "booking_dates_confirmed",
+                "message":(
+                    "Minerva: ho cercato le date fornite da Leonardo senza modificarle. "
+                    +str(counted)+" offerte Booking osservate. "
+                    +"Le altre OTA devono cercare identiche date e occupazione; "
+                    +"l'assenza di prezzo Booking richiede verifica dell'asimmetria."
+                    if from_direct else
+                    "Minerva: date di riferimento Booking condivise con gli altri specialisti."
+                ),
             },reset=False)
         return
     if agent_id not in {"official_site","reviews"}:
