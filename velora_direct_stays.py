@@ -841,8 +841,8 @@ async def _submit_availability_search(scope):
     pattern=re.compile(
         r"^(?:"
         r"(?:verifica|controlla|vedi|mostra|visualizza|trova|cerca|consulta|"
-        r"ricerca|scopri|verifica la|controlla la)\\s*"
-        r"(?:la\\s+)?(?:disponibilit[aà]|camere|alloggi|prezzi|tariffe|offerte|"
+        r"ricerca|scopri|verifica la|controlla la)\s*"
+        r"(?:la\s+)?(?:disponibilit[aà]|camere|alloggi|prezzi|tariffe|offerte|"
         r"availability|rooms|rates)?|"
         r"disponibilit[aà]|verifica disponibilit[aà]|"
         r"search(?: availability| rooms| rates)?|"
@@ -850,14 +850,14 @@ async def _submit_availability_search(scope):
         r"show (?:availability|results|rooms|prices|rates)|"
         r"find (?:availability|rooms|rates)|"
         r"book now|prenota ora"
-        r")(?:[\\s:!›»→\\-]*)$",re.I)
+        r")(?:[\s:!›»→\-]*)$",re.I)
     matched=[]
     candidates=[]
     for i in range(min(await controls.count(),160)):
         el=controls.nth(i)
         try:
             info=await el.evaluate("""e=>{
-              const clean=s=>(s||'').replace(/\\s+/g,' ').trim();
+              const clean=s=>(s||'').replace(/\s+/g,' ').trim();
               const label=clean(e.innerText||e.textContent||e.value||
                 e.getAttribute('aria-label')||e.title);
               const alternate=clean([e.getAttribute('aria-label'),e.getAttribute('title'),
