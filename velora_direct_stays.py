@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-engine-bedzzle-named-arrows-20261109-r6"
+LEONARDO_BUILD = "direct-engine-results-r6-20261110"
 
 import asyncio
 import re
@@ -1262,6 +1262,87 @@ async def _wait_for_booking_search_form(page, *, seconds=13):
     return last
 
 
+
+async def _read_booking_results(engine_page, active, stay, *, timeout_seconds=14):
+    """Read the submitted search from the actual results frame, not just the form.
+
+    Engines frequently replace the original frame, render results asynchronously,
+    or place rooms inside a nested iframe. All browser work stays in Playwright.
+    """
+    loop=asyncio.get_running_loop()
+    deadline=loop.time()+timeout_seconds
+    last={"text":"","fields":[],"url":"","offers":[],"frame":active,
+          "resultsReady":False,"emptyConfirmed":False,"diagnostic":"Nessun risultato leggibile"}
+    empty_pattern=re.compile(
+        r"nessuna disponibilit[aà] (?:per|nelle|in queste)|"
+        r"non ci sono camere disponibili|non abbiamo disponibilit[aà]|"
+        r"no (?:rooms? available|availability for)|sold out (?:for|on) those dates",
+        re.I)
+    while loop.time()<deadline:
+        frames=[active]+[frame for frame in engine_page.frames if frame!=active]
+        seen=set()
+        candidates=[]
+        for frame in frames:
+            if frame in seen or frame.is_detached():continue
+            seen.add(frame)
+            try:
+                current=await frame.evaluate("""() => ({
+                    fields:[...document.querySelectorAll('input')]
+                      .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
+                      .map(e=>e.value).slice(0,100),
+                    url:location.href,
+                    text:(document.body?.innerText||'').slice(0,35000),
+                    busy:!!document.querySelector('[aria-busy="true"],[role="progressbar"]')
+                  })""")
+                raw=current["text"]
+                if not raw.strip():continue
+                offers=await _visible_offer_candidates(frame)
+                dates=" ".join((raw,current["url"]))
+                date_confirmed=all(
+                    _date_is_present(current["fields"],stay[key]) or
+                    any(token.lower() in dates.lower()
+                        for token in _date_renderings(stay[key])[:4])
+                    for key in ("checkin","checkout"))
+                empty=bool(empty_pattern.search(raw)) and date_confirmed
+                score=(100 if offers else 0)+(40 if empty else 0)+(
+                    10 if date_confirmed else 0)+min(len(raw),10000)/10000
+                candidates.append((score,{
+                    "text":raw,"fields":current["fields"],"url":current["url"],
+                    "offers":offers,"frame":frame,"resultsReady":bool(offers or empty),
+                    "emptyConfirmed":empty,"datesConfirmed":date_confirmed,
+                    "diagnostic":("Camere con prezzi osservate" if offers else
+                                  "Indisponibilità esplicita" if empty else
+                                  "Risultati non ancora verificati"),
+                    "busy":bool(current["busy"])
+                }))
+            except Exception:
+                continue
+        if candidates:
+            candidates.sort(key=lambda entry:entry[0],reverse=True)
+            last=candidates[0][1]
+            if last["resultsReady"] and not last.get("busy"):
+                # Give late-mounted room rows a short opportunity to appear.
+                return last
+        await asyncio.sleep(0.8)
+    # Some engines only render cards when scrolled. Do not click or alter
+    # booking conditions; simply inspect the submitted results below the fold.
+    for _ in range(3):
+        frame=last.get("frame")
+        if frame is None or frame.is_detached():break
+        try:
+            await frame.evaluate("""() => window.scrollBy(0, Math.max(550, innerHeight * .85))""")
+            await asyncio.sleep(0.4)
+            offers=await _visible_offer_candidates(frame)
+            if offers:
+                last["offers"]=offers
+                last["resultsReady"]=True
+                last["diagnostic"]="Camere con prezzi individuate dopo scroll"
+                break
+        except Exception:
+            break
+    return last
+
+
 async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, debug_dir=None):
     """Ricerca realmente date, occupazione e offerte nel booking engine pubblico.
 
@@ -1408,42 +1489,51 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                             if submitted["submitted"]:
                                 sample["searchSubmitted"]=True
                                 result["searchedTotal"]+=1
-                                await page.wait_for_timeout(1600)
-                                # Alcuni motori mostrano i risultati in una nuova
-                                # scheda. La lettura deve seguire la pagina aperta.
+                                await page.wait_for_timeout(800)
+                                # Le offerte possono comparire in una nuova scheda,
+                                # nello stesso frame o in un iframe dinamico.
                                 new_pages=[p for p in context.pages if p not in before_pages]
                                 if new_pages:
                                     result_page=new_pages[-1]
                                     try:await result_page.wait_for_load_state("domcontentloaded",timeout=5000)
                                     except Exception:pass
                                     active=result_page.main_frame
+                                else:
+                                    result_page=engine_page
+                                current=await _read_booking_results(result_page,active,stay)
+                                active=current["frame"]
                             else:
                                 sample["evidence"].append(submitted["reason"])
-                            # Leggere *dopo* l'invio: niente prezzi di un periodo precedente.
-                            current=await active.evaluate("""() => ({
-                              fields:[...document.querySelectorAll('input')]
-                                .filter(e=>e.offsetWidth||e.offsetHeight||e.getClientRects().length)
-                                .map(x=>x.value).slice(0,100),
-                              url:location.href,
-                              text:(document.body?.innerText||'').slice(0,22000)
-                            })""")
+                                current={"text":"","fields":[],"url":active.url,
+                                         "offers":[],"datesConfirmed":False,
+                                         "resultsReady":False,"emptyConfirmed":False,
+                                         "diagnostic":"Ricerca non inviata"}
+                            # Mai leggere prezzi dalla pagina del form prima che
+                            # la ricerca sia stata realmente inviata.
                             page_text=current["text"]
-                            current_values=current["fields"]
-                            displayed=" ".join((page_text,current["url"]))
-                            date_confirmed=all(
-                                _date_is_present(current_values,stay[key]) or
-                                any(token.lower() in displayed.lower()
-                                    for token in _date_renderings(stay[key])[:4])
-                                for key in ("checkin","checkout"))
-                            sample["datesConfirmedAfterSearch"]=bool(date_confirmed)
-                            # Mai usare query string e frammenti con possibili token sensibili.
-                            sample["sourceUrl"]=active.url.split("?")[0].split("#")[0]
+                            date_confirmed=bool(current.get("datesConfirmed"))
+                            sample["datesConfirmedAfterSearch"]=date_confirmed
+                            sample["resultsReady"]=bool(current["resultsReady"])
+                            sample["resultDiagnostic"]=current["diagnostic"]
+                            sample["sourceUrl"]=current["url"].split("?")[0].split("#")[0]
                             prices=[{"amount":_money(m.group(0)),"text":m.group(0)}
                                 for m in list(_PRICE_PATTERN.finditer(page_text))[:25]]
                             sample["visiblePrices"]=[p for p in prices
                                 if p["amount"] is not None][:14]
-                            sample["quotes"]=(await _visible_offer_candidates(active)
-                                if sample["searchSubmitted"] else [])
+                            sample["quotes"]=current["offers"] if sample["searchSubmitted"] else []
+                            if sample["searchSubmitted"] and not sample["resultsReady"]:
+                                sample["evidence"].append(
+                                    "Ricerca inviata ma risultati non riconosciuti dopo attesa e scroll: "+
+                                    sample["resultDiagnostic"])
+                                if debug_dir is not None:
+                                    try:
+                                        dest=Path(debug_dir)
+                                        dest.mkdir(parents=True,exist_ok=True)
+                                        snap=dest / ("leonardo_r6_risultati_"+stay["checkin"]+".png")
+                                        await result_page.screenshot(path=str(snap),timeout=5000)
+                                        sample["diagnosticScreenshot"]=str(snap.resolve())
+                                    except Exception:
+                                        pass
                             # Il compito primario di Leonardo è trascrivere i prezzi
                             # delle camere dopo la ricerca. Queste righe restano
                             # separate dai preventivi comparabili con le OTA.
@@ -1469,9 +1559,7 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                                 if sample["searchSubmitted"] else
                                 "date_inputs_observed_no_search")
                             if date_confirmed and occupancy.get("confirmed") and sample["searchSubmitted"]:
-                                if not sample["quotes"] and re.search(
-                                    r"nessuna disponibilit[aà]|non ci sono camere disponibili|"
-                                    r"no availability|no rooms available",page_text,re.I):
+                                if not sample["quotes"] and current.get("emptyConfirmed"):
                                     sample["availability"]="unavailable_reported"
                                     sample["evidence"].append(
                                         "Il booking engine segnala indisponibilità per date e occupazione confermate.")
