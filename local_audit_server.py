@@ -553,6 +553,32 @@ def agent_mailbox_result(property_id,agent_id):
             review_count=airbnb_profile.get("reviewCount")
             rating=airbnb_profile.get("rating")
             if airbnb_profile.get("status")=="sampled" and (rating is not None or review_count is not None):
+                for colleague in ("booking","agoda"):
+                    try:
+                        colleague_result=json.loads(agent_output(property_id,colleague).read_text(encoding="utf-8"))
+                        if colleague_result.get("propertyId")!=property_id or colleague_result.get("propertyName")!=result.get("propertyName"):
+                            continue
+                        other=(colleague_result.get("otaProfiles") or {}).get(colleague) or {}
+                        if other.get("status")!="sampled":
+                            continue
+                        their_count=other.get("reviewCount")
+                        their_rating=other.get("rating")
+                        if review_count is not None and their_count is not None:
+                            agent_mailbox_publish(property_id,"airbnb","review_decision",{
+                                "propertyName":result.get("propertyName",""),
+                                "recipient":"giove","ota":"airbnb",
+                                "status":"review_count_difference_observed",
+                                "message":f"Apollo a Giove: Airbnb mostra {review_count} recensioni, {colleague.capitalize()} ne mostra {their_count}. È una differenza di copertura e volume delle recensioni, non necessariamente un errore di distribuzione.",
+                            })
+                        if rating is not None and their_rating is not None and airbnb_profile.get("ratingScale") and airbnb_profile.get("ratingScale")==other.get("ratingScale"):
+                            agent_mailbox_publish(property_id,"airbnb","review_decision",{
+                                "propertyName":result.get("propertyName",""),
+                                "recipient":"giove","ota":"airbnb",
+                                "status":"review_rating_difference_observed",
+                                "message":f"Apollo a Giove: sulla stessa scala di valutazione Airbnb mostra {rating}, {colleague.capitalize()} {their_rating}. Verifica la differenza prima di qualificarla come asimmetria reputazionale.",
+                            })
+                    except (OSError,ValueError,TypeError):
+                        continue
                 agent_mailbox_publish(property_id,"airbnb","pricing_observed",{
                     "propertyName":result.get("propertyName",""),
                     "recipient":"giove","ota":"airbnb",
