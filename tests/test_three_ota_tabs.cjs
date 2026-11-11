@@ -9,7 +9,7 @@ const worker=fs.readFileSync(path.join(root,"chrome-companion-expedia","backgrou
 const bridge=fs.readFileSync(path.join(root,"chrome-companion-expedia","bridge.js"),"utf8");
 const app=fs.readFileSync(path.join(root,"src/App.tsx"),"utf8");
 const manifest=JSON.parse(fs.readFileSync(path.join(root,"chrome-companion-expedia","manifest.json"),"utf8"));
-assert.equal(manifest.version,"0.4.1");
+assert.equal(manifest.version,"0.4.2");
 assert.ok(manifest.permissions.includes("tabs"));
 assert.match(bridge,/OPEN_THREE_OTA_TABS/);
 assert.match(bridge,/PORTALS_OPENED/);
@@ -49,6 +49,6 @@ async function main(){
     {tab:{url:"https://evil.example/",windowId:7}},resolve));
   assert.equal(rejected.ok,false);
   assert.equal(opened.length,saved);
-  console.log("Chrome Companion v0.4.1: all three OTA tabs opened, no popups, denied untrusted sender.");
+  console.log("Chrome Companion v0.4.2: all three OTA tabs opened, no popups, denied untrusted sender.");
 }
 main().catch(err=>{console.error(err);process.exitCode=1;});
