@@ -9931,13 +9931,16 @@ export default function App() {
       const identityConfirmed=Boolean(snapshot?.identityVerified ||
         manual?.auditStatus==="present" && /https?:\/\//i.test(manual.note||"") ||
         discovery?.identityVerified || validPilotQuote);
+      // Rosso = anomalia di presenza osservata, NON prova definitiva
+      // che la struttura non sia distribuita sulla OTA. Se sono stati
+      // trovati esclusivamente annunci di strutture diverse, questo è
+      // un esito negativo della ricerca da rendere evidente.
       const presence: "present"|"missing"|"candidate"|"blocked"|"unverified"=
-        wrongOnly ? "unverified"
-        : identityConfirmed ? "present"
-        : explicitlyNotFound ? "missing"
+        identityConfirmed ? "present"
+        : wrongOnly || explicitlyNotFound ? "missing"
         : hasCandidate ? "candidate"
         : anyBlocked ? "blocked" : "unverified";
-      const presenceLabel=wrongOnly?"Annuncio estraneo scartato · presenza da verificare"
+      const presenceLabel=wrongOnly?"Solo annunci estranei scartati · nessuna scheda corretta verificata"
         : presence==="present"?"Scheda confermata"
         : presence==="missing"?"Non individuata nella ricerca"
         : presence==="candidate"?"Scheda candidata · identità da confermare"
@@ -9960,7 +9963,7 @@ export default function App() {
           : otaPhotoCount+" / "+bookingPhotoCount+" foto campionate · "+Math.abs(photoDifference)+(photoDifference<0?" in meno":" in più"))
         : otaPhotoCount!==null ? otaPhotoCount+" foto visibili · Booking non confrontato"
         : "Fotografie non campionate";
-      const photosState=photoDifference===null?"unverified":photoDifference===0?"candidate":"missing";
+      const photosState=photoDifference===null?"unverified":"candidate";
       // Compare unique priced unit types only on the exact same stay/guest
       // cohort; do not infer a room is missing simply because the page blocked.
       const eligible=rateQuotes.filter(q=>q.total>0&&q.nights>0&&q.guests>0&&
@@ -10004,10 +10007,28 @@ export default function App() {
           : "Nessun prezzo comparabile acquisito";
       const directComparison=directRateComparisonFor(otaId);
       const directRoomComparison=directRoomParityFor(otaId);
+      // L'assenza di una scheda verificabile impedisce confronti
+      // attendibili su camere, fotografie e prezzi: queste celle
+      // restano grigie, senza falsi "zero camere/zero tariffe".
+      const noComparableListing=presence==="missing";
+      const displayPhotosState=noComparableListing?"unverified":photosState;
+      const displayRoomState=noComparableListing?"unverified":roomState;
+      const displayPriceState=noComparableListing?"unverified":priceState;
+      const displayDirectComparison=noComparableListing
+        ? {state:"unverified",label:"Non confrontabile: nessuna scheda pertinente verificata",matched:[]}
+        : directComparison;
+      const displayDirectRoomComparison=noComparableListing
+        ? {state:"unverified",label:"Non confrontabile: nessuna scheda pertinente verificata"}
+        : directRoomComparison;
       return {
         otaId,platform,presence,presenceLabel,presenceNote:manual?.note||"",
-        photosState,photosLabel,roomState,roomLabel,priceState,priceLabel,
-        directComparison,directRoomComparison,
+        photosState:displayPhotosState,
+        photosLabel:noComparableListing?"Non confrontabile: scheda corretta non verificata":photosLabel,
+        roomState:displayRoomState,
+        roomLabel:noComparableListing?"Non confrontabile: scheda corretta non verificata":roomLabel,
+        priceState:displayPriceState,
+        priceLabel:noComparableListing?"Non confrontabile: scheda corretta non verificata":priceLabel,
+        directComparison:displayDirectComparison,directRoomComparison:displayDirectRoomComparison,
         roomCount:otaRoomCount,bookingRoomCount,sharedStay,
         photoSource:photoPair?"Confronto Giove (foto caricate, non equivalenza immagini)":snapshot?.sourceUrl||"",
         url:snapshot?.sourceUrl||discovery?.url||discovery?.candidateUrl||profile?.url||
@@ -10427,7 +10448,7 @@ export default function App() {
                 Verificare disponibilità e stessa tipologia; confronto diretto/OTA sospeso per quelle finestre.
               </p>}
               <p className="mt-1 text-[10px] font-semibold text-[#64748B]">
-                Una scheda non individuata non è necessariamente inesistente. Le immagini uguali non si deducono dal solo numero di foto.
+                Una scheda non individuata non è necessariamente inesistente. Rosso sulla presenza significa ricerca senza scheda pertinente verificata o assenza confermata, non automaticamente canale non distribuito. Fotografie e tariffe senza scheda restano non confrontabili. Le immagini uguali non si deducono dal solo numero di foto.
                 Differenze tariffarie soltanto con stessa camera verificata, date, ospiti e condizioni.
               </p>
             </div>
@@ -10441,7 +10462,7 @@ export default function App() {
                 {asymmetryWithDirect.map(row=>{
                   const styleFor=(state:string)=>state==="present"
                     ? "bg-emerald-500" : state==="missing"?"bg-rose-500"
-                    : state==="candidate"?"bg-amber-400":"bg-slate-300";
+                    : state==="candidate"||state==="blocked"?"bg-amber-400":"bg-slate-300";
                   const cell=(state:string,label:string)=>(
                     <div className="min-w-0">
                       <div className="h-2 overflow-hidden rounded-full bg-[#EDE8F2]">
