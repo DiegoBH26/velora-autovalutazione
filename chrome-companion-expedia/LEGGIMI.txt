@@ -1,6 +1,6 @@
 VELORA · EXPEDIA + VRBO + HOLIDU CHROME COMPANION
 =================================
-VERSIONE 0.4.1 DI TEST — lettura passiva di Expedia, Vrbo e Holidu e apertura diretta delle tre schede Chrome.
+VERSIONE 0.4.2 — correzione dei prezzi scontati mostrati nelle schede Expedia.\nIl prezzo barrato, la voce sconto e il prezzo per notte non vengono importati come totale soggiorno.\n\nVERSIONE 0.4.2 DI TEST — lettura passiva di Expedia, Vrbo e Holidu e apertura diretta delle tre schede Chrome.
 
 COSA FA:
 - Legge i titoli delle camere e i prezzi totali gia mostrati nella pagina Expedia
@@ -45,7 +45,7 @@ VRBO:
 - Se Vrbo limita anche la pagina nel tuo Chrome normale, l'estensione non puo leggere ne aggirare tale limitazione.
 
 DASHBOARD UNICA:
-- In Velora usa «Apri Expedia + Vrbo + Holidu»: il Companion 0.4.1 apre tre
+- In Velora usa «Apri Expedia + Vrbo + Holidu»: il Companion 0.4.2 apre tre
   schede indipendenti con chrome.tabs.create, senza popup bloccati.
   Se l'estensione e assente oppure obsoleta, usa i singoli link della dashboard.
 - Se avevi installato il Companion 0.4.0, sostituisci la cartella con i file
