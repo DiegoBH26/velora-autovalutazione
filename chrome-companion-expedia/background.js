@@ -142,9 +142,12 @@ function visibleExpediaCapture() {
       if(!isVisible(current)) continue;
       const content=(current.innerText||"").trim();
       if(content.length<65||content.length>3500) continue;
-      const actions=[...current.querySelectorAll("button,[role=button]")].filter(isVisible)
+      const actions=[...current.querySelectorAll("button,[role=button],a[href]")].filter(isVisible)
         .filter(x=>roomAction.test((x.innerText||"").trim().replace(/\s+/g," ")));
       if(actions.length>2) continue;
+      const distinctTitles=new Set([...current.querySelectorAll(headingSelector)]
+        .filter(looksLikeRoomHeading).map(headingText));
+      if(distinctTitles.size>1)break;
       const title=roomTitle(current);
       const price=quoteTotal(content);
       if(title&&price) return {node:current,title,price,text:content};
@@ -154,7 +157,10 @@ function visibleExpediaCapture() {
   // Expedia localizes room CTAs and may append "ora"/"now" to the label.
   // Keep this restricted to explicit room/rate actions: do not click anything.
   const roomAction=/^(?:prenota(?: ora)?|book(?: now)?|reserve(?: now)?|seleziona(?: (?:camera|tariffa))?|choose(?: (?:room|rate))?|select(?: (?:a )?(?:room|rate))?)\s*[›»→]?$/i;
-  const bookingButtons=[...document.querySelectorAll("button,[role=button]")].filter(isVisible)
+  // Expedia currently renders "Prenota" as an <a> link in several room
+  // grids. These are READ ONLY signals; the Companion never clicks them.
+  const bookingButtons=[...document.querySelectorAll("button,[role=button],a[href]")]
+    .filter(isVisible)
     .filter(x=>roomAction.test((x.innerText||"").trim().replace(/\s+/g," ")));
   const buttonCandidates=bookingButtons.map(cardFromButton).filter(Boolean);
   // Expedia can display room cards without a "Book" button, or show a button
@@ -183,18 +189,27 @@ function visibleExpediaCapture() {
   // price without also reaching several other rooms. Match rendered price
   // panels to the heading directly above in the SAME visual column instead.
   // This is a read-only fallback, not browser navigation.
-  const renderedHeadings=roomHeadings.map(node=>({
-    node,title:headingText(node),rect:node.getBoundingClientRect?.()
-  })).filter(item=>item.rect&&item.rect.width>0&&item.rect.height>0);
+  const renderedHeadings=[];
+  const headingKeys=new Set();
+  for(const node of roomHeadings){
+    const rect=node.getBoundingClientRect?.();
+    if(!rect||rect.width<=0||rect.height<=0)continue;
+    const title=headingText(node);
+    const key=title.toLocaleLowerCase("it-IT")+"|"+Math.round(rect.left/12)+
+      "|"+Math.round(rect.top/12);
+    if(headingKeys.has(key))continue;
+    headingKeys.add(key);
+    renderedHeadings.push({node,title,rect});
+  }
   const pricePanelSelector="div,span,p,strong,b,section,article";
   const possiblePricePanels=[...document.querySelectorAll(pricePanelSelector)].slice(0,7000);
   const pricePanels=possiblePricePanels.map(node=>{
     if(!isVisible(node)) return null;
     const content=(node.innerText||"").trim();
-    if(content.length<10||content.length>260) return null;
+    if(content.length<10||content.length>550) return null;
     if(!/\b(?:per\s+\d{1,2}\s+nott[ei]|for\s+\d{1,2}\s+nights?)\b/i.test(content)) return null;
     const price=quoteTotal(content);
-    if(!price||price.idx>65) return null;
+    if(!price||price.idx>230) return null;
     // The text must itself label the displayed price as a stay total,
     // and when known it must agree with the selected number of nights.
     const after=content.slice(price.idx+1,price.idx+145);
@@ -211,15 +226,23 @@ function visibleExpediaCapture() {
     const matches=renderedHeadings.map(h=>{
       const hCenter=(h.rect.left+h.rect.right)/2;
       const columnDistance=Math.abs(hCenter-panelCenter);
+      // Match within the SAME column even if a card is long due to its
+      // photo, amenities, cancellation labels and discounted-rate footer.
+      // The old 780px cut-off dropped all prices on tall room cards.
       const verticalDistance=rect.top-h.rect.top;
-      if(verticalDistance<35||verticalDistance>780||columnDistance>190) return null;
-      return {heading:h,score:verticalDistance+columnDistance*.25,columnDistance};
+      const overlap=Math.min(rect.right,h.rect.right)-Math.max(rect.left,h.rect.left);
+      const columnMatch=overlap>=8 || columnDistance<=Math.min(
+        245,Math.max(125,(h.rect.width+rect.width)/2+30));
+      if(verticalDistance<0||verticalDistance>1800||!columnMatch)return null;
+      return {heading:h,score:verticalDistance+(overlap>=8?0:columnDistance*.35),
+        columnDistance,verticalDistance};
     }).filter(Boolean).sort((a,b)=>a.score-b.score);
-    if(!matches.length) continue;
+    if(!matches.length)continue;
     const winner=matches[0];
-    // A price must be attributable to exactly one room in a column.
-    if(matches.length>1&&Math.abs(matches[1].score-winner.score)<12&&
-       matches[1].heading.title!==winner.heading.title) continue;
+    // A distinct room title situated almost at the same position would
+    // make the assignment ambiguous. Never use an adjacent room's price.
+    if(matches.length>1 && matches[1].heading.title!==winner.heading.title &&
+       Math.abs(matches[1].score-winner.score)<45)continue;
     const title=winner.heading.title;
     const locationKey=title.toLocaleLowerCase("it-IT")+"|"+panel.price.amount+"|"+
       Math.round(rect.top/10)+"|"+Math.round(panelCenter/15);
@@ -297,7 +320,8 @@ function visibleExpediaCapture() {
       ? "Camere lette dal contenuto visibile. Identità e condizioni devono essere confermate prima di un confronto tariffario."
       : "Nessuna tariffa totale affidabile per camera: "+bookingButtons.length+
         " pulsanti camera riconosciuti, "+roomHeadings.length+" titoli di camera visibili, "+
-        pricePanels.length+" pannelli prezzo, "+candidates.length+" schede con titolo e totale. "+
+        pricePanels.length+" pannelli prezzo, "+renderedHeadings.length+" titoli con coordinate, "+
+        candidates.length+" schede con titolo e totale. "+
         (roomHeadings.length
           ? "Camere individuate, ma il prezzo totale per soggiorno non è leggibile o è ambiguo. "+
             "Scorri fino alle tariffe esposte sotto ciascuna camera e ripeti l'acquisizione. "
