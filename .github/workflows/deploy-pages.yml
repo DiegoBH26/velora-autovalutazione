@@ -35,6 +35,7 @@ jobs:
           node --check chrome-companion-expedia/bridge.js
           node tests/test_expedia_companion_grid.cjs
           node tests/test_expedia_companion_geometry.cjs
+          node tests/test_expedia_companion_tall_cards.cjs
           node tests/test_vrbo_companion.cjs
           node tests/test_holidu_companion.cjs
           node tests/test_three_ota_tabs.cjs
