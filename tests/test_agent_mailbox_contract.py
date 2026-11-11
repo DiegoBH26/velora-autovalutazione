@@ -29,7 +29,7 @@ class AgentMailboxContracts(unittest.TestCase):
         self.assertIn('"identity_rejected" if rejected and prices==0',SERVER)
         self.assertIn('"technical_block" if errors else',SERVER)
         self.assertIn('"observedPriceCount":seen_prices',SERVER)
-        self.assertIn('"pricing_read_failure" if weak and prices==0',SERVER)
+        self.assertIn('"pricing_read_failure" if (weak or explicit_absence or prices==0)',SERVER)
         self.assertIn('if agent_id=="booking":',SERVER)
 
     def test_giove_compares_exact_windows_not_month(self):

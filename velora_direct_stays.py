@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-first-price-r9-20261110"
+LEONARDO_BUILD = "direct-universal-r10-20261111"
 
 import asyncio
 import re
@@ -701,7 +701,7 @@ async def _visual_date_values(scope):
 
 
 async def _apply_dates_generic(scope, stay):
-    """Generic form fallback if the Bedzzle calendar cannot be operated."""
+    """Provider-agnostic form strategy: date inputs or accessible visual calendar."""
     controls=await scope.evaluate(r"""() => {
       const visible=e=>Boolean(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
       return [...document.querySelectorAll('input')].filter(visible).slice(0,100).map(e=>({
@@ -709,14 +709,17 @@ async def _apply_dates_generic(scope, stay):
         placeholder:(e.placeholder||'').toLowerCase(),type:(e.type||'').toLowerCase(),
         aria:(e.getAttribute('aria-label')||'').toLowerCase(),
         testid:(e.getAttribute('data-testid')||'').toLowerCase(),
+        autocomplete:(e.getAttribute('autocomplete')||'').toLowerCase(),
+        title:(e.getAttribute('title')||'').toLowerCase(),
+        datafield:(e.getAttribute('data-field')||e.getAttribute('data-name')||'').toLowerCase(),
         label:([...e.labels].map(l=>l.innerText||'').join(' ')||
           e.closest('label')?.innerText||'').toLowerCase().slice(0,120),
         value:e.value,readOnly:Boolean(e.readOnly)
       }));
     }""")
     patterns={
-        "checkin":r"check[\s_-]?in|arriv|data[\s_-]?(?:dal|inizio|ingresso)|start[\s_-]?date|from[\s_-]?date|entry[\s_-]?date|ingresso",
-        "checkout":r"check[\s_-]?out|partenz|data[\s_-]?(?:al|fine|uscita)|end[\s_-]?date|to[\s_-]?date|departure|uscita",
+        "checkin":r"check[\s_-]?in|arriv|arrival|data[\s_-]?(?:dal|inizio|ingresso)|start[\s_-]?date|from[\s_-]?date|entry[\s_-]?date|ingresso|anreise|ankunft|fecha.?entrada|date.?arriv[ée]e",
+        "checkout":r"check[\s_-]?out|partenz|departure|data[\s_-]?(?:al|fine|uscita)|end[\s_-]?date|to[\s_-]?date|ausreise|abreise|fecha.?salida|date.?d[ée]part",
     }
     inputs=scope.locator("input:visible")
     targets={}
@@ -724,7 +727,7 @@ async def _apply_dates_generic(scope, stay):
         matches=[]
         for i,row in enumerate(controls):
             if row["type"] not in ("date","text","search","tel"):continue
-            label=" ".join(str(row.get(k) or "") for k in ("name","id","placeholder","aria","testid","label"))
+            label=" ".join(str(row.get(k) or "") for k in ("name","id","placeholder","aria","testid","autocomplete","title","datafield","label"))
             if re.search(pattern,label):matches.append((i,row))
         targets[name]=matches[0] if len(matches)==1 else (None,None)
     methods=[]
@@ -761,7 +764,14 @@ async def _apply_dates_generic(scope, stay):
                 formatted=requested
                 if row["type"]!="date":
                     y,m,d=requested.split("-")
-                    formatted=f"{d}/{m}/{y}"
+                    hint=" ".join(str(row.get(k) or "") for k in
+                                  ("placeholder","value","label","aria")).lower()
+                    if re.search(r"mm[/.-]dd[/.-]yyyy|month[/.-]day[/.-]year",hint):
+                        formatted=f"{m}/{d}/{y}"
+                    elif re.search(r"yyyy[/.-]mm[/.-]dd",hint):
+                        formatted=f"{y}-{m}-{d}"
+                    else:
+                        formatted=f"{d}/{m}/{y}"
                 await field.fill(formatted,timeout=4500)
                 await field.press("Tab",timeout=2500)
                 if not _date_is_present([await field.input_value()],requested):
@@ -849,7 +859,12 @@ async def _submit_availability_search(scope):
         r"check(?: availability| rates| rooms)?|"
         r"show (?:availability|results|rooms|prices|rates)|"
         r"find (?:availability|rooms|rates)|"
-        r"book now|prenota ora"
+        r"book now|prenota ora|"
+        r"find (?:a )?room|view (?:rooms|rates|availability)|"
+        r"see (?:rooms|rates|availability)|get rates|"
+        r"buscar(?: disponibilidad| habitaciones)?|"
+        r"ver disponibilidad|disponibilidad|"
+        r"verf[uü]gbarkeit(?: pr[uü]fen)?|zimmer suchen"
         r")(?:[\s:!›»→\-]*)$",re.I)
     matched=[]
     candidates=[]
@@ -904,7 +919,7 @@ async def _submit_availability_search(scope):
         except Exception:
             continue
     if not matched:
-        return {"submitted":False,"reason":"Comando di ricerca disponibilità non trovato.",
+        return {"submitted":False,"reason":"Comando di ricerca disponibilità non trovato; il motore usa forse una CTA personalizzata.",
                 "candidates":candidates[:14]}
     ranked=sorted(matched,key=lambda x:(x[2],x[3]),reverse=True)
     if len(ranked)>1 and ranked[0][2]==ranked[1][2] and ranked[0][3]==ranked[1][3]:
@@ -1282,12 +1297,13 @@ async def _wait_for_booking_search_form(page, *, seconds=13):
                      .filter(visible).slice(0,100);
                   const labels=inputs.map(e=>[
                     e.getAttribute('placeholder'),e.getAttribute('aria-label'),
-                    e.getAttribute('name'),e.id,e.textContent
+                    e.getAttribute('name'),e.getAttribute('data-testid'),
+                    e.getAttribute('data-field'),e.id,e.textContent
                   ].filter(Boolean).join(' ').slice(0,130)).join(' ').toLowerCase();
                   const body=(document.body?.innerText||'').slice(0,10000).toLowerCase();
                   const merged=labels+' '+body;
-                  const checkin=/check[\s-]?in|arriv|arrival|inizio soggiorno/.test(merged);
-                  const checkout=/check[\s-]?out|partenz|departure|fine soggiorno/.test(merged);
+                  const checkin=/check[\s-]?in|arriv|arrival|inizio soggiorno|anreise|ankunft|fecha.?entrada/.test(merged);
+                  const checkout=/check[\s-]?out|partenz|departure|fine soggiorno|abreise|ausreise|fecha.?salida/.test(merged);
                   return {ready:checkin&&checkout,checkin,checkout,
                     controls:inputs.length,readyState:document.readyState,
                     title:document.title?.slice(0,80)||''};
