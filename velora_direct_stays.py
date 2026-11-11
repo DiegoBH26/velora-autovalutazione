@@ -1302,8 +1302,8 @@ async def _wait_for_booking_search_form(page, *, seconds=13):
                   ].filter(Boolean).join(' ').slice(0,130)).join(' ').toLowerCase();
                   const body=(document.body?.innerText||'').slice(0,10000).toLowerCase();
                   const merged=labels+' '+body;
-                  const checkin=/check[\\s-]?in|arriv|arrival|inizio soggiorno|anreise|ankunft|fecha.?entrada/.test(merged);
-                  const checkout=/check[\\s-]?out|partenz|departure|fine soggiorno|abreise|ausreise|fecha.?salida/.test(merged);
+                  const checkin=/check[\s-]?in|arriv|arrival|inizio soggiorno|anreise|ankunft|fecha.?entrada/.test(merged);
+                  const checkout=/check[\s-]?out|partenz|departure|fine soggiorno|abreise|ausreise|fecha.?salida/.test(merged);
                   return {ready:checkin&&checkout,checkin,checkout,
                     controls:inputs.length,readyState:document.readyState,
                     title:document.title?.slice(0,80)||''};
