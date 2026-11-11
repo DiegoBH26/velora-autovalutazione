@@ -11244,6 +11244,52 @@ async def observe(
                     policyExcerpt:policy?clean(policy[0]).slice(0,260):'',
                     sampleOnly:true};
                 }""")
+                if channel=="booking" and not (frontend or {}).get("ratingCandidate"):
+                    try:
+                        booking_rating=await page.evaluate(r"""() => {
+                          const selectors=[
+                            '[data-testid="review-score-component"]',
+                            '[data-testid="review-score-right-component"]',
+                            '[data-testid="review-score"]',
+                            '[aria-label*="Scored" i]',
+                            '[aria-label*="Punteggio" i]',
+                            '.a3b8729ab1'
+                          ];
+                          const patterns=[
+                            /(?:scored|rated|punteggio|valutazione)\s*:?\s*(\d{1,2}(?:[.,]\d{1,2})?)/i,
+                            /^\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:\/\s*10|su\s*10|out of 10|$)/i,
+                            /^\s*(\d{1,2}(?:[.,]\d{1,2})?)\b/
+                          ];
+                          const seen=new Set();
+                          for(const selector of selectors){
+                            for(const el of Array.from(document.querySelectorAll(selector)).slice(0,12)){
+                              if(seen.has(el))continue;seen.add(el);
+                              const style=getComputedStyle(el);
+                              if(style.display==='none'||style.visibility==='hidden')continue;
+                              const texts=[el.getAttribute('aria-label')||'',
+                                ...Array.from(el.querySelectorAll('[aria-label]')).slice(0,6).map(n=>n.getAttribute('aria-label')||''),
+                                String(el.innerText||'').replace(/\s+/g,' ').trim()];
+                              for(const t of texts){
+                                for(const rx of patterns){
+                                  const m=t.match(rx);if(!m)continue;
+                                  const rating=Number(m[1].replace(',','.'));
+                                  if(!Number.isFinite(rating)||rating<=0||rating>10)continue;
+                                  const group=el.closest('[data-testid="review-score-component"]')||el;
+                                  const countText=String(group.innerText||'').replace(/\s+/g,' ');
+                                  const cm=countText.match(/([0-9][0-9.,\s]{0,12})\s*(?:recensioni|reviews|bewertungen)\b/i);
+                                  const count=cm?Number(cm[1].replace(/[^0-9]/g,'')):null;
+                                  return {rating,ratingScale:10,reviewCount:Number.isFinite(count)&&count>0?count:null,
+                                    evidence:'Rating Booking nel widget recensioni della scheda'};
+                                }
+                              }
+                            }
+                          }
+                          return null;
+                        }""")
+                        if booking_rating:
+                            frontend["ratingCandidate"]=booking_rating
+                    except Exception:
+                        pass
                 record["frontendSnapshot"]=frontend
             except Exception as snapshot_exc:
                 record["frontendSnapshot"]={
@@ -12487,6 +12533,57 @@ def _usable_room_name(value: str) -> bool:
         and norm not in {"tipologia camera da verificare","camera da verificare","room to verify","da verificare"}
         and "verificare" not in norm
     )
+
+
+def merge_observed_rating_profile(result: dict, record: dict) -> None:
+    """Rating OTA dalla scheda verificata; nessuna dipendenza dai prezzi."""
+    channel=str(record.get("otaId") or "")
+    if channel not in {"booking","agoda","airbnb","expedia","vrbo","holidu",
+                       "hotels","travelocity","trip","priceline"}:
+        return
+    if record.get("status") in {"source_missing","source_unverified","wrong_property_listing",
+                                "rate_limited","http_error","access_blocked",
+                                "login_required","robots_denied","navigation_error"}:
+        return
+    if (record.get("sourceIdentityVerified") is False
+        or record.get("identityQuarantined")
+        or record.get("identityUnverified")
+        or (record.get("identityCheck") or {}).get("verified") is False):
+        return
+    discovery=(result.get("discoveredSources") or {}).get(channel) or {}
+    if not (record.get("sourceIdentityVerified") is True
+            or discovery.get("identityVerified") is True
+            or (channel=="booking" and discovery.get("status") in {"found","existing_verified"})):
+        return
+    url=str(record.get("finalUrl") or record.get("sourceUrl") or "")
+    if not _plausible_ota_listing_url(channel,url):
+        return
+    candidate=(record.get("frontendSnapshot") or {}).get("ratingCandidate") or {}
+    try:
+        rating=float(candidate["rating"])
+        scale=float(candidate["ratingScale"])
+    except (KeyError,TypeError,ValueError):
+        return
+    if not (scale in {5.0,6.0,10.0} and 0<rating<=scale):
+        return
+    try:
+        count=int(candidate.get("reviewCount"))
+        if not 0<count<10000000:
+            count=None
+    except (TypeError,ValueError,OverflowError):
+        count=None
+    profiles=result.setdefault("otaProfiles",{})
+    old=profiles.get(channel) or {}
+    if old.get("status")=="sampled" and old.get("reviewCount") and count is None:
+        count=old["reviewCount"]
+    profiles[channel]={
+        "status":"sampled","url":url,
+        "title":str(record.get("title") or "")[:240],
+        "rating":round(rating,2),"ratingScale":int(scale),
+        "reviewCount":count,"recommendationRate":None,
+        "evidence":str(candidate.get("evidence") or "Rating visibile sulla scheda OTA")[:300]
+                   +" · Identità verificata; valutazione distinta dalle tariffe.",
+    }
 
 
 def apply_booking_room_reference(result: dict) -> None:
@@ -14720,6 +14817,7 @@ async def run(args: argparse.Namespace) -> dict:
                     record["scanFresh"]=True
                     record["scanVersion"]=PILOT_BUILD
                     result["observations"].append(record)
+                    merge_observed_rating_profile(result,record)
                     apply_booking_room_reference(result)
                     write_result(output, result)
                     channel_elapsed=time.monotonic()-channel_started
