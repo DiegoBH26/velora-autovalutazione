@@ -63,26 +63,59 @@ function visibleExpediaCapture() {
   }
   const pricePattern=/(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)\s*€|€\s*(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)/g;
   function quoteTotal(cardText) {
-    const hits=[...cardText.matchAll(pricePattern)];
-    const stayRe=/\bper\s+\d{1,2}\s+nott[ei]\b|\bfor\s+\d{1,2}\s+nights?\b|\b(?:prezzo totale|totale soggiorno|in totale|total price|total for (?:the )?stay)\b/i;
-    const results=[];
-    for (const match of hits) {
+    // Expedia frequently shows: "45 € di sconto / 461 € (barrato) /
+    // 416 € / per 3 notti, 1 camera / 139 € a notte".
+    // A wide substring around "per 3 notti" incorrectly marks all four
+    // figures as stay totals. Only the closest price tied to that label
+    // is evidence of the actual total; never use crossed/discount/nightly.
+    const hits=[...cardText.matchAll(pricePattern)].map(match=>{
       const amount=parseMoney(match[1]||match[2]);
-      if (amount===null) continue;
-      const before=cardText.slice(Math.max(0,match.index-65),match.index);
-      const after=cardText.slice(match.index+match[0].length,match.index+match[0].length+110);
-      const stay=stayRe.test(after)||stayRe.test(before);
-      const nightly=/^(?:\s|[,;:])*(?:a|per)\s+notte\b|\bper\s+night\b/i.test(after.slice(0,38)) ||
-        /\b(?:a|per)\s+notte\s*$/i.test(before);
-      const crossed=/prezzo\s+(?:originale|barrato)/i.test(before);
-      if (stay && !nightly && !crossed) results.push({amount,confidence:"total-for-stay",idx:match.index});
+      return {amount,start:match.index,end:match.index+match[0].length};
+    }).filter(hit=>hit.amount!==null);
+    if(!hits.length) return null;
+    const markers=[...cardText.matchAll(/\b(?:per\s+(\d{1,2})\s+nott[ei]|for\s+(\d{1,2})\s+nights?)\b/gi)];
+    const candidates=[];
+    for(const marker of markers) {
+      const count=Number(marker[1]||marker[2]);
+      if(nights>0 && count!==nights)continue;
+      const before=hits.filter(hit=>hit.end<=marker.index && marker.index-hit.end<=72)
+        .sort((left,right)=>right.end-left.end);
+      let selected=before[0];
+      if(selected){
+        const between=cardText.slice(selected.end,marker.index);
+        if(/(?:\b(?:a|per)\s+notte\b|\bper\s+night\b|di\s+sconto|discount)/i.test(between))
+          selected=null;
+      }
+      // Also support "per 3 notti: € 416" without guessing from other
+      // prices farther away in the same card.
+      if(!selected){
+        const following=hits.filter(hit=>hit.start>=marker.index+marker[0].length &&
+          hit.start-marker.index-marker[0].length<=35)
+          .sort((left,right)=>left.start-right.start);
+        const candidate=following[0];
+        if(candidate && !/\b(?:a|per)\s+notte\b|\bper\s+night\b/i.test(
+          cardText.slice(marker.index+marker[0].length,candidate.start)))
+          selected=candidate;
+      }
+      if(selected)candidates.push({amount:selected.amount,confidence:"total-for-stay",idx:selected.start});
     }
-    // Never guess a total from a single nightly figure or a crossed-out rate.
-    if (results.length===0) return null;
-    // Multiple different stay totals in the same card may refer to different rate
-    // plans or a struck-through price. Never arbitrarily choose the first amount.
-    if(new Set(results.map(result=>result.amount)).size>1) return null;
-    return results[0];
+    // Generic explicitly labeled totals (without an exact "per N notti")
+    // are usable only if an unambiguous monetary amount immediately follows.
+    if(!candidates.length){
+      const totalMarkers=[...cardText.matchAll(
+        /\b(?:prezzo\s+totale|totale\s+soggiorno|in\s+totale|total\s+price|total\s+for\s+(?:the\s+)?stay)\s*[:\-]?\s*/gi)];
+      for(const marker of totalMarkers){
+        const following=hits.filter(hit=>hit.start>=marker.index+marker[0].length &&
+          hit.start-marker.index-marker[0].length<=20).sort((a,b)=>a.start-b.start);
+        if(following[0])candidates.push({
+          amount:following[0].amount,confidence:"total-for-stay",idx:following[0].start
+        });
+      }
+    }
+    // Several DIFFERENT real stay totals in the same room block mean
+    // multiple rate plans: do not assign an arbitrary plan to the room.
+    if(new Set(candidates.map(item=>item.amount)).size!==1)return null;
+    return candidates[0]||null;
   }
   const invalidTitles=/^(?:prenota|book|scegli la tua camera|effettua un upgrade|il nostro prezzo più basso|questo è un prezzo standard|colazione inclusa|vista giardino|parcheggio incluso|scopri di più|wifi gratuito|paga più tardi|dettagli della camera|room details)$/i;
   const headingSelector='[data-stid*="room-name" i],[data-testid*="room-name" i],h2,h3,h4,h5,[role="heading"]';
