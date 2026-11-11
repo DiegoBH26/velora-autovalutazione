@@ -36,7 +36,7 @@ class ExpediaChromeCompanion(unittest.TestCase):
 
     def test_capture_only_visible_room_totals_with_identity_date_safety(self):
         self.assertIn('getClientRects()',WORKER)
-        self.assertIn("per\\s+\\d{1,2}\\s+nott",WORKER)
+        self.assertIn("per\\s+(\\d{1,2})\\s+nott",WORKER)
         self.assertIn('confidence:"total-for-stay"',WORKER)
         self.assertIn('const seen=new Set();',WORKER)
         self.assertIn('const roomHeadings=',WORKER)

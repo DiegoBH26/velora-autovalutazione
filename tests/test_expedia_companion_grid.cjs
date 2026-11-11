@@ -25,7 +25,7 @@ class MockElement {
   }
 }
 
-function runCapture(cards) {
+function runCapture(cards, options={}) {
   const roomHeadings=cards.map(card=>new MockElement("h3",card.title));
   const roomCards=cards.map((card,index)=>new MockElement("article",
     [card.title,card.description||"1 letto matrimoniale, bagno privato, colazione inclusa",
@@ -35,7 +35,7 @@ function runCapture(cards) {
   const sandbox={
     location:{
       hostname:"www.expedia.it",
-      href:"https://www.expedia.it/Hotel-Search?startDate=2027-06-07&endDate=2027-06-09&adults=2"
+      href:options.url||"https://www.expedia.it/Hotel-Search?startDate=2027-06-07&endDate=2027-06-09&adults=2"
     },
     document:{
       body:{innerText:"Scegli la tua camera\n7 giu\n9 giu\n2 persone, 1 camera\n"+docRoot.innerText},
@@ -84,4 +84,29 @@ const mixedTotals=runCapture([
 ]);
 assert.equal(mixedTotals.rooms.length,1,"Ambiguous totals on one card must not be guessed");
 assert.equal(mixedTotals.rooms[0].roomType,"Camera Superior, bagno privato");
+const discounted=runCapture([
+  {title:"Doppia Classic, 1 camera da letto, bagno privato, vista giardino",
+    prices:"45 € di sconto\n461 €\n416 €\nper 3 notti, 1 camera\n139 € a notte\ntasse e oneri inclusi"},
+  {title:"Camera, edificio separato (Trullo)",
+    prices:"51 € di sconto\n521 €\n470 €\nper 3 notti, 1 camera\n157 € a notte"},
+  {title:"Camera Superior, 1 letto king, bagno privato, vista giardino",
+    prices:"54 € di sconto\n554 €\n500 €\nper 3 notti, 1 camera\n167 € a notte"},
+  {title:"Camera Deluxe, 1 letto king, vista giardino, sul cortile",
+    prices:"56 € di sconto\n573 €\n517 €\nper 3 notti, 1 camera\n172 € a notte"},
+  {title:"Suite Junior (Prestige)",
+    prices:"60 € di sconto\n610 €\n550 €\nper 3 notti, 1 camera\n183 € a notte"},
+  {title:"Camera familiare, 2 camere da letto, vista giardino",
+    prices:"79 € di sconto\n797 €\n718 €\nper 3 notti, 1 camera\n239 € a notte"}
+],{url:"https://www.expedia.it/Hotel-Search?startDate=2027-06-01&endDate=2027-06-04&adults=2"});
+assert.equal(discounted.rooms.length,6,"Discount, crossed-out and nightly figures must not hide six current room totals");
+assert.deepEqual(Array.from(discounted.rooms,r=>r.total),[416,470,500,517,550,718]);
+assert.equal(discounted.nights,3);
+assert.equal(discounted.guests,2);
+assert.ok(discounted.rooms.every(r=>r.confidence==="total-for-stay"));
+
+const onlyDiscount=runCapture([
+  {title:"Camera Deluxe, bagno privato",prices:"45 € di sconto\n400 € a notte"}
+]);
+assert.equal(onlyDiscount.rooms.length,0,"A discount and a nightly figure do not establish a stay total");
+
 console.log("Expedia Chrome Companion: card-grid fixture passed (3 rooms, no-nightly-inference, ambiguous total protection).");

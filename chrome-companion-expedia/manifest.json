@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Velora · Expedia + Vrbo + Holidu Companion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Legge a richiesta informazioni già visibili su Expedia, Vrbo e Holidu, senza eseguire login o superare blocchi.",
   "permissions": [
     "tabs",

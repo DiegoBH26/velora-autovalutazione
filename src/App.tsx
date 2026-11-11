@@ -5137,6 +5137,7 @@ export default function App() {
   }>(null);
   const [assistedRateConfirmation,setAssistedRateConfirmation] = useState("");
   const [companionInstalled,setCompanionInstalled] = useState(false);
+  const [companionVersion,setCompanionVersion] = useState("");
   const [companionIdentityConfirmed,setCompanionIdentityConfirmed] = useState(false);
   const [companionCapture,setCompanionCapture] = useState<ExpediaCompanionCapture|null>(null);
   const [companionStay,setCompanionStay] = useState({checkin:"",checkout:"",guests:2});
@@ -5333,6 +5334,7 @@ export default function App() {
       const type=event.data.type;
       if(type==="READY") {
         setCompanionInstalled(true);
+        setCompanionVersion(String(event.data.payload?.version||"precedente").slice(0,24));
         setVrboSupported(Boolean(event.data.payload?.vrbo));
         setHoliduSupported(Boolean(event.data.payload?.holidu));
         setOtaTabLauncherSupported(Boolean(event.data.payload?.tabsLauncher));
@@ -10978,10 +10980,10 @@ export default function App() {
                     </div>
                     <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
                     <p className="mt-1 text-[11px] font-bold text-[#50627F]">
-                      {otaTabLauncherSupported?"Chrome Companion 0.4.1 collegato: apertura simultanea disponibile"
-                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.1 per aprire tre siti con un clic"
-                        : "Installa Chrome Companion 0.4.1 per acquisire e aprire tutte e tre le OTA"}
-                      {!otaTabLauncherSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica versione aggiornata</a></>}
+                      {otaTabLauncherSupported?"Chrome Companion "+(companionVersion||"collegato")+" · apertura simultanea disponibile"
+                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.2 per aprire tre siti con un clic"
+                        : "Installa Chrome Companion 0.4.2 per acquisire e aprire tutte e tre le OTA"}
+                      {(!otaTabLauncherSupported || companionVersion!=="0.4.2") && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.2</a></>}
                     </p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
@@ -10989,6 +10991,9 @@ export default function App() {
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
+                        {companionInstalled && companionVersion!=="0.4.2" && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
+                          Expedia richiede Companion 0.4.2 per leggere i prezzi scontati: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
+                        </p>}
                         <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
                         <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
                         <button type="button" onClick={importCompanionExpediaRates}
