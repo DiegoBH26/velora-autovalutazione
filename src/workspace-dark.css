@@ -214,6 +214,42 @@
   .velora-workspace .velora-core section[class*="p-6"] {padding:.8rem!important;}
   .velora-workspace .velora-core input,.velora-workspace .velora-core select,.velora-workspace .velora-core textarea {max-width:100%;}
 }
+
+/* Fine tuning: preserve contrast of status colors on the dark surface. */
+.velora-workspace .velora-core [class*="bg-emerald-50"],
+.velora-workspace .velora-core [class*="bg-green-50"] {background-color:#12392f!important;}
+.velora-workspace .velora-core [class*="bg-amber-50"],
+.velora-workspace .velora-core [class*="bg-yellow-50"] {background-color:#392e1c!important;}
+.velora-workspace .velora-core [class*="bg-red-50"],
+.velora-workspace .velora-core [class*="bg-rose-50"] {background-color:#3d2431!important;}
+.velora-workspace .velora-core [class*="bg-blue-50"],
+.velora-workspace .velora-core [class*="bg-sky-50"] {background-color:#182f49!important;}
+.velora-workspace .velora-core [class*="text-emerald-900"],
+.velora-workspace .velora-core [class*="text-emerald-800"],
+.velora-workspace .velora-core [class*="text-green-800"] {color:#93edc2!important;}
+.velora-workspace .velora-core [class*="text-amber-900"],
+.velora-workspace .velora-core [class*="text-amber-800"] {color:#f7d995!important;}
+.velora-workspace .velora-core [class*="text-rose-700"],
+.velora-workspace .velora-core [class*="text-red-700"],
+.velora-workspace .velora-core [class*="text-red-800"] {color:#ffadb6!important;}
+.velora-workspace .velora-core [class*="text-blue-800"] {color:#adc9ff!important;}
+/* Four real analysis-mode buttons remain usable alongside the compact sidebar. */
+.velora-workspace .velora-core #velora-analysis-modes > div:first-child {flex-wrap:wrap;}
+.velora-workspace .velora-core #velora-analysis-modes [class*="xl:min-w-[1180px]"] {
+  min-width:0!important;width:100%!important;max-width:100%!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+}
+@media(max-width:1600px) {
+  .velora-workspace .velora-core #velora-analysis-modes [class*="xl:min-w-[1180px]"] {
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+}
+@media(max-width:540px) {
+  .velora-workspace .velora-core #velora-analysis-modes [class*="xl:min-w-[1180px]"] {
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+}
+
 @media print {
   .velora-workspace {display:block;background:white!important;color:#111!important;}
   .velora-workspace__sidebar,.velora-workspace__topbar {display:none!important;}
