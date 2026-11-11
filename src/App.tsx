@@ -3851,7 +3851,7 @@ function verifiedRatingChannels(result: BrowserPilotResult | null | undefined): 
     values.push({id:"google",label:"Google",raw:Number(google.rating),scale:5,
       normalized:Number(google.rating),reviewCount:google.reviewCount??null});
   }
-  const labels:Record<string,string>={booking:"Booking",agoda:"Agoda",airbnb:"Airbnb",
+  const labels:Record<string,string>={booking:"Booking.com",agoda:"Agoda",airbnb:"Airbnb",
     expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu",hotels:"Hotels.com",
     trip:"Trip.com",priceline:"Priceline",travelocity:"Travelocity"};
   for(const [id,p] of Object.entries(result.otaProfiles||{})) {
@@ -11931,7 +11931,7 @@ export default function App() {
           
           <p className="mt-2 text-[10px] leading-4 text-[#50627F]"><b>Come leggere la tabella:</b> “Tariffe rilevate” significa che Velora ha letto importi reali sulla scheda OTA per le date testate. “Camera e prezzo validati” significa che il parser ha associato l’importo alla relativa camera; il confronto tra OTA richiede ancora condizioni omogenee, tasse e stessa unità. “Prezzi rilevati · attribuzione da verificare” significa che gli importi sono presenti, ma non sono ancora collegati con sufficiente certezza a camera e piano tariffario. “Non verificato” compare solo quando quel mese/canale non è stato ancora controllato.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni Google e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
+          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni online e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
 
           {browserPilotResult?.propertyId === activeAuditData.id && (browserPilotResult.reputation?.status === "sampled" || ratingChannels.length>0) && <>
@@ -11945,7 +11945,7 @@ export default function App() {
                   </div>)}
                 </div>
               </div>
-              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni visibili</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.reviewCount ?? "n.d."}</div></div>
+              <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Recensioni Google</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.reviewCount ?? "n.d."}</div></div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Campione testuale</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.sampleSize ?? 0}</div></div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Forze ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.strengths?.length ?? 0}</div></div>
               <div className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3"><div className="text-[9px] font-black uppercase tracking-wider text-[#8064A2]">Criticità ricorrenti</div><div className="mt-1 text-lg font-black text-[#23124A]">{browserPilotResult.reputation?.weaknesses?.length ?? 0}</div></div>
