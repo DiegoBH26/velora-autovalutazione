@@ -12250,7 +12250,7 @@ export default function App() {
         description="Accedi alle autovalutazioni registrate, ai report esistenti e ai nuovi audit."
         status={`${structures.length} strutture in archivio`}
         navigation={[
-          {id:"archivio",label:"Archivio strutture",description:"Schede e storico",active:true,onClick:()=>{}},
+          {id:"archivio",label:"Archivio strutture",description:"Schede e storico",active:true,onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},
           {id:"nuova",label:"Nuovo audit",description:"Avvia la verifica di una struttura",onClick:()=>document.getElementById("velora-new-audit")?.scrollIntoView({behavior:"smooth",block:"start"})},
           ...(activeStructureId?[{id:"torna",label:"Torna alla scheda",description:"Riprendi il lavoro",onClick:()=>setShowStructures(false)}]:[])
         ]}
@@ -12699,7 +12699,7 @@ export default function App() {
             </button>
           </div>
         </section>
-        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
+        <section id="velora-analysis-modes" className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.22em] text-[#C8A96B]">
