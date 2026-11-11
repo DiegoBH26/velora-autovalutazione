@@ -718,8 +718,8 @@ async def _apply_dates_generic(scope, stay):
       }));
     }""")
     patterns={
-        "checkin":r"check[\\s_-]?in|arriv|arrival|data[\\s_-]?(?:dal|inizio|ingresso)|start[\\s_-]?date|from[\\s_-]?date|entry[\\s_-]?date|ingresso|anreise|ankunft|fecha.?entrada|date.?arriv[ée]e",
-        "checkout":r"check[\\s_-]?out|partenz|departure|data[\\s_-]?(?:al|fine|uscita)|end[\\s_-]?date|to[\\s_-]?date|ausreise|abreise|fecha.?salida|date.?d[ée]part",
+        "checkin":r"check[\s_-]?in|arriv|arrival|data[\s_-]?(?:dal|inizio|ingresso)|start[\s_-]?date|from[\s_-]?date|entry[\s_-]?date|ingresso|anreise|ankunft|fecha.?entrada|date.?arriv[ée]e",
+        "checkout":r"check[\s_-]?out|partenz|departure|data[\s_-]?(?:al|fine|uscita)|end[\s_-]?date|to[\s_-]?date|ausreise|abreise|fecha.?salida|date.?d[ée]part",
     }
     inputs=scope.locator("input:visible")
     targets={}
