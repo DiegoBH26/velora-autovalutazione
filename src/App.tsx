@@ -52,6 +52,7 @@ type Answer = {
   fit: number;
   note: string;
   auditStatus?: AuditStatus;
+  manualPresence?:{status:"not_found_by_operator";reportedAt:string;previousAuditStatus?:AuditStatus};
 };
 
 type OwnerInfo = {
@@ -5148,6 +5149,8 @@ export default function App() {
   const [otaTabLauncherSupported,setOtaTabLauncherSupported] = useState(false);
   const [otaWorkspaceOpen,setOtaWorkspaceOpen] = useState(false);
   const [otaWorkspaceMessage,setOtaWorkspaceMessage] = useState("");
+  const [manualOtaBusy,setManualOtaBusy] = useState<"expedia"|"vrbo"|"holidu"|null>(null);
+  const [manualOtaMessage,setManualOtaMessage] = useState<Record<string,string>>({});
   const [holiduCapture,setHoliduCapture] = useState<HoliduCompanionCapture|null>(null);
   const [holiduReviewOpen,setHoliduReviewOpen] = useState(false);
   const [holiduIdentityConfirmed,setHoliduIdentityConfirmed] = useState(false);
@@ -7474,6 +7477,87 @@ export default function App() {
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
     showAssistedRateForm();
+  }
+
+  type ManualOtaId="expedia"|"vrbo"|"holidu";
+  async function changeManualOtaPresence(otaId:ManualOtaId,action:"not_found"|"clear") {
+    if(manualOtaBusy)return;
+    const propertyId=activeAuditData.id,propertyName=activeAuditData.name;
+    const label={expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu"}[otaId];
+    if(action==="not_found"){
+      if(rateQuotes.some(q=>q.otaId===otaId&&q.total>0) ||
+         otaContentSnapshots.some(item=>item.otaId===otaId&&item.identityVerified)){
+        setManualOtaMessage(old=>({...old,[otaId]:"Su questa OTA risultano già presenti tariffe o una scheda verificata. Controlla i risultati prima di segnalarla non rilevata."}));
+        return;
+      }
+      if(!window.confirm(
+        "Hai cercato manualmente "+propertyName+" su "+label+" e non hai trovato una scheda pertinente?\n\n"+
+        "Registreremo una ricerca SENZA scheda rilevata, non un'assenza confermata. "+
+        "La matrice delle asimmetrie e la chat di Giove riporteranno la segnalazione."
+      ))return;
+    }
+    setManualOtaBusy(otaId);
+    setManualOtaMessage(old=>({...old,[otaId]:"Registro la ricerca manuale…"}));
+    try{
+      const token=await connectLocalAgent(false);
+      if(!token)throw new Error("Avvia l'agente Windows per registrare la ricerca nella rete.");
+      const response=await fetch(localAgentUrl("/api/ota-presence/manual"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({propertyId,propertyName,otaId,action})
+      });
+      const result=await response.json().catch(()=>({})) as {
+        ok?:boolean;propertyId?:string;error?:string;
+        observation?:{reportedAt?:string}
+      };
+      if(!response.ok||!result.ok||result.propertyId!==propertyId)
+        throw new Error(response.status===404
+          ? "Aggiorna l'agente Windows: la funzione di segnalazione manuale non è installata."
+          : result.error||"Registrazione non confermata dal servizio Windows.");
+      if(window.localStorage.getItem(ACTIVE_STRUCTURE_KEY)!==propertyId)
+        throw new Error("Struttura cambiata durante la registrazione: torna alla struttura iniziale.");
+      const key="audit-ota-"+otaId;
+      if(action==="not_found"){
+        const existing=answers[key];
+        updateAnswer(key,{
+          auditStatus:"missing",
+          manualPresence:{
+            status:"not_found_by_operator",
+            reportedAt:result.observation?.reportedAt||new Date().toISOString(),
+            previousAuditStatus:existing?.manualPresence?.previousAuditStatus||
+              (existing?.auditStatus==="missing"?"unverified":existing?.auditStatus||"unverified")
+          }
+        });
+        setManualOtaMessage(old=>({...old,[otaId]:
+          "Segnalazione registrata: presenza rossa, altri confronti non disponibili. Messaggio inviato a Giove."}));
+      }else{
+        updateAnswer(key,{
+          auditStatus:answers[key]?.manualPresence?.previousAuditStatus||"unverified",
+          manualPresence:undefined
+        });
+        setManualOtaMessage(old=>({...old,[otaId]:
+          "Segnalazione ritirata: il riferimento manuale non risulta più attivo."}));
+      }
+      if(agentChatOpen)void loadAgentChat();
+    }catch(error){
+      setManualOtaMessage(old=>({...old,[otaId]:
+        error instanceof Error?error.message:"Impossibile registrare la ricerca."}));
+    }finally{setManualOtaBusy(null);}
+  }
+
+  function manualOtaPresenceButton(otaId:"expedia"|"vrbo"|"holidu"){
+    const reported=answers["audit-ota-"+otaId]?.manualPresence?.status==="not_found_by_operator";
+    const busy=manualOtaBusy===otaId;
+    return <div className="mt-2 space-y-1">
+      <button type="button" disabled={manualOtaBusy!==null}
+        onClick={()=>void changeManualOtaPresence(otaId,reported?"clear":"not_found")}
+        className={"w-full rounded-lg border px-2 py-2 text-[10px] font-black disabled:opacity-50 "+
+          (reported?"border-amber-400 bg-amber-50 text-amber-950":"border-rose-300 bg-white text-rose-800 hover:bg-rose-50")}>
+        {busy?"Registrazione…":reported?"Ritira segnalazione":"Scheda non rilevata"}
+      </button>
+      {reported&&<p role="status" className="text-[10px] font-semibold text-rose-800">Ricerca manuale senza scheda pertinente · da verificare</p>}
+      {manualOtaMessage[otaId]&&<p role="status" className="text-[10px] text-[#50627F]">{manualOtaMessage[otaId]}</p>}
+    </div>;
   }
 
   async function startVrboPresenceCheck() {
@@ -9926,7 +10010,8 @@ export default function App() {
       const anyBlocked=observations.some(row=>["rate_limited","rate_limited_session","access_blocked",
         "blocked","http_error","navigation_error","robots_denied","robots_unavailable","login_required"].includes(row.status))
         || vrboPublic?.status==="inconclusive";
-      const explicitlyNotFound=manual?.auditStatus==="missing" ||
+      const operatorNotFound=manual?.manualPresence?.status==="not_found_by_operator";
+      const explicitlyNotFound=operatorNotFound || manual?.auditStatus==="missing" ||
         vrboPublic?.status==="not_identified" ||
         (!hasCandidate && observations.length>0 && observations.every(row=>row.status==="source_missing")) ||
         (!hasCandidate && discovery?.status==="source_missing");
@@ -9943,6 +10028,7 @@ export default function App() {
         : hasCandidate ? "candidate"
         : anyBlocked ? "blocked" : "unverified";
       const presenceLabel=wrongOnly?"Solo annunci estranei scartati · nessuna scheda corretta verificata"
+        : operatorNotFound && presence==="missing"?"Non rilevata nella ricerca manuale · assenza da verificare"
         : presence==="present"?"Scheda confermata"
         : presence==="missing"?"Non individuata nella ricerca"
         : presence==="candidate"?"Scheda candidata · identità da confermare"
@@ -10846,6 +10932,7 @@ export default function App() {
                             expedia?.scrollIntoView({behavior:"smooth",block:"start"});
                           }} className="text-[10px] font-black underline">Vedi prezzi nell'audit OTA</button>
                         </div>}
+                        {loginPortal && <div className="mt-2 border-t border-current/15 pt-2">{manualOtaPresenceButton(loginPortal)}</div>}
                         {loginPortal && <details className="mt-2 rounded-lg border border-current/20 bg-white/70 p-2">
                           <summary className="cursor-pointer text-[10px] font-black text-[#23124A]">Accessi, credenziali e test avanzati</summary>
                         {agent.id==="expedia" && <div className="mt-2 rounded-lg border border-[#D6C9EA] bg-[#F9F7FD] p-2">
@@ -11004,6 +11091,7 @@ export default function App() {
                           {companionCapture?.propertyId===activeAuditData.id
                             ? "Importa "+companionCapture.rooms.length+" tariffe Expedia" : "Importa tariffe Expedia"}
                         </button>
+                        {manualOtaPresenceButton("expedia")}
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{companionMessage||"Camere, prezzi e contenuti dalla pagina visibile."}</p>
                         {companionCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
@@ -11034,6 +11122,7 @@ export default function App() {
                         </button>
                         {vrboPresence.state==="completed"&&vrboPresence.result?.propertyId===activeAuditData.id&&
                           <p className="mt-1 text-[10px] font-bold text-[#50627F]">{vrboPresence.result.label}</p>}
+                        {manualOtaPresenceButton("vrbo")}
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{vrboMessage||"La pagina di ricerca non basta: serve una scheda alloggio."}</p>
                         {vrboCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
@@ -11057,6 +11146,7 @@ export default function App() {
                           {holiduCapture?.propertyId===activeAuditData.id
                             ? "Importa "+holiduCapture.rooms.length+" tariffe Holidu" : "Importa tariffe Holidu"}
                         </button>
+                        {manualOtaPresenceButton("holidu")}
                         <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{holiduMessage||"Legge solo un annuncio Holidu autentico, non un rinvio a un'altra OTA."}</p>
                         {holiduCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
                           <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
@@ -11331,6 +11421,7 @@ export default function App() {
                           pricing_observed:"Acquisizione tariffe registrata",
                           technical_block:"Problema tecnico segnalato",
                           identity_rejected:"Scheda di un'altra struttura scartata",
+                          manual_presence:"Segnalazione manuale della presenza OTA",
                           help_request:"Richiesta di aiuto tra agenti",
                           help_reply:"Risposta tecnica condivisa",
                           review_decision:"Giove · Controllo e limiti operativi"
