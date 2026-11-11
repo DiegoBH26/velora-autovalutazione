@@ -6,6 +6,7 @@ import perlaReportUrl from "./perla-saracena-report.pdf?url";
 import braAudit from "./bra-hotel-audit.json";
 import braReportUrl from "./bra-hotel-report.pdf?url";
 import { buildRateComparisonRows } from "./rate-comparison";
+import VeloraWorkspace from "./VeloraWorkspace";
 
 declare global {
   interface Window {
@@ -5124,6 +5125,8 @@ export default function App() {
   const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
   const [activeStructureId, setActiveStructureId] = useState<string | null>(null);
   const [showStructures, setShowStructures] = useState(true);
+  // Solo presentazione: non entra nei salvataggi delle strutture o dell'intervista.
+  const [workspaceSection, setWorkspaceSection] = useState("panoramica");
   const [hydrated, setHydrated] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
@@ -8005,6 +8008,7 @@ export default function App() {
           : QUICK_HOTEL_BB_CORE_DATA
         : ASSESSMENT_DATA;
     setAssessmentMode(mode);
+    setWorkspaceSection(mode==="web-audit"?"audit":mode==="quick-hotel-bb"?"rapida":"intervista");
     setShowQuickDeepDive(false);
     setActiveMacroId(nextData[0]?.id ?? "");
     setShowOnlyPriority(false);
@@ -8017,6 +8021,7 @@ export default function App() {
     setCustomQuickDraftIds(savedInterviewTemplate());
     setCustomizerSearch("");
     setIsCustomizingInterview(true);
+    setWorkspaceSection("personalizza");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -10194,7 +10199,7 @@ export default function App() {
     })).filter((macro) => macro.categories.length > 0);
 
     return (
-      <section className="flex flex-col gap-5">
+      <section id="velora-audit-content" className="flex flex-col gap-5 velora-workspace-anchor">
         <div className="rounded-[2rem] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.05)]">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-4xl">
@@ -10624,7 +10629,7 @@ export default function App() {
           </section>
             </div>
           </details>
-          <div className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+          <div id="velora-scraping-tools" className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Leonardo analizza per primo il sito diretto sulle date selezionate</b>; poi Booking verifica il primo confronto e determina le date confermate da replicare identiche sulle altre OTA, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>sito diretto → date e ospiti selezionati → booking engine → camere e prezzi → confronto Booking → altre OTA</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -12220,9 +12225,37 @@ export default function App() {
     setActiveMacroId(selected[0]?.id ?? "");
   }
 
+  // Navigazione grafica del workspace: usa le funzioni e i moduli già esistenti.
+  // Nessuna nuova chiave di storage; nessuna modifica a risposte, tariffe o scansioni.
+  function navigateVelora(section: string) {
+    if(section==="archivio") { openStructuresHome(); return; }
+    if(section==="personalizza") { openInterviewCustomizer(); return; }
+    if(section==="intervista") switchAssessmentMode("full");
+    if(section==="rapida") switchAssessmentMode("quick-hotel-bb");
+    if(section==="audit" || section==="scraping") switchAssessmentMode("web-audit");
+    setWorkspaceSection(section);
+    const target = section==="struttura" ? "velora-structure-profile" :
+      section==="scraping" ? "velora-scraping-tools" :
+      section==="report" ? "velora-report-actions" :
+      section==="audit" ? "velora-audit-content" :
+      ["intervista","rapida"].includes(section) ? "velora-assessment-content" : "velora-overview";
+    // Attende il render dopo un cambio modalità, senza toccare lo stato salvato.
+    window.setTimeout(()=>document.getElementById(target)?.scrollIntoView({behavior:"smooth",block:"start"}),80);
+  }
+
   if (showStructures) {
     return (
-      <main className="min-h-screen bg-[#F7F4FB] px-4 py-8 text-[#23124A] md:px-6">
+      <VeloraWorkspace
+        title="Archivio strutture"
+        description="Accedi alle autovalutazioni registrate, ai report esistenti e ai nuovi audit."
+        status={`${structures.length} strutture in archivio`}
+        navigation={[
+          {id:"archivio",label:"Archivio strutture",description:"Schede e storico",active:true,onClick:()=>{}},
+          {id:"nuova",label:"Nuovo audit",description:"Avvia la verifica di una struttura",onClick:()=>document.getElementById("velora-new-audit")?.scrollIntoView({behavior:"smooth",block:"start"})},
+          ...(activeStructureId?[{id:"torna",label:"Torna alla scheda",description:"Riprendi il lavoro",onClick:()=>setShowStructures(false)}]:[])
+        ]}
+      >
+      <main className="velora-core velora-core--archive min-h-screen bg-[#F7F4FB] px-4 py-8 text-[#23124A] md:px-6">
         <div className="mx-auto max-w-[1300px]">
           <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)] md:p-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -12244,7 +12277,7 @@ export default function App() {
               </div>
             </div>
           </section>
-          <section className="mt-5 rounded-[2rem] border border-[#C8A96B]/50 bg-[#FFFDF7] p-6 shadow-sm md:p-7">
+          <section id="velora-new-audit" className="mt-5 rounded-[2rem] border border-[#C8A96B]/50 bg-[#FFFDF7] p-6 shadow-sm md:p-7">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Nuovo audit automatico</p>
@@ -12376,6 +12409,7 @@ export default function App() {
           <p className="mt-5 text-xs leading-5 text-[#50627F]">Le modifiche e le nuove strutture restano salvate in questo browser. Per l&apos;audit automatico il software online usa l&apos;agente gratuito sullo stesso PC; i dati non verificabili restano marcati come tali.</p>
         </div>
       </main>
+      </VeloraWorkspace>
     );
   }
 
@@ -12384,7 +12418,17 @@ export default function App() {
     const selectedDraftSet = new Set(customQuickDraftIds);
 
     return (
-      <main className="min-h-screen bg-[#F7F4FB] px-4 py-5 text-[#23124A] md:px-6">
+      <VeloraWorkspace
+        title="Personalizzazione intervista"
+        description="Configura macroaree, sottogruppi e domande; salva con il comando esistente."
+        structureName={interviewTarget?.name || ownerInfo.propertyName || ""}
+        status={`${customQuickDraftIds.length} domande selezionate`}
+        navigation={[
+          {id:"personalizza",label:"Personalizza intervista",description:"Configurazione in corso",active:true,onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},
+          {id:"torna",label:"Torna senza salvare",description:"Annulla le modifiche non confermate",onClick:()=>setIsCustomizingInterview(false)}
+        ]}
+      >
+      <main className="velora-core velora-core--customizer min-h-screen bg-[#F7F4FB] px-4 py-5 text-[#23124A] md:px-6">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
           <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_18px_50px_rgba(35,18,74,0.07)] md:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -12607,14 +12651,32 @@ export default function App() {
           </section>
         </div>
       </main>
+      </VeloraWorkspace>
     );
   }
 
 
   return (
-    <main className="min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
+    <VeloraWorkspace
+      title="Autovalutazione struttura ricettiva"
+      description="Intervista consulenziale, analisi rapida e scraping OTA in un unico percorso operativo."
+      structureName={ownerInfo.propertyName || activeAuditData.name}
+      status={localPilotRunning?"Scraping in corso":localPilotToken?"Agente locale collegato":"Modalità consulenziale"}
+      navigation={[
+        {id:"archivio",label:"Archivio strutture",description:"Schede, salvataggi e storico",onClick:()=>navigateVelora("archivio")},
+        {id:"panoramica",label:"Panoramica",description:"Stato del lavoro e modalità",active:workspaceSection==="panoramica",onClick:()=>navigateVelora("panoramica")},
+        {id:"struttura",label:"Dati struttura",description:"Anagrafica e referente",active:workspaceSection==="struttura",onClick:()=>navigateVelora("struttura")},
+        {id:"intervista",label:"Intervista completa",description:"Tutte le domande e macroaree",active:workspaceSection==="intervista",onClick:()=>navigateVelora("intervista")},
+        {id:"personalizza",label:"Personalizza intervista",description:"Scelta e salvataggio domande",onClick:()=>navigateVelora("personalizza")},
+        {id:"rapida",label:"Analisi rapida Hotel",description:"Percorso breve e approfondimenti",active:workspaceSection==="rapida",onClick:()=>navigateVelora("rapida")},
+        {id:"audit",label:"Audit Web & Frontend",description:"Checklist e riscontri pubblici",active:workspaceSection==="audit",onClick:()=>navigateVelora("audit")},
+        {id:"scraping",label:"Scraping OTA",description:"Agenti, tariffe e verifiche",active:workspaceSection==="scraping",onClick:()=>navigateVelora("scraping")},
+        {id:"report",label:"Report e output",description:"PDF, CSV e JSON attuali",active:workspaceSection==="report",onClick:()=>navigateVelora("report")}
+      ]}
+    >
+    <main className="velora-core velora-core--assessment min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-6">
-        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <section id="velora-overview" className="flex flex-col gap-3 rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Archivio consulenziale</p>
             <p className="mt-1 text-sm font-bold text-[#23124A]">
@@ -12949,6 +13011,7 @@ export default function App() {
           </div>
         </section>
 
+        <div id="velora-assessment-content" className="velora-workspace-anchor">
         {isWebAudit ? (
           renderExternalWebAudit()
         ) : isQuickHotelBb ? (
@@ -13309,6 +13372,7 @@ export default function App() {
           </section>
         </section>
         )}
+        </div>
 
         <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -13384,7 +13448,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
+        <section id="velora-report-actions" className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="max-w-3xl">
               <p className="text-[12px] font-black uppercase tracking-[0.28em] text-[#C8A96B]">
@@ -13437,5 +13501,6 @@ export default function App() {
         </section>
       </div>
     </main>
+    </VeloraWorkspace>
   );
 }
