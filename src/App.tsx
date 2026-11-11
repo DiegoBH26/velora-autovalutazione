@@ -7513,7 +7513,7 @@ export default function App() {
       setOtaWorkspaceMessage("Richiesta apertura delle tre schede Chrome in corso...");
       window.postMessage({source:"velora-online-v1",type:"OPEN_THREE_OTA_TABS"},window.location.origin);
     } else {
-      setOtaWorkspaceMessage("Per aprire tre schede con un solo clic, aggiorna Chrome Companion alla versione 0.4.1 e premi Ctrl+F5. In alternativa usa i tre link Apri sito nel pannello.");
+      setOtaWorkspaceMessage("Per aprire tre schede con un solo clic, aggiorna Chrome Companion alla versione 0.4.3 e premi Ctrl+F5. In alternativa usa i tre link Apri sito nel pannello.");
     }
     // Independent public Vrbo discovery does not depend on the Chrome tab launcher.
     if(vrboPresence.state!=="running"&&vrboPresence.state!=="queued")void startVrboPresenceCheck();
@@ -7527,7 +7527,7 @@ export default function App() {
     setHoliduMessage("Richiedo le informazioni già visibili nella scheda Holidu del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_HOLIDU"},window.location.origin);
     if(!holiduSupported)
-      setHoliduMessage("Per Holidu serve Chrome Companion 0.4.1. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+      setHoliduMessage("Per Holidu serve Chrome Companion 0.4.3. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importHoliduCompanionRates() {
@@ -7592,7 +7592,7 @@ export default function App() {
     setVrboMessage("Richiedo le informazioni già visibili nella scheda Vrbo del Chrome normale...");
     window.postMessage({source:"velora-online-v1",type:"CAPTURE_VRBO"},window.location.origin);
     if(!vrboSupported)
-      setVrboMessage("Per Vrbo serve Chrome Companion 0.4.1. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
+      setVrboMessage("Per Vrbo serve Chrome Companion 0.4.3. Sostituisci la precedente estensione Expedia e premi Ctrl+F5.");
   }
 
   function importVrboCompanionRates() {
@@ -10981,9 +10981,9 @@ export default function App() {
                     <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
                     <p className="mt-1 text-[11px] font-bold text-[#50627F]">
                       {otaTabLauncherSupported?"Chrome Companion "+(companionVersion||"collegato")+" · apertura simultanea disponibile"
-                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.2 per aprire tre siti con un clic"
-                        : "Installa Chrome Companion 0.4.2 per acquisire e aprire tutte e tre le OTA"}
-                      {(!otaTabLauncherSupported || companionVersion!=="0.4.2") && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.2</a></>}
+                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.3 per aprire tre siti con un clic"
+                        : "Installa Chrome Companion 0.4.3 per acquisire e aprire tutte e tre le OTA"}
+                      {(!otaTabLauncherSupported || companionVersion!=="0.4.3") && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.3</a></>}
                     </p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
@@ -10991,8 +10991,8 @@ export default function App() {
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        {companionInstalled && companionVersion!=="0.4.2" && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
-                          Expedia richiede Companion 0.4.2 per leggere i prezzi scontati: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
+                        {companionInstalled && companionVersion!=="0.4.3" && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
+                          Expedia richiede Companion 0.4.3 per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
                         </p>}
                         <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
                         <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
@@ -11113,7 +11113,7 @@ export default function App() {
                         className="rounded-lg bg-[#23124A] px-3 py-2 text-xs font-black text-white">
                         Acquisisci da Chrome
                       </button>
-                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.4 collegato":"Serve Chrome Companion 0.4.1"}</span>
+                      <span className="text-[11px] font-bold text-[#50627F]">{vrboSupported?"Chrome Companion 0.4 collegato":"Serve Chrome Companion 0.4.3"}</span>
                     </div>
                     {!vrboSupported && <p className="mt-2 text-xs text-amber-800">Scarica il Companion aggiornato, rimuovi la vecchia estensione Expedia da Chrome e carica la cartella estratta. <a className="font-black underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip">Scarica ZIP</a></p>}
                     {vrboMessage && <p className="mt-3 rounded-lg bg-[#F5F2FA] p-3 text-xs font-semibold text-[#23124A]" role="status">{vrboMessage}</p>}
