@@ -264,7 +264,7 @@ def agent_output(property_id,agent_id):
 # executable commands, credentials, browser control or cross-OTA navigation.
 # Giove can audit the exchange, which never overrides evidence from the portal.
 MAILBOX_LOCK=threading.RLock()
-MAILBOX_EVENT_TYPES={"direct_master","booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision","identity_rejected"}
+MAILBOX_EVENT_TYPES={"manual_presence","direct_master","booking_reference","pricing_read_failure","pricing_observed","technical_block","help_request","help_reply","review_decision","identity_rejected"}
 MAILBOX_LIMIT=120
 
 
@@ -316,6 +316,89 @@ def agent_mailbox_publish(property_id, sender, event_type, details, *, reset=Fal
         temporary.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
         temporary.replace(dest)
         return event
+
+
+
+MANUAL_OTA_AGENT_NAMES={
+    "expedia":("Ercole","Expedia"),
+    "vrbo":("Atlante","Vrbo"),
+    "holidu":("Mercurio","Holidu"),
+}
+
+
+def manual_ota_presence_path(property_id):
+    return AGENT_RESULTS / safe_property_id(property_id) / "manual-ota-presence.json"
+
+
+def read_manual_ota_presence(property_id):
+    path=manual_ota_presence_path(property_id)
+    try:
+        payload=json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("propertyId")==property_id and isinstance(payload.get("observations"),dict):
+            return payload
+    except (OSError,ValueError,TypeError,AttributeError):
+        pass
+    return {"schema":"velora-manual-ota-presence-v1",
+            "propertyId":property_id,"propertyName":"","observations":{}}
+
+
+def record_manual_ota_presence(property_id, property_name, ota_id, action):
+    """Persist operator's negative search result, distinct from confirmed absence.
+
+    A manual non-detection never invalidates previously acquired OTA rates,
+    invents an empty inventory, or changes the actual specialist agent result.
+    """
+    property_id=safe_property_id(property_id)
+    property_name=str(property_name or "").strip()
+    if not 2<=len(property_name)<=180:
+        raise ValueError("Nome struttura non valido")
+    if ota_id not in MANUAL_OTA_AGENT_NAMES:
+        raise ValueError("OTA non supportata")
+    if action not in {"not_found","clear"}:
+        raise ValueError("Operazione non valida")
+    actor,ota_label=MANUAL_OTA_AGENT_NAMES[ota_id]
+    with MAILBOX_LOCK:
+        payload=read_manual_ota_presence(property_id)
+        if payload.get("propertyName") and payload["propertyName"]!=property_name:
+            raise ValueError("Segnalazioni manuali associate a un'altra struttura")
+        observations=payload["observations"]
+        existing=observations.get(ota_id) or {}
+        if action=="not_found":
+            if existing.get("status")=="not_found_by_operator":
+                return existing
+            result={
+                "otaId":ota_id,"status":"not_found_by_operator",
+                "source":"operator_manual_search",
+                "reportedAt":datetime.now(timezone.utc).isoformat(),
+                "absenceConfirmed":False,
+            }
+            observations[ota_id]=result
+            message=(f"{actor} a Giove: l'operatore ha cercato manualmente "
+                     f"{ota_label} per questa struttura e non ha individuato "
+                     "una scheda pertinente. Possibile asimmetria di presenza "
+                     "da verificare; non equivale ad assenza confermata.")
+        else:
+            if ota_id not in observations:
+                return {"otaId":ota_id,"status":"cleared"}
+            observations.pop(ota_id,None)
+            result={"otaId":ota_id,"status":"cleared"}
+            message=(f"{actor} a Giove: l'operatore ha ritirato la segnalazione "
+                     f"di scheda non rilevata su {ota_label}. "
+                     "Non utilizzarla più come evidenza di presenza negativa.")
+        payload["propertyName"]=property_name
+        path=manual_ota_presence_path(property_id)
+        path.parent.mkdir(parents=True,exist_ok=True)
+        temporary=path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
+        temporary.replace(path)
+        agent_mailbox_publish(property_id,ota_id,"manual_presence",{
+            "propertyName":property_name,"ota":ota_id,
+            "recipient":"giove",
+            "status":result["status"],
+            "strategy":"operator_manual_search",
+            "message":message,
+        })
+        return result
 
 
 def agent_mailbox_reference(property_id, property_name):
@@ -1723,6 +1806,16 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(404,{"error":"Nessun esito salvato"}); return
             self._json(200,value)
             return
+        if route=="/api/ota-presence/manual":
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                property_id=safe_property_id((query.get("propertyId") or [""])[0])
+            except ValueError:
+                self._json(400,{"error":"Struttura non valida"}); return
+            self._json(200,read_manual_ota_presence(property_id))
+            return
         if route=="/api/vrbo-presence/status":
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
@@ -1752,7 +1845,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/ota-presence/manual","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1766,6 +1859,21 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/ota-presence/manual":
+                property_id=safe_property_id(payload.get("propertyId"))
+                try:
+                    result=record_manual_ota_presence(
+                        property_id,
+                        payload.get("propertyName"),
+                        str(payload.get("otaId") or "").lower(),
+                        str(payload.get("action") or ""),
+                    )
+                    self._json(200,{"ok":True,"propertyId":property_id,
+                                    "observation":result})
+                except ValueError as exc:
+                    self._json(400,{"error":str(exc)[:200]})
+                return
 
             if route in {"/api/portal-firefox/start","/api/portal-firefox/finish"}:
                 if PORTAL_SESSIONS is None:
