@@ -22,7 +22,7 @@ type AssessmentMode = "full" | "quick-hotel-bb" | "web-audit";
 type AuditData = typeof santantonioAudit | typeof perlaAudit | typeof braAudit;
 
 const LOCAL_AGENT_BASE = "http://127.0.0.1:8768";
-const EXPECTED_LEONARDO_BUILD = "direct-first-price-r9-20261110";
+const EXPECTED_LEONARDO_BUILD = "direct-universal-r10-20261111";
 function localAgentUrl(path: string): string {
   return window.location.hostname === "127.0.0.1" && window.location.port === "8768" ? path : LOCAL_AGENT_BASE + path;
 }
