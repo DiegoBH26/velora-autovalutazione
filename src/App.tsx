@@ -7782,9 +7782,19 @@ export default function App() {
       return;
     }
     setRateQuotes(previous=>[...previous,...fresh]);
-    fail(label+": "+fresh.length+" tariffe assistite importate, da verificare prima del confronto con Booking.");
+    fail(label+": "+fresh.length+" tariffe assistite importate in valuta originale"+
+      (fresh.some(q=>q.currency==="USD")?" (USD non confrontabile con euro)":"")+
+      ". Le vedrai nell'Audit OTA, con unità e condizioni da verificare.");
+    void logFamilyCompanionActivity(otaId,"imported",fresh.length,fresh.some(q=>q.currency==="USD")?"USD":"EUR");
     setOtaWorkspaceOpen(false);
     navigateVelora("tariffe");
+    window.requestAnimationFrame(()=>{
+      const pricing=document.getElementById("velora-pricing-details");
+      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
+      const section=document.getElementById("velora-pricing-ota-"+otaId);
+      if(section instanceof HTMLDetailsElement)section.open=true;
+      section?.scrollIntoView({behavior:"smooth",block:"start"});
+    });
   }
 
   function openThreeOtaPortals() {
@@ -11441,6 +11451,15 @@ export default function App() {
                             <p><b>Pagina osservata:</b> {capture.propertyName||"Nome non individuato"}</p>
                             <p><b>Soggiorno:</b> {capture.checkin||"Data non letta"} → {capture.checkout||"Data non letta"} · {capture.guests||"?"} adulti</p>
                             <p><b>Prezzi totali rilevati:</b> {capture.rooms.length} · <b>Già importati:</b> {imported}</p>
+                            {capture.rooms.some(room=>room.currency==="USD") && <p role="status" className="mt-2 rounded-lg border border-amber-500/70 bg-[#443620] p-2 font-bold text-[#FFE6A2]">
+                              ATTENZIONE: importi in dollari ($). Velora li conserva in USD e non calcola scostamenti in euro. Nessuna conversione automatica.
+                            </p>}
+                            {capture.rooms.length>0 && <div className="mt-2 max-h-64 space-y-1 overflow-auto" aria-label={"Totali camera letti su "+label}>
+                              {capture.rooms.map((room,i)=><div key={room.roomType+"-"+i} className="flex flex-wrap items-start justify-between gap-2 border-b border-[#4C6882] py-2">
+                                <span className="max-w-[76%]">{room.roomType}</span>
+                                <b className="text-[#E5EFFF]">{observedRateLabel(room.total,room.currency)}</b>
+                              </div>)}
+                            </div>}
                             {!match && <label className="mt-2 flex items-start gap-2">
                               <input type="checkbox" checked={familyIdentityConfirmed[otaId]}
                                 onChange={e=>setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:e.target.checked}))}/>
@@ -11971,7 +11990,7 @@ export default function App() {
                   <td className="p-2">{quote.checkin} · {quote.nights} notti · {quote.guests} ospiti</td>
                   <td className="p-2 font-black">Sito diretto · MASTER</td>
                   <td className="p-2">{quote.roomType}</td>
-                  <td className="p-2 font-black">€{quote.total.toFixed(2)}</td>
+                  <td className="p-2 font-black">{observedRateLabel(quote.total,quote.currency||"EUR")}</td>
                   <td className="p-2">Totale diretto verificato · parità camera/condizioni OTA da confermare</td>
                 </tr>) : <tr className="border-t border-[#E5DDF1] bg-[#FFF9EC]">
                   <td className="p-2">Date sito diretto · da verificare</td>
@@ -12233,8 +12252,11 @@ export default function App() {
           </label>
           {rateQuotes.some((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)) && <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900"><b>{rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).length} righe tariffarie automatiche rilevate su {new Set(rateQuotes.filter((quote) => quote.origin === "pilot" && ["booking", "agoda", "airbnb", "vrbo", "expedia", "hotels", "travelocity", "trip", "priceline"].includes(quote.otaId)).map((quote) => quote.otaId)).size} canale/i</b>. I valori non validati restano visibili ma non alimentano il delta. I campioni restano separati per canale; il delta compare soltanto quando è confermata la stessa unità fisica con condizioni omogenee.</p>}
           <details className="my-3 rounded-xl border border-[#E5DDF1]"><summary className="cursor-pointer p-3 text-xs font-black text-[#23124A]">Riepilogo mensile OTA · prezzi e disponibilità · apri/chiudi</summary><div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1]"><table className="min-w-[1240px] w-full border-collapse text-[11px]"><thead className="bg-[#23124A] text-white"><tr><th className="p-2 text-left">Mese soggiorno</th>{activeAuditData.otaPresence.map((channel) => <th key={channel.id} className="p-2 text-left">{channel.platform}</th>)}</tr></thead><tbody>{rateMonths.map((month) => <tr key={month} className="border-t border-[#E5DDF1] odd:bg-[#FBF9FF]"><th className="p-2 text-left text-[#23124A]">{new Date(`${month}-01T12:00:00Z`).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })}</th>{activeAuditData.otaPresence.map((channel) => { const cell = monthlyRateCell(rateQuotes, month, channel.id); return <td key={channel.id} className="p-2 text-[#23124A]">{<><span className="block text-[10px] leading-4 text-[#50627F]">{monthlyCoverageSummary(comparableQuotes, availabilityProbes, month, channel.id, browserPilotResult)}</span>{cell.average !== null && <span className="mt-1 block text-[10px] font-bold text-[#23124A]">€{cell.average.toFixed(2)} · {cell.count} rilevazione/i · {cell.verified} validate automaticamente{cell.deltaPct === null ? " · Δ n.d." : ` · Δ ${cell.deltaPct > 0 ? "+" : ""}${cell.deltaPct.toFixed(1)}% (${cell.matched})`}</span>}</>}</td>; })}</tr>)}</tbody></table></div></details>
+          {rateQuotes.some(q=>q.currency==="USD") && <p role="status" className="mt-2 rounded-xl border border-amber-400 bg-amber-50 p-3 text-[12px] font-bold text-amber-950">
+            Attenzione: {rateQuotes.filter(q=>q.currency==="USD").length} tariffe acquisite in USD sono conservate nella valuta originale. Non sono incluse nelle medie in euro né nei delta con Booking.
+          </p>}
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
-          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · €{(quote.total / quote.nights).toFixed(2)}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.origin==="browser-assisted"?"lettura Chrome assistita · camera non verificata":("rilevazione manuale"+(quote.manualListingTitle?" · "+quote.manualListingTitle:"")))}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
+          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · {observedRateLabel(quote.total / quote.nights,quote.currency||"EUR")}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.origin==="browser-assisted"?"lettura Chrome assistita · camera non verificata":("rilevazione manuale"+(quote.manualListingTitle?" · "+quote.manualListingTitle:"")))}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
             <b>Promozioni verificate su una tariffa futura:</b> {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).length || "nessuna"}.
             {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).slice(-6).map((quote) => <p key={`promo-${quote.id}`} className="mt-1">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId} · {quote.stayDate} · {promotionSummary(quote)}</p>)}
