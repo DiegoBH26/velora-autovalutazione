@@ -10639,6 +10639,12 @@ export default function App() {
           </details>
           <div id="velora-scraping-tools" data-audit-block="scraping" className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
+            <nav className="velora-quick-actions mt-3" aria-label="Navigazione rapida ai dati delle scansioni">
+              <strong>Risultati delle scansioni:</strong>
+              <button type="button" onClick={()=>navigateVelora("tariffe")}>Tariffe puntuali per OTA</button>
+              <button type="button" onClick={()=>navigateVelora("asimmetrie")}>Mappa asimmetrie</button>
+              <button type="button" onClick={()=>navigateVelora("report")}>Report completo</button>
+            </nav>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Leonardo analizza per primo il sito diretto sulle date selezionate</b>; poi Booking verifica il primo confronto e determina le date confermate da replicare identiche sulle altre OTA, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>sito diretto → date e ospiti selezionati → booking engine → camere e prezzi → confronto Booking → altre OTA</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${localPilotGhost ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-[#E5DDF1] bg-white text-[#50627F]"}`}>
@@ -11409,7 +11415,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  {agentChatOpen && <div className="mt-3 rounded-xl border border-[#E5DDF1] bg-white p-3">
+                  {agentChatOpen && <div data-velora-agent-chat className="mt-3 rounded-xl border border-[#E5DDF1] bg-white p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-xs font-black text-[#23124A]">Giove · Chat interna degli agenti</p>
@@ -11422,7 +11428,7 @@ export default function App() {
                     {agentChatError && <p role="alert" className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-800">{agentChatError}</p>}
                     {!agentChatLoading && !agentChatError && agentChatEvents.length===0 && <p className="mt-3 text-xs text-[#64748B]">Nessun messaggio registrato per questa struttura. La mailbox si popola durante le scansioni con l'agente locale aggiornato.</p>}
                     <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
-                      {agentChatEvents.map((event,index)=><div key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
+                      {agentChatEvents.map((event,index)=><div data-velora-chat-event key={event.createdAt+"-"+index} className="rounded-lg border border-[#EEE8F4] bg-[#FBFAFE] p-3">
                         <div className="flex flex-wrap justify-between gap-2 text-[11px]">
                           <span className="font-black text-[#23124A]">{veloraAgentName(event.from)} → {event.to==="ota_specialists"?"Rete specialisti":event.to==="booking"?"Minerva (Booking)":event.to==="official_site"?"Leonardo":event.to==="agoda"?"Galileo":event.to==="giove"?"Giove":event.to}</span>
                           <span className="text-[#64748B]">{event.createdAt?new Date(event.createdAt).toLocaleString("it-IT"):""}</span>
@@ -11495,6 +11501,10 @@ export default function App() {
                   const active=agentRunIds.map(id=>({id,state:specialistStatuses[id]})).find(item=>item.state?.state==="running");
                   const phase=active?.state?.phase || (queued?"Agenti in attesa":complete?"Esecuzioni terminate":"Avvio agenti");
                   const detail=active?.state?.progressDetail || (queued?"Attesa disponibilità del browser.":"");
+                  const activeStart=active?.state?.startedAt ? Date.parse(active.state.startedAt) : agentRunStartedAt;
+                  const activeElapsed=activeStart && Number.isFinite(activeStart)
+                    ? Math.max(0,agentRunClock-activeStart):0;
+                  const longRunning=Boolean(active && activeElapsed>5*60*1000);
                   return <div className="rounded-xl border border-emerald-200 bg-white p-3" role="status" aria-live="polite">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-black text-[#23124A]">
                       <span>{complete?(failed?"Scansione terminata con errori":"Scansione agenti terminata"):"Scansione agenti in corso"} · {done}/{agentRunIds.length} conclusi</span>
@@ -11505,6 +11515,27 @@ export default function App() {
                     </div>
                     <p className="mt-2 text-[10px] font-semibold text-[#23124A]">{active?veloraAgentName(active.id)+" · ":""}{phase}{detail?" · "+detail:""}</p>
                     <p className="mt-1 text-[10px] font-semibold text-[#50627F]">{running} al lavoro · {queued} in coda · {failed} interrotti. Percentuale calcolata sulle fasi concluse e sui campioni registrati, non sul tempo trascorso.</p>
+                    <div className="mt-3 flex flex-wrap gap-2" aria-label="Stato dei singoli agenti">
+                      {agentRunIds.map(id=>{
+                        const state=specialistStatuses[id]?.state||"queued";
+                        const label=state==="completed"?"Completato":state==="failed"?"Errore":state==="running"?"In corso":"In coda";
+                        return <span key={id} className="rounded-lg border border-[#56718B] bg-[#263B52] px-3 py-2 text-[11px] font-bold text-white">
+                          {veloraAgentName(id)} · {label}
+                        </span>;
+                      })}
+                    </div>
+                    {longRunning && <p className="velora-scan-warning mt-3" role="alert">
+                      <b>{veloraAgentName(active!.id)} lavora da {Math.floor(activeElapsed/60000)} minuti.</b>
+                      {" "}Il portale potrebbe essere lento o non rispondere. La percentuale non è una stima del tempo residuo.
+                      Puoi già consultare le tariffe degli agenti conclusi; dopo l’aggiornamento Windows, i test singoli di questi quattro portali hanno un limite massimo e un errore esplicito in caso di timeout.
+                    </p>}
+                    <nav className="velora-quick-actions mt-3" aria-label="Consulta i risultati durante la scansione">
+                      <strong>Consulta gli esiti già acquisiti:</strong>
+                      <button type="button" onClick={()=>navigateVelora("tariffe")}>Tariffe per OTA</button>
+                      <button type="button" onClick={()=>navigateVelora("asimmetrie")}>Asimmetrie</button>
+                      <button type="button" onClick={()=>navigateVelora("report")}>Report</button>
+                      <button type="button" onClick={()=>void refreshSpecialistStatuses()}>Aggiorna stati</button>
+                    </nav>
                   </div>;
                 })()}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
@@ -12783,6 +12814,8 @@ export default function App() {
             {workspaceSection==="macroarea" && <button type="button" onClick={()=>navigateVelora("macroaree")}>← Tutte le macroaree</button>}
             {["audit","bookingengine","commerciale","scraping","mappa","piani","contenuti","asimmetrie","tariffe","recensioni","criticita"].includes(workspaceSection) &&
               <button type="button" onClick={()=>navigateVelora("auditradar")}>← Radar Audit</button>}
+            {workspaceSection==="scraping" && <button type="button" onClick={()=>navigateVelora("tariffe")}>€ Vedi tariffe OTA</button>}
+            {workspaceSection==="tariffe" && <button type="button" onClick={()=>navigateVelora("scraping")}>◉ Torna agli agenti</button>}
             <button type="button" onClick={()=>navigateVelora("panoramica")}>◎ Radar principale</button>
           </div>
         </div>
