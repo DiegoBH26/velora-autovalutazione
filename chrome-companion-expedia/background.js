@@ -75,7 +75,9 @@ function visibleExpediaCapture(portal = "expedia") {
     const n=Number(normalized.replace(",","."));
     return Number.isFinite(n)&&n>=1&&n<=200000 ? n : null;
   }
-  const pricePattern=/(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)\s*€|€\s*(\d{1,3}(?:[.\s]\d{3})+(?:,\d{2})?|\d{1,6}(?:[.,]\d{2})?)/g;
+  // Do not force a dollar price into EUR. The currency travels with each
+  // visibly observed room total; converted values are NEVER fabricated.
+  const pricePattern=/(€|\$)\s*(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})?|\d{1,6}(?:[.,]\d{2})?)|(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})?|\d{1,6}(?:[.,]\d{2})?)\s*(€|\$)/g;
   function quoteTotal(cardText) {
     // Expedia frequently shows: "45 € di sconto / 461 € (barrato) /
     // 416 € / per 3 notti, 1 camera / 139 € a notte".
@@ -83,8 +85,9 @@ function visibleExpediaCapture(portal = "expedia") {
     // figures as stay totals. Only the closest price tied to that label
     // is evidence of the actual total; never use crossed/discount/nightly.
     const hits=[...cardText.matchAll(pricePattern)].map(match=>{
-      const amount=parseMoney(match[1]||match[2]);
-      return {amount,start:match.index,end:match.index+match[0].length};
+      const amount=parseMoney(match[2]||match[3]);
+      const currency=(match[1]||match[4])==="$"?"USD":"EUR";
+      return {amount,currency,start:match.index,end:match.index+match[0].length};
     }).filter(hit=>hit.amount!==null);
     if(!hits.length) return null;
     const markers=[...cardText.matchAll(/\b(?:per\s+(\d{1,2})\s+nott[ei]|for\s+(\d{1,2})\s+nights?)\b/gi)];
@@ -111,7 +114,19 @@ function visibleExpediaCapture(portal = "expedia") {
           cardText.slice(marker.index+marker[0].length,candidate.start)))
           selected=candidate;
       }
-      if(selected)candidates.push({amount:selected.amount,confidence:"total-for-stay",idx:selected.start});
+      if(selected)candidates.push({amount:selected.amount,currency:selected.currency,confidence:"total-for-stay",idx:selected.start});
+    }
+    // Travelocity's English cards typically show "$136 nightly" followed
+    // by a strikethrough "$514" and "$461 total". The word "total" AFTER
+    // the visible price is strong evidence; "nightly" and discounts are NOT.
+    if(!candidates.length){
+      const labeled=hits.filter(hit=>{
+        const immediatelyAfter=cardText.slice(hit.end,hit.end+48);
+        return /^\s*total\b(?:\s+(?:with|including)\b)?/i.test(immediatelyAfter)
+          && !/^\s*total\s+(?:savings?|discount|off)\b/i.test(immediatelyAfter);
+      });
+      for(const hit of labeled)
+        candidates.push({amount:hit.amount,currency:hit.currency,confidence:"total-for-stay",idx:hit.start});
     }
     // Generic explicitly labeled totals (without an exact "per N notti")
     // are usable only if an unambiguous monetary amount immediately follows.
@@ -122,13 +137,13 @@ function visibleExpediaCapture(portal = "expedia") {
         const following=hits.filter(hit=>hit.start>=marker.index+marker[0].length &&
           hit.start-marker.index-marker[0].length<=20).sort((a,b)=>a.start-b.start);
         if(following[0])candidates.push({
-          amount:following[0].amount,confidence:"total-for-stay",idx:following[0].start
+          amount:following[0].amount,currency:following[0].currency,confidence:"total-for-stay",idx:following[0].start
         });
       }
     }
     // Several DIFFERENT real stay totals in the same room block mean
     // multiple rate plans: do not assign an arbitrary plan to the room.
-    if(new Set(candidates.map(item=>item.amount)).size!==1)return null;
+    if(new Set(candidates.map(item=>item.amount+"|"+item.currency)).size!==1)return null;
     return candidates[0]||null;
   }
   const invalidTitles=/^(?:prenota|book|scegli la tua camera|effettua un upgrade|il nostro prezzo più basso|questo è un prezzo standard|colazione inclusa|vista giardino|parcheggio incluso|scopri di più|wifi gratuito|paga più tardi|dettagli della camera|room details)$/i;
@@ -221,13 +236,14 @@ function visibleExpediaCapture(portal = "expedia") {
     if(!isVisible(node)) return null;
     const content=(node.innerText||"").trim();
     if(content.length<10||content.length>550) return null;
-    if(!/\b(?:per\s+\d{1,2}\s+nott[ei]|for\s+\d{1,2}\s+nights?)\b/i.test(content)) return null;
+    if(!/\b(?:per\s+\d{1,2}\s+nott[ei]|for\s+\d{1,2}\s+nights?|total|totale)\b/i.test(content)) return null;
     const price=quoteTotal(content);
     if(!price||price.idx>230) return null;
     // The text must itself label the displayed price as a stay total,
     // and when known it must agree with the selected number of nights.
     const after=content.slice(price.idx+1,price.idx+145);
-    if(nights>0&&!new RegExp("\\b(?:per|for)\\s+"+nights+"\\s+(?:nott[ei]|nights?)\\b","i").test(after)) return null;
+    if(nights>0&&!new RegExp("\\b(?:per|for)\\s+"+nights+"\\s+(?:nott[ei]|nights?)\\b","i").test(after)
+      && !/^\s*(?:\d[\d., ]*\s*)?total\b/i.test(after)) return null;
     const rect=node.getBoundingClientRect?.();
     if(!rect||rect.width<20||rect.height<8) return null;
     return {node,rect,price,text:content};
@@ -270,7 +286,7 @@ function visibleExpediaCapture(portal = "expedia") {
   for (const candidate of candidates) {
     const title=candidate.title;
     const price=candidate.price.amount;
-    const key=title.toLocaleLowerCase("it-IT")+"|"+price;
+    const key=title.toLocaleLowerCase("it-IT")+"|"+price+"|"+candidate.price.currency;
     if(seen.has(key)) continue;
     seen.add(key);
     if(rooms.length>=40) break;
@@ -281,7 +297,7 @@ function visibleExpediaCapture(portal = "expedia") {
       ? "Rimborsabile" : (/non rimborsabile|non-refundable/i.test(text)?"Non rimborsabile":"Non chiaro");
     const taxes=/tasse e oneri inclusi|taxes and fees included/i.test(text)
       ? "Tutte le imposte incluse" : "Non chiaro";
-    rooms.push({roomType:title,total:price,board,refund,taxes,confidence:candidate.price.confidence});
+    rooms.push({roomType:title,total:price,currency:candidate.price.currency,board,refund,taxes,confidence:candidate.price.confidence});
   }
   // Evidence for presentation asymmetries. This is a sample of visible,
   // loaded content, NOT an assertion about the entire OTA photo gallery.
