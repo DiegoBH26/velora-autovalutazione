@@ -53,7 +53,7 @@ class VrboPresenceTest(unittest.TestCase):
         self.assertIn("function captureVrboFromChrome()",APP)
         self.assertIn("function captureExpediaFromChrome()",APP)
         self.assertIn('type:"CAPTURE_HOLIDU"',APP)
-        workspace=APP.split('{otaWorkspaceOpen && <aside',1)[1].split('{vrboPresence.state!=="not_started"',1)[0]
+        workspace=APP.split('{otaWorkspaceOpen && <div className="fixed inset-0',1)[1].split('{vrboPresence.state!=="not_started"',1)[0]
         for importer in ("importCompanionExpediaRates", "importVrboCompanionRates", "importHoliduCompanionRates"):
             self.assertIn("onClick={"+importer+"}",workspace)
         self.assertIn('void startVrboPresenceCheck()',APP)
