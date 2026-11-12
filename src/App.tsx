@@ -5205,6 +5205,7 @@ export default function App() {
   const [familyCompanionSupported,setFamilyCompanionSupported] = useState(false);
   const [familyCapture,setFamilyCapture] = useState<Partial<Record<ExpediaFamilyOtaId,ExpediaFamilyCapture>>>({});
   const [familyMessage,setFamilyMessage] = useState<Partial<Record<ExpediaFamilyOtaId,string>>>({});
+  const [familyLogMessage,setFamilyLogMessage] = useState<Partial<Record<ExpediaFamilyOtaId,string>>>({});
   const [familyIdentityConfirmed,setFamilyIdentityConfirmed] = useState<Record<ExpediaFamilyOtaId,boolean>>({hotels:false,travelocity:false});
   const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
   const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
@@ -5448,6 +5449,12 @@ export default function App() {
           };
           setFamilyCapture(prev=>({...prev,[otaId]:capture}));
           setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:false}));
+          void logFamilyCompanionActivity(
+            otaId, rooms.length?"captured":"empty", rooms.length,
+            rooms.some(room=>room.currency==="USD")
+              ? (rooms.some(room=>room.currency==="EUR")?"MIXED":"USD")
+              : (rooms.length?"EUR":"UNKNOWN")
+          );
           setFamilyMessage(prev=>({...prev,[otaId]:rooms.length
             ? rooms.length+" totali camera visibili acquisiti da "+label+
               (rooms.some(room=>room.currency==="USD")?" in USD (dollari): nessuna conversione in euro, delta sospeso.":"")+
@@ -7697,6 +7704,33 @@ export default function App() {
     }catch(error){
       setVrboPresenceMessage(error instanceof Error?error.message:"Impossibile avviare la verifica Vrbo.");
     }finally{setVrboPresenceBusy(false);}
+  }
+
+  async function logFamilyCompanionActivity(
+    otaId:ExpediaFamilyOtaId,
+    action:"captured"|"imported"|"empty",
+    count:number,
+    currency:"EUR"|"USD"|"MIXED"|"UNKNOWN"
+  ):Promise<void> {
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token)throw new Error("Agente Windows non connesso.");
+      const response=await fetch(localAgentUrl("/api/companion/observation"),{
+        method:"POST",mode:"cors",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({propertyId:activeAuditData.id,otaId,action,count,currency})
+      });
+      const result=await response.json() as {ok?:boolean;error?:string};
+      if(!response.ok||!result.ok)throw new Error(result.error||"Evento non salvato nella mailbox.");
+      setFamilyLogMessage(prev=>({...prev,[otaId]:"Evento inviato a Giove · "+(action==="imported"?"tariffe importate":action==="empty"?"nessun totale leggibile":"totali letti")+". Prezzi da verificare."}));
+      if(agentChatOpen)void loadAgentChat();
+    }catch(error){
+      // Do not discard visible prices because the Windows mailbox is offline.
+      setFamilyLogMessage(prev=>({...prev,[otaId]:
+        "Tariffe conservate nella scheda della struttura; log Giove non aggiornato ("+
+        (error instanceof Error?error.message:"errore locale")+
+        "). Aggiorna e riavvia l'agente Windows."}));
+    }
   }
 
   function openFiveOtaPortals() {
@@ -11469,6 +11503,9 @@ export default function App() {
                           <p className="mt-2 text-[12px] leading-5 text-[#E1ECFF]" role="status">
                             {familyMessage[otaId]||"Dati da acquisire. Tariffe manuali e automatiche resteranno distinte."}
                           </p>
+                          {familyLogMessage[otaId]&&<p className="mt-2 rounded-lg border border-[#547C9A] bg-[#233F57] p-2 text-[12px] leading-5" role="status">
+                            Registro Giove: {familyLogMessage[otaId]}
+                          </p>}
                           {manualOtaPresenceButton(otaId)}
                         </section>;
                       })}
