@@ -5170,7 +5170,7 @@ export default function App() {
   const [otaTabLauncherSupported,setOtaTabLauncherSupported] = useState(false);
   const [otaWorkspaceOpen,setOtaWorkspaceOpen] = useState(false);
   const [otaWorkspaceMessage,setOtaWorkspaceMessage] = useState("");
-  const [manualOtaBusy,setManualOtaBusy] = useState<"expedia"|"vrbo"|"holidu"|null>(null);
+  const [manualOtaBusy,setManualOtaBusy] = useState<"expedia"|"vrbo"|"holidu"|"trip"|"priceline"|"hotels"|"travelocity"|null>(null);
   const [manualOtaMessage,setManualOtaMessage] = useState<Record<string,string>>({});
   const [holiduCapture,setHoliduCapture] = useState<HoliduCompanionCapture|null>(null);
   const [holiduReviewOpen,setHoliduReviewOpen] = useState(false);
@@ -7503,11 +7503,11 @@ export default function App() {
     showAssistedRateForm();
   }
 
-  type ManualOtaId="expedia"|"vrbo"|"holidu";
+  type ManualOtaId="expedia"|"vrbo"|"holidu"|"trip"|"priceline"|"hotels"|"travelocity";
   async function changeManualOtaPresence(otaId:ManualOtaId,action:"not_found"|"clear") {
     if(manualOtaBusy)return;
     const propertyId=activeAuditData.id,propertyName=activeAuditData.name;
-    const label={expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu"}[otaId];
+    const label={expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu",trip:"Trip.com",priceline:"Priceline",hotels:"Hotels.com",travelocity:"Travelocity"}[otaId];
     if(action==="not_found"){
       if(rateQuotes.some(q=>q.otaId===otaId&&q.total>0) ||
          otaContentSnapshots.some(item=>item.otaId===otaId&&item.identityVerified)){
@@ -7569,7 +7569,7 @@ export default function App() {
     }finally{setManualOtaBusy(null);}
   }
 
-  function manualOtaPresenceButton(otaId:"expedia"|"vrbo"|"holidu"){
+  function manualOtaPresenceButton(otaId:ManualOtaId){
     const reported=answers["audit-ota-"+otaId]?.manualPresence?.status==="not_found_by_operator";
     const busy=manualOtaBusy===otaId;
     return <div className="mt-2 space-y-1">
@@ -10889,6 +10889,9 @@ export default function App() {
                           </span>
                           {agent.beta&&<span className="shrink-0 rounded-md bg-white/75 px-1.5 py-0.5 text-[9px] font-black">TEST</span>}
                         </button>
+                        {(["trip","priceline","hotels","travelocity"] as const).includes(agent.id as "trip"|"priceline"|"hotels"|"travelocity") && <div className="mt-2 border-t border-current/15 pt-2">
+                          {manualOtaPresenceButton(agent.id as "trip"|"priceline"|"hotels"|"travelocity")}
+                        </div>}
                         {agent.id==="official_site" && <p className="mt-2 rounded-md border border-amber-300/60 bg-white/85 px-2 py-1.5 text-[10px] font-semibold text-[#6B4F06]" role="status">
                           Versione Leonardo richiesta dal sito: <span className="font-mono break-all">{EXPECTED_LEONARDO_BUILD}</span>
                           <span className="block text-[9px] font-normal opacity-80">La versione Windows in esecuzione viene verificata al collegamento.</span>
