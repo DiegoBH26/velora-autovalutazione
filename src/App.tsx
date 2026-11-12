@@ -5128,6 +5128,9 @@ type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "faile
 type PortalSessionState = {state?: "idle" | "queued" | "open" | "awaiting_user" | "authenticating" | "ready" | "unverified" | "access_limited" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
+// Assisted browser inspection is also supported on these two PUBLIC portals.
+// They do NOT inherit the Expedia/Vrbo/Holidu account requirement.
+const ASSISTED_PORTAL_IDS: SpecialistAgentId[] = ["expedia","vrbo","holidu","hotels","travelocity"];
 type AgentCheck = {agentId: string; code: string; label: string; passed: boolean; detail: string};
 const SPECIALIST_AGENTS: Array<{id: SpecialistAgentId; name: string; channel: string; detail: string; beta?: boolean}> = [
   {id:"official_site",name:"Leonardo",channel:"Sito diretto · MASTER",detail:"Primo: booking engine, camere, disponibilità e tariffe"},
@@ -10989,7 +10992,7 @@ export default function App() {
                   <div className="space-y-5">
                     {([
                       {id:"standard",title:"1 · Leonardo MASTER → Booking → altre OTA",subtitle:"Sito diretto prima di Booking; recensioni indipendenti"},
-                      {id:"access",title:"2 · Agenti con accesso",subtitle:"Expedia, Vrbo e Holidu · schede operative allineate"}
+                      {id:"access",title:"2 · Agenti Chrome assistiti",subtitle:"Expedia, Vrbo, Holidu, Hotels.com e Travelocity · account solo dove richiesto"}
                     ] as const).map(group=>(
                       <section key={group.id} className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -10997,17 +11000,17 @@ export default function App() {
                             <h4 className="text-xs font-black text-[#23124A]">{group.title}</h4>
                             <p className="text-[10px] font-semibold text-[#64748B]">{group.subtitle}</p>
                           </div>
-                          {group.id==="access" && <button type="button" onClick={openThreeOtaPortals}
-                            className="rounded-lg bg-[#23124A] px-4 py-2 text-[11px] font-black text-white shadow-sm">
-                            Apri Expedia + Vrbo + Holidu
+                          {group.id==="access" && <button type="button" onClick={openFiveOtaPortals}
+                            className="rounded-lg bg-[#5947B1] px-4 py-2.5 text-[12px] font-black text-white shadow-sm">
+                            Apri 5 OTA · Chrome assistito
                           </button>}
                         </div>
                         <div className={group.id==="access"
-                          ? "grid items-stretch gap-3 md:grid-cols-3"
+                          ? "grid items-stretch gap-3 md:grid-cols-2 2xl:grid-cols-3"
                           : "grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}>
                           {SPECIALIST_AGENTS.filter(agent=>group.id==="access"
-                            ? LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId)
-                            : !LOGIN_PORTAL_IDS.includes(agent.id as LoginPortalId)).map((agent)=>{
+                            ? ASSISTED_PORTAL_IDS.includes(agent.id)
+                            : !ASSISTED_PORTAL_IDS.includes(agent.id)).map((agent)=>{
                       const ota=LOCAL_PILOT_OTA_OPTIONS.find((item)=>item.id===agent.id);
                       const selected=ota?localPilotSelectedChannels.includes(agent.id):selectedSupportAgents.includes(agent.id);
                       const state=specialistStatuses[agent.id];
