@@ -73,12 +73,12 @@ export default function VeloraRadar({
   // accanto, visibili e cliccabili anche con tastiera. 18 nomi integrali in
   // 18 spicchi da 20 gradi non sarebbero leggibili a zoom normale.
   const shortSectorNames: Record<string, string> = {
-    struttura: "Dati", intervista: "Intervista", personalizza: "Configura",
-    rapida: "Rapida", audit: "Frontend", macroaree: "Macroaree",
+    struttura: "Dati", intervista: "Interv.", personalizza: "Configura",
+    rapida: "Rapida", audit: "Frontend", macroaree: "Aree",
     bookingengine: "Booking", commerciale: "Diretto", scraping: "Scraping",
-    mappa: "Mappa OTA", piani: "Piani", contenuti: "Contenuti",
+    mappa: "Mappa", piani: "Piani", contenuti: "Testi",
     asimmetrie: "Delta OTA", tariffe: "Tariffe", recensioni: "Foto",
-    kpi: "KPI", criticita: "Criticità", report: "Report"
+    kpi: "KPI", criticita: "Critic.", report: "Report"
   };
   const shortMacroNames = [
     "Marketing", "Moduli", "Licenze", "Onboard", "OTA",
