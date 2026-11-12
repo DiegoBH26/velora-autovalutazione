@@ -59,7 +59,7 @@
 .velora-admin__action {
   display:inline-flex;align-items:center;justify-content:center;min-height:42px;
   border:1px solid transparent;border-radius:.65rem;padding:.65rem .98rem;
-  font:800 .86rem/1.4 inherit;white-space:normal;text-align:center;cursor:pointer;
+  font-family:inherit;font-size:.86rem;font-weight:800;line-height:1.4;white-space:normal;text-align:center;cursor:pointer;
   transition:background-color .15s ease,border-color .15s ease;
 }
 .velora-admin__action--primary {background:#7658db;color:#fff;border-color:#927af0;}
