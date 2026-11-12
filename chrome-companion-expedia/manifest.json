@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Velora · 5 OTA Companion",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Lettura a richiesta di pagine visibili Expedia, Vrbo, Holidu, Hotels.com e Travelocity, senza login automatici o bypass.",
   "permissions": [
     "tabs",
