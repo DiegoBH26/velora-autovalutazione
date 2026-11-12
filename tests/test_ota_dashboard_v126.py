@@ -8,11 +8,14 @@ WORKER=(ROOT/"chrome-companion-expedia/background.js").read_text(encoding="utf-8
 
 class OtaDashboardContracts(unittest.TestCase):
     def test_agents_remain_compact_and_review_moves_outside_cards(self):
-        self.assertIn('grid items-stretch gap-3 md:grid-cols-2 2xl:grid-cols-3',APP)
-        self.assertIn('grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',APP)
-        self.assertIn('min-h-[232px]',APP)
-        self.assertIn('min-h-[110px]',APP)
-        self.assertIn('group.id==="access"',APP)
+        # The assisted five-OTA grid was intentionally replaced with a compact
+        # toolbar; standard specialist cards remain separate and unchanged.
+        self.assertIn('group.id==="standard" && <div className="grid items-stretch gap-3',APP)
+        self.assertIn('group.id==="access" && <div className="flex flex-wrap',APP)
+        self.assertIn('openSingleAssistedOta(id)',APP)
+        self.assertIn('otaWorkspaceSelection',APP)
+        self.assertIn('Acquisizione assistita · {otaWorkspaceSelection',APP)
+        self.assertIn('max-w-[1100px]',APP)
         self.assertIn('ASSISTED_PORTAL_IDS.includes(agent.id)',APP)
         self.assertIn('Agenti Chrome assistiti',APP)
         self.assertIn('1 · Leonardo MASTER → Booking → altre OTA',APP)
