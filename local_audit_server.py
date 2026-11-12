@@ -323,6 +323,10 @@ MANUAL_OTA_AGENT_NAMES={
     "expedia":("Ercole","Expedia"),
     "vrbo":("Atlante","Vrbo"),
     "holidu":("Mercurio","Holidu"),
+    "trip":("Turing","Trip.com"),
+    "priceline":("Pitagora","Priceline"),
+    "hotels":("Tesla","Hotels.com"),
+    "travelocity":("Newton","Travelocity"),
 }
 
 
