@@ -11287,27 +11287,37 @@ export default function App() {
                   {otaWorkspaceOpen && <aside className="fixed bottom-4 right-4 z-50 max-h-[85vh] w-[min(94vw,880px)] overflow-y-auto rounded-2xl border-2 border-[#D6C9EA] bg-white p-4 shadow-2xl" aria-label="Dashboard tre portali">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-black text-[#23124A]">Acquisizione assistita · 3 OTA</h3>
-                        <p className="text-[11px] text-[#50627F]">Struttura: <b>{activeAuditData.name}</b> · imposta la stessa struttura, data e ospiti su ogni sito, poi acquisisci qui.</p>
+                        <h3 className="text-base font-black text-[#23124A]">Acquisizione assistita · 5 OTA</h3>
+                        <p className="text-[12px] leading-5 text-[#50627F]">Struttura: <b>{activeAuditData.name}</b> · Expedia, Vrbo, Holidu, Hotels.com e Travelocity. Imposta date e ospiti identici a Booking e acquisisci solo la scheda corretta.</p>
                       </div>
                       <button type="button" onClick={()=>setOtaWorkspaceOpen(false)}
                         className="rounded-lg border px-3 py-1 text-xs font-black">Chiudi</button>
                     </div>
                     <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
-                    <p className="mt-1 text-[11px] font-bold text-[#50627F]">
-                      {otaTabLauncherSupported?"Chrome Companion "+(companionVersion||"collegato")+" · apertura simultanea disponibile"
-                        : holiduSupported?"Chrome Companion collegato ma da aggiornare alla v0.4.3 per aprire tre siti con un clic"
-                        : "Installa Chrome Companion 0.4.3 per acquisire e aprire tutte e tre le OTA"}
-                      {(!otaTabLauncherSupported || companionVersion!=="0.4.3") && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.3</a></>}
+                    <p className="mt-1 text-[12px] font-bold leading-5 text-[#50627F]">
+                      {familyCompanionSupported
+                        ? "Chrome Companion "+(companionVersion||"0.4.4")+" · acquisizione su 5 OTA disponibile"
+                        : "Per Tesla e Newton aggiorna Chrome Companion alla versione 0.4.4; le tre OTA precedenti restano utilizzabili."}
+                      {!familyCompanionSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.4</a></>}
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={openFiveOtaPortals}
+                        className="rounded-lg bg-[#5947B1] px-4 py-2 text-[12px] font-bold text-white">
+                        Apri tutte e 5 le OTA
+                      </button>
+                      <button type="button" onClick={openThreeOtaPortals}
+                        className="rounded-lg border border-[#7892B6] bg-[#263B55] px-4 py-2 text-[12px] font-bold text-white">
+                        Apri solo Expedia + Vrbo + Holidu
+                      </button>
+                    </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        {companionInstalled && companionVersion!=="0.4.3" && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
-                          Expedia richiede Companion 0.4.3 per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
+                        {companionInstalled && !["0.4.3","0.4.4"].includes(companionVersion) && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
+                          Expedia richiede Companion 0.4.3 o successivo per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
                         </p>}
                         <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
                         <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
@@ -11384,8 +11394,54 @@ export default function App() {
                         {holiduCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{holiduCapture.checkin} → {holiduCapture.checkout} · {holiduCapture.guests} ospiti</p>}
                       </div>
                     </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2" aria-label="Hotels.com e Travelocity - acquisizione assistita">
+                      {(["hotels","travelocity"] as const).map(otaId=>{
+                        const capture=familyCapture[otaId];
+                        const match=capture?matchingExpediaProperty(
+                          capture.propertyName+" "+capture.pageTitle,activeAuditData.name,activeAuditData.city):false;
+                        const confirmed=match||familyIdentityConfirmed[otaId];
+                        const label=FAMILY_COMPANION_LABELS[otaId];
+                        const imported=rateQuotes.filter(q=>q.otaId===otaId&&q.origin==="browser-assisted").length;
+                        return <section key={otaId} className="min-w-0 rounded-xl border border-[#67839F] bg-[#183149] p-4 text-[#F2F8FF]">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <strong className="text-[15px]">{otaId==="hotels"?"Tesla":"Newton"} · {label}</strong>
+                            <a href={FAMILY_COMPANION_HOMES[otaId]} target="_blank" rel="noopener noreferrer"
+                              className="text-[12px] font-bold text-[#D9D0FF] underline">Apri sito</a>
+                          </div>
+                          <p className="mt-2 text-[12px] leading-5 text-[#C3D8E9]">
+                            Naviga nella scheda hotel sul Chrome normale. Se il portale mostra HTTP 429,
+                            login o CAPTCHA senza una pagina tariffaria accessibile, nessun prezzo verrà importato.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button type="button" onClick={()=>captureFamilyFromChrome(otaId)}
+                              className="rounded-lg bg-[#6851CF] px-3 py-2 text-[12px] font-bold text-white">
+                              Acquisisci da Chrome
+                            </button>
+                            <button type="button" onClick={()=>importFamilyCompanionRates(otaId)}
+                              disabled={!capture?.rooms.length||!confirmed}
+                              className="rounded-lg border border-[#8EABCA] bg-[#2C4560] px-3 py-2 text-[12px] font-bold text-white disabled:opacity-40">
+                              Importa {capture?.rooms.length||0} tariffe
+                            </button>
+                          </div>
+                          {capture && <div className="mt-3 rounded-lg border border-[#526B83] bg-[#203C56] p-3 text-[12px] leading-5">
+                            <p><b>Pagina osservata:</b> {capture.propertyName||"Nome non individuato"}</p>
+                            <p><b>Soggiorno:</b> {capture.checkin||"Data non letta"} → {capture.checkout||"Data non letta"} · {capture.guests||"?"} adulti</p>
+                            <p><b>Prezzi totali rilevati:</b> {capture.rooms.length} · <b>Già importati:</b> {imported}</p>
+                            {!match && <label className="mt-2 flex items-start gap-2">
+                              <input type="checkbox" checked={familyIdentityConfirmed[otaId]}
+                                onChange={e=>setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:e.target.checked}))}/>
+                              Ho confrontato nome, località e fotografie: è esattamente la struttura attiva
+                            </label>}
+                          </div>}
+                          <p className="mt-2 text-[12px] leading-5 text-[#E1ECFF]" role="status">
+                            {familyMessage[otaId]||"Dati da acquisire. Tariffe manuali e automatiche resteranno distinte."}
+                          </p>
+                          {manualOtaPresenceButton(otaId)}
+                        </section>;
+                      })}
+                    </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[11px] text-[#50627F]">Tariffe importate: Expedia {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} · Vrbo {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} · Holidu {rateQuotes.filter(q=>q.otaId==="holidu"&&q.origin==="browser-assisted").length}</p>
+                      <p className="text-[11px] text-[#50627F]">Tariffe importate: Expedia {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} · Vrbo {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} · Holidu {rateQuotes.filter(q=>q.otaId==="holidu"&&q.origin==="browser-assisted").length} · Hotels.com {rateQuotes.filter(q=>q.otaId==="hotels"&&q.origin==="browser-assisted").length} · Travelocity {rateQuotes.filter(q=>q.otaId==="travelocity"&&q.origin==="browser-assisted").length}</p>
                       <button type="button" onClick={()=>{
                         setOtaWorkspaceOpen(false);
                         const pricing=document.getElementById("velora-pricing-details");
@@ -11393,7 +11449,7 @@ export default function App() {
                         pricing?.scrollIntoView({behavior:"smooth",block:"start"});
                       }} className="rounded-lg border px-3 py-2 text-xs font-black">Vai ai risultati OTA</button>
                     </div>
-                    <p className="mt-2 text-[10px] text-[#64748B]">Le tre schede lavorano in modo indipendente. Il browser può bloccare l'apertura simultanea: usa i link nei riquadri. Nessun login o navigazione automatica nei portali.</p>
+                    <p className="mt-2 text-[12px] leading-5 text-[#C5D3E8]">Le cinque schede sono indipendenti. La modalità assistita non aggira verifiche, non prova che la struttura sia presente e non valida da sola il confronto commerciale. Non eseguire il reset dello scraping.</p>
                   </aside>}
                   {vrboPresence.state!=="not_started" && vrboPresence.propertyId===activeAuditData.id &&
                     <section className="mt-3 rounded-xl border border-blue-200 bg-white p-4 text-xs text-[#23124A]">
