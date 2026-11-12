@@ -16,7 +16,7 @@ function visibleExpediaCapture(portal = "expedia") {
   const hostname=location.hostname.toLowerCase();
   if(!hosts[portal].test(hostname))
     return {error:"La scheda aperta non appartiene a "+labels[portal]+"."};
-  const path=location.pathname.toLowerCase();
+  const path=String(location.pathname||new URL(location.href).pathname||"").toLowerCase();
   if(portal==="hotels" && !/\/ho\d+|\/hotel\/|\/ho\d+\//.test(path))
     return {error:"Hotels.com: apri la pagina della struttura, non i risultati di ricerca o la home."};
   if(portal==="travelocity" && !/\.h\d+\.|hotel-information|hotel-review/.test(path))
