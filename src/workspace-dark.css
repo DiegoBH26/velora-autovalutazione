@@ -632,3 +632,214 @@
   .velora-workspace__nav-copy strong {font-size:.85rem;}
   .velora-workspace__topbar h1 {font-size:1.24rem;}
 }
+
+
+/* R4 – Global design tokens for legacy colors missed by the earlier light-to-dark migration.
+   Contrast changes do not alter underlying data, totals, labels or operational logic. */
+.velora-workspace .velora-core [class*="text-[#34435B]"],
+.velora-workspace .velora-core [class*="text-[#374151]"],
+.velora-workspace .velora-core [class*="text-[#68758B]"],
+.velora-workspace .velora-core [class*="text-[#7A6A91]"],
+.velora-workspace .velora-core [class*="text-[#73558D]"],
+.velora-workspace .velora-core [class*="text-[#5D4878]"],
+.velora-workspace .velora-core [class*="text-[#94703B]"] {
+  color:#dce8f8!important;
+}
+.velora-workspace .velora-core [class*="text-[#92400E]"],
+.velora-workspace .velora-core [class*="text-[#9A3412]"] {
+  color:#ffdb9b!important;
+}
+/* Dark surfaces must never inherit a faded text color from legacy light cards. */
+.velora-workspace .velora-core [data-audit-block="asimmetrie"] p,
+.velora-workspace .velora-core [data-audit-block="asimmetrie"] label {
+  opacity:1!important;
+}
+
+/* R4 – Replace 7 unreadable OTA columns with a compact, accessible,
+   expandable per-channel evidence board. All six original checks and
+   all operator verification controls remain mounted inside each item. */
+.velora-workspace .velora-core .velora-ota-matrix {
+  background:#16263e!important;
+  border:1px solid #415874!important;
+  border-radius:1rem!important;
+  overflow:hidden;
+}
+.velora-ota-matrix__list {
+  display:grid;
+  gap:.55rem;
+  padding:1rem;
+}
+.velora-ota-matrix__intro {
+  font-size:14.5px!important;
+  line-height:1.55!important;
+  font-weight:600;
+  color:#d6e5f8!important;
+  margin:0 0 .35rem;
+}
+.velora-workspace .velora-core .velora-ota-matrix__item {
+  display:block;
+  background:#1b2d46!important;
+  border:1px solid #47607d!important;
+  border-radius:.78rem!important;
+  overflow:hidden;
+}
+.velora-workspace .velora-core .velora-ota-matrix__item > summary {
+  display:grid;
+  grid-template-columns:minmax(130px,1.05fr) minmax(220px,2fr) auto;
+  gap:1rem;
+  align-items:center;
+  list-style:none;
+  padding:.88rem 1rem!important;
+  border:0;
+  border-radius:.75rem!important;
+  background:#1d304c!important;
+  cursor:pointer;
+  color:#f6f9ff!important;
+  transition:background-color .14s ease;
+}
+.velora-ota-matrix__item > summary::-webkit-details-marker {display:none;}
+.velora-ota-matrix__item > summary::marker {content:"";}
+.velora-workspace .velora-core .velora-ota-matrix__item > summary:hover {
+  background:#2a3e5b!important;
+}
+.velora-workspace .velora-core .velora-ota-matrix__item[open] > summary {
+  border-bottom:1px solid #486482!important;
+  border-radius:.75rem .75rem 0 0!important;
+}
+.velora-ota-matrix__summary strong {
+  color:#fff!important;
+  font-size:16px!important;
+  font-weight:850;
+}
+.velora-ota-matrix__status {
+  font-size:14px!important;
+  font-weight:700;
+  line-height:1.5;
+  color:#e0eafa!important;
+}
+.velora-ota-matrix__expand {
+  color:#bcaaff!important;
+  font-size:13.5px!important;
+  font-weight:850;
+  text-align:right;
+  white-space:nowrap;
+}
+.velora-ota-matrix__expand::after {content:"  ▾";color:#dacfff;}
+.velora-ota-matrix__item[open] .velora-ota-matrix__expand::after {content:"  ▴";}
+.velora-ota-matrix__item[data-status="present"] > summary {box-shadow:inset 4px 0 #4bd5aa;}
+.velora-ota-matrix__item[data-status="candidate"] > summary,
+.velora-ota-matrix__item[data-status="blocked"] > summary {box-shadow:inset 4px 0 #f4bd67;}
+.velora-ota-matrix__item[data-status="missing"] > summary {box-shadow:inset 4px 0 #f48998;}
+.velora-ota-matrix__item[data-status="unverified"] > summary {box-shadow:inset 4px 0 #9db2d0;}
+.velora-ota-matrix__checks {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  align-items:stretch;
+  gap:.75rem;
+  padding:1rem;
+  background:#122239;
+}
+.velora-ota-matrix__checks > div {
+  min-width:0;
+  border:1px solid #3a506c;
+  border-radius:.78rem;
+  background:#1c3049;
+  padding:.9rem;
+}
+.velora-ota-matrix__checks > .velora-ota-matrix__source {
+  grid-column:1/-1;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:.5rem;
+  background:#1c2c43;
+}
+.velora-ota-matrix__source p {
+  font-size:15.5px!important;
+  color:#ffffff!important;
+  margin:0;
+  font-weight:850!important;
+}
+.velora-ota-matrix__source a {
+  color:#bfc2ff!important;
+  font-size:13.5px!important;
+  font-weight:750;
+}
+.velora-ota-matrix__checks > div:not(.velora-ota-matrix__source) {
+  display:flex;
+  flex-direction:column;
+  gap:.45rem;
+}
+.velora-ota-matrix__evidence {min-width:0;}
+.velora-ota-matrix__cell-title {
+  display:block;
+  font-size:14.5px;
+  font-weight:850;
+  color:#f5f8ff;
+  margin-bottom:.6rem;
+}
+.velora-ota-matrix__bar {
+  height:7px;
+  min-height:7px;
+  background:#465a74!important;
+}
+.velora-workspace .velora-core .velora-ota-matrix__cell-detail {
+  margin-top:.65rem;
+  font-size:14px!important;
+  line-height:1.55!important;
+  font-weight:700!important;
+  color:#e6effb!important;
+  word-break:normal;
+  overflow-wrap:anywhere;
+  opacity:1!important;
+}
+.velora-ota-matrix__checks select {
+  margin-top:.55rem!important;
+  font-size:14px!important;
+  line-height:1.45!important;
+  padding:.5rem .6rem!important;
+  min-height:40px;
+}
+.velora-ota-matrix__checks label {
+  display:flex;
+  gap:.5rem;
+  align-items:flex-start;
+  margin-top:.5rem;
+  font-size:13.5px!important;
+  color:#dceafd!important;
+  line-height:1.5!important;
+}
+.velora-ota-matrix__checks label input[type="checkbox"] {
+  width:17px;
+  height:17px;
+  min-width:17px;
+  margin-top:.1rem;
+  accent-color:#9d83f0;
+}
+.velora-ota-matrix__checks [class*="text-rose-700"] {color:#ffb2c2!important;}
+.velora-ota-matrix__checks [class*="text-[#23124A]"] {color:#f5faff!important;}
+.velora-ota-matrix__checks [class*="text-[10px]"] {
+  font-size:13.5px!important;
+  color:#e4edfa!important;
+  line-height:1.5!important;
+}
+.velora-ota-matrix__item summary:focus-visible {
+  outline:2px solid #b7a6ff;
+  outline-offset:-2px;
+}
+@media(max-width:1150px) {
+  .velora-ota-matrix__checks {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:690px) {
+  .velora-ota-matrix__checks {grid-template-columns:minmax(0,1fr);}
+  .velora-workspace .velora-core .velora-ota-matrix__item > summary {
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:.38rem;
+  }
+  .velora-ota-matrix__status {grid-column:1/-1;grid-row:2;}
+  .velora-ota-matrix__expand {grid-column:2;grid-row:1;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .velora-workspace .velora-core .velora-ota-matrix__item > summary {transition:none;}
+}
