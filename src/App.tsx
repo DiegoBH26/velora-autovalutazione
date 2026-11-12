@@ -4189,6 +4189,9 @@ function pilotListingIdentityWarning(result:BrowserPilotResult,observation:Brows
 // A wrong-property listing is retained ONLY as diagnostic evidence.
 // Its price must not count in this property's rates or enter the PDF.
 function pilotWrongListingReason(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
+  // Old cached data may label a robot/login challenge as wrong_property_listing:
+  // ignore the challenge heading but preserve status and technical evidence.
+  if(/^(sei un robot|are you a robot|verify you are human|sign in|login|captcha|security check)/i.test(String(observation.title||"").trim())) return "";
   const mismatch=pilotListingIdentityWarning(result,observation);
   if(mismatch)return mismatch;
   const confirmedMismatch=["wrong_property_listing","wrong_property",
@@ -7496,6 +7499,7 @@ export default function App() {
       roomType:"", unitId:"", board:"Altro / non chiaro", refund:"Non chiaro",
       taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
     });
+    navigateVelora("tariffe");
     showAssistedRateForm();
   }
 
@@ -7924,17 +7928,28 @@ export default function App() {
         window.alert("Prima di salvare, indica il nome della struttura mostrato nel tuo browser e conferma di avere controllato identità, località e date. Non usare prezzi di schede bloccate o diverse.");
         return;
       }
-      if (manualRateSource.otaId==="expedia") {
-        let authorizedUrl=false;
-        try {
-          const url=new URL(rateDraft.sourceUrl.trim());
-          const host=url.hostname.toLowerCase();
-          authorizedUrl=url.protocol==="https:" && ["expedia.it","expedia.com","expedia.co.uk","expedia.de","expedia.fr","expedia.es"].some(domain=>host===domain||host.endsWith("."+domain));
-        } catch { /* invalid URL */ }
-        if (!authorizedUrl) {
-          window.alert("Per Expedia incolla l'URL https:// della scheda realmente aperta su Expedia nel Chrome normale, non un link Google o una schermata di blocco.");
-          return;
-        }
+      // A manual quote must come from the SAME OTA selected in the blocked
+      // observation. A login/challenge URL does not prove any room price.
+      const allowedHosts:Record<string,string[]>={
+        expedia:["expedia.it","expedia.com","expedia.co.uk","expedia.de","expedia.fr","expedia.es"],
+        hotels:["hotels.com"], travelocity:["travelocity.com"],
+        trip:["trip.com"], priceline:["priceline.com"],
+        booking:["booking.com"], airbnb:["airbnb.it","airbnb.com"],
+        agoda:["agoda.com"],vrbo:["vrbo.com","vrbo.it"],
+        holidu:["holidu.it","holidu.com"]
+      };
+      let authorizedUrl=false;
+      try {
+        const url=new URL(rateDraft.sourceUrl.trim());
+        const host=url.hostname.toLowerCase();
+        const path=url.pathname.toLowerCase();
+        authorizedUrl=url.protocol==="https:"
+          &&(allowedHosts[manualRateSource.otaId]||[]).some(domain=>host===domain||host.endsWith("."+domain))
+          && !/\/(?:account|login|signin|sign-in|captcha|challenge)(?:\/|$)/i.test(path);
+      } catch { /* invalid URL */ }
+      if(!authorizedUrl){
+        window.alert("Inserisci l'URL https:// della scheda o del preventivo realmente visibile sullo stesso portale selezionato. Sono esclusi link Google, login, CAPTCHA o domini di altre OTA.");
+        return;
       }
     }
     const quote: RateQuote = {
