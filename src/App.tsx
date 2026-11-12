@@ -5092,7 +5092,7 @@ const LOCAL_PILOT_OTA_OPTIONS = [
 
 type LocalPilotPeriod = 1 | 6 | 12 | "custom";
 type SpecialistAgentId = "booking" | "agoda" | "airbnb" | "expedia" | "vrbo" | "holidu" | "hotels" | "travelocity" | "trip" | "priceline" | "official_site" | "reviews";
-type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
+type SpecialistAgentState = {state?: "queued" | "running" | "completed" | "failed"; error?: string; startedAt?: string; runningAt?: string; completedAt?: string; hasResult?: boolean; progress?: number; phase?: string; progressDetail?: string};
 type PortalSessionState = {state?: "idle" | "queued" | "open" | "awaiting_user" | "authenticating" | "ready" | "unverified" | "access_limited" | "closed" | "error"; message?: string; profileSaved?: boolean; credentialSaved?: boolean};
 type LoginPortalId = "expedia" | "vrbo" | "holidu";
 const LOGIN_PORTAL_IDS: LoginPortalId[] = ["expedia","vrbo","holidu"];
