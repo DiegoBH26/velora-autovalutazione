@@ -12144,7 +12144,7 @@ export default function App() {
         ))}
 
         {!visibleData.length && (
-          <div data-audit-block="macro" className="rounded-[2rem]" border border-dashed border-[#CFC1DF] bg-white p-8 text-center text-sm font-semibold text-[#50627F]">
+          <div data-audit-block="macro" className="rounded-[2rem] border border-dashed border-[#CFC1DF] bg-white p-8 text-center text-sm font-semibold text-[#50627F]">
             Nessuna voce corrisponde ai filtri selezionati.
           </div>
         )}
