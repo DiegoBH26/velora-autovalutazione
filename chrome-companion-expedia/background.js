@@ -2,14 +2,28 @@
 // Does NOT perform navigation, bypass CAPTCHAs, send credentials or use a proxy.
 "use strict";
 
-function visibleExpediaCapture() {
-  const hostname = location.hostname.toLowerCase();
-  if (!/^(?:[a-z0-9-]+\.)?expedia\.(?:it|com|de|fr|es|co\.uk)$/.test(hostname)) {
-    return {error: "La scheda aperta non appartiene a Expedia."};
-  }
+function visibleExpediaCapture(portal = "expedia") {
+  // Expedia Group hotel layouts share structural signals, but attribution must
+  // remain on the exact original OTA. Never accept a partner redirect.
+  const hosts = {
+    expedia: /^(?:[a-z0-9-]+\.)?expedia\.(?:it|com|de|fr|es|co\.uk)$/,
+    hotels: /^(?:[a-z0-9-]+\.)?hotels\.com$/,
+    travelocity: /^(?:[a-z0-9-]+\.)?travelocity\.com$/
+  };
+  const labels={expedia:"Expedia",hotels:"Hotels.com",travelocity:"Travelocity"};
+  if(!Object.prototype.hasOwnProperty.call(hosts,portal))
+    return {error:"Portale non supportato dal Companion."};
+  const hostname=location.hostname.toLowerCase();
+  if(!hosts[portal].test(hostname))
+    return {error:"La scheda aperta non appartiene a "+labels[portal]+"."};
+  const path=location.pathname.toLowerCase();
+  if(portal==="hotels" && !/\/ho\d+|\/hotel\/|\/ho\d+\//.test(path))
+    return {error:"Hotels.com: apri la pagina della struttura, non i risultati di ricerca o la home."};
+  if(portal==="travelocity" && !/\.h\d+\.|hotel-information|hotel-review/.test(path))
+    return {error:"Travelocity: apri la scheda dell'hotel, non i risultati generici."};
   const text = (document.body?.innerText || "").slice(0, 30000);
   if (/accesso è temporaneamente limitato|sei un robot\?|mostraci il tuo lato umano|your access (?:has been|is) temporarily limited/i.test(text)) {
-    return {error: "Expedia mostra una verifica o un blocco. Nessuna tariffa verrà letta. Apri una pagina camere accessibile nel tuo Chrome normale."};
+    return {error: labels[portal]+" mostra una verifica o un blocco. Nessuna tariffa letta; completa solo gli eventuali controlli umani consentiti e riprova sulla scheda visibile."};
   }
 
   const url = new URL(location.href);
@@ -309,9 +323,9 @@ function visibleExpediaCapture() {
   // accommodation name from the page title over this generic heading.
   const genericHeading=/scegli la tua camera|select your room|choose your room|rooms? and rates|le tue camere/i.test(heading);
   const propertyName=(genericHeading?document.title:heading||document.title||"")
-    .trim().replace(/\s+[|–-]\s+Expedia.*$/i,"").slice(0,180);
+    .trim().replace(/\s+[|–-]\s+(?:Expedia|Hotels\.com|Travelocity).*$/i,"").slice(0,180);
   return {
-    schema:"velora-expedia-visible-v1",
+    schema:"velora-"+portal+"-visible-v1",
     pageTitle,propertyName,
     sourceUrl:sanitized.toString(),
     checkin,checkout,nights,guests,
@@ -593,16 +607,19 @@ function visibleHoliduCapture() {
 
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO","CAPTURE_VISIBLE_HOLIDU","OPEN_THREE_OTA_TABS"].includes(request?.type)) return false;
+  if(!["CAPTURE_VISIBLE_EXPEDIA","CAPTURE_VISIBLE_VRBO","CAPTURE_VISIBLE_HOLIDU",
+       "CAPTURE_VISIBLE_HOTELS","CAPTURE_VISIBLE_TRAVELOCITY",
+       "OPEN_THREE_OTA_TABS","OPEN_FIVE_OTA_TABS"].includes(request?.type)) return false;
   if(!sender.tab?.url?.startsWith("https://diegobh26.github.io/velora-autovalutazione/")) {
     sendResponse({ok:false,error:"Richiesta consentita solo da Velora online."});
     return false;
   }
-  if(request.type==="OPEN_THREE_OTA_TABS") {
-    // Fixed, trusted homepages only. No caller-supplied URL, credentials or
-    // automated browsing. chrome.tabs.create is not subject to popup blocking.
+  if(request.type==="OPEN_THREE_OTA_TABS" || request.type==="OPEN_FIVE_OTA_TABS") {
+    // Fixed trusted portals only. No arbitrary URL, account access or bypass.
     (async()=>{
       const urls=["https://www.expedia.it/","https://www.vrbo.com/it-it/","https://www.holidu.it/"];
+      if(request.type==="OPEN_FIVE_OTA_TABS")
+        urls.push("https://it.hotels.com/","https://www.travelocity.com/");
       let count=0;
       for(const url of urls){
         const options={url,active:false};
@@ -618,7 +635,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async()=>{
     const vrbo=request.type==="CAPTURE_VISIBLE_VRBO";
     const holidu=request.type==="CAPTURE_VISIBLE_HOLIDU";
-    const tabUrls=holidu
+    const hotels=request.type==="CAPTURE_VISIBLE_HOTELS";
+    const travelocity=request.type==="CAPTURE_VISIBLE_TRAVELOCITY";
+    const portal=hotels?"hotels":travelocity?"travelocity":"expedia";
+    const tabUrls=hotels ? ["https://*.hotels.com/*"] :
+      travelocity ? ["https://*.travelocity.com/*"] : holidu
       ? ["https://*.holidu.it/*","https://*.holidu.com/*","https://*.holidu.de/*","https://*.holidu.fr/*","https://*.holidu.es/*"]
       : vrbo
       ? ["https://*.vrbo.com/*","https://*.vrbo.co.uk/*","https://*.vrbo.de/*","https://*.vrbo.fr/*","https://*.vrbo.es/*","https://*.vrbo.it/*"]
@@ -627,17 +648,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          "https://*.expedia.es/*","https://*.expedia.co.uk/*"];
     const tabs=await chrome.tabs.query({url:tabUrls});
     const targets=tabs.filter(tab=>tab.id&&tab.url?.startsWith("https://")&&
-      (holidu ? /\/d\/\d+/.test(new URL(tab.url).pathname)
+      (hotels ? /\/ho\d+|\/hotel\//i.test(new URL(tab.url).pathname)
+        : travelocity ? /\.h\d+\.|hotel-information|hotel-review/i.test(new URL(tab.url).pathname)
+        : holidu ? /\/d\/\d+/.test(new URL(tab.url).pathname)
         : vrbo ? /\/pdp\/|\/\d+(?:ha|vb|vr)?\/?$|\/vacation-rental\/|\/holiday-rental\//i.test(new URL(tab.url).pathname)
         : !/\/(?:hotel-search|search)\b/i.test(new URL(tab.url).pathname)))
       .sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0));
-    if(!targets.length) throw Error(holidu
-      ? "Nessuna scheda alloggio Holidu (/d/...) aperta. Apri l'annuncio corretto, non la pagina di ricerca."
+    if(!targets.length) throw Error(hotels
+      ? "Apri prima la scheda hotel Hotels.com nel Chrome normale (URL /ho...)."
+      : travelocity ? "Apri prima la scheda hotel Travelocity nel Chrome normale (Hotel-Information)."
+      : holidu ? "Nessuna scheda alloggio Holidu (/d/...) aperta. Apri l'annuncio corretto, non la pagina di ricerca."
       : vrbo ? "Nessuna scheda alloggio Vrbo aperta. Apri l'annuncio corretto, non la pagina di ricerca."
       : "Apri prima la pagina delle camere Expedia nel tuo Chrome normale.");
     const executed=await chrome.scripting.executeScript({
       target:{tabId:targets[0].id},
-      func:holidu?visibleHoliduCapture:vrbo?visibleVrboCapture:visibleExpediaCapture
+      func:holidu?visibleHoliduCapture:vrbo?visibleVrboCapture:visibleExpediaCapture,
+      ...((hotels||travelocity)?{args:[portal]}:{})
     });
     const payload=executed?.[0]?.result;
     if(!payload||payload.error) throw Error(payload?.error||"Impossibile leggere le camere visibili.");
