@@ -5195,6 +5195,7 @@ export default function App() {
   const [holiduSupported,setHoliduSupported] = useState(false);
   const [otaTabLauncherSupported,setOtaTabLauncherSupported] = useState(false);
   const [otaWorkspaceOpen,setOtaWorkspaceOpen] = useState(false);
+  const [otaWorkspaceSelection,setOtaWorkspaceSelection] = useState<"all"|"expedia"|"vrbo"|"holidu"|"hotels"|"travelocity">("all");
   const [otaWorkspaceMessage,setOtaWorkspaceMessage] = useState("");
   const [manualOtaBusy,setManualOtaBusy] = useState<"expedia"|"vrbo"|"holidu"|"trip"|"priceline"|"hotels"|"travelocity"|null>(null);
   const [manualOtaMessage,setManualOtaMessage] = useState<Record<string,string>>({});
@@ -7743,6 +7744,7 @@ export default function App() {
   }
 
   function openFiveOtaPortals() {
+    setOtaWorkspaceSelection("all");
     setOtaWorkspaceOpen(true);
     if(familyCompanionSupported && otaTabLauncherSupported){
       setOtaWorkspaceMessage("Apertura assistita delle cinque OTA su schede Chrome separate...");
@@ -7750,6 +7752,16 @@ export default function App() {
     } else {
       setOtaWorkspaceMessage("Per aprire cinque schede insieme installa Chrome Companion 0.4.5. In alternativa apri Hotels.com e Travelocity dai link nel pannello.");
     }
+  }
+
+  function openSingleAssistedOta(otaId:"expedia"|"vrbo"|"holidu"|"hotels"|"travelocity") {
+    setOtaWorkspaceSelection(otaId);
+    setOtaWorkspaceMessage("Verifica la scheda, imposta le stesse date e gli ospiti di Booking, poi acquisisci le tariffe.");
+    setOtaWorkspaceOpen(true);
+    const home=otaId==="expedia"?"https://www.expedia.it/":
+      otaId==="vrbo"?"https://www.vrbo.com/it-it/":
+      otaId==="holidu"?"https://www.holidu.it/":FAMILY_COMPANION_HOMES[otaId];
+    window.open(home,"_blank","noopener,noreferrer");
   }
 
   function captureFamilyFromChrome(otaId:ExpediaFamilyOtaId) {
@@ -11045,14 +11057,15 @@ export default function App() {
                             <h4 className="text-xs font-black text-[#23124A]">{group.title}</h4>
                             <p className="text-[10px] font-semibold text-[#64748B]">{group.subtitle}</p>
                           </div>
-                          {group.id==="access" && <button type="button" onClick={openFiveOtaPortals}
-                            className="rounded-lg bg-[#5947B1] px-4 py-2.5 text-[12px] font-black text-white shadow-sm">
-                            Apri 5 OTA · Chrome assistito
-                          </button>}
                         </div>
-                        <div className={group.id==="access"
-                          ? "grid items-stretch gap-3 md:grid-cols-2 2xl:grid-cols-3"
-                          : "grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}>
+                        {group.id==="access" && <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#597591] bg-[#192D45] p-3 text-white">
+                          <button type="button" onClick={openFiveOtaPortals} className="rounded-lg bg-[#7654D0] px-4 py-2.5 text-xs font-black text-white">Apri 5 OTA</button>
+                          {([["expedia","Expedia"],["vrbo","Vrbo"],["holidu","Holidu"],["hotels","Hotels.com"],["travelocity","Travelocity"]] as const).map(([id,label])=>
+                            <button key={id} type="button" onClick={()=>openSingleAssistedOta(id)}
+                              className="rounded-lg border border-[#7894B6] bg-[#2A415E] px-3 py-2.5 text-xs font-bold text-white hover:bg-[#3C597B]">{label}</button>)}
+                          <p className="w-full text-[11px] text-[#C6D6E7]">Scegli una OTA o apri tutte e cinque. Le acquisizioni rimangono nel pannello centrale finché non lo chiudi.</p>
+                        </div>}
+                        {group.id==="standard" && <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                           {SPECIALIST_AGENTS.filter(agent=>group.id==="access"
                             ? ASSISTED_PORTAL_IDS.includes(agent.id)
                             : !ASSISTED_PORTAL_IDS.includes(agent.id)).map((agent)=>{
@@ -11332,14 +11345,14 @@ export default function App() {
                         </details>}
                       </div>;
                           })}
-                        </div>
+                        </div>}
                       </section>
                     ))}
                   </div>
-                  {otaWorkspaceOpen && <aside className="fixed bottom-4 right-4 z-50 max-h-[85vh] w-[min(94vw,880px)] overflow-y-auto rounded-2xl border-2 border-[#506987] bg-[#14273F] p-4 text-[#F1F7FF] shadow-2xl" aria-label="Acquisizione assistita cinque OTA">
+                  {otaWorkspaceOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091525]/80 p-3 sm:p-6"><aside role="dialog" aria-modal="true" aria-label="Acquisizione assistita OTA" className="max-h-[92vh] w-full max-w-[1100px] overflow-y-auto rounded-2xl border-2 border-[#506987] bg-[#14273F] p-4 text-[#F1F7FF] shadow-2xl">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-black text-[#F4F7FF]">Acquisizione assistita · 5 OTA</h3>
+                        <h3 className="text-base font-black text-[#F4F7FF]">Acquisizione assistita · {otaWorkspaceSelection==="all"?"5 OTA":({expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu",hotels:"Hotels.com",travelocity:"Travelocity"} as const)[otaWorkspaceSelection]}</h3>
                         <p className="text-[12px] leading-5 text-[#C7D7E9]">Struttura: <b>{activeAuditData.name}</b> · Expedia, Vrbo, Holidu, Hotels.com e Travelocity. Imposta date e ospiti identici a Booking e acquisisci solo la scheda corretta.</p>
                       </div>
                       <button type="button" onClick={()=>setOtaWorkspaceOpen(false)}
@@ -11362,8 +11375,8 @@ export default function App() {
                         Apri Expedia + Vrbo + Holidu
                       </button>
                     </div>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <div className="min-w-0 rounded-xl border border-[#95784A] bg-[#302A23] p-3">
+                    <div className={"mt-3 grid gap-3 "+(otaWorkspaceSelection==="all"?"md:grid-cols-3":"grid-cols-1")}>
+                      <div className={(otaWorkspaceSelection!=="all"&&otaWorkspaceSelection!=="expedia"?"hidden ":"")+"min-w-0 rounded-xl border border-[#95784A] bg-[#302A23] p-3"}>
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
@@ -11372,12 +11385,12 @@ export default function App() {
                           Expedia richiede Companion 0.4.3 o successivo per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
                         </p>}
                         <p className="my-2 text-[11px] text-[#C7D7E9]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
-                        <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
+                        <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#7553D0] px-3 py-2.5 text-xs font-black text-white">Acquisisci Expedia</button>
                         <button type="button" onClick={importCompanionExpediaRates}
                           disabled={!companionCapture || companionCapture.propertyId!==activeAuditData.id ||
                             !companionCapture.rooms.length ||
                             !(matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)||companionIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-yellow-500 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-[#90A8C8] bg-[#395573] px-3 py-2.5 text-xs font-black text-white hover:bg-[#4A6889] disabled:cursor-not-allowed disabled:opacity-40">
                           {companionCapture?.propertyId===activeAuditData.id
                             ? "Importa "+companionCapture.rooms.length+" tariffe Expedia" : "Importa tariffe Expedia"}
                         </button>
@@ -11390,18 +11403,18 @@ export default function App() {
                           </label>}
                         {companionCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{companionCapture.checkin} → {companionCapture.checkout} · {companionCapture.guests} ospiti</p>}
                       </div>
-                      <div className="min-w-0 rounded-xl border border-[#567DA6] bg-[#19324C] p-3">
+                      <div className={(otaWorkspaceSelection!=="all"&&otaWorkspaceSelection!=="vrbo"?"hidden ":"")+"min-w-0 rounded-xl border border-[#567DA6] bg-[#19324C] p-3"}>
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Atlante · Vrbo</b>
                           <a href="https://www.vrbo.com/it-it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
                         <p className="my-2 text-[11px] text-[#C7D7E9]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
-                        <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Vrbo</button>
+                        <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#7553D0] px-3 py-2.5 text-xs font-black text-white">Acquisisci Vrbo</button>
                         <button type="button" onClick={importVrboCompanionRates}
                           disabled={!vrboCapture || vrboCapture.propertyId!==activeAuditData.id ||
                             !vrboCapture.rooms.length ||
                             !(matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city)||vrboIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-blue-400 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-[#90A8C8] bg-[#395573] px-3 py-2.5 text-xs font-black text-white hover:bg-[#4A6889] disabled:cursor-not-allowed disabled:opacity-40">
                           {vrboCapture?.propertyId===activeAuditData.id
                             ? "Importa "+vrboCapture.rooms.length+" tariffe Vrbo" : "Importa tariffe Vrbo"}
                         </button>
@@ -11421,18 +11434,18 @@ export default function App() {
                           </label>}
                         {vrboCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{vrboCapture.checkin} → {vrboCapture.checkout} · {vrboCapture.guests} ospiti</p>}
                       </div>
-                      <div className="min-w-0 rounded-xl border border-[#4B908D] bg-[#193A3B] p-3">
+                      <div className={(otaWorkspaceSelection!=="all"&&otaWorkspaceSelection!=="holidu"?"hidden ":"")+"min-w-0 rounded-xl border border-[#4B908D] bg-[#193A3B] p-3"}>
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Mercurio · Holidu</b>
                           <a href="https://www.holidu.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
                         <p className="my-2 text-[11px] text-[#C7D7E9]">{holiduCapture?.propertyId===activeAuditData.id?holiduCapture.rooms.length+" totali letti":"Da acquisire"}</p>
-                        <button type="button" onClick={captureHoliduFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Holidu</button>
+                        <button type="button" onClick={captureHoliduFromChrome} className="w-full rounded-lg bg-[#7553D0] px-3 py-2.5 text-xs font-black text-white">Acquisisci Holidu</button>
                         <button type="button" onClick={importHoliduCompanionRates}
                           disabled={!holiduCapture || holiduCapture.propertyId!==activeAuditData.id ||
                             !holiduCapture.rooms.length ||
                             !(matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city)||holiduIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-teal-400 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-[#90A8C8] bg-[#395573] px-3 py-2.5 text-xs font-black text-white hover:bg-[#4A6889] disabled:cursor-not-allowed disabled:opacity-40">
                           {holiduCapture?.propertyId===activeAuditData.id
                             ? "Importa "+holiduCapture.rooms.length+" tariffe Holidu" : "Importa tariffe Holidu"}
                         </button>
@@ -11446,8 +11459,8 @@ export default function App() {
                         {holiduCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{holiduCapture.checkin} → {holiduCapture.checkout} · {holiduCapture.guests} ospiti</p>}
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2" aria-label="Hotels.com e Travelocity - acquisizione assistita">
-                      {(["hotels","travelocity"] as const).map(otaId=>{
+                    <div className={"mt-3 grid gap-3 "+(otaWorkspaceSelection==="all"?"md:grid-cols-2":"grid-cols-1")} aria-label="Hotels.com e Travelocity - acquisizione assistita">
+                      {(["hotels","travelocity"] as const).filter(otaId=>otaWorkspaceSelection==="all"||otaWorkspaceSelection===otaId).map(otaId=>{
                         const capture=familyCapture[otaId]?.propertyId===activeAuditData.id?familyCapture[otaId]:undefined;
                         const match=capture?matchingExpediaProperty(
                           capture.propertyName+" "+capture.pageTitle,activeAuditData.name,activeAuditData.city):false;
@@ -11526,7 +11539,7 @@ export default function App() {
                       }} className="rounded-lg border px-3 py-2 text-xs font-black">Vai ai risultati OTA</button>
                     </div>
                     <p className="mt-2 text-[12px] leading-5 text-[#C5D3E8]">Le cinque schede sono indipendenti. La modalità assistita non aggira verifiche, non prova che la struttura sia presente e non valida da sola il confronto commerciale. Non eseguire il reset dello scraping.</p>
-                  </aside>}
+                  </aside></div>}
                   {vrboPresence.state!=="not_started" && vrboPresence.propertyId===activeAuditData.id &&
                     <section className="mt-3 rounded-xl border border-blue-200 bg-white p-4 text-xs text-[#23124A]">
                       <div className="flex flex-wrap items-center justify-between gap-3">
