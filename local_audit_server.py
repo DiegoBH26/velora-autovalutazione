@@ -909,13 +909,32 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
                     stage,stay,facts
                 )
             ) if agent_id in {"agoda","airbnb"} else None
-            asyncio.run(agent_network.execute(
+            # Beta OTA: a frozen frontend must not occupy a Chrome slot for
+            # 15+ minutes with no terminal result. The limit covers the whole
+            # public search, keeps prior results from other agents untouched,
+            # and reports an explicit timeout rather than invented zero rates.
+            slow_public_specialists={"hotels","travelocity","trip","priceline"}
+            windows=1 if custom_period else (13 if months==12 else max(1,int(months)))
+            budget_seconds=min(900,420+60*max(0,windows-1))
+            coroutine=agent_network.execute(
                 agent_id,data,Path(property_file),agent_output(property_id,agent_id),
                 months=months,custom_period=custom_period,ghost=ghost,
                 assisted=False,assist_callback=None,
                 authorized_profile_dir=Path(account_profile) if account_profile else None,
                 peer_callback=peer_callback,
-            ))
+            )
+            try:
+                if agent_id in slow_public_specialists:
+                    asyncio.run(asyncio.wait_for(coroutine,timeout=budget_seconds))
+                else:
+                    asyncio.run(coroutine)
+            except (asyncio.TimeoutError,TimeoutError) as exc:
+                raise TimeoutError(
+                    f"{agent_id}: tempo limite di {budget_seconds//60} minuti superato "
+                    "durante la ricerca pubblica. Il portale non ha completato la lettura "
+                    "e le tariffe non sono considerate validate. Conservati i risultati "
+                    "già archiviati dagli altri agenti."
+                ) from exc
             agent_mailbox_result(property_id,agent_id)
         print_agent_status(agent_id,"Esecuzione","COMPLETATO","Esito salvato, in attesa del check di Giove")
         with AGENT_RUN_LOCK:
