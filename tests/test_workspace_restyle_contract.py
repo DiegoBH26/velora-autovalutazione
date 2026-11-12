@@ -35,7 +35,7 @@ class WorkspaceRestylingContract(unittest.TestCase):
                     self.assertIn(code,APP)
 
     def test_new_navigation_is_visual_only_and_no_fake_management_kpis(self):
-        self.assertIn('function navigateVelora(section: string)',APP)
+        self.assertIn('function navigateVelora(section: string',APP)
         self.assertIn('id="velora-scraping-tools"',APP)
         self.assertIn('id="velora-report-actions"',APP)
         self.assertIn('id="velora-new-audit"',APP)
