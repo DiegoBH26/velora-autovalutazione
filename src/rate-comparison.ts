@@ -4,6 +4,7 @@ export type ComparableRate = {
   stayDate: string;
   observedAt: string;
   total: number;
+  currency?: "EUR" | "USD";
   nights: number;
   roomType: string;
   unitId?: string;
@@ -37,7 +38,7 @@ export function buildRateComparisonRows<T extends ComparableRate>(quotes: T[], t
         !Number.isFinite(quote.total) || quote.total <= 0 || !Number.isInteger(quote.nights) || quote.nights < 1) continue;
     const comparisonUnit = normalized(quote.referenceRoomKey) || normalized(quote.unitId);
     const key = [quote.otaId, quote.stayDate, comparisonUnit || `non-verificata:${quote.id}`,
-      quote.guests, quote.nights, normalized(quote.board), normalized(quote.refund),
+      quote.guests, quote.nights, quote.currency||"EUR", normalized(quote.board), normalized(quote.refund),
       normalized(quote.audience), normalized(quote.taxes)].join("|");
     const previous = latest.get(key);
     if (!previous || previous.observedAt < quote.observedAt) latest.set(key, quote);
@@ -45,7 +46,10 @@ export function buildRateComparisonRows<T extends ComparableRate>(quotes: T[], t
   const values = [...latest.values()];
   return values.map((quote) => {
     const unit = normalized(quote.referenceRoomKey) || normalized(quote.unitId);
-    const booking = unit ? values.find((other) => other.otaId === "booking" &&
+    // Foreign-currency observations remain visible but must NOT be compared
+    // numerically with Booking's EUR reference without a documented FX rate.
+    const booking = unit && (quote.currency||"EUR")==="EUR" ? values.find((other) => other.otaId === "booking" &&
+      (other.currency||"EUR")==="EUR" &&
       (normalized(other.referenceRoomKey) || normalized(other.unitId)) === unit && other.stayDate === quote.stayDate &&
       other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10) &&
       other.guests === quote.guests && other.nights === quote.nights &&
