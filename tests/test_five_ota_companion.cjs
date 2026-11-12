@@ -27,9 +27,15 @@ class MockElement {
 
 function capture(portal,url,options={}){
   const hostname=new URL(url).hostname;
-  const roomTitle=new MockElement("h3","Camera Deluxe matrimoniale con bagno e vista giardino");
-  const card=new MockElement("article","Camera Deluxe matrimoniale con bagno e vista giardino\n€ 420 per 3 notti",[roomTitle]);
-  const root=new MockElement("main",card.innerText,[card]);
+  const fixtures=options.rooms||[{
+    title:"Camera Deluxe matrimoniale con bagno e vista giardino",
+    prices:"€ 420 per 3 notti"
+  }];
+  const cards=fixtures.map(fixture=>{
+    const heading=new MockElement("h3",fixture.title);
+    return new MockElement("article",fixture.title+"\n"+fixture.prices,[heading]);
+  });
+  const root=new MockElement("main",cards.map(card=>card.innerText).join("\n"),cards);
   const h1=new MockElement("h1","Scegli la tua camera");
   const sandbox={
     location:{hostname,href:url,pathname:new URL(url).pathname},
@@ -72,4 +78,25 @@ for(const [portal,url] of [["hotels",hotels],["travelocity",travelocity]]) {
 }
 assert.match(capture("hotels","https://it.hotels.com/Hotel-Search?chkin=2027-06-01").error||"",/pagina della struttura/i);
 assert.match(capture("travelocity","https://www.travelocity.com/Hotel-Search?chkin=2027-06-01").error||"",/scheda dell'hotel/i);
-console.log("Companion 0.4.4: Hotels/Travelocity date+guest and source-safe visible totals; blockers/redirects/search rejected.");
+// Realistic 1–4 Jun 2027 Travelocity room cards: the crossed-out value and
+// nightly quote are NOT the stay total. Prices are visibly in USD.
+const english=capture("travelocity",travelocity,{rooms:[
+  {title:"Classic Double Room, 1 Bedroom, Private Bathroom, Garden View",
+   prices:"10% off\n$136 nightly\n$514\n$461 total\nTotal with taxes and fees\nReserve"},
+  {title:"Room, Annex Building (Trullo)",
+   prices:"10% off\n$154 nightly\n$578\n$521 total\nTotal with taxes and fees\nReserve"},
+  {title:"Superior Room, 1 King Bed, Private Bathroom, Garden View",
+   prices:"10% off\n$164 nightly\n$614\n$554 total\nTotal with taxes and fees\nReserve"}
+]});
+assert.deepEqual(Array.from(english.rooms,room=>room.total),[461,521,554]);
+assert.ok(english.rooms.every(room=>room.currency==="USD"));
+assert.ok(english.rooms.every(room=>room.confidence==="total-for-stay"));
+const nightlyOnly=capture("travelocity",travelocity,{rooms:[
+  {title:"Classic Double Room",prices:"$136 nightly\n$514"}
+]});
+assert.equal(nightlyOnly.rooms.length,0,"Nightly and crossed-out without a stay total is not importable");
+const ambiguous=capture("travelocity",travelocity,{rooms:[
+  {title:"Classic Double Room",prices:"$461 total\n$471 total"}
+]});
+assert.equal(ambiguous.rooms.length,0,"Two different explicit totals must not be assigned arbitrarily");
+console.log("Companion 0.4.5: Hotels/Travelocity currency-aware room totals, English 'total' after amount and false-price safeguards passed.");
