@@ -7688,6 +7688,93 @@ export default function App() {
     }finally{setVrboPresenceBusy(false);}
   }
 
+  function openFiveOtaPortals() {
+    setOtaWorkspaceOpen(true);
+    if(familyCompanionSupported && otaTabLauncherSupported){
+      setOtaWorkspaceMessage("Apertura assistita delle cinque OTA su schede Chrome separate...");
+      window.postMessage({source:"velora-online-v1",type:"OPEN_FIVE_OTA_TABS"},window.location.origin);
+    } else {
+      setOtaWorkspaceMessage("Per aprire cinque schede insieme installa Chrome Companion 0.4.4. In alternativa apri Hotels.com e Travelocity dai link nel pannello.");
+    }
+  }
+
+  function captureFamilyFromChrome(otaId:ExpediaFamilyOtaId) {
+    setOtaWorkspaceOpen(true);
+    setFamilyCapture(prev=>({...prev,[otaId]:undefined}));
+    setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:false}));
+    setFamilyMessage(prev=>({...prev,[otaId]:"Richiedo la lettura della pagina "+FAMILY_COMPANION_LABELS[otaId]+" già visibile in Chrome..."}));
+    if(!familyCompanionSupported){
+      setFamilyMessage(prev=>({...prev,[otaId]:"Per acquisire "+FAMILY_COMPANION_LABELS[otaId]+" installa o ricarica Chrome Companion 0.4.4. L'agente automatico resta indipendente."}));
+      return;
+    }
+    window.postMessage({
+      source:"velora-online-v1",
+      type:otaId==="hotels"?"CAPTURE_HOTELS":"CAPTURE_TRAVELOCITY"
+    },window.location.origin);
+  }
+
+  function importFamilyCompanionRates(otaId:ExpediaFamilyOtaId) {
+    const captured=familyCapture[otaId];
+    const label=FAMILY_COMPANION_LABELS[otaId];
+    const fail=(reason:string)=>setFamilyMessage(prev=>({...prev,[otaId]:reason}));
+    if(!captured||captured.propertyId!==activeAuditData.id){
+      fail(label+": rilevazione non appartenente alla struttura attiva. Acquisisci nuovamente.");
+      return;
+    }
+    if(!familyCompanionHostMatches(otaId,captured.sourceUrl)){
+      fail(label+": link non riconducibile al portale, nessuna tariffa importata.");
+      return;
+    }
+    if(!matchingExpediaProperty(captured.propertyName+" "+captured.pageTitle,activeAuditData.name,activeAuditData.city)
+      && !familyIdentityConfirmed[otaId]){
+      fail(label+": prima verifica nome, località e fotografie e conferma esplicitamente l'identità.");
+      return;
+    }
+    const dateFormat=/^20\d{2}-\d{2}-\d{2}$/;
+    const start=Date.parse(captured.checkin+"T00:00:00Z"),end=Date.parse(captured.checkout+"T00:00:00Z");
+    const nights=Number.isFinite(start)&&Number.isFinite(end)?Math.round((end-start)/86400000):0;
+    if(!dateFormat.test(captured.checkin)||!dateFormat.test(captured.checkout)||
+      captured.checkin<todayLocalIso()||nights<1||nights>60||nights!==captured.nights||
+      !Number.isInteger(captured.guests)||captured.guests<1||captured.guests>12){
+      fail(label+": non sono confermati insieme check-in, check-out e ospiti. Controlla i campi sul portale e ripeti l'acquisizione.");
+      return;
+    }
+    const bookingLocks=browserPilotResult?.propertyId===activeAuditData.id
+      ? browserPilotResult.bookingReferenceStays||[]:[];
+    if(bookingLocks.length && !bookingLocks.some(lock=>
+      lock.checkin===captured.checkin&&lock.checkout===captured.checkout&&
+      Number(lock.adults||2)===captured.guests)){
+      fail(label+": il periodo o gli ospiti non coincidono con le date MASTER verificate da Minerva. Nessun prezzo importato.");
+      return;
+    }
+    const existing=new Set(rateQuotes.filter(q=>q.otaId===otaId).map(q=>
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")));
+    const fresh:RateQuote[]=captured.rooms.filter(room=>room.confidence==="total-for-stay"&&
+      !existing.has([captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total].join("|"))
+    ).map((room,index)=>({
+      ...EMPTY_RATE_DRAFT,
+      id:globalThis.crypto?.randomUUID?.()??otaId+"-companion-"+Date.now()+"-"+index,
+      otaId,origin:"browser-assisted",observedAt:new Date().toISOString(),
+      stayDate:captured.checkin,nights,guests:captured.guests,
+      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      board:room.board,refund:room.refund,taxes:room.taxes,
+      audience:"Non verificato",promotion:"",
+      manualListingTitle:captured.propertyName,
+      manualIdentityConfirmed:Boolean(familyIdentityConfirmed[otaId]),
+      pilotVerified:false,roomMatchStatus:"da verificare",
+      comparisonWarning:"Prezzo totale letto su "+label+" dal Chrome personale su richiesta, senza bypass o login automatici. "+
+        "Identità, camera e piano Booking da verificare; nessun delta validato."
+    }));
+    if(!fresh.length){
+      fail(captured.rooms.length?"Rilevazione già presente, nessun duplicato importato.":"Nessun prezzo totale camera affidabile rilevato. Usa eventualmente la registrazione manuale.");
+      return;
+    }
+    setRateQuotes(previous=>[...previous,...fresh]);
+    fail(label+": "+fresh.length+" tariffe assistite importate, da verificare prima del confronto con Booking.");
+    setOtaWorkspaceOpen(false);
+    navigateVelora("tariffe");
+  }
+
   function openThreeOtaPortals() {
     setOtaWorkspaceOpen(true);
     // Chrome only permits some popup openings per click. Use the user-installed
