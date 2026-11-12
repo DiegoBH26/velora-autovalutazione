@@ -921,3 +921,99 @@
 @media(max-width:540px){
   .velora-report-preview__grid {grid-template-columns:1fr;}
 }
+
+
+/* R6 · Leggibilità globale delle superfici legacy.
+   Le vecchie schede chiare mantenevano il fondo quasi bianco mentre i token R3/R4
+   rendevano i testi chiari: soprattutto chat Giove, stato, tariffe e report. */
+.velora-workspace .velora-core [class*="bg-[#FFFDF8]"],
+.velora-workspace .velora-core [class*="bg-[#FBFAFE]"],
+.velora-workspace .velora-core [class*="bg-[#FAF8FD]"],
+.velora-workspace .velora-core [class*="bg-[#F8F5FB]"],
+.velora-workspace .velora-core [class*="bg-[#F8F6FB]"],
+.velora-workspace .velora-core [class*="bg-[#F8F4FC]"],
+.velora-workspace .velora-core [class*="bg-[#F3EEF8]"],
+.velora-workspace .velora-core [class*="bg-[#FBF8FE]"],
+.velora-workspace .velora-core [class*="bg-[#F5F2FA]"],
+.velora-workspace .velora-core [class*="bg-[#F0EFF3]"],
+.velora-workspace .velora-core [class*="bg-[#EDE8F2]"],
+.velora-workspace .velora-core [class*="bg-[#EFE9F7]"] {
+  background-color:#21324c!important;
+  color:#f3f8ff!important;
+}
+.velora-workspace .velora-core [class*="bg-[#FFF9EB]"],
+.velora-workspace .velora-core [class*="bg-[#FFF9E9]"],
+.velora-workspace .velora-core [class*="bg-[#FFF1CF]"],
+.velora-workspace .velora-core [class*="bg-[#F7EBC9]"],
+.velora-workspace .velora-core [class*="bg-[#F9EAC8]"] {
+  background-color:#342d27!important;
+  color:#fff3dc!important;
+}
+.velora-workspace .velora-core [class*="border-[#EEE8F4]"],
+.velora-workspace .velora-core [class*="border-[#F0E8F6]"],
+.velora-workspace .velora-core [class*="border-[#E8E4F1]"],
+.velora-workspace .velora-core [class*="border-[#D8CEE7]"],
+.velora-workspace .velora-core [class*="border-[#C8B9DA]"] {
+  border-color:#405674!important;
+}
+.velora-workspace .velora-core [class*="text-[#A9874A]"] {color:#f0cf85!important;}
+.velora-workspace .velora-core [class*="text-[#9E5560]"] {color:#ffb7bd!important;}
+
+/* Chat agente: un unico tema scuro coerente e testi leggibili al 100% di zoom. */
+.velora-workspace .velora-core [data-velora-agent-chat] {
+  background:#13243c!important;
+  color:#edf5ff!important;
+  border:1px solid #54718e!important;
+}
+.velora-workspace .velora-core [data-velora-agent-chat] [data-velora-chat-event] {
+  background:#21354e!important;
+  border:1px solid #486682!important;
+  border-left:3px solid #a393ef!important;
+  color:#f1f7ff!important;
+  padding:1rem 1.1rem!important;
+}
+.velora-workspace .velora-core [data-velora-agent-chat] [data-velora-chat-event] :is(p,span,strong) {
+  line-height:1.55!important;
+  opacity:1!important;
+}
+.velora-workspace .velora-core [data-velora-agent-chat] [data-velora-chat-event] [class*="text-[#64748B]"],
+.velora-workspace .velora-core [data-velora-agent-chat] [data-velora-chat-event] [class*="text-[#50627F]"] {
+  color:#c1d0e7!important;
+}
+.velora-workspace .velora-core [data-velora-agent-chat] button {
+  background:#314563!important;
+  color:#f5f8ff!important;
+  border:1px solid #7389a8!important;
+  min-height:40px;
+}
+/* Enlarge evidence microcopy for all four report/audit modules without
+   increasing radar labels or affecting persisted data. */
+.velora-workspace .velora-core [data-audit-block] :is(p,li,td,th,small) {
+  overflow-wrap:break-word;
+}
+.velora-workspace .velora-core [data-audit-block] [class*="text-[10px]"],
+.velora-workspace .velora-core [data-audit-block] [class*="text-[11px]"] {
+  line-height:1.55!important;
+}
+.velora-workspace .velora-core .velora-quick-actions {
+  display:flex;align-items:center;flex-wrap:wrap;gap:.65rem;
+  padding:.9rem 1rem;background:#19324b;border:1px solid #54718d;
+  border-radius:.86rem;
+}
+.velora-workspace .velora-core .velora-quick-actions strong {
+  color:#ecf6ff;font-size:.88rem;
+}
+.velora-workspace .velora-core .velora-quick-actions button {
+  background:#314965!important;color:#f8fbff!important;
+  border:1px solid #7393b6!important;border-radius:.65rem;
+  padding:.65rem .95rem;min-height:43px;
+  font-size:.86rem;font-weight:850;
+}
+.velora-workspace .velora-core .velora-quick-actions button:hover {
+  background:#493d81!important;border-color:#b1a2ff!important;
+}
+.velora-workspace .velora-core .velora-scan-warning {
+  border:1px solid #b88a51;background:#3b3125;color:#ffe7bc;
+  border-radius:.7rem;padding:.85rem 1rem;
+  font-size:.86rem;line-height:1.55;
+}
