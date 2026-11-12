@@ -7,6 +7,7 @@ import braAudit from "./bra-hotel-audit.json";
 import braReportUrl from "./bra-hotel-report.pdf?url";
 import { buildRateComparisonRows } from "./rate-comparison";
 import VeloraWorkspace from "./VeloraWorkspace";
+import VeloraRadar, {type VeloraRadarSector} from "./VeloraRadar";
 
 declare global {
   interface Window {
@@ -5127,6 +5128,7 @@ export default function App() {
   const [showStructures, setShowStructures] = useState(true);
   // Solo presentazione: non entra nei salvataggi delle strutture o dell'intervista.
   const [workspaceSection, setWorkspaceSection] = useState("panoramica");
+  const [workspaceMacroId, setWorkspaceMacroId] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo>(EMPTY_OWNER_INFO);
 
@@ -7321,6 +7323,8 @@ export default function App() {
       }]);
     }
     setActiveStructureId(structure.id);
+    setWorkspaceSection("panoramica");
+    setWorkspaceMacroId("");
     setFrontendComparisons([]);
     setSpecialistChecks(null);
     setCompanionCapture(null);
@@ -10199,8 +10203,8 @@ export default function App() {
     })).filter((macro) => macro.categories.length > 0);
 
     return (
-      <section id="velora-audit-content" className="flex flex-col gap-5 velora-workspace-anchor">
-        <div className="rounded-[2rem] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.05)]">
+      <section id="velora-audit-content" data-velora-focus={workspaceSection} className="flex flex-col gap-5 velora-workspace-anchor">
+        <div data-audit-block="summary" className="rounded-[2rem] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.05)]">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-4xl">
               <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-700">
@@ -10259,9 +10263,9 @@ export default function App() {
           </div>
         </div>
 
-        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_14px_40px_rgba(35,18,74,0.05)] md:p-6">
+        <section className="velora-audit-extras rounded-[2rem] border border-[#E5DDF1] bg-white p-5 shadow-[0_14px_40px_rgba(35,18,74,0.05)] md:p-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Approfondimento non incluso nell'indice dei 50 controlli</p>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-1 text-xl font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi</h3>
+          <details data-audit-block="mappa" open={workspaceSection==="mappa"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-1 text-xl font-black text-[#23124A]">Mappa delle singole OTA e dei gruppi</h3>
           <p className="mt-2 text-xs leading-5 text-[#50627F]">Segna una scheda come presente solo con un URL univoco. “Non trovato” significa soltanto che non è emersa nella ricerca pubblica; non prova l'assenza di un contratto. Google Hotels è un metasearch, HolidayCheck può mostrare offerte senza distribuzione diretta.</p>
           <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
             {activeAuditData.otaPresence.map((channel) => {
@@ -10278,7 +10282,7 @@ export default function App() {
               </div>;
             })}
           </div>
-          </div></details><section className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+          </div></details><section data-audit-block="bookingengine" className="mt-5 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h3 className="text-lg font-black text-[#23124A]">Booking engine e fornitore del canale diretto</h3>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Registra anche il caso in cui la struttura usa soltanto un minisito ospitato dal fornitore. Un URL può identificare Kross Booking o ErmesHotels; con un dominio personalizzato il fornitore può restare non riconoscibile. Il collegamento non dimostra che il checkout funzioni.</p>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -10337,7 +10341,7 @@ export default function App() {
               </p>}
             </div>}
           </section>
-          <details open className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
+          <details data-audit-block="commerciale" open={workspaceSection==="commerciale"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
             <div className="space-y-3 px-4 pb-4 text-xs text-[#23124A]">
               <p className="text-[#50627F]">Leonardo lavora per primo sulle date del periodo scelto e cerca prezzi e disponibilità nel booking engine del sito diretto. Booking verifica successivamente gli stessi soggiorni e guida il confronto con le altre OTA. Un importo generico non è un preventivo verificato.</p>
@@ -10459,7 +10463,7 @@ export default function App() {
                 <p className="text-[#50627F]">Nessun audit del diretto importato. Avvia Leonardo prima di Booking e delle altre OTA.</p>}
             </div>
           </details>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
+          <details data-audit-block="piani" open={workspaceSection==="piani"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Piani tariffari, promozioni e sconti per canale</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Registra soltanto ciò che compare sulla specifica scheda, con data e URL. Una dicitura “potresti avere uno sconto” non dimostra una promozione attiva; tariffe per iscritti o app vanno distinte da quelle pubbliche.</p>
           <label className="mt-3 block text-[11px] font-black text-[#23124A]">Sito diretto e listino
             <textarea value={answers["audit-policy-direct"]?.note ?? ""} onChange={(event) => updateAnswer("audit-policy-direct", { note: event.target.value })} placeholder="Periodi, prezzi, condizioni, fonte e data" className="mt-1.5 min-h-[65px] w-full resize-y rounded-xl border border-[#E0D7EC] bg-[#FBF9FF] px-3 py-2 text-xs font-medium leading-5 text-[#23124A]" />
@@ -10472,7 +10476,7 @@ export default function App() {
           </div>
 
           </div></details>
-          <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
+          <details data-audit-block="contenuti" open={workspaceSection==="contenuti"} className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">
               Dettaglio delle acquisizioni OTA · nome, foto, servizi e testi
               <span className="ml-2 font-medium text-[#50627F]">· {expediaPresentation?"Expedia acquisita":"Expedia non acquisita"} · {vrboPresentation?"Vrbo acquisita":"Vrbo non acquisita"} · {holiduPresentation?"Holidu acquisita":"Holidu non acquisita"}</span>
@@ -10524,7 +10528,7 @@ export default function App() {
               </div>
             </div>
           </details>
-          <details className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
+          <details data-audit-block="asimmetrie" open={workspaceSection==="asimmetrie"} className="my-4 rounded-2xl border border-[#D5D0E7] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Prezzi e asimmetrie · sito diretto master / Booking riferimento OTA · apri/chiudi</summary>
             <div className="px-4 pb-4">
           <h3 className="mt-4 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
@@ -10629,7 +10633,7 @@ export default function App() {
           </section>
             </div>
           </details>
-          <div id="velora-scraping-tools" className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
+          <div id="velora-scraping-tools" data-audit-block="scraping" className="mt-4 rounded-2xl border border-[#C8A96B] bg-[#FFF9EC] p-4">
             <h4 className="text-sm font-black text-[#23124A]">Rilevazione locale gratuita</h4>
             <p className="mt-1 text-[11px] leading-5 text-[#50627F]">Configura un test mirato scegliendo <b>periodo</b> e <b>OTA</b>. <b>Leonardo analizza per primo il sito diretto sulle date selezionate</b>; poi Booking verifica il primo confronto e determina le date confermate da replicare identiche sulle altre OTA, anche se Booking non è tra i canali visualizzati. Velora analizza soltanto i canali selezionati e riusa le schede già verificate. Il percorso tariffario resta pubblico: <b>sito diretto → date e ospiti selezionati → booking engine → camere e prezzi → confronto Booking → altre OTA</b>. Nessun login, registrazione, account, tariffa member o app. Con <b>Assistenza manuale attiva</b>, le pagine pubbliche con HTTP 429/403 vengono invece lasciate aperte in pausa (fino a 15 minuti), per permetterti di controllare se esiste una verifica visibile; se non c'è, puoi saltare quella OTA. Senza assistenza, l'esito viene registrato e il test prosegue automaticamente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -11641,7 +11645,7 @@ export default function App() {
               </details>
             </>}
           </div>
-          <details id="velora-pricing-details" className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto master commerciale, Booking riferimento OTA</h4>
+          <details id="velora-pricing-details" data-audit-block="tariffe" open={workspaceSection==="tariffe"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto MASTER e OTA · apri/chiudi</summary><div className="px-4 pb-4"><h4 className="mt-4 text-sm font-black text-[#23124A]">Tariffe puntuali · sito diretto master commerciale, Booking riferimento OTA</h4>
           <p className="mt-1 text-[10px] leading-4 text-[#50627F]">Apri il sito diretto o una OTA per consultare le tariffe rilevate. Il sito diretto è il master commerciale; Booking è il riferimento per date e confronto tra OTA. Ogni canale rimane chiuso inizialmente. Un delta è mostrato soltanto per la stessa unità verificata, con date, ospiti e condizioni equivalenti.</p>
           {(priceRangeRows.length>0 || Boolean(directEngine?.url) || verifiedDirectRates.length>0) && <div className="mt-3 overflow-x-auto rounded-xl border border-[#E5DDF1] bg-[#FAF8FD] p-3">
             <p className="mb-2 text-xs font-black text-[#23124A]">Riepilogo preventivi · sito diretto e OTA</p>
@@ -11936,7 +11940,7 @@ export default function App() {
           
           <p className="mt-2 text-[10px] leading-4 text-[#50627F]"><b>Come leggere la tabella:</b> “Tariffe rilevate” significa che Velora ha letto importi reali sulla scheda OTA per le date testate. “Camera e prezzo validati” significa che il parser ha associato l’importo alla relativa camera; il confronto tra OTA richiede ancora condizioni omogenee, tasse e stessa unità. “Prezzi rilevati · attribuzione da verificare” significa che gli importi sono presenti, ma non sono ancora collegati con sufficiente certezza a camera e piano tariffario. “Non verificato” compare solo quando quel mese/canale non è stato ancora controllato.</p>
           <div className="mt-3 space-y-1">{[...availabilityProbes].reverse().slice(0, 12).map((probe) => <div key={probe.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === probe.otaId)?.platform ?? probe.otaId}</b> · {probe.stayDate} · {AVAILABILITY_LABELS[probe.status]} · {probe.roomType}, {probe.guests} ospiti · rilevato {new Date(probe.observedAt).toLocaleString("it-IT")}{probe.note ? ` · ${probe.note}` : ""}</span><button type="button" onClick={() => removeAvailabilityProbe(probe.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
-          <details className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni online e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
+          <details data-audit-block="recensioni" open={workspaceSection==="recensioni"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white"><summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Recensioni online e qualità fotografica · apri/chiudi</summary><div className="px-4 pb-4"><h3 className="mt-6 text-lg font-black text-[#23124A]">Recensioni Google e qualità fotografica</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Velora distingue temi ricorrenti positivi e negativi, segnalazioni isolate ed esempi concreti del campione pubblico. Il punteggio fotografico automatico usa soltanto segnali frontend osservabili; luce, styling e composizione restano esplicitamente separati finché non vengono valutati visivamente.</p>
 
           {browserPilotResult?.propertyId === activeAuditData.id && (browserPilotResult.reputation?.status === "sampled" || ratingChannels.length>0) && <>
@@ -12027,12 +12031,13 @@ export default function App() {
           </div></details><p className="mt-3 text-[10px] text-[#50627F]">Il PDF salvato nella scheda Sant'Antonio fotografa l'analisi pubblicata; modifiche locali a queste note non lo rigenerano automaticamente.</p>
         </section>
 
-        {visibleData.map((macro) => (
+        {visibleData.filter(macro=>workspaceSection!=="macroarea" || macro.id===workspaceMacroId).map((macro) => (
           <section
             key={`audit-${macro.id}`}
+            data-audit-block="macro"
             className="overflow-hidden rounded-[2rem] border border-[#E5DDF1] bg-white shadow-[0_14px_40px_rgba(35,18,74,0.05)]"
           >
-            <details><summary className="cursor-pointer border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4 font-black text-[#23124A]">Macro-area osservabile · {macro.title}</summary><div className="border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4">
+            <details open={workspaceSection==="macroarea"}><summary className="cursor-pointer border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4 font-black text-[#23124A]">Macro-area osservabile · {macro.title}</summary><div className="border-b border-[#EFE9F7] bg-[#FBF9FF] px-5 py-4">
               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">
                 Macro-area osservabile
               </p>
@@ -12138,7 +12143,7 @@ export default function App() {
         ))}
 
         {!visibleData.length && (
-          <div className="rounded-[2rem] border border-dashed border-[#CFC1DF] bg-white p-8 text-center text-sm font-semibold text-[#50627F]">
+          <div data-audit-block="macro" className="rounded-[2rem]" border border-dashed border-[#CFC1DF] bg-white p-8 text-center text-sm font-semibold text-[#50627F]">
             Nessuna voce corrisponde ai filtri selezionati.
           </div>
         )}
@@ -12227,20 +12232,51 @@ export default function App() {
 
   // Navigazione grafica del workspace: usa le funzioni e i moduli già esistenti.
   // Nessuna nuova chiave di storage; nessuna modifica a risposte, tariffe o scansioni.
-  function navigateVelora(section: string) {
+  // Il radar non crea moduli nuovi: apre le viste del software già esistente.
+  const radarSectors: VeloraRadarSector[] = [
+    {id:"struttura",label:"Dati struttura",short:["Dati","struttura"],description:"Anagrafica, referente e dati della scheda",color:"#94a7ff"},
+    {id:"intervista",label:"Intervista completa",short:["Intervista","completa"],description:"Questionario consulenziale, tutte le macroaree",color:"#be96fa",metric:`${flattenItems(ASSESSMENT_DATA).length}`},
+    {id:"personalizza",label:"Personalizza intervista",short:["Personalizza","intervista"],description:"Seleziona domande e sottogruppi, salva la scelta",color:"#d29bff"},
+    {id:"rapida",label:"Analisi rapida Hotel",short:["Analisi","rapida"],description:"30 domande principali e 20 approfondimenti",color:"#b68aff"},
+    {id:"audit",label:"Audit Web & Frontend",short:["Audit","frontend"],description:"Checklist pubblica delle verifiche osservabili",color:"#4edac7"},
+    {id:"macroaree",label:"Macroaree osservabili",short:["Macroaree","osservabili"],description:"Secondo radar con tutte le macroaree frontend",color:"#32c8b6",metric:`${EXTERNAL_WEB_AUDIT_DATA.length} aree`},
+    {id:"bookingengine",label:"Booking engine",short:["Booking","engine"],description:"Fornitore e percorso di prenotazione diretta",color:"#62c2e7"},
+    {id:"commerciale",label:"Audit commerciale diretto",short:["Audit","commerciale"],description:"Leonardo, prezzi e disponibilità del sito diretto",color:"#6ea8ef"},
+    {id:"scraping",label:"Scraping OTA",short:["Scraping","OTA"],description:"Configurazione, specialisti e risultati acquisiti",color:"#51bcef"},
+    {id:"mappa",label:"Mappa OTA e canali",short:["Mappa","OTA"],description:"Presenza schede e controlli dei portali",color:"#57d4df"},
+    {id:"piani",label:"Piani tariffari e promozioni",short:["Piani","promo"],description:"Condizioni, sconti e piani di ogni canale",color:"#e0b967"},
+    {id:"contenuti",label:"Contenuti OTA",short:["Contenuti","OTA"],description:"Nomi, foto, servizi e descrizioni rilevati",color:"#99b6e9"},
+    {id:"asimmetrie",label:"Prezzi e asimmetrie",short:["Prezzi","asimmetrie"],description:"Confronto diretto MASTER e Booking reference",color:"#f0a76c"},
+    {id:"tariffe",label:"Tariffe puntuali",short:["Tariffe","puntuali"],description:"Preventivi rilevati e dettagli dei soggiorni",color:"#e7c17a"},
+    {id:"recensioni",label:"Recensioni e fotografie",short:["Recensioni","e foto"],description:"Rating, commenti, punti di forza e foto",color:"#e18bd9"},
+    {id:"kpi",label:"Riepilogo KPI dell'audit",short:["Riepilogo","KPI"],description:"Indicatori reali della compilazione, non ricavi",color:"#75c7b4"},
+    {id:"criticita",label:"Criticità e opportunità",short:["Criticità","rilevate"],description:"Problemi osservabili e priorità consulenziali",color:"#f18f98"},
+    {id:"report",label:"Report e output",short:["Report","e output"],description:"Report attuale, PDF, CSV e JSON",color:"#ac9cf1"}
+  ];
+  const radarMacroLabels = [
+    ["Marketing","posizionam."],["Modulistica","consulenza"],["Licenze e","adempimenti"],
+    ["Onboarding","prodotto"],["Gestione","OTA"],["Revenue","management"],
+    ["Sales","office"],["Legale","privacy"],["Controllo","qualità"],["Servizi","aggiuntivi"]
+  ];
+  const macroRadarSectors: VeloraRadarSector[] = EXTERNAL_WEB_AUDIT_DATA.map((macro,index)=>({
+    id:"macro:"+macro.id,
+    label:macro.title,
+    short:radarMacroLabels[index] || [macro.title.slice(0,10),macro.title.slice(10,20)],
+    description:`${flattenItems([macro]).length} controlli osservabili · apri l'area completa`,
+    metric:`${flattenItems([macro]).length} voci`,
+    color:["#70ddc3","#85c9fa","#aa9beb","#d9aaec","#64cadd","#e4b866","#f0a98b","#ca9ce9","#a5db98","#8bcbf0"][index%10]
+  }));
+
+  function navigateVelora(section: string, macroId = "") {
     if(section==="archivio") { openStructuresHome(); return; }
     if(section==="personalizza") { openInterviewCustomizer(); return; }
-    if(section==="intervista") switchAssessmentMode("full");
-    if(section==="rapida") switchAssessmentMode("quick-hotel-bb");
-    if(section==="audit" || section==="scraping") switchAssessmentMode("web-audit");
+    if(section==="intervista" && assessmentMode!=="full") switchAssessmentMode("full");
+    if(section==="rapida" && assessmentMode!=="quick-hotel-bb") switchAssessmentMode("quick-hotel-bb");
+    const auditSections=new Set(["audit","macroarea","scraping","bookingengine","commerciale","mappa","piani","contenuti","asimmetrie","tariffe","recensioni","criticita","kpi"]);
+    if(auditSections.has(section) && assessmentMode!=="web-audit") switchAssessmentMode("web-audit");
+    if(section==="macroarea") {setWorkspaceMacroId(macroId);setSearchTerm("");setAuditSourceFilter("Tutte le fonti");}
     setWorkspaceSection(section);
-    const target = section==="struttura" ? "velora-structure-profile" :
-      section==="scraping" ? "velora-scraping-tools" :
-      section==="report" ? "velora-report-actions" :
-      section==="audit" ? "velora-audit-content" :
-      ["intervista","rapida"].includes(section) ? "velora-assessment-content" : "velora-overview";
-    // Attende il render dopo un cambio modalità, senza toccare lo stato salvato.
-    window.setTimeout(()=>document.getElementById(target)?.scrollIntoView({behavior:"smooth",block:"start"}),80);
+    window.requestAnimationFrame(()=>window.scrollTo({top:0,behavior:"auto"}));
   }
 
   if (showStructures) {
