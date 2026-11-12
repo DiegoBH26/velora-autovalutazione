@@ -5429,7 +5429,7 @@ export default function App() {
               room.roomType.length<=180&&Number.isFinite(room.total)&&room.total>=1&&
               room.total<=200000&&room.confidence==="total-for-stay";
           }).map((room:ExpediaCompanionRoom)=>({
-            roomType:room.roomType.trim(),total:room.total,confidence:"total-for-stay",
+            roomType:room.roomType.trim(),total:room.total,currency:room.currency==="USD"?"USD":"EUR",confidence:"total-for-stay",
             board:String(room.board||"Non chiaro").slice(0,80),
             refund:String(room.refund||"Non chiaro").slice(0,80),
             taxes:String(room.taxes||"Non chiaro").slice(0,80)
@@ -5447,7 +5447,9 @@ export default function App() {
           setFamilyCapture(prev=>({...prev,[otaId]:capture}));
           setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:false}));
           setFamilyMessage(prev=>({...prev,[otaId]:rooms.length
-            ? rooms.length+" totali camera visibili acquisiti da "+label+". Verifica identità, date e ospiti, poi premi Importa."
+            ? rooms.length+" totali camera visibili acquisiti da "+label+
+              (rooms.some(room=>room.currency==="USD")?" in USD (dollari): nessuna conversione in euro, delta sospeso.":"")+
+              ". Verifica identità, date e ospiti, poi premi Importa."
             : "Nessuna tariffa totale affidabile. "+capture.warning}));
           setOtaWorkspaceOpen(true);
           setOtaContentSnapshots(previous=>[
@@ -7755,21 +7757,22 @@ export default function App() {
       return;
     }
     const existing=new Set(rateQuotes.filter(q=>q.otaId===otaId).map(q=>
-      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total].join("|")));
+      [q.stayDate,q.nights,q.guests,q.roomType.toLowerCase(),q.total,q.currency||"EUR"].join("|")));
     const fresh:RateQuote[]=captured.rooms.filter(room=>room.confidence==="total-for-stay"&&
-      !existing.has([captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total].join("|"))
+      !existing.has([captured.checkin,nights,captured.guests,room.roomType.toLowerCase(),room.total,room.currency||"EUR"].join("|"))
     ).map((room,index)=>({
       ...EMPTY_RATE_DRAFT,
       id:globalThis.crypto?.randomUUID?.()??otaId+"-companion-"+Date.now()+"-"+index,
       otaId,origin:"browser-assisted",observedAt:new Date().toISOString(),
       stayDate:captured.checkin,nights,guests:captured.guests,
-      roomType:room.roomType,total:room.total,sourceUrl:captured.sourceUrl,
+      roomType:room.roomType,total:room.total,currency:room.currency||"EUR",sourceUrl:captured.sourceUrl,
       board:room.board,refund:room.refund,taxes:room.taxes,
       audience:"Non verificato",promotion:"",
       manualListingTitle:captured.propertyName,
       manualIdentityConfirmed:Boolean(familyIdentityConfirmed[otaId]),
       pilotVerified:false,roomMatchStatus:"da verificare",
       comparisonWarning:"Prezzo totale letto su "+label+" dal Chrome personale su richiesta, senza bypass o login automatici. "+
+        (room.currency==="USD"?"Prezzo originale in USD: NON confrontabile con euro, senza conversione documentata. ":"")+
         "Identità, camera e piano Booking da verificare; nessun delta validato."
     }));
     if(!fresh.length){
