@@ -7,12 +7,12 @@ if (location.origin === ORIGIN &&
   const emit = (type, payload) => window.postMessage({
     source: "velora-expedia-companion-v1", type, payload
   }, ORIGIN);
-  emit("READY", { installed: true,vrbo:true,holidu:true,hotels:true,travelocity:true,tabsLauncher:true,version:"0.4.4" });
+  emit("READY", { installed: true,vrbo:true,holidu:true,hotels:true,travelocity:true,tabsLauncher:true,version:"0.4.5" });
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN ||
         event.data?.source !== "velora-online-v1") return;
     if(event.data?.type === "COMPANION_PING") {
-      emit("READY", {installed: true,vrbo:true,holidu:true,hotels:true,travelocity:true,tabsLauncher:true,version:"0.4.4"});
+      emit("READY", {installed: true,vrbo:true,holidu:true,hotels:true,travelocity:true,tabsLauncher:true,version:"0.4.5"});
       return;
     }
     if(["OPEN_THREE_OTA_TABS","OPEN_FIVE_OTA_TABS"].includes(event.data?.type)) {
