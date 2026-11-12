@@ -3607,7 +3607,7 @@ type ExpediaPresentation = {
   descriptionExcerpt:string;roomCount:number;evidenceScope:string;
 };
 type ExpediaCompanionRoom = {
-  roomType:string;total:number;board:string;refund:string;taxes:string;confidence:string;
+  roomType:string;total:number;currency?:"EUR"|"USD";board:string;refund:string;taxes:string;confidence:string;
 };
 type ExpediaCompanionCapture = {
   schema:"velora-expedia-visible-v1";pageTitle:string;propertyName:string;
@@ -3623,6 +3623,9 @@ type ExpediaFamilyCapture = Omit<ExpediaCompanionCapture,"schema"> & {
 };
 const FAMILY_COMPANION_LABELS:Record<ExpediaFamilyOtaId,string>={hotels:"Hotels.com",travelocity:"Travelocity"};
 const FAMILY_COMPANION_HOMES:Record<ExpediaFamilyOtaId,string>={hotels:"https://it.hotels.com/",travelocity:"https://www.travelocity.com/"};
+function observedRateLabel(amount:number,currency:"EUR"|"USD"="EUR"):string {
+  return (currency==="USD"?"$":"€")+amount.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function familyCompanionHostMatches(otaId:ExpediaFamilyOtaId, url:string):boolean {
   try {
     const parsed=new URL(url);
@@ -3668,6 +3671,7 @@ type RateQuote = {
   stayDate: string;
   observedAt: string;
   total: number;
+  currency?: "EUR" | "USD"; // Older records without currency are EUR.
   nights: number;
   roomType: string;
   unitId?: string;
@@ -3984,7 +3988,7 @@ function rateCohortKey(quote: RateQuote): string {
   const physicalUnit = quote.referenceRoomKey?.trim().toLowerCase()
     || quote.unitId?.trim().toLowerCase()
     || `non-verificata:${quote.otaId}:${quote.roomType.trim().toLowerCase()}`;
-  return [physicalUnit, quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes].join("|");
+  return [physicalUnit, quote.guests, quote.nights, quote.board, quote.refund, quote.audience, quote.taxes, quote.currency||"EUR"].join("|");
 }
 
 function rateCohortLabel(quote: RateQuote): string {
@@ -3993,7 +3997,7 @@ function rateCohortLabel(quote: RateQuote): string {
     : quote.unitId?.trim()
       ? `Unità ${quote.unitId.trim()}`
       : `${quote.roomType} (camera non comparabile)`;
-  return `${room} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes}`;
+  return `${room} · ${quote.guests} ospiti · ${quote.nights} notte/i · ${quote.board} · ${quote.refund} · ${quote.audience} · ${quote.taxes} · ${quote.currency||"EUR"}`;
 }
 
 function monthKeys(from: string, count = 12): string[] {
