@@ -22,7 +22,7 @@ export type VeloraRadarMetric = {
 
 type VeloraRadarProps = {
   structureName: string;
-  mode?: "main" | "macro";
+  mode?: "main" | "macro" | "audit";
   title?: string;
   description?: string;
   sectors: VeloraRadarSector[];
@@ -69,16 +69,15 @@ export default function VeloraRadar({
   const [pointedId, setPointedId] = useState<string | null>(null);
   const pointed = sectors.find((sector) => sector.id === pointedId) ?? null;
   const perSector = sectors.length ? 360 / sectors.length : 360;
-  // Identificatori grandi e brevi nel radar; i nomi completi sono nei pulsanti
-  // accanto, visibili e cliccabili anche con tastiera. 18 nomi integrali in
-  // 18 spicchi da 20 gradi non sarebbero leggibili a zoom normale.
+  // Primo livello con quattro spicchi grandi; livelli di dettaglio numerati,
+  // con i nomi completi sempre presenti nell'indice cliccabile a destra.
   const shortSectorNames: Record<string, string> = {
-    struttura: "Dati", intervista: "Interv.", personalizza: "Configura",
+    auditradar: "AUDIT", struttura: "Dati", intervista: "Interv.", personalizza: "Configura",
     rapida: "Rapida", audit: "Frontend", macroaree: "Aree",
     bookingengine: "Booking", commerciale: "Diretto", scraping: "Scraping",
     mappa: "Mappa", piani: "Piani", contenuti: "Testi",
     asimmetrie: "Delta OTA", tariffe: "Tariffe", recensioni: "Foto",
-    kpi: "KPI", criticita: "Critic.", report: "Report"
+    kpi: "KPI", criticita: "Critic.", report: "REPORT"
   };
   const shortMacroNames = [
     "Marketing", "Moduli", "Licenze", "Onboard", "OTA",
@@ -86,12 +85,12 @@ export default function VeloraRadar({
   ];
 
   return (
-    <section className="velora-radar" aria-labelledby="velora-radar-heading">
+    <section className={`velora-radar velora-radar--${mode}`} aria-labelledby="velora-radar-heading">
       <header className="velora-radar__header">
         <div>
           <p className="velora-radar__eyebrow">
             <span className="velora-radar__online-indicator" aria-hidden="true" />
-            {mode === "macro" ? "Scanner secondo livello" : "Centro di controllo / Navigazione"}
+            {mode === "macro" ? "AREE · SCANNER DI SECONDO LIVELLO" : mode === "audit" ? "AUDIT · SCANNER DI SECONDO LIVELLO" : "RADAR PRINCIPALE · 4 AREE"}
           </p>
           <h2 id="velora-radar-heading">{title}</h2>
           <p>{description}</p>
@@ -109,7 +108,7 @@ export default function VeloraRadar({
           </div>
           <div className="velora-radar__svg-container">
             <svg viewBox="0 0 720 720" className="velora-radar__svg"
-                 role="group" aria-label={mode === "macro" ? "Radar macroaree osservabili" : "Radar moduli Velora"}>
+                 role="group" aria-label={mode === "macro" ? "Radar macroaree osservabili" : mode === "audit" ? "Radar dei controlli audit" : "Radar con quattro aree principali"}>
               <defs>
                 <radialGradient id="velora-radar-background">
                   <stop offset="0%" stopColor="#152c43" />
@@ -138,7 +137,9 @@ export default function VeloraRadar({
                 const active = pointedId === sector.id;
                 const radarLabel = mode === "macro"
                   ? shortMacroNames[index] || sector.short[0].slice(0, 9)
-                  : shortSectorNames[sector.id] || sector.short[0].slice(0, 9);
+                  : mode === "main"
+                    ? sector.label
+                    : shortSectorNames[sector.id] || sector.short[0].slice(0, 9);
                 return (
                   <g
                     key={sector.id}
@@ -173,13 +174,13 @@ export default function VeloraRadar({
               <circle cx={RADAR_CX} cy={RADAR_CY} r="127" fill="#0c192c" stroke="#3d607b" strokeWidth="2" />
               <circle cx={RADAR_CX} cy={RADAR_CY} r="117" fill="none" stroke="#4de5c4" strokeWidth="1" strokeDasharray="3 9" opacity=".5" />
               <text x="360" y="312" textAnchor="middle" className="velora-radar__center-kicker">
-                {mode === "macro" ? "MACROAREE" : "STRUTTURA ATTIVA"}
+                {mode === "macro" ? "MACROAREE" : mode === "audit" ? "AUDIT" : "STRUTTURA ATTIVA"}
               </text>
               <text x="360" y="344" textAnchor="middle" className="velora-radar__center-title">
-                {mode === "macro" ? "AUDIT WEB" : "VELORA"}
+                {mode === "macro" ? "AREE" : mode === "audit" ? "AUDIT" : "VELORA"}
               </text>
               <text x="360" y="367" textAnchor="middle" className="velora-radar__center-info">
-                {mode === "macro" ? `${sectors.length} aree osservabili` : "AUTOVALUTAZIONE"}
+                {mode === "macro" ? `${sectors.length} macroaree` : mode === "audit" ? `${sectors.length} controlli / moduli` : "AUTOVALUTAZIONE"}
               </text>
               <path d="M310 390h100" stroke="#2a6371" />
               <text x="360" y="410" textAnchor="middle" className="velora-radar__center-property">
@@ -197,7 +198,7 @@ export default function VeloraRadar({
           <div className="velora-radar__guide-heading">
             <div>
               <span>INDICE OPERATIVO</span>
-              <h3>{mode === "macro" ? "Macroaree frontend" : "Aree di autovalutazione"}</h3>
+              <h3>{mode === "macro" ? "Macroaree osservabili" : mode === "audit" ? "Controlli e moduli audit" : "Le 4 aree principali"}</h3>
             </div>
             <span className="velora-radar__guide-count">{sectors.length}</span>
           </div>
