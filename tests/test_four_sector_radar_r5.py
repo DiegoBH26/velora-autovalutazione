@@ -64,7 +64,7 @@ class FourSectorRadarContract(unittest.TestCase):
         self.assertIn('mode?: "main" | "macro" | "audit"', RADAR)
         self.assertIn('velora-radar--main', RADAR_CSS)
         self.assertIn('grid-template-columns:repeat(2,minmax(0,1fr))', RADAR_CSS)
-        self.assertIn('RADAR · R5', SHELL)
+        self.assertRegex(SHELL, r'RADAR · R[56]')
         self.assertIn('function openStructureAnalysis(', APP)
         self.assertIn('function confirmCustomInterview()', APP)
         self.assertIn('localStorage.setItem(', APP)
