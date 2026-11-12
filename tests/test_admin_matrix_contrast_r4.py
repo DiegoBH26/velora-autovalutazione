@@ -45,7 +45,7 @@ class AdminConsoleR4(unittest.TestCase):
                       "3 · Tipologie / Booking", "4 · Tariffe / Booking",
                       "5 · Tariffe / Sito diretto", "6 · Camere / Sito diretto"):
             self.assertIn(title, APP)
-        self.assertIn('aria-label={\`Verifica presenza', APP)
+        self.assertIn('aria-label={`Verifica presenza', APP)
         self.assertIn('onChange={event=>updateAnswer("audit-ota-"+row.otaId', APP)
         self.assertIn('identityVerified:verified', APP)
         self.assertIn('row.directComparison.matched.length>0', APP)
