@@ -18,7 +18,7 @@ class RadarNavigationContract(unittest.TestCase):
         for text in ('<VeloraRadar', 'radarSectors: VeloraRadarSector[]',
                      'EXTERNAL_WEB_AUDIT_DATA.map((macro,index)',
                      'onSelect={(id)=>', 'navigateVelora("macroarea",id.slice(6))',
-                     'onBack={workspaceSection==="macroaree"?'):
+                     'onBack={workspaceSection==="macroaree" || workspaceSection==="auditradar"?'):
             self.assertIn(text, APP)
 
     def test_all_operational_sectors_and_existing_targets(self):

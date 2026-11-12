@@ -12258,6 +12258,16 @@ export default function App() {
     {id:"criticita",label:"Criticità e opportunità",short:["Criticità","rilevate"],description:"Problemi osservabili e priorità consulenziali",color:"#f18f98"},
     {id:"report",label:"Report e output",short:["Report","e output"],description:"Report attuale, PDF, CSV e JSON",color:"#ac9cf1"}
   ];
+  // Primo livello: soltanto quattro scelte. Tutti i moduli originali
+  // restano nel catalogo sopra e sono raggiungibili dai livelli successivi.
+  const primaryRadarSectors: VeloraRadarSector[] = [
+    {id:"auditradar",label:"AUDIT",short:["AUDIT"],description:"Scanner delle verifiche web, scraping OTA, prezzi, tariffe, rating, fotografie e criticità",color:"#42d7c6"},
+    {id:"kpi",label:"KPI",short:["KPI"],description:"Riepilogo dei valori realmente calcolati nella struttura",color:"#6fb6ed"},
+    {id:"report",label:"REPORT",short:["REPORT"],description:"Riscontri disponibili, generazione PDF ed esportazioni esistenti",color:"#b49af8"},
+    {id:"macroaree",label:"AREE",short:["AREE"],description:"Le macroaree osservabili e gli strumenti dell'intervista consulenziale",color:"#e0ad70"}
+  ];
+  const auditRadarIds = new Set(["audit","bookingengine","commerciale","scraping","mappa","piani","contenuti","asimmetrie","tariffe","recensioni","criticita"]);
+  const auditRadarSectors = radarSectors.filter(sector=>auditRadarIds.has(sector.id));
   const radarMacroLabels = [
     ["Marketing","posizionam."],["Modulistica","consulenza"],["Licenze e","adempimenti"],
     ["Onboarding","prodotto"],["Gestione","OTA"],["Revenue","management"],
@@ -12705,40 +12715,56 @@ export default function App() {
       status={localPilotRunning?"Scraping in corso":localPilotToken?"Agente locale collegato":"Modalità consulenziale"}
       navigation={[
         {id:"archivio",label:"Archivio strutture",description:"Schede, salvataggi e storico",onClick:()=>navigateVelora("archivio")},
-        {id:"panoramica",label:"Panoramica",description:"Radar di tutte le aree",active:workspaceSection==="panoramica" || workspaceSection==="kpi",onClick:()=>navigateVelora("panoramica")},
+        {id:"panoramica",label:"Panoramica",description:"Radar principale · 4 sezioni",active:workspaceSection==="panoramica" || workspaceSection==="kpi",onClick:()=>navigateVelora("panoramica")},
         {id:"struttura",label:"Dati struttura",description:"Anagrafica e referente",active:workspaceSection==="struttura",onClick:()=>navigateVelora("struttura")},
         {id:"intervista",label:"Intervista completa",description:"Tutte le domande e macroaree",active:workspaceSection==="intervista",onClick:()=>navigateVelora("intervista")},
         {id:"personalizza",label:"Personalizza intervista",description:"Scelta e salvataggio domande",onClick:()=>navigateVelora("personalizza")},
         {id:"rapida",label:"Analisi rapida Hotel",description:"Percorso breve e approfondimenti",active:workspaceSection==="rapida",onClick:()=>navigateVelora("rapida")},
-        {id:"audit",label:"Audit Web & Frontend",description:"Checklist e riscontri pubblici",active:["audit","macroaree","macroarea","bookingengine","mappa","piani","contenuti","recensioni","criticita"].includes(workspaceSection),onClick:()=>navigateVelora("audit")},
+        {id:"audit",label:"Audit e scraping",description:"Radar delle verifiche e agenti",active:["auditradar","audit","bookingengine","commerciale","scraping","mappa","piani","contenuti","asimmetrie","tariffe","recensioni","criticita"].includes(workspaceSection),onClick:()=>navigateVelora("auditradar")},
         {id:"scraping",label:"Scraping OTA",description:"Agenti, tariffe e verifiche",active:["scraping","commerciale","asimmetrie","tariffe"].includes(workspaceSection),onClick:()=>navigateVelora("scraping")},
         {id:"report",label:"Report e output",description:"PDF, CSV e JSON attuali",active:workspaceSection==="report",onClick:()=>navigateVelora("report")}
       ]}
     >
-    {(workspaceSection==="panoramica" || workspaceSection==="macroaree") ? (
-      <VeloraRadar
-        key={workspaceSection}
-        mode={workspaceSection==="macroaree"?"macro":"main"}
-        title={workspaceSection==="macroaree"?"Radar delle macroaree osservabili":"Radar di autovalutazione Velora"}
-        description={workspaceSection==="macroaree"
-          ?"Ogni spicchio apre una macroarea osservabile, con i controlli e le risposte già registrate."
-          :"Un solo centro di controllo: seleziona lo spicchio per aprire l'area operativa reale, senza scorrere un'unica pagina."}
-        structureName={ownerInfo.propertyName || activeAuditData.name}
-        sectors={workspaceSection==="macroaree"?macroRadarSectors:radarSectors}
-        metrics={workspaceSection==="macroaree"
-          ? [{label:"Macroaree osservabili",value:String(EXTERNAL_WEB_AUDIT_DATA.length)},
-             {label:"Controlli della checklist",value:String(flattenItems(EXTERNAL_WEB_AUDIT_DATA).length)},
-             {label:"Struttura",value:ownerInfo.propertyName || activeAuditData.name}]
-          : [{label:"Domande dell'intervista",value:String(flattenItems(ASSESSMENT_DATA).length),description:"Questionario completo invariato"},
-             {label:"Controlli audit frontend",value:String(flattenItems(EXTERNAL_WEB_AUDIT_DATA).length),description:"Evidenze pubbliche"},
-             {label:"Macroaree osservabili",value:String(EXTERNAL_WEB_AUDIT_DATA.length),description:"Secondo livello del radar"},
-             {label:"Tariffe registrate",value:String(rateQuotes.length),description:"Dati della struttura attiva"}]}
-        onSelect={(id)=>{
-          if(id.startsWith("macro:")) navigateVelora("macroarea",id.slice(6));
-          else navigateVelora(id);
-        }}
-        onBack={workspaceSection==="macroaree"?()=>navigateVelora("panoramica"):undefined}
-      />
+    {(workspaceSection==="panoramica" || workspaceSection==="macroaree" || workspaceSection==="auditradar") ? (
+      <div className="velora-radar-hierarchy">
+        {workspaceSection==="macroaree" && (
+          <nav className="velora-radar-hierarchy__shortcuts" aria-label="Strumenti dell'intervista consulenziale">
+            <span>STRUMENTI CONSULENZIALI</span>
+            <button type="button" onClick={()=>navigateVelora("struttura")}>Dati struttura</button>
+            <button type="button" onClick={()=>navigateVelora("intervista")}>Intervista completa</button>
+            <button type="button" onClick={()=>navigateVelora("personalizza")}>Personalizza intervista</button>
+            <button type="button" onClick={()=>navigateVelora("rapida")}>Analisi rapida Hotel</button>
+          </nav>
+        )}
+        <VeloraRadar
+          key={workspaceSection}
+          mode={workspaceSection==="macroaree"?"macro":workspaceSection==="auditradar"?"audit":"main"}
+          title={workspaceSection==="macroaree"
+            ?"Radar delle macroaree osservabili"
+            :workspaceSection==="auditradar"
+              ?"Radar Audit · controlli e scraping"
+              :"Radar Velora · 4 aree principali"}
+          description={workspaceSection==="macroaree"
+            ?"Seleziona una delle 10 macroaree per aprire i controlli registrati. In alto trovi intervista, personalizzazione e analisi rapida."
+            :workspaceSection==="auditradar"
+              ?"Scegli la verifica da consultare: sito diretto, booking engine, OTA, tariffe, recensioni, fotografie e criticità."
+              :"Seleziona AUDIT, KPI, REPORT o AREE. I contenuti operativi rimangono nelle rispettive sezioni."}
+          structureName={ownerInfo.propertyName || activeAuditData.name}
+          sectors={workspaceSection==="macroaree"?macroRadarSectors:workspaceSection==="auditradar"?auditRadarSectors:primaryRadarSectors}
+          metrics={workspaceSection==="macroaree"
+            ? [{label:"Macroaree osservabili",value:String(EXTERNAL_WEB_AUDIT_DATA.length)},
+               {label:"Controlli della checklist",value:String(flattenItems(EXTERNAL_WEB_AUDIT_DATA).length)}]
+            :workspaceSection==="auditradar"
+              ? [{label:"Moduli dell'audit",value:String(auditRadarSectors.length)},
+                 {label:"Tariffe registrate",value:String(rateQuotes.length)}]
+              : []}
+          onSelect={(id)=>{
+            if(id.startsWith("macro:")) navigateVelora("macroarea",id.slice(6));
+            else navigateVelora(id);
+          }}
+          onBack={workspaceSection==="macroaree" || workspaceSection==="auditradar"?()=>navigateVelora("panoramica"):undefined}
+        />
+      </div>
     ) : (
     <main data-velora-view={workspaceSection} className="velora-core velora-core--assessment min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-6">
@@ -12754,7 +12780,9 @@ export default function App() {
           </div>
           <div className="velora-area-head__actions">
             {workspaceSection==="macroarea" && <button type="button" onClick={()=>navigateVelora("macroaree")}>← Tutte le macroaree</button>}
-            <button type="button" onClick={()=>navigateVelora("panoramica")}>◎ Torna al radar</button>
+            {["audit","bookingengine","commerciale","scraping","mappa","piani","contenuti","asimmetrie","tariffe","recensioni","criticita"].includes(workspaceSection) &&
+              <button type="button" onClick={()=>navigateVelora("auditradar")}>← Radar Audit</button>}
+            <button type="button" onClick={()=>navigateVelora("panoramica")}>◎ Radar principale</button>
           </div>
         </div>
         <section id="velora-overview" className="flex flex-col gap-3 rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
@@ -13528,6 +13556,54 @@ export default function App() {
             </table>
           </div>
         </section>
+
+        {workspaceSection==="report" && (
+          <section className="velora-report-preview" aria-label="Riepilogo dei dati presenti nel report">
+            <div className="velora-report-preview__heading">
+              <div>
+                <p>REPORT / DATI DISPONIBILI</p>
+                <h2>Quadro riepilogativo della struttura</h2>
+                <span>Informazioni già registrate nelle diverse aree di Velora. Il modello PDF definitivo verrà ottimizzato successivamente.</span>
+              </div>
+              {activeStructureId && structures.find(item=>item.id===activeStructureId)?.reportPath && (
+                <button type="button"
+                  onClick={()=>openStoredReport(structures.find(item=>item.id===activeStructureId)!)}
+                  className="velora-report-preview__stored">Apri PDF archiviato</button>
+              )}
+            </div>
+            <div className="velora-report-preview__grid">
+              <div>
+                <span>Struttura esaminata</span>
+                <strong>{ownerInfo.propertyName || activeAuditData.name}</strong>
+              </div>
+              <div>
+                <span>Riscontri frontend registrati</span>
+                <strong>{flattenItems(EXTERNAL_WEB_AUDIT_DATA).filter(({item})=>{
+                  const answer=answers[item.id];
+                  return Boolean(answer && answer.importance>0 && answer.fit>0);
+                }).length} / {flattenItems(EXTERNAL_WEB_AUDIT_DATA).length}</strong>
+              </div>
+              <div>
+                <span>Risposte intervista registrate</span>
+                <strong>{flattenItems(ASSESSMENT_DATA).filter(({item})=>{
+                  const answer=answers[item.id];
+                  return Boolean(answer && answer.importance>0 && answer.fit>0);
+                }).length} / {flattenItems(ASSESSMENT_DATA).length}</strong>
+              </div>
+              <div>
+                <span>Tariffe memorizzate</span>
+                <strong>{rateQuotes.length}</strong>
+              </div>
+              <div>
+                <span>Osservazioni OTA disponibili</span>
+                <strong>{browserPilotResult?.propertyId===activeAuditData.id
+                  ? browserPilotResult.observations.length
+                  : 0}</strong>
+              </div>
+            </div>
+            <p className="velora-report-preview__note">Il generatore PDF sottostante è quello già presente in Velora e usa la modalità di valutazione corrente. Il report unico di tutte le sezioni verrà progettato a parte, senza modificare gli archivi.</p>
+          </section>
+        )}
 
         <section id="velora-report-actions" className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">

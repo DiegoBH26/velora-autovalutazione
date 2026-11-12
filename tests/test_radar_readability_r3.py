@@ -40,7 +40,7 @@ class RadarReadableR3(unittest.TestCase):
                        '[data-velora-agent]', 'velora-core--archive'):
             with self.subTest(marker=marker):
                 self.assertIn(marker, WORKSPACE)
-        self.assertIn('RADAR · R4', SHELL)
+        self.assertIn('RADAR · R5', SHELL)
 
     def test_no_data_logic_changed_for_ui(self):
         for marker in ('function openStructure(', 'function confirmCustomInterview()',

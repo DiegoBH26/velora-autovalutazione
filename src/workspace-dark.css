@@ -843,3 +843,81 @@
 @media(prefers-reduced-motion:reduce) {
   .velora-workspace .velora-core .velora-ota-matrix__item > summary {transition:none;}
 }
+
+
+/* R5 — Two-level radar navigation.
+   "Aree" keeps the original ten macroareas; interview and configuration
+   remain reachable as real, pre-existing modules in this compact toolbar. */
+.velora-radar-hierarchy {display:grid;gap:.85rem;min-width:0;}
+.velora-radar-hierarchy__shortcuts {
+  display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;
+  padding:.8rem 1rem;
+  border:1px solid #415b76;background:#1c3049;border-radius:1rem;
+}
+.velora-radar-hierarchy__shortcuts > span {
+  color:#85e4ca;font-size:.76rem;font-weight:900;letter-spacing:.09em;
+  margin-right:.25rem;
+}
+.velora-radar-hierarchy__shortcuts button {
+  min-height:41px;padding:.55rem .88rem;
+  border:1px solid #5d7195;background:#293b57;border-radius:.65rem;
+  font-size:.86rem;font-weight:820;color:#eef6ff;cursor:pointer;
+}
+.velora-radar-hierarchy__shortcuts button:hover,
+.velora-radar-hierarchy__shortcuts button:focus-visible {
+  background:#45407b;border-color:#a596f7;
+}
+
+/* R5 — Existing PDF/CSV/JSON commands retained. Preview ONLY verified,
+   already-recorded figures, with no implied financial performance data. */
+.velora-report-preview {
+  padding:1.15rem;
+  background:linear-gradient(115deg,#1b2e48,#14253b);
+  border:1px solid #405b78;
+  border-radius:1rem;color:#f2f7ff;
+}
+.velora-report-preview__heading {
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:1rem;flex-wrap:wrap;padding:.1rem .1rem .95rem;
+  border-bottom:1px solid #3a516b;margin-bottom:1rem;
+}
+.velora-report-preview__heading p {
+  margin:0 0 .36rem;color:#7fe9c9;letter-spacing:.13em;font-size:.74rem;font-weight:900;
+}
+.velora-report-preview__heading h2 {
+  margin:0 0 .3rem;color:#fff;font-size:1.25rem;font-weight:900;
+}
+.velora-report-preview__heading span {
+  color:#cbd9ec;font-size:.88rem;line-height:1.5;
+}
+.velora-report-preview__stored {
+  padding:.65rem .9rem;border-radius:.66rem;
+  border:1px solid #aa94ed;background:#4a3879;color:#fff;
+  font-size:.82rem;font-weight:850;cursor:pointer;
+}
+.velora-report-preview__grid {
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.7rem;
+}
+.velora-report-preview__grid > div {
+  padding:.95rem;background:#233852;border:1px solid #4d6481;
+  border-radius:.75rem;display:flex;flex-direction:column;gap:.4rem;min-width:0;
+}
+.velora-report-preview__grid span {
+  color:#c8d9ec;font-size:.83rem;line-height:1.4;font-weight:700;
+}
+.velora-report-preview__grid strong {
+  color:#fff;font-size:1.3rem;font-weight:900;line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.velora-report-preview__note {
+  color:#b5c8df;font-size:.82rem;line-height:1.55;margin:.9rem .15rem 0;
+}
+@media(max-width:1300px){
+  .velora-report-preview__grid {grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:780px){
+  .velora-report-preview__grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:540px){
+  .velora-report-preview__grid {grid-template-columns:1fr;}
+}
