@@ -7497,7 +7497,7 @@ export default function App() {
       ...EMPTY_RATE_DRAFT,
       otaId: observation.otaId, stayDate: observation.checkin, nights, guests,
       roomType:"", unitId:"", board:"Altro / non chiaro", refund:"Non chiaro",
-      taxes:"Non chiaro", audience:"Pubblico senza login", sourceUrl:"",
+      taxes:"Non chiaro", audience:observation.status==="login_required"?"Altro":"Pubblico senza login", sourceUrl:"",
     });
     navigateVelora("tariffe");
     showAssistedRateForm();
@@ -11923,7 +11923,7 @@ export default function App() {
                     Inserisci check-in e check-out validi: il check-out deve essere dopo il check-in. Il salvataggio è bloccato.
                   </p>}
                 </>}
-              <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il prezzo totale realmente mostrato su {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente.</p>
+              <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il prezzo totale realmente mostrato su {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente. Indica nel campo «Pubblico» se il prezzo richiede un account o è un'offerta riservata: non sarà trattato come tariffa pubblica senza login.</p>
               {assistedRateConfirmation && <p className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-[11px] font-black text-emerald-900" role="status">
                 ✓ {assistedRateConfirmation}
               </p>}
