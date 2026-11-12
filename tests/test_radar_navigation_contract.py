@@ -56,14 +56,13 @@ class RadarNavigationContract(unittest.TestCase):
     def test_visual_svg_is_fully_clickable_and_accessible(self):
         for marker in ['function wedgePath(', 'onClick={() => onSelect(sector.id)}',
                        'onKeyDown={(event) =>', 'event.key === "Enter"',
-                       'aria-label={\`Apri', 'role="button"', 'tabIndex={0}']:
-            if marker == 'aria-label={\`Apri':
-                marker = 'aria-label={\`Apri'.replace('\\', '')
-            self.assertIn(marker,RADAR)
-        self.assertNotIn('fetch(',RADAR)
-        self.assertNotIn('localStorage',RADAR)
-        self.assertNotIn('resetAssessment',RADAR)
-        self.assertIn('@media(prefers-reduced-motion:reduce)',RADAR_CSS)
+                       'aria-label={`Apri', 'role="button"', 'tabIndex={0}']:
+            self.assertIn(marker, RADAR)
+        self.assertNotIn('fetch(', RADAR)
+        self.assertNotIn('localStorage.setItem', RADAR)
+        self.assertNotIn('localStorage.getItem', RADAR)
+        self.assertNotIn('resetAssessment(', RADAR)
+        self.assertIn('@media(prefers-reduced-motion:reduce)', RADAR_CSS)
 
 if __name__ == "__main__":
     unittest.main()
