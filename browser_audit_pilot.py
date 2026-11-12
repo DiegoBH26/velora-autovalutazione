@@ -146,7 +146,7 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
             locale="it", currency="EUR",
         )
     elif channel in {"expedia", "hotels", "travelocity"}:
-        query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1="a2", currency="EUR")
+        query.update(chkin=stay["checkin"], chkout=stay["checkout"], rm1=f"a{int(stay.get('adults') or 2)}", currency="EUR")
     elif channel == "vrbo":
         query.update(chkin=stay["checkin"], chkout=stay["checkout"], d1=stay["checkin"], d2=stay["checkout"], startDate=stay["checkin"], endDate=stay["checkout"], adults="2", currency="EUR")
     elif channel == "holidu":
@@ -160,7 +160,7 @@ def dated_url(channel: str, base: str, stay: dict) -> str | None:
             currency="EUR", locale="it-it",
         )
     elif channel == "trip":
-        query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult="2", children="0", crn="1", curr="EUR", locale="it-IT")
+        query.update(checkIn=stay["checkin"], checkOut=stay["checkout"], adult=str(int(stay.get("adults") or 2)), children="0", crn="1", curr="EUR", locale="it-IT")
     elif channel == "priceline":
         # Priceline viene datato tramite UI: la scheda resta invariata finché
         # il date picker non conferma il soggiorno richiesto.
@@ -5342,6 +5342,8 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
             selectors.extend((
                 f'button[aria-label*="{value}" i]',
                 f'[role="button"][aria-label*="{value}" i]',
+                f'[role="gridcell"][aria-label*="{value}" i]',
+                f'button[title*="{value}" i]',
             ))
         for selector in selectors:
             try:
@@ -5504,7 +5506,7 @@ async def generic_ota_frontend_apply_dates(page, channel: str, stay: dict) -> tu
         confirmed=trip_url_dates_confirmed(page.url,stay)
         confirm_evidence="date URL Trip.com" if confirmed else ""
 
-    if not confirmed and start_ok and end_ok:
+    if not confirmed and start_ok and end_ok and channel not in {"hotels","travelocity","trip","priceline"}:
         low=(body or "").lower()
         if body.strip() and not any(word in low for word in BLOCK_WORDS):
             confirmed=True
@@ -6343,6 +6345,62 @@ async def trip_quote_candidates(page, stay: dict) -> list[dict]:
 
 
 
+
+async def specialist_ota_dom_dates_confirmed(page, stay: dict) -> tuple[bool,str]:
+    """Hotels.com, Travelocity e Trip.com: verifica date nei due campi, non nel calendario."""
+    try:
+        state=await page.evaluate(r"""() => {
+          const visible=el=>{
+            if(!el || el.getAttribute('aria-hidden')==='true') return false;
+            const style=getComputedStyle(el), rect=el.getBoundingClientRect();
+            return style.display!=='none' && style.visibility!=='hidden' &&
+                   rect.width>0 && rect.height>0;
+          };
+          const read=el=>[
+            el?.value||'', el?.textContent||'', el?.getAttribute?.('aria-label')||'',
+            el?.getAttribute?.('data-date')||''
+          ].join(' ').replace(/\s+/g,' ').trim();
+          const first=selectors=>{
+            for(const selector of selectors){
+              for(const el of Array.from(document.querySelectorAll(selector)).slice(0,35)){
+                if(visible(el)) return {selector,text:read(el)};
+              }
+            }
+            return null;
+          };
+          return {
+            start:first([
+              'input[name*="checkin" i]','input[name*="check-in" i]',
+              'input[aria-label*="check-in" i]','button[aria-label*="check-in" i]',
+              'input[placeholder*="check-in" i]','[data-testid*="checkin" i]',
+              '[data-testid*="check-in" i]','[data-stid*="checkin" i]',
+              '[data-stid*="check-in" i]'
+            ]),
+            end:first([
+              'input[name*="checkout" i]','input[name*="check-out" i]',
+              'input[aria-label*="check-out" i]','button[aria-label*="check-out" i]',
+              'input[placeholder*="check-out" i]','[data-testid*="checkout" i]',
+              '[data-testid*="check-out" i]','[data-stid*="checkout" i]',
+              '[data-stid*="check-out" i]'
+            ])
+          };
+        }""")
+    except Exception:
+        return False,""
+    start=date.fromisoformat(stay["checkin"])
+    end=date.fromisoformat(stay["checkout"])
+    start_text=str((state.get("start") or {}).get("text") or "").lower()
+    end_text=str((state.get("end") or {}).get("text") or "").lower()
+    verified=(
+        any(value in start_text for value in _date_forms(start))
+        and any(value in end_text for value in _date_forms(end))
+    )
+    return bool(verified),(
+        f"campo arrivo={start_text[:220] or 'n.d.'} | "
+        f"campo partenza={end_text[:220] or 'n.d.'}"
+    )[:600]
+
+
 async def priceline_dom_dates_confirmed(page, stay: dict) -> tuple[bool,str]:
     try:
         state=await page.evaluate(r"""() => {
@@ -6433,6 +6491,8 @@ async def priceline_apply_dates_via_ui(page, stay: dict) -> tuple[bool,str]:
             selectors.extend([
                 f'button[aria-label*="{label}" i]',
                 f'[role="button"][aria-label*="{label}" i]',
+                f'[role="gridcell"][aria-label*="{label}" i]',
+                f'button[title*="{label}" i]',
             ])
         for selector in selectors:
             try:
@@ -10336,7 +10396,9 @@ async def observe(
             # La homepage può contenere numeri/date incidentali (es. offerte/carousel)
             # e in v85 questo poteva produrre un falso positivo, saltando il vero flusso
             # homepage -> struttura -> date -> Cerca -> camere/tariffe.
-            if channel=="agoda":
+            if channel in {"agoda","hotels","travelocity","trip","priceline"}:
+                # These OTAs require final URL or the explicit check-in/out fields.
+                # A calendar displaying both dates is not proof of the applied stay.
                 confirmed=False
                 mode=""
             else:
@@ -10415,6 +10477,17 @@ async def observe(
                         "URL finale Trip.com mantiene check-in/check-out richiesti; "
                         f"contesto tariffario DOM: {context_evidence or 'scheda struttura'}"
                     )
+            if channel in {"hotels","travelocity","trip"} and not confirmed:
+                dom_ok, dom_evidence = await specialist_ota_dom_dates_confirmed(page, stay)
+                if dom_ok:
+                    if channel == "trip":
+                        property_context, context_evidence = await trip_property_rate_context(page)
+                    else:
+                        property_context, context_evidence = await expedia_group_property_rate_context(page, channel)
+                    if property_context:
+                        confirmed=True
+                        mode=f"{channel}-dom-fields+property-context"
+                        dom_excerpt=(dom_evidence+" | "+context_evidence)[:800]
             if channel == "priceline" and not confirmed:
                 confirmed, dom_excerpt = await priceline_dom_dates_confirmed(page, stay)
                 if confirmed:
@@ -10587,6 +10660,24 @@ async def observe(
                 record["title"], body, dates_confirmed, date_confirmation_mode, date_dom_excerpt = await snapshot_and_confirm()
             except Exception:
                 pass
+        if channel in {"hotels","travelocity","trip","priceline"}:
+            # Never attribute an Expedia or third-party redirect to the
+            # requested specialist: it would fabricate a rate/asymmetry.
+            actual_host=(urlparse(str(page.url or "")).hostname or "").lower().removeprefix("www.")
+            expected_hosts=OTA_META[channel]["domains"]
+            if actual_host and not any(
+                actual_host==host or actual_host.endswith("."+host)
+                for host in expected_hosts
+            ):
+                record.update(
+                    status="portal_redirect",finalUrl=page.url,quotes=[],
+                    evidence=(
+                        f"{OTA_META[channel]['label']}: reindirizzamento fuori dal portale "
+                        f"verso {actual_host}. Scheda e tariffe non attribuite a questa OTA; "
+                        "presenza e prezzi da verificare sul dominio corretto."
+                    )[:900],
+                )
+                return record
         text = (record["title"] + " " + body).lower()
         if channel=="agoda" and _agoda_unit_listing_conflict(property_name,page.url,record["title"]):
             record.update(
