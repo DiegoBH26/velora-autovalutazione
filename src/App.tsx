@@ -7742,7 +7742,7 @@ export default function App() {
       setOtaWorkspaceMessage("Apertura assistita delle cinque OTA su schede Chrome separate...");
       window.postMessage({source:"velora-online-v1",type:"OPEN_FIVE_OTA_TABS"},window.location.origin);
     } else {
-      setOtaWorkspaceMessage("Per aprire cinque schede insieme installa Chrome Companion 0.4.4. In alternativa apri Hotels.com e Travelocity dai link nel pannello.");
+      setOtaWorkspaceMessage("Per aprire cinque schede insieme installa Chrome Companion 0.4.5. In alternativa apri Hotels.com e Travelocity dai link nel pannello.");
     }
   }
 
@@ -11364,7 +11364,7 @@ export default function App() {
                     <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
                     <p className="mt-1 text-[12px] font-bold leading-5 text-[#50627F]">
                       {familyCompanionSupported
-                        ? "Chrome Companion "+(companionVersion||"0.4.4")+" · acquisizione su 5 OTA disponibile"
+                        ? "Chrome Companion "+(companionVersion||"0.4.5")+" · acquisizione su 5 OTA disponibile"
                         : "Per Tesla e Newton aggiorna Chrome Companion alla versione 0.4.5; le tre OTA precedenti restano utilizzabili."}
                       {!familyCompanionSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.5</a></>}
                     </p>
@@ -11384,7 +11384,7 @@ export default function App() {
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        {companionInstalled && !["0.4.3","0.4.4"].includes(companionVersion) && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
+                        {companionInstalled && !["0.4.3","0.4.4","0.4.5"].includes(companionVersion) && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
                           Expedia richiede Companion 0.4.3 o successivo per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
                         </p>}
                         <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
