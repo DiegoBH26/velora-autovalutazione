@@ -11501,7 +11501,7 @@ export default function App() {
                   const active=agentRunIds.map(id=>({id,state:specialistStatuses[id]})).find(item=>item.state?.state==="running");
                   const phase=active?.state?.phase || (queued?"Agenti in attesa":complete?"Esecuzioni terminate":"Avvio agenti");
                   const detail=active?.state?.progressDetail || (queued?"Attesa disponibilità del browser.":"");
-                  const activeStart=active?.state?.startedAt ? Date.parse(active.state.startedAt) : agentRunStartedAt;
+                  const activeStart=active?.state?.runningAt ? Date.parse(active.state.runningAt) : active?.state?.startedAt ? Date.parse(active.state.startedAt) : agentRunStartedAt;
                   const activeElapsed=activeStart && Number.isFinite(activeStart)
                     ? Math.max(0,agentRunClock-activeStart):0;
                   const longRunning=Boolean(active && activeElapsed>5*60*1000);
