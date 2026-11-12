@@ -7666,6 +7666,12 @@ export default function App() {
   }
 
   function manualOtaPresenceButton(otaId:ManualOtaId){
+    // Tariffe assistite correnti per la struttura rendono obsoleta la segnalazione di assenza.
+    // Non cancelliamo lo storico: la UI evidenzia l'evidenza più recente da verificare.
+    const imported=rateQuotes.filter(q=>q.otaId===otaId&&q.origin==="browser-assisted").length;
+    if(imported>0)return <div role="status" className="mt-2 rounded-lg border border-emerald-500/60 bg-[#164A45] px-2 py-2 text-[11px] font-bold text-[#DAFFF0]">
+      Scheda con {imported} tariffe Chrome acquisite · identità e condizioni da verificare
+    </div>;
     const reported=answers["audit-ota-"+otaId]?.manualPresence?.status==="not_found_by_operator";
     const busy=manualOtaBusy===otaId;
     return <div className="mt-2 space-y-1">
@@ -7826,15 +7832,8 @@ export default function App() {
       (fresh.some(q=>q.currency==="USD")?" (USD non confrontabile con euro)":"")+
       ". Le vedrai nell'Audit OTA, con unità e condizioni da verificare.");
     void logFamilyCompanionActivity(otaId,"imported",fresh.length,fresh.some(q=>q.currency==="USD")?"USD":"EUR");
-    setOtaWorkspaceOpen(false);
-    navigateVelora("tariffe");
-    window.requestAnimationFrame(()=>{
-      const pricing=document.getElementById("velora-pricing-details");
-      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
-      const section=document.getElementById("velora-pricing-ota-"+otaId);
-      if(section instanceof HTMLDetailsElement)section.open=true;
-      section?.scrollIntoView({behavior:"smooth",block:"start"});
-    });
+    // L'operatore resta nella dashboard dei cinque agenti: nessuna navigazione automatica.
+    setOtaWorkspaceOpen(true);
   }
 
   function openThreeOtaPortals() {
@@ -7908,13 +7907,8 @@ export default function App() {
         ? {...item,identityVerified:true}:item));
     setHoliduMessage("Tariffa Holidu salvata nella sezione tariffaria dedicata. Il delta con Booking rimane da verificare.");
     setHoliduReviewOpen(false);
-    window.requestAnimationFrame(()=>{
-      const pricing=document.getElementById("velora-pricing-details");
-      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
-      const holidu=document.getElementById("velora-pricing-ota-holidu");
-      if(holidu instanceof HTMLDetailsElement)holidu.open=true;
-      holidu?.scrollIntoView({behavior:"smooth",block:"start"});
-    });
+    // Conserva la posizione nell'area agenti; l'operatore decide quando consultare le tariffe.
+    setOtaWorkspaceOpen(true);
   }
 
   function captureVrboFromChrome() {
@@ -7973,13 +7967,8 @@ export default function App() {
         ? {...item,identityVerified:true}:item));
     setVrboMessage("Tariffa Vrbo salvata nella sezione tariffaria dedicata. Il delta con Booking rimane da verificare.");
     setVrboReviewOpen(false);
-    window.requestAnimationFrame(()=>{
-      const pricing=document.getElementById("velora-pricing-details");
-      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
-      const vrbo=document.getElementById("velora-pricing-ota-vrbo");
-      if(vrbo instanceof HTMLDetailsElement)vrbo.open=true;
-      vrbo?.scrollIntoView({behavior:"smooth",block:"start"});
-    });
+    // Conserva la posizione nell'area agenti; l'operatore decide quando consultare le tariffe.
+    setOtaWorkspaceOpen(true);
   }
 
   function captureExpediaFromChrome() {
@@ -8055,13 +8044,8 @@ export default function App() {
       item.otaId==="expedia"&&item.sourceUrl===captured.sourceUrl
         ? {...item,identityVerified:true}:item));
     setExpediaReviewOpen(false);
-    window.requestAnimationFrame(()=>{
-      const pricing=document.getElementById("velora-pricing-details");
-      if(pricing instanceof HTMLDetailsElement)pricing.open=true;
-      const expedia=document.getElementById("velora-pricing-ota-expedia");
-      if(expedia instanceof HTMLDetailsElement)expedia.open=true;
-      expedia?.scrollIntoView({behavior:"smooth",block:"start"});
-    });
+    // Non spostare la vista sulle tariffe: conserva la dashboard agenti.
+    setOtaWorkspaceOpen(true);
     setCompanionMessage(
       "Importate "+fresh.length+" camere Expedia con date e prezzi letti dal Chrome normale. "+
       "Il report è aggiornato; l'abbinamento fisico alle camere Booking resta non verificato."
@@ -11352,17 +11336,17 @@ export default function App() {
                       </section>
                     ))}
                   </div>
-                  {otaWorkspaceOpen && <aside className="fixed bottom-4 right-4 z-50 max-h-[85vh] w-[min(94vw,880px)] overflow-y-auto rounded-2xl border-2 border-[#D6C9EA] bg-white p-4 shadow-2xl" aria-label="Dashboard tre portali">
+                  {otaWorkspaceOpen && <aside className="fixed bottom-4 right-4 z-50 max-h-[85vh] w-[min(94vw,880px)] overflow-y-auto rounded-2xl border-2 border-[#506987] bg-[#14273F] p-4 text-[#F1F7FF] shadow-2xl" aria-label="Acquisizione assistita cinque OTA">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-black text-[#23124A]">Acquisizione assistita · 5 OTA</h3>
-                        <p className="text-[12px] leading-5 text-[#50627F]">Struttura: <b>{activeAuditData.name}</b> · Expedia, Vrbo, Holidu, Hotels.com e Travelocity. Imposta date e ospiti identici a Booking e acquisisci solo la scheda corretta.</p>
+                        <h3 className="text-base font-black text-[#F4F7FF]">Acquisizione assistita · 5 OTA</h3>
+                        <p className="text-[12px] leading-5 text-[#C7D7E9]">Struttura: <b>{activeAuditData.name}</b> · Expedia, Vrbo, Holidu, Hotels.com e Travelocity. Imposta date e ospiti identici a Booking e acquisisci solo la scheda corretta.</p>
                       </div>
                       <button type="button" onClick={()=>setOtaWorkspaceOpen(false)}
-                        className="rounded-lg border px-3 py-1 text-xs font-black">Chiudi</button>
+                        className="rounded-lg border px-3 py-1 text-xs font-black text-white">Chiudi</button>
                     </div>
-                    <p className="mt-2 text-[11px] text-[#50627F]" role="status">{otaWorkspaceMessage}</p>
-                    <p className="mt-1 text-[12px] font-bold leading-5 text-[#50627F]">
+                    <p className="mt-2 text-[11px] text-[#C7D7E9]" role="status">{otaWorkspaceMessage}</p>
+                    <p className="mt-1 text-[12px] font-bold leading-5 text-[#C7D7E9]">
                       {familyCompanionSupported
                         ? "Chrome Companion "+(companionVersion||"0.4.5")+" · acquisizione su 5 OTA disponibile"
                         : "Per Tesla e Newton aggiorna Chrome Companion alla versione 0.4.5; le tre OTA precedenti restano utilizzabili."}
@@ -11379,87 +11363,87 @@ export default function App() {
                       </button>
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <div className="min-w-0 rounded-xl border border-yellow-300 bg-amber-50 p-3">
+                      <div className="min-w-0 rounded-xl border border-[#95784A] bg-[#302A23] p-3">
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Ercole · Expedia</b>
                           <a href="https://www.expedia.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        {companionInstalled && !["0.4.3","0.4.4","0.4.5"].includes(companionVersion) && <p className="mt-2 rounded-md border border-amber-400 bg-white px-2 py-1 text-[10px] font-bold text-amber-900">
+                        {companionInstalled && !["0.4.3","0.4.4","0.4.5"].includes(companionVersion) && <p className="mt-2 rounded-md border border-amber-400 bg-[#273E58] px-2 py-1 text-[10px] font-bold text-[#FFE5B6]">
                           Expedia richiede Companion 0.4.3 o successivo per associare i prezzi alle camere nei layout a colonne: attuale {companionVersion||"sconosciuta"}. Scarica lo ZIP aggiornato, sostituisci i file dell'estensione, premi Ricarica in chrome://extensions e Ctrl+F5 qui.
                         </p>}
-                        <p className="my-2 text-[11px] text-[#50627F]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
+                        <p className="my-2 text-[11px] text-[#C7D7E9]">{companionCapture?.propertyId===activeAuditData.id?companionCapture.rooms.length+" camere lette":"Da acquisire"}</p>
                         <button type="button" onClick={captureExpediaFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Expedia</button>
                         <button type="button" onClick={importCompanionExpediaRates}
                           disabled={!companionCapture || companionCapture.propertyId!==activeAuditData.id ||
                             !companionCapture.rooms.length ||
                             !(matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city)||companionIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-yellow-500 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-yellow-500 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
                           {companionCapture?.propertyId===activeAuditData.id
                             ? "Importa "+companionCapture.rooms.length+" tariffe Expedia" : "Importa tariffe Expedia"}
                         </button>
                         {manualOtaPresenceButton("expedia")}
-                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{companionMessage||"Camere, prezzi e contenuti dalla pagina visibile."}</p>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#C7D7E9]">{companionMessage||"Camere, prezzi e contenuti dalla pagina visibile."}</p>
                         {companionCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(companionCapture.propertyName+" "+companionCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
-                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#FFDEA5]">
                             <input type="checkbox" checked={companionIdentityConfirmed} onChange={e=>setCompanionIdentityConfirmed(e.target.checked)}/>
                             Confermo identità dopo aver verificato nome, località e foto
                           </label>}
-                        {companionCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{companionCapture.checkin} → {companionCapture.checkout} · {companionCapture.guests} ospiti</p>}
+                        {companionCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{companionCapture.checkin} → {companionCapture.checkout} · {companionCapture.guests} ospiti</p>}
                       </div>
-                      <div className="min-w-0 rounded-xl border border-blue-300 bg-blue-50 p-3">
+                      <div className="min-w-0 rounded-xl border border-[#567DA6] bg-[#19324C] p-3">
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Atlante · Vrbo</b>
                           <a href="https://www.vrbo.com/it-it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        <p className="my-2 text-[11px] text-[#50627F]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
+                        <p className="my-2 text-[11px] text-[#C7D7E9]">{vrboCapture?.propertyId===activeAuditData.id?vrboCapture.rooms.length+" totali letti":"Da acquisire"}</p>
                         <button type="button" onClick={captureVrboFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Vrbo</button>
                         <button type="button" onClick={importVrboCompanionRates}
                           disabled={!vrboCapture || vrboCapture.propertyId!==activeAuditData.id ||
                             !vrboCapture.rooms.length ||
                             !(matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city)||vrboIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-blue-400 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-blue-400 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
                           {vrboCapture?.propertyId===activeAuditData.id
                             ? "Importa "+vrboCapture.rooms.length+" tariffe Vrbo" : "Importa tariffe Vrbo"}
                         </button>
                         <button type="button" disabled={vrboPresenceBusy||vrboPresence.state==="running"||vrboPresence.state==="queued"}
                           onClick={()=>void startVrboPresenceCheck()}
-                          className="mt-2 w-full rounded-lg border border-blue-300 bg-white px-2 py-2 text-[11px] font-black text-[#23124A] disabled:opacity-50">
+                          className="mt-2 w-full rounded-lg border border-[#567DA6] bg-[#273E58] px-2 py-2 text-[11px] font-black text-[#F4F7FF] disabled:opacity-50">
                           {vrboPresenceBusy||vrboPresence.state==="running"||vrboPresence.state==="queued"?"Ricerca scheda in corso…":"Cerca presenza automaticamente"}
                         </button>
                         {vrboPresence.state==="completed"&&vrboPresence.result?.propertyId===activeAuditData.id&&
-                          <p className="mt-1 text-[10px] font-bold text-[#50627F]">{vrboPresence.result.label}</p>}
+                          <p className="mt-1 text-[10px] font-bold text-[#C7D7E9]">{vrboPresence.result.label}</p>}
                         {manualOtaPresenceButton("vrbo")}
-                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{vrboMessage||"La pagina di ricerca non basta: serve una scheda alloggio."}</p>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#C7D7E9]">{vrboMessage||"La pagina di ricerca non basta: serve una scheda alloggio."}</p>
                         {vrboCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(vrboCapture.propertyName+" "+vrboCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
-                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#FFDEA5]">
                             <input type="checkbox" checked={vrboIdentityConfirmed} onChange={e=>setVrboIdentityConfirmed(e.target.checked)}/>
                             Confermo identità dopo aver verificato nome, località e foto
                           </label>}
-                        {vrboCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{vrboCapture.checkin} → {vrboCapture.checkout} · {vrboCapture.guests} ospiti</p>}
+                        {vrboCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{vrboCapture.checkin} → {vrboCapture.checkout} · {vrboCapture.guests} ospiti</p>}
                       </div>
-                      <div className="min-w-0 rounded-xl border border-teal-300 bg-teal-50 p-3">
+                      <div className="min-w-0 rounded-xl border border-[#4B908D] bg-[#193A3B] p-3">
                         <div className="flex items-center justify-between gap-2">
                           <b className="text-sm">Mercurio · Holidu</b>
                           <a href="https://www.holidu.it/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold underline">Apri sito</a>
                         </div>
-                        <p className="my-2 text-[11px] text-[#50627F]">{holiduCapture?.propertyId===activeAuditData.id?holiduCapture.rooms.length+" totali letti":"Da acquisire"}</p>
+                        <p className="my-2 text-[11px] text-[#C7D7E9]">{holiduCapture?.propertyId===activeAuditData.id?holiduCapture.rooms.length+" totali letti":"Da acquisire"}</p>
                         <button type="button" onClick={captureHoliduFromChrome} className="w-full rounded-lg bg-[#23124A] px-2 py-2 text-xs font-black text-white">Acquisisci Holidu</button>
                         <button type="button" onClick={importHoliduCompanionRates}
                           disabled={!holiduCapture || holiduCapture.propertyId!==activeAuditData.id ||
                             !holiduCapture.rooms.length ||
                             !(matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city)||holiduIdentityConfirmed)}
-                          className="mt-2 w-full rounded-lg border border-teal-400 bg-white px-2 py-2 text-xs font-black text-[#23124A] disabled:opacity-40">
+                          className="mt-2 w-full rounded-lg border border-teal-400 bg-[#273E58] px-2 py-2 text-xs font-black text-[#F4F7FF] disabled:opacity-40">
                           {holiduCapture?.propertyId===activeAuditData.id
                             ? "Importa "+holiduCapture.rooms.length+" tariffe Holidu" : "Importa tariffe Holidu"}
                         </button>
                         {manualOtaPresenceButton("holidu")}
-                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#50627F]">{holiduMessage||"Legge solo un annuncio Holidu autentico, non un rinvio a un'altra OTA."}</p>
+                        <p className="mt-2 max-h-20 overflow-y-auto text-[10px] text-[#C7D7E9]">{holiduMessage||"Legge solo un annuncio Holidu autentico, non un rinvio a un'altra OTA."}</p>
                         {holiduCapture?.propertyId===activeAuditData.id && !matchingExpediaProperty(holiduCapture.propertyName+" "+holiduCapture.pageTitle,activeAuditData.name,activeAuditData.city) &&
-                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#92400E]">
+                          <label className="mt-2 flex items-start gap-2 text-[10px] text-[#FFDEA5]">
                             <input type="checkbox" checked={holiduIdentityConfirmed} onChange={e=>setHoliduIdentityConfirmed(e.target.checked)}/>
                             Confermo identità dopo aver verificato nome, località e foto
                           </label>}
-                        {holiduCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#50627F]">{holiduCapture.checkin} → {holiduCapture.checkout} · {holiduCapture.guests} ospiti</p>}
+                        {holiduCapture?.propertyId===activeAuditData.id && <p className="mt-1 text-[10px] text-[#C7D7E9]">{holiduCapture.checkin} → {holiduCapture.checkout} · {holiduCapture.guests} ospiti</p>}
                       </div>
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-2" aria-label="Hotels.com e Travelocity - acquisizione assistita">
@@ -11533,7 +11517,7 @@ export default function App() {
                       })}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[11px] text-[#50627F]">Tariffe importate: Expedia {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} · Vrbo {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} · Holidu {rateQuotes.filter(q=>q.otaId==="holidu"&&q.origin==="browser-assisted").length} · Hotels.com {rateQuotes.filter(q=>q.otaId==="hotels"&&q.origin==="browser-assisted").length} · Travelocity {rateQuotes.filter(q=>q.otaId==="travelocity"&&q.origin==="browser-assisted").length}</p>
+                      <p className="text-[11px] text-[#C7D7E9]">Tariffe importate: Expedia {rateQuotes.filter(q=>q.otaId==="expedia"&&q.origin==="browser-assisted").length} · Vrbo {rateQuotes.filter(q=>q.otaId==="vrbo"&&q.origin==="browser-assisted").length} · Holidu {rateQuotes.filter(q=>q.otaId==="holidu"&&q.origin==="browser-assisted").length} · Hotels.com {rateQuotes.filter(q=>q.otaId==="hotels"&&q.origin==="browser-assisted").length} · Travelocity {rateQuotes.filter(q=>q.otaId==="travelocity"&&q.origin==="browser-assisted").length}</p>
                       <button type="button" onClick={()=>{
                         setOtaWorkspaceOpen(false);
                         const pricing=document.getElementById("velora-pricing-details");
