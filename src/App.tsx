@@ -4153,6 +4153,14 @@ function pilotDistinctiveNameWords(value:string):string[] {
     .filter(token=>token.length>=4&&!PILOT_GENERIC_PROPERTY_TOKENS.has(token));
 }
 function pilotListingIdentityWarning(result:BrowserPilotResult,observation:BrowserPilotObservation):string {
+  // A challenge/login page is NOT a competing property. Its HTML title is
+  // often "Sei un robot?" or "Sign in", never a listing identity.
+  const technicalStatuses=new Set([
+    "rate_limited","rate_limited_session","access_blocked","blocked",
+    "http_error","navigation_error","robots_denied","robots_unavailable",
+    "login_required","human_verification_pending","portal_redirect"
+  ]);
+  if(technicalStatuses.has(observation.status)) return "";
   const expected=String(result.propertyName||"").trim();
   if(!expected) return "";
   const expectedWords=pilotDistinctiveNameWords(expected);
@@ -4167,6 +4175,10 @@ function pilotListingIdentityWarning(result:BrowserPilotResult,observation:Brows
     : "";
   const listingName=observation.otaId==="airbnb" ? (airbnbListing||ownTitle) : ownTitle;
   if (!listingName) return "";
+  // Even when an older agent assigned a generic status, never treat a
+  // security/login screen as evidence of another accommodation.
+  if(/^(sei un robot\??|are you a robot\??|verify you are human|access denied|accesso negato|sign in|login|captcha|security check)/i.test(listingName) ||
+    /(?:captcha|robot|security check|verifica.*sicurezza|account\/signin)/i.test(listingName)) return "";
   const candidateWords=pilotDistinctiveNameWords(listingName);
   if(!candidateWords.length) return "";
   if(expectedWords.some(word=>candidateWords.includes(word))) return "";
@@ -7900,7 +7912,7 @@ export default function App() {
       !(manualRateSource.checkout>manualRateSource.checkin) ||
       manualRateSource.nights<1
     )) {
-      window.alert("Date non coerenti: check-out dopo check-in, notti calcolate automaticamente. Allinea la ricerca Expedia con il modulo prima di salvare.");
+      window.alert("Date non coerenti: check-out dopo check-in, notti calcolate automaticamente. Allinea le date osservate sul portale selezionato prima di salvare.");
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(rateDraft.stayDate) || rateDraft.stayDate < todayLocalIso() || !Number.isFinite(rateDraft.total) || rateDraft.total <= 0 || rateDraft.nights < 1 || rateDraft.guests < 1 || !rateDraft.roomType.trim() || !/^https?:\/\//i.test(rateDraft.sourceUrl.trim()) || (Number(rateDraft.originalTotal) > 0 && Number(rateDraft.originalTotal) <= rateDraft.total)) {
@@ -10035,10 +10047,11 @@ export default function App() {
       // un esito negativo della ricerca da rendere evidente.
       const presence: "present"|"missing"|"candidate"|"blocked"|"unverified"=
         identityConfirmed ? "present"
+        : anyBlocked ? "blocked"
         : wrongOnly || explicitlyNotFound ? "missing"
-        : hasCandidate ? "candidate"
-        : anyBlocked ? "blocked" : "unverified";
-      const presenceLabel=wrongOnly?"Solo annunci estranei scartati · nessuna scheda corretta verificata"
+        : hasCandidate ? "candidate" : "unverified";
+      const presenceLabel=presence==="blocked"?"Accesso limitato o login richiesto · presenza e tariffe non verificate"
+        : wrongOnly?"Solo annunci estranei scartati · nessuna scheda corretta verificata"
         : operatorNotFound && presence==="missing"?"Non rilevata nella ricerca manuale · assenza da verificare"
         : presence==="present"?"Scheda confermata"
         : presence==="missing"?"Non individuata nella ricerca"
@@ -11588,7 +11601,7 @@ export default function App() {
                 </table>
               </div>}
               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {["vrbo","expedia","holidu"].map((otaId) => {
+                {["vrbo","expedia","holidu","trip","hotels","travelocity","priceline"].map((otaId) => {
                   const observation = [...browserPilotResult.observations].reverse().find((item) => item.otaId === otaId);
                   if (!observation) return null;
                   const nav = (observation as typeof observation & { navigationSteps?: {step:string;status:string;detail?:string}[];googleFrontendNavigation?: {status?:string;blockedSite?:string;stage?:string} }).navigationSteps || [];
@@ -11596,7 +11609,7 @@ export default function App() {
                   const listing = nav.find((step) => step.step === "listing");
                   const denied = observation.status === "robots_denied" || observation.evidence?.includes("robots_denied");
                   const blocking = denied || ["rate_limited","rate_limited_session","access_blocked","http_error","frontend_navigation_failed","blocked"].includes(observation.status);
-                  const canReviewManually = ["rate_limited","rate_limited_session","access_blocked","http_error","source_missing","source_unverified","wrong_property_listing","frontend_navigation_failed","blocked","human_verification_pending"].includes(observation.status);
+                  const canReviewManually = ["rate_limited","rate_limited_session","access_blocked","http_error","source_missing","source_unverified","wrong_property_listing","frontend_navigation_failed","blocked","human_verification_pending","login_required","portal_redirect"].includes(observation.status);
                   const quotes = (observation.quotes || []).length;
                   const steps = [
                     {title:"Google",state:google?.status || (denied ? "blocked" : "unknown")},
@@ -11862,7 +11875,7 @@ export default function App() {
                 <button type="button" onClick={() => {setManualRateSource(null);setAssistedRateConfirmation("");}} className="rounded-md border border-[#C8B9DA] bg-white px-2 py-1 font-bold">Esci dalla modalità assistita</button>
               </div>
               {manualRateSource.locked
-                ? <p className="mt-1">Date del campione fissato: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Controlla che Expedia mostri esattamente le stesse date.</p>
+                ? <p className="mt-1">Date del campione fissato: <b>{manualRateSource.checkin} → {manualRateSource.checkout}</b> · {manualRateSource.nights} notti · {manualRateSource.guests} ospiti. Controlla che {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId} mostri esattamente le stesse date.</p>
                 : <>
                   <p className="mt-1 font-semibold">Imposta qui <b>le stesse date visualizzate su Expedia</b>. Le date precedenti sono solo un suggerimento.</p>
                   {manualRateSource.suggestedCheckin && <p className="mt-1 text-[#50627F]">
@@ -11892,7 +11905,7 @@ export default function App() {
                     Inserisci check-in e check-out validi: il check-out deve essere dopo il check-in. Il salvataggio è bloccato.
                   </p>}
                 </>}
-              <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il suo prezzo totale realmente mostrato su Expedia, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente.</p>
+              <p className="mt-2 text-[#50627F]">Registra una camera alla volta e il prezzo totale realmente mostrato su {PILOT_OTA_LABELS[manualRateSource.otaId] || manualRateSource.otaId}, per la stessa struttura, le stesse date e gli stessi ospiti. Le rilevazioni manuali non sono validate automaticamente dall'agente.</p>
               {assistedRateConfirmation && <p className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-[11px] font-black text-emerald-900" role="status">
                 ✓ {assistedRateConfirmation}
               </p>}
@@ -11900,7 +11913,7 @@ export default function App() {
                 <label className="text-[11px] font-black text-[#23124A]">Nome esatto della struttura mostrato nella pagina
                   <input type="text" value={manualRateSource.listingName||""}
                     onChange={(e)=>setManualRateSource(previous=>previous?{...previous,listingName:e.target.value,identityConfirmed:false}:previous)}
-                    placeholder="Come appare su Expedia (es. Masseria Tenuta Specolizzi)"
+                    placeholder="Nome mostrato sulla pagina OTA (es. Masseria Tenuta Specolizzi)"
                     className="mt-1 block w-full rounded-lg border border-[#D9CCE8] bg-white p-2 text-xs" />
                 </label>
                 <label className="flex items-center gap-2 rounded-lg border border-[#D9CCE8] bg-white p-2 text-[11px] font-semibold text-[#23124A]">
@@ -11910,7 +11923,7 @@ export default function App() {
                   Ho verificato che nome, fotografie/località, camera, date e ospiti corrispondono alla struttura che sto analizzando.
                 </label>
               </div>
-              <p className="mt-2 text-[10px] text-[#50627F]">Incolla più sotto l'URL esatto del preventivo Expedia. Non copiare URL della pagina CAPTCHA o di un'altra struttura. Il prezzo resta non comparabile finché non è confermata la stessa unità di Booking.</p>
+              <p className="mt-2 text-[10px] text-[#50627F]">Incolla più sotto l'URL esatto del preventivo sul portale selezionato. Non copiare URL di login, pagine CAPTCHA o strutture diverse. Il prezzo resta non comparabile finché non è confermata la stessa unità di Booking.</p>
             </div>}
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#E5DDF1] bg-[#FBF9FF] p-4 md:grid-cols-4">
             <label className="text-[11px] font-black text-[#23124A]">OTA<select value={rateDraft.otaId} disabled={Boolean(manualRateSource)} onChange={(event) => setRateDraft((previous) => ({ ...previous, otaId: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs">{activeAuditData.otaPresence.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform}</option>)}</select></label>
