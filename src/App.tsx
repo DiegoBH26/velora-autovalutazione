@@ -4129,7 +4129,9 @@ function promotionSummary(quote: RateQuote): string {
 }
 
 function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { average: number | null; count: number; verified: number; deltaPct: number | null; matched: number } {
-  const own = quotes.filter((quote) => quote.otaId === otaId && quote.stayDate.startsWith(month));
+  // EUR is the only unit allowed in EUR monthly averages and Booking deltas.
+  const own = quotes.filter((quote) => quote.otaId === otaId && quote.stayDate.startsWith(month)
+    && (quote.currency||"EUR")==="EUR");
   if (!own.length) return { average: null, count: 0, verified: 0, deltaPct: null, matched: 0 };
   const average = own.reduce((sum, quote) => sum + quote.total / quote.nights, 0) / own.length;
   // Manual quotes have a human-stated source but are never parser-validated.
@@ -4138,7 +4140,7 @@ function monthlyRateCell(quotes: RateQuote[], month: string, otaId: string): { a
     if (quote.origin === "pilot" && quote.pilotVerified === false) return [];
     const comparisonUnit = quote.referenceRoomKey?.trim().toLowerCase() || quote.unitId?.trim().toLowerCase();
     if (!comparisonUnit) return [];
-    const base = quotes.find((other) => other.otaId === "booking" &&
+    const base = quotes.find((other) => other.otaId === "booking" && (other.currency||"EUR")==="EUR" &&
       !(other.origin === "pilot" && other.pilotVerified === false) &&
       (other.referenceRoomKey?.trim().toLowerCase() || other.unitId?.trim().toLowerCase()) === comparisonUnit &&
       other.stayDate === quote.stayDate && other.observedAt.slice(0, 10) === quote.observedAt.slice(0, 10));
@@ -10070,18 +10072,19 @@ export default function App() {
       !matchingExpediaProperty(expediaPresentation.propertyName,activeAuditData.name,activeAuditData.city));
     // Positioning ranges are not same-room Booking vs OTA price deltas.
     const priceRangesByStay=new Map<string,{
-      otaId:string;stayDate:string;nights:number;guests:number;
+      otaId:string;stayDate:string;nights:number;guests:number;currency:"EUR"|"USD";
       prices:number[];rooms:Set<string>;unverified:boolean;
     }>();
     for(const quote of rateQuotes.filter(q=>q.stayDate>=todayLocalIso()&&q.total>0&&q.nights>0)){
-      const key=[quote.stayDate,quote.nights,quote.guests,quote.otaId].join("|");
+      const key=[quote.stayDate,quote.nights,quote.guests,quote.otaId,quote.currency||"EUR"].join("|");
       let group=priceRangesByStay.get(key);
       if(!group){
         group={otaId:quote.otaId,stayDate:quote.stayDate,nights:quote.nights,
-          guests:quote.guests,prices:[],rooms:new Set<string>(),unverified:false};
+          guests:quote.guests,currency:quote.currency||"EUR",
+          prices:[],rooms:new Set<string>(),unverified:false};
         priceRangesByStay.set(key,group);
       }
-      const unitKey=[quote.roomType.toLowerCase(),quote.total].join("|");
+      const unitKey=[quote.roomType.toLowerCase(),quote.total,quote.currency||"EUR"].join("|");
       if(!group.rooms.has(unitKey)){group.prices.push(quote.total);group.rooms.add(unitKey);}
       if(quote.otaId!=="booking"&&quote.roomMatchStatus!=="same-room")group.unverified=true;
     }
@@ -10266,6 +10269,7 @@ export default function App() {
       // Compare unique priced unit types only on the exact same stay/guest
       // cohort; do not infer a room is missing simply because the page blocked.
       const eligible=rateQuotes.filter(q=>q.total>0&&q.nights>0&&q.guests>0&&
+        (q.currency||"EUR")==="EUR" &&
         (q.otaId===otaId||q.otaId==="booking"));
       const otaQuotes=eligible.filter(q=>q.otaId===otaId);
       const bookingQuotes=eligible.filter(q=>q.otaId==="booking");
@@ -11980,8 +11984,8 @@ export default function App() {
                   <td className="p-2">{row.stayDate} · {row.nights} notti · {row.guests} ospiti</td>
                   <td className="p-2 font-bold">{activeAuditData.otaPresence.find(ch=>ch.id===row.otaId)?.platform||PILOT_OTA_LABELS[row.otaId]||row.otaId}</td>
                   <td className="p-2">{row.rooms.size}</td>
-                  <td className="p-2 font-bold">€{Math.min(...row.prices).toFixed(2)}–€{Math.max(...row.prices).toFixed(2)}</td>
-                  <td className="p-2">{row.unverified?"Unità e condizioni da verificare":"Prezzi rilevati · verificare condizioni"}</td>
+                  <td className="p-2 font-bold">{observedRateLabel(Math.min(...row.prices),row.currency)}–{observedRateLabel(Math.max(...row.prices),row.currency)}</td>
+                  <td className="p-2">{row.currency==="USD"?"Valori in USD; NON confrontati con Booking EUR":row.unverified?"Unità e condizioni da verificare":"Prezzi rilevati · verificare condizioni"}</td>
                 </tr>
               ))}</tbody>
             </table>
