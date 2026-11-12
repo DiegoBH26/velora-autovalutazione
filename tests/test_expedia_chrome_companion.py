@@ -47,7 +47,8 @@ class ExpediaChromeCompanion(unittest.TestCase):
         self.assertIn('pulsanti camera riconosciuti',WORKER)
         self.assertIn('Nessuna camera importabile:',APP)
         self.assertIn('sourceUrl:sanitized.toString()',WORKER)
-        self.assertIn('schema:"velora-expedia-visible-v1"',WORKER)
+        self.assertIn('schema:"velora-"+portal+"-visible-v1"',WORKER)
+        self.assertIn('function visibleExpediaCapture(portal = "expedia")',WORKER)
         self.assertIn('const genericHeading=',WORKER)
 
     def test_bulk_import_not_manual_per_room_form(self):
