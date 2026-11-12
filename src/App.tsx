@@ -12700,18 +12700,58 @@ export default function App() {
       status={localPilotRunning?"Scraping in corso":localPilotToken?"Agente locale collegato":"Modalità consulenziale"}
       navigation={[
         {id:"archivio",label:"Archivio strutture",description:"Schede, salvataggi e storico",onClick:()=>navigateVelora("archivio")},
-        {id:"panoramica",label:"Panoramica",description:"Stato del lavoro e modalità",active:workspaceSection==="panoramica",onClick:()=>navigateVelora("panoramica")},
+        {id:"panoramica",label:"Panoramica",description:"Radar di tutte le aree",active:workspaceSection==="panoramica" || workspaceSection==="kpi",onClick:()=>navigateVelora("panoramica")},
         {id:"struttura",label:"Dati struttura",description:"Anagrafica e referente",active:workspaceSection==="struttura",onClick:()=>navigateVelora("struttura")},
         {id:"intervista",label:"Intervista completa",description:"Tutte le domande e macroaree",active:workspaceSection==="intervista",onClick:()=>navigateVelora("intervista")},
         {id:"personalizza",label:"Personalizza intervista",description:"Scelta e salvataggio domande",onClick:()=>navigateVelora("personalizza")},
         {id:"rapida",label:"Analisi rapida Hotel",description:"Percorso breve e approfondimenti",active:workspaceSection==="rapida",onClick:()=>navigateVelora("rapida")},
-        {id:"audit",label:"Audit Web & Frontend",description:"Checklist e riscontri pubblici",active:workspaceSection==="audit",onClick:()=>navigateVelora("audit")},
-        {id:"scraping",label:"Scraping OTA",description:"Agenti, tariffe e verifiche",active:workspaceSection==="scraping",onClick:()=>navigateVelora("scraping")},
+        {id:"audit",label:"Audit Web & Frontend",description:"Checklist e riscontri pubblici",active:["audit","macroaree","macroarea","bookingengine","mappa","piani","contenuti","recensioni","criticita"].includes(workspaceSection),onClick:()=>navigateVelora("audit")},
+        {id:"scraping",label:"Scraping OTA",description:"Agenti, tariffe e verifiche",active:["scraping","commerciale","asimmetrie","tariffe"].includes(workspaceSection),onClick:()=>navigateVelora("scraping")},
         {id:"report",label:"Report e output",description:"PDF, CSV e JSON attuali",active:workspaceSection==="report",onClick:()=>navigateVelora("report")}
       ]}
     >
-    <main className="velora-core velora-core--assessment min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
+    {(workspaceSection==="panoramica" || workspaceSection==="macroaree") ? (
+      <VeloraRadar
+        key={workspaceSection}
+        mode={workspaceSection==="macroaree"?"macro":"main"}
+        title={workspaceSection==="macroaree"?"Radar delle macroaree osservabili":"Radar di autovalutazione Velora"}
+        description={workspaceSection==="macroaree"
+          ?"Ogni spicchio apre una macroarea osservabile, con i controlli e le risposte già registrate."
+          :"Un solo centro di controllo: seleziona lo spicchio per aprire l'area operativa reale, senza scorrere un'unica pagina."}
+        structureName={ownerInfo.propertyName || activeAuditData.name}
+        sectors={workspaceSection==="macroaree"?macroRadarSectors:radarSectors}
+        metrics={workspaceSection==="macroaree"
+          ? [{label:"Macroaree osservabili",value:String(EXTERNAL_WEB_AUDIT_DATA.length)},
+             {label:"Controlli della checklist",value:String(flattenItems(EXTERNAL_WEB_AUDIT_DATA).length)},
+             {label:"Struttura",value:ownerInfo.propertyName || activeAuditData.name}]
+          : [{label:"Domande dell'intervista",value:String(flattenItems(ASSESSMENT_DATA).length),description:"Questionario completo invariato"},
+             {label:"Controlli audit frontend",value:String(flattenItems(EXTERNAL_WEB_AUDIT_DATA).length),description:"Evidenze pubbliche"},
+             {label:"Macroaree osservabili",value:String(EXTERNAL_WEB_AUDIT_DATA.length),description:"Secondo livello del radar"},
+             {label:"Tariffe registrate",value:String(rateQuotes.length),description:"Dati della struttura attiva"}]}
+        onSelect={(id)=>{
+          if(id.startsWith("macro:")) navigateVelora("macroarea",id.slice(6));
+          else navigateVelora(id);
+        }}
+        onBack={workspaceSection==="macroaree"?()=>navigateVelora("panoramica"):undefined}
+      />
+    ) : (
+    <main data-velora-view={workspaceSection} className="velora-core velora-core--assessment min-h-screen bg-[#F7F4FB] px-6 py-6 text-[#23124A]">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-6">
+        <div className="velora-area-head">
+          <div>
+            <p>VELORA / MODULO OPERATIVO</p>
+            <h2>{workspaceSection==="macroarea"
+              ? EXTERNAL_WEB_AUDIT_DATA.find(macro=>macro.id===workspaceMacroId)?.title || "Macroarea osservabile"
+              : radarSectors.find(sector=>sector.id===workspaceSection)?.label || "Autovalutazione"}</h2>
+            <span>{workspaceSection==="macroarea"
+              ? "Controlli osservabili e riscontri della macroarea selezionata"
+              : radarSectors.find(sector=>sector.id===workspaceSection)?.description || "Dati e strumenti già registrati in Velora"}</span>
+          </div>
+          <div className="velora-area-head__actions">
+            {workspaceSection==="macroarea" && <button type="button" onClick={()=>navigateVelora("macroaree")}>← Tutte le macroaree</button>}
+            <button type="button" onClick={()=>navigateVelora("panoramica")}>◎ Torna al radar</button>
+          </div>
+        </div>
         <section id="velora-overview" className="flex flex-col gap-3 rounded-[1.5rem] border border-[#E5DDF1] bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#C8A96B]">Archivio consulenziale</p>
@@ -12874,7 +12914,7 @@ export default function App() {
           )}
         </section>
 
-        <section className="overflow-hidden rounded-[2rem] border border-[#E5DDF1] bg-white shadow-[0_18px_50px_rgba(35,18,74,0.08)]">
+        <section id="velora-kpi-summary" className="overflow-hidden rounded-[2rem] border border-[#E5DDF1] bg-white shadow-[0_18px_50px_rgba(35,18,74,0.08)]">
           <div className="border-b border-[#EFE9F7] bg-gradient-to-r from-white via-[#FBF8FF] to-[#F3EEF9] px-6 py-6">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-4xl">
@@ -13410,7 +13450,7 @@ export default function App() {
         )}
         </div>
 
-        <section className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
+        <section id="velora-opportunities" className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-[12px] font-black uppercase tracking-[0.28em] text-[#C8A96B]">
@@ -13537,6 +13577,7 @@ export default function App() {
         </section>
       </div>
     </main>
+    )}
     </VeloraWorkspace>
   );
 }
