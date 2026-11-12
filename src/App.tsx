@@ -11051,6 +11051,22 @@ export default function App() {
                           </span>
                           {agent.beta&&<span className="shrink-0 rounded-md bg-white/75 px-1.5 py-0.5 text-[9px] font-black">TEST</span>}
                         </button>
+                        {(agent.id==="hotels"||agent.id==="travelocity") && <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-current/20 pt-3" data-velora-assisted-ota={agent.id}>
+                          <a href={FAMILY_COMPANION_HOMES[agent.id]} target="_blank" rel="noopener noreferrer"
+                            className="rounded-lg border border-[#7593B3] bg-[#263D59] px-3 py-2 text-[12px] font-bold text-[#F5F9FF]">
+                            Apri sito
+                          </a>
+                          <button type="button" onClick={()=>captureFamilyFromChrome(agent.id as ExpediaFamilyOtaId)}
+                            className="rounded-lg bg-[#5947B1] px-3 py-2 text-[12px] font-bold text-white">
+                            Acquisisci da Chrome
+                          </button>
+                          <span className="text-[12px] font-semibold">Lettura assistita · nessun login obbligatorio</span>
+                          <p className="w-full text-[11px] leading-5">{familyMessage[agent.id] || "Apri la scheda corretta, scegli le date Booking e poi acquisisci dal Chrome normale."}</p>
+                          <button type="button" onClick={()=>setOtaWorkspaceOpen(true)}
+                            className="rounded-lg border border-[#7593B3] bg-[#263D59] px-3 py-2 text-[12px] font-bold text-white">
+                            Verifica e importa prezzi
+                          </button>
+                        </div>}
                         {(["trip","priceline","hotels","travelocity"] as const).includes(agent.id as "trip"|"priceline"|"hotels"|"travelocity") && <div className="mt-2 border-t border-current/15 pt-2">
                           {manualOtaPresenceButton(agent.id as "trip"|"priceline"|"hotels"|"travelocity")}
                         </div>}
