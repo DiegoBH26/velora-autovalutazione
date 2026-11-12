@@ -48,7 +48,7 @@ class VeloraR6ContrastAndNavigation(unittest.TestCase):
         self.assertIn('slow_public_specialists={"hotels","travelocity","trip","priceline"}',SERVER)
         self.assertIn("asyncio.wait_for(coroutine,timeout=budget_seconds)",SERVER)
         self.assertIn("tempo limite di {budget_seconds//60} minuti superato",SERVER)
-        self.assertIn('status:"failed"',APP)
+        self.assertIn('state:"failed"',APP)
 
 if __name__=="__main__":
     unittest.main()
