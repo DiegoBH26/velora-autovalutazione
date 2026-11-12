@@ -69,6 +69,21 @@ export default function VeloraRadar({
   const [pointedId, setPointedId] = useState<string | null>(null);
   const pointed = sectors.find((sector) => sector.id === pointedId) ?? null;
   const perSector = sectors.length ? 360 / sectors.length : 360;
+  // Identificatori grandi e brevi nel radar; i nomi completi sono nei pulsanti
+  // accanto, visibili e cliccabili anche con tastiera. 18 nomi integrali in
+  // 18 spicchi da 20 gradi non sarebbero leggibili a zoom normale.
+  const shortSectorNames: Record<string, string> = {
+    struttura: "Dati", intervista: "Intervista", personalizza: "Configura",
+    rapida: "Rapida", audit: "Frontend", macroaree: "Macroaree",
+    bookingengine: "Booking", commerciale: "Diretto", scraping: "Scraping",
+    mappa: "Mappa OTA", piani: "Piani", contenuti: "Contenuti",
+    asimmetrie: "Delta OTA", tariffe: "Tariffe", recensioni: "Foto",
+    kpi: "KPI", criticita: "Criticità", report: "Report"
+  };
+  const shortMacroNames = [
+    "Marketing", "Moduli", "Licenze", "Onboard", "OTA",
+    "Revenue", "Sales", "Legale", "Qualità", "Servizi"
+  ];
 
   return (
     <section className="velora-radar" aria-labelledby="velora-radar-heading">
@@ -121,6 +136,9 @@ export default function VeloraRadar({
                 const midpoint = (begin + end) / 2;
                 const [tx, ty] = polar(214, midpoint);
                 const active = pointedId === sector.id;
+                const radarLabel = mode === "macro"
+                  ? shortMacroNames[index] || sector.short[0].slice(0, 9)
+                  : shortSectorNames[sector.id] || sector.short[0].slice(0, 9);
                 return (
                   <g
                     key={sector.id}
@@ -145,9 +163,9 @@ export default function VeloraRadar({
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-fill" />
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-stroke" />
                     <circle cx={polar(277,midpoint)[0]} cy={polar(277,midpoint)[1]} r="3.1" fill={sector.color} />
-                    <text x={tx} y={ty - ((sector.short.length - 1) * 8)} className="velora-radar__slice-label" textAnchor="middle">
-                      {sector.short.map((line, li) => <tspan key={li} x={tx} dy={li === 0 ? 0 : 16}>{line}</tspan>)}
-                      {sector.metric && <tspan x={tx} dy="17" className="velora-radar__slice-metric">{sector.metric}</tspan>}
+                    <text x={tx} y={ty - 10} className="velora-radar__slice-label" textAnchor="middle">
+                      <tspan x={tx} className="velora-radar__slice-index">{String(index + 1).padStart(2, "0")}</tspan>
+                      <tspan x={tx} dy="23" className="velora-radar__slice-name">{radarLabel}</tspan>
                     </text>
                   </g>
                 );
@@ -171,7 +189,7 @@ export default function VeloraRadar({
           </div>
           <p className="velora-radar__circle-note">
             <span className="velora-radar__online-indicator" aria-hidden="true" />
-            Ogni settore apre contenuti reali · Nessun dato viene azzerato o sostituito
+            Scegli uno spicchio numerato o la voce corrispondente a destra
           </p>
         </div>
 
@@ -201,7 +219,7 @@ export default function VeloraRadar({
                   <strong>{sector.label}</strong>
                   <small>{sector.description}</small>
                 </span>
-                <span className="velora-radar__sector-arrow" aria-hidden="true">↗</span>
+                <span className="velora-radar__sector-arrow" aria-hidden="true">{sector.metric ? sector.metric : "↗"}</span>
               </button>
             )}
           </div>
