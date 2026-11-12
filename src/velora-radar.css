@@ -300,15 +300,15 @@
 }
 .velora-radar--main .velora-radar__svg-container {max-width:750px;}
 .velora-radar--main .velora-radar__slice-index {
-  font-size:22px;
+  font-size:16px;
   fill:#dcf1f8;
   font-weight:850;
   stroke-width:2.5px;
 }
 .velora-radar--main .velora-radar__slice-name {
-  font-size:31px;
-  font-weight:1000;
-  letter-spacing:1.1px;
+  font-size:23px;
+  font-weight:850;
+  letter-spacing:.5px;
   fill:#fff;
   stroke-width:3px;
 }
@@ -374,8 +374,8 @@
   .velora-radar--macro .velora-radar__sector-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
 }
 @media(max-width:600px) {
-  .velora-radar--main .velora-radar__slice-name {font-size:28px;}
-  .velora-radar--main .velora-radar__slice-index {font-size:20px;}
+  .velora-radar--main .velora-radar__slice-name {font-size:22px;}
+  .velora-radar--main .velora-radar__slice-index {font-size:15px;}
   .velora-radar--main .velora-radar__sector-grid,
   .velora-radar--audit .velora-radar__sector-grid,
   .velora-radar--macro .velora-radar__sector-grid {grid-template-columns:1fr;}
