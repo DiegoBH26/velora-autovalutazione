@@ -164,9 +164,9 @@ export default function VeloraRadar({
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-fill" />
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-stroke" />
                     <circle cx={polar(277,midpoint)[0]} cy={polar(277,midpoint)[1]} r="3.1" fill={sector.color} />
-                    <text x={tx} y={ty - 10} className="velora-radar__slice-label" textAnchor="middle">
+                    <text x={tx} y={mode === "main" ? ty - 27 : ty - 10} className="velora-radar__slice-label" textAnchor="middle">
                       <tspan x={tx} className="velora-radar__slice-index">{String(index + 1).padStart(2, "0")}</tspan>
-                      <tspan x={tx} dy="23" className="velora-radar__slice-name">{radarLabel}</tspan>
+                      <tspan x={tx} dy={mode === "main" ? 39 : 23} className="velora-radar__slice-name">{radarLabel}</tspan>
                     </text>
                   </g>
                 );
