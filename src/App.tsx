@@ -7573,7 +7573,7 @@ export default function App() {
     const reported=answers["audit-ota-"+otaId]?.manualPresence?.status==="not_found_by_operator";
     const busy=manualOtaBusy===otaId;
     return <div className="mt-2 space-y-1">
-      <button type="button" disabled={manualOtaBusy!==null}
+      <button type="button" data-velora-presence-button data-reported={reported?"yes":"no"} disabled={manualOtaBusy!==null}
         onClick={()=>void changeManualOtaPresence(otaId,reported?"clear":"not_found")}
         className={"w-full rounded-lg border px-2 py-2 text-[10px] font-black disabled:opacity-50 "+
           (reported?"border-amber-400 bg-amber-50 text-amber-950":"border-rose-300 bg-white text-rose-800 hover:bg-rose-50")}>
