@@ -42,7 +42,7 @@ class RadarNavigationContract(unittest.TestCase):
         self.assertIn('renderExternalWebAudit()', APP)
 
     def test_reopens_saved_interviews_and_legacy_archive_entries(self):
-        self.assertIn('setWorkspaceSection(mode==="web-audit"?"audit":"rapida")', APP)
+        self.assertIn('setWorkspaceSection("panoramica")', APP)
         self.assertIn('setWorkspaceSection("rapida");', APP)
         self.assertIn('setWorkspaceSection("panoramica");', APP)
         for marker in ['localStorage.setItem(ACTIVE_STRUCTURE_KEY',

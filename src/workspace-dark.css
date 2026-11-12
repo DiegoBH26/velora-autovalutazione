@@ -464,3 +464,171 @@
   letter-spacing: .12em!important;
   font-weight: 900!important;
 }
+
+
+/* Velora UI R3: typography and color tuned for 100% browser zoom.
+   These rules alter visual presentation only. No form value or persistence changes. */
+.velora-workspace {
+  font-size: 15px;
+  line-height: 1.52;
+  --v-text:#f4f8ff;
+  --v-muted:#c5d3e7;
+}
+.velora-workspace__sidebar {
+  background:#111b2d;
+}
+.velora-workspace__brand-copy strong {font-size:1.15rem;letter-spacing:.08em;}
+.velora-workspace__brand-copy span {font-size:.68rem;letter-spacing:.1em;}
+.velora-workspace__ui-version {font-size:.69rem!important;letter-spacing:.1em!important;}
+.velora-workspace__nav-heading {font-size:.76rem;letter-spacing:.09em;color:#b4c6e6;}
+.velora-workspace__nav {gap:.26rem;}
+.velora-workspace__nav-button {
+  padding:.85rem .82rem;
+  min-height:3.55rem;
+  gap:.8rem;
+}
+.velora-workspace__nav-copy strong {
+  font-size:.93rem;
+  font-weight:800;
+  line-height:1.35;
+}
+.velora-workspace__nav-copy small {
+  font-size:.76rem;
+  color:#b1c3df;
+  line-height:1.45;
+}
+.velora-workspace__glyph {width:1.2rem;height:1.2rem;}
+.velora-workspace__topbar h1 {font-size:1.45rem;font-weight:850;}
+.velora-workspace__topbar p {font-size:.9rem;color:#c4d3e7;}
+.velora-workspace__breadcrumbs {font-size:.73rem;letter-spacing:.07em;}
+.velora-workspace__property-label small {font-size:.75rem;color:#c6d4e6;}
+.velora-workspace__property-label strong {font-size:.91rem;}
+.velora-workspace__status {font-size:.83rem;color:#b5f5d5;}
+.velora-workspace__sidebar-footer-copy strong {font-size:.83rem;}
+.velora-workspace__sidebar-footer-copy span {font-size:.75rem;color:#bac9df;}
+/* Replace overly small legacy Tailwind typography without touching any content. */
+.velora-workspace .velora-core [class*="text-[8px]"] {
+  font-size:11.5px!important;
+  line-height:1.45!important;
+}
+.velora-workspace .velora-core [class*="text-[9px]"] {
+  font-size:12px!important;
+  line-height:1.48!important;
+}
+.velora-workspace .velora-core [class*="text-[10px]"] {
+  font-size:12.8px!important;
+  line-height:1.52!important;
+}
+.velora-workspace .velora-core [class*="text-[11px]"] {
+  font-size:13.5px!important;
+  line-height:1.52!important;
+}
+.velora-workspace .velora-core [class*="text-[12px]"] {
+  font-size:14.2px!important;
+  line-height:1.5!important;
+}
+.velora-workspace .velora-core [class*="text-[13px]"] {
+  font-size:14.5px!important;
+  line-height:1.5!important;
+}
+.velora-workspace .velora-core [class~="text-xs"] {
+  font-size:13.5px!important;
+  line-height:1.48!important;
+}
+.velora-workspace .velora-core [class~="text-sm"] {
+  font-size:15px!important;
+  line-height:1.5!important;
+}
+.velora-workspace .velora-core [class~="text-base"] {font-size:16px!important;}
+.velora-workspace .velora-core [class~="text-lg"] {font-size:19px!important;}
+.velora-workspace .velora-core [class~="font-black"] {font-weight:820!important;}
+.velora-workspace .velora-core [class*="tracking-[0.2em]"],
+.velora-workspace .velora-core [class*="tracking-[0.22em]"],
+.velora-workspace .velora-core [class*="tracking-[0.28em]"] {
+  letter-spacing:.08em!important;
+}
+.velora-workspace .velora-core input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.velora-workspace .velora-core textarea,
+.velora-workspace .velora-core select {
+  font-size:max(14px,1rem);
+  color:#f5f8ff!important;
+  background:#111e32!important;
+}
+.velora-workspace .velora-core button:not(:disabled) {
+  font-weight:780;
+}
+.velora-workspace .velora-core button:disabled {opacity:.52;}
+/* Repair a second set of legacy light-theme tokens that was unreadable on dark cards. */
+.velora-workspace .velora-core [class*="text-[#6B4F06]"],
+.velora-workspace .velora-core [class*="text-[#695013]"],
+.velora-workspace .velora-core [class*="text-[#745017]"],
+.velora-workspace .velora-core [class*="text-yellow-950"],
+.velora-workspace .velora-core [class*="text-orange-950"] {
+  color:#ffe4ae!important;
+}
+.velora-workspace .velora-core [class*="text-[#8A2834]"],
+.velora-workspace .velora-core [class*="text-rose-950"],
+.velora-workspace .velora-core [class*="text-red-950"] {
+  color:#ffb8c4!important;
+}
+.velora-workspace .velora-core [class*="text-emerald-950"],
+.velora-workspace .velora-core [class*="text-green-950"],
+.velora-workspace .velora-core [class*="text-teal-950"] {
+  color:#aaf2ce!important;
+}
+.velora-workspace .velora-core [class*="text-blue-950"],
+.velora-workspace .velora-core [class*="text-sky-950"],
+.velora-workspace .velora-core [class*="text-cyan-950"],
+.velora-workspace .velora-core [class*="text-indigo-950"] {
+  color:#c0ddff!important;
+}
+.velora-workspace .velora-core [class*="text-purple-950"],
+.velora-workspace .velora-core [class*="text-violet-950"] {
+  color:#e0caff!important;
+}
+.velora-workspace .velora-core [class*="opacity-75"]:not(:disabled):not([disabled]),
+.velora-workspace .velora-core [class*="opacity-80"]:not(:disabled):not([disabled]) {
+  opacity:1!important;
+}
+/* Numeric archive score boxes – opaque backgrounds and high-contrast values. */
+.velora-workspace .velora-core--archive article [class*="bg-[#FAF9FC]"] {
+  background:#213450!important;
+  border-color:#506681!important;
+  color:#f7fbff!important;
+}
+.velora-workspace .velora-core--archive article [class*="bg-[#FAF9FC]"] :is(p,span,strong,b) {
+  color:#f7fbff!important;
+  opacity:1!important;
+}
+.velora-workspace .velora-core--archive article h3 {font-size:1.3rem;font-weight:850;}
+.velora-workspace .velora-core--archive article {
+  padding-top:1.05rem!important;
+  padding-bottom:1.05rem!important;
+}
+.velora-workspace .velora-core--archive article [class*="min-h-[76px]"] {
+  min-height:72px!important;
+}
+/* Long interview and audit rows remain legible without wasting screen space. */
+.velora-workspace .velora-core summary {
+  font-size:14.5px!important;
+  line-height:1.5!important;
+  color:#f4f8ff!important;
+}
+.velora-workspace .velora-core table th {
+  font-size:12.5px!important;
+  line-height:1.4!important;
+  color:#e0ebfc!important;
+}
+.velora-workspace .velora-core table td {
+  font-size:13px!important;
+  line-height:1.5!important;
+  color:#e4eefc!important;
+}
+.velora-workspace .velora-core [data-audit-block="scraping"] [data-velora-agent] {
+  min-height:110px;
+}
+@media(max-width:900px) {
+  .velora-workspace__nav-button {min-height:2.6rem;}
+  .velora-workspace__nav-copy strong {font-size:.85rem;}
+  .velora-workspace__topbar h1 {font-size:1.24rem;}
+}

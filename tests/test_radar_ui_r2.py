@@ -33,7 +33,7 @@ class RadarContrastR2(unittest.TestCase):
     def test_archive_and_other_translucent_panes_covered(self):
         self.assertIn('bg-[#FAF9FC]', DARK_CSS)
         self.assertIn('bg-white/', DARK_CSS)
-        self.assertIn('RADAR · R2', SHELL)
+        self.assertIn('RADAR · R3', SHELL)
         self.assertIn('function openStructure(', APP)
         self.assertIn('function confirmCustomInterview()', APP)
 

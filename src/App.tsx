@@ -12221,7 +12221,8 @@ export default function App() {
   function openStructureAnalysis(structure: AnalyzedStructure, mode: "web-audit" | "quick-hotel-bb") {
     openStructure(structure);
     setAssessmentMode(mode);
-    setWorkspaceSection(mode==="web-audit"?"audit":"rapida");
+    // Entry dalla scheda archivio: il radar e il punto di ingresso, non un singolo modulo.
+    setWorkspaceSection("panoramica");
     const selected = mode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA
       : selectAssessmentItems(new Set(structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate()));
     if (mode === "quick-hotel-bb") {
@@ -12290,7 +12291,7 @@ export default function App() {
         navigation={[
           {id:"archivio",label:"Archivio strutture",description:"Schede e storico",active:true,onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},
           {id:"nuova",label:"Nuovo audit",description:"Avvia la verifica di una struttura",onClick:()=>document.getElementById("velora-new-audit")?.scrollIntoView({behavior:"smooth",block:"start"})},
-          ...(activeStructureId?[{id:"torna",label:"Torna alla scheda",description:"Riprendi il lavoro",onClick:()=>setShowStructures(false)}]:[])
+          ...(activeStructureId?[{id:"torna",label:"Torna alla scheda",description:"Apri radar struttura",onClick:()=>{setWorkspaceSection("panoramica");setShowStructures(false);}}]:[])
         ]}
       >
       <main className="velora-core velora-core--archive min-h-screen bg-[#F7F4FB] px-4 py-8 text-[#23124A] md:px-6">
@@ -12411,10 +12412,10 @@ export default function App() {
 
                     <div className="min-w-0 xl:pl-3">
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <button type="button" onClick={() => openStructureAnalysis(structure, "web-audit")} className="min-h-11 rounded-xl bg-[#23124A] px-4 py-3 text-center text-xs font-black text-white transition hover:bg-[#372368]">
+                        <button type="button" onClick={() => openStructureAnalysis(structure, "web-audit")} title="Apri il radar della struttura: da qui scegli audit frontend o qualsiasi altra area" className="min-h-11 rounded-xl bg-[#23124A] px-4 py-3 text-center text-xs font-black text-white transition hover:bg-[#372368]">
                           Apri audit frontend
                         </button>
-                        <button type="button" onClick={() => openStructureAnalysis(structure, "quick-hotel-bb")} className="min-h-11 rounded-xl border border-[#C8A96B] bg-white px-4 py-3 text-center text-xs font-black text-[#23124A] transition hover:bg-[#FFF8E8]">
+                        <button type="button" onClick={() => openStructureAnalysis(structure, "quick-hotel-bb")} title="Apri il radar della struttura: da qui scegli intervista o qualsiasi altra area" className="min-h-11 rounded-xl border border-[#C8A96B] bg-white px-4 py-3 text-center text-xs font-black text-[#23124A] transition hover:bg-[#FFF8E8]">
                           {interviewScore === null ? "Compila intervista" : "Apri intervista"}
                         </button>
                       </div>
