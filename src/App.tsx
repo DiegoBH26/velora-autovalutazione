@@ -11307,7 +11307,7 @@ export default function App() {
                       </button>
                       <button type="button" onClick={openThreeOtaPortals}
                         className="rounded-lg border border-[#7892B6] bg-[#263B55] px-4 py-2 text-[12px] font-bold text-white">
-                        Apri solo Expedia + Vrbo + Holidu
+                        Apri Expedia + Vrbo + Holidu
                       </button>
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
