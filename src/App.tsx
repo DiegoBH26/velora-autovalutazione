@@ -13557,6 +13557,54 @@ export default function App() {
           </div>
         </section>
 
+        {workspaceSection==="report" && (
+          <section className="velora-report-preview" aria-label="Riepilogo dei dati presenti nel report">
+            <div className="velora-report-preview__heading">
+              <div>
+                <p>REPORT / DATI DISPONIBILI</p>
+                <h2>Quadro riepilogativo della struttura</h2>
+                <span>Informazioni già registrate nelle diverse aree di Velora. Il modello PDF definitivo verrà ottimizzato successivamente.</span>
+              </div>
+              {activeStructureId && structures.find(item=>item.id===activeStructureId)?.reportPath && (
+                <button type="button"
+                  onClick={()=>openStoredReport(structures.find(item=>item.id===activeStructureId)!)}
+                  className="velora-report-preview__stored">Apri PDF archiviato</button>
+              )}
+            </div>
+            <div className="velora-report-preview__grid">
+              <div>
+                <span>Struttura esaminata</span>
+                <strong>{ownerInfo.propertyName || activeAuditData.name}</strong>
+              </div>
+              <div>
+                <span>Riscontri frontend registrati</span>
+                <strong>{flattenItems(EXTERNAL_WEB_AUDIT_DATA).filter(({item})=>{
+                  const answer=answers[item.id];
+                  return Boolean(answer && answer.importance>0 && answer.fit>0);
+                }).length} / {flattenItems(EXTERNAL_WEB_AUDIT_DATA).length}</strong>
+              </div>
+              <div>
+                <span>Risposte intervista registrate</span>
+                <strong>{flattenItems(ASSESSMENT_DATA).filter(({item})=>{
+                  const answer=answers[item.id];
+                  return Boolean(answer && answer.importance>0 && answer.fit>0);
+                }).length} / {flattenItems(ASSESSMENT_DATA).length}</strong>
+              </div>
+              <div>
+                <span>Tariffe memorizzate</span>
+                <strong>{rateQuotes.length}</strong>
+              </div>
+              <div>
+                <span>Osservazioni OTA disponibili</span>
+                <strong>{browserPilotResult?.propertyId===activeAuditData.id
+                  ? browserPilotResult.observations.length
+                  : 0}</strong>
+              </div>
+            </div>
+            <p className="velora-report-preview__note">Il generatore PDF sottostante è quello già presente in Velora e usa la modalità di valutazione corrente. Il report unico di tutte le sezioni verrà progettato a parte, senza modificare gli archivi.</p>
+          </section>
+        )}
+
         <section id="velora-report-actions" className="rounded-[2rem] border border-[#E5DDF1] bg-white p-6 shadow-[0_18px_50px_rgba(35,18,74,0.06)]">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="max-w-3xl">
