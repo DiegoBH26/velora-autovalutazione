@@ -5464,14 +5464,14 @@ export default function App() {
               ". Verifica identità, date e ospiti, poi premi Importa."
             : "Nessuna tariffa totale affidabile. "+capture.warning}));
           setOtaWorkspaceOpen(true);
-          setOtaContentSnapshots(previous=>[
+          setOtaContentSnapshots(previous=>rooms.length?[
             ...previous.filter(item=>item.otaId!==otaId),
             {otaId,propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
               observedAt:capture.capturedAt,roomCount:rooms.length,
               visibleImageCount:null,photoAltSamples:[],visibleServices:[],
               descriptionExcerpt:"",evidenceScope:"visible-companion-observation-not-verified",
               identityVerified:false}
-          ]);
+          ]:previous);
           return;
         }
         if(payload?.schema==="velora-vrbo-visible-v1"){
@@ -7819,6 +7819,9 @@ export default function App() {
       return;
     }
     setRateQuotes(previous=>[...previous,...fresh]);
+    setOtaContentSnapshots(previous=>previous.map(snapshot=>
+      snapshot.otaId===otaId&&snapshot.sourceUrl===captured.sourceUrl
+        ? {...snapshot,identityVerified:true}:snapshot));
     fail(label+": "+fresh.length+" tariffe assistite importate in valuta originale"+
       (fresh.some(q=>q.currency==="USD")?" (USD non confrontabile con euro)":"")+
       ". Le vedrai nell'Audit OTA, con unità e condizioni da verificare.");
@@ -11509,6 +11512,14 @@ export default function App() {
                           {familyLogMessage[otaId]&&<p className="mt-2 rounded-lg border border-[#547C9A] bg-[#233F57] p-2 text-[12px] leading-5" role="status">
                             Registro Giove: {familyLogMessage[otaId]}
                           </p>}
+                          {imported>0&&<button type="button"
+                            onClick={()=>void logFamilyCompanionActivity(
+                              otaId,"imported",imported,
+                              rateQuotes.some(q=>q.otaId===otaId&&q.currency==="USD")?"USD":"EUR"
+                            )}
+                            className="mt-2 w-full rounded-lg border border-[#7197BC] bg-[#294663] px-3 py-2 text-[12px] font-bold text-white">
+                            Registra su Giove le {imported} tariffe già importate
+                          </button>}
                           {manualOtaPresenceButton(otaId)}
                         </section>;
                       })}
