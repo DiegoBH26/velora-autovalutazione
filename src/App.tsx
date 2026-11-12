@@ -11905,7 +11905,8 @@ export default function App() {
               <button type="button"
                 disabled={resetScrapingRunning || localPilotRunning || autoAuditRunning || launchingBatch || specialistCheckRunning}
                 onClick={()=>void resetCurrentStructureScraping()}
-                className="inline-flex items-center gap-2 rounded-xl border border-red-300 bg-white px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[12px] font-medium transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFD9DF] disabled:cursor-not-allowed disabled:opacity-60"
+                style={{backgroundColor:"#482B36",borderColor:"#B67C89",color:"#FFE8EC"}}
                 title="Cancella soltanto i dati di scraping della struttura corrente, non la scheda o l'intervista">
                 {resetScrapingRunning?"Reset in corso...":"↺ Reset scraping OTA, sito e recensioni"}
               </button>
