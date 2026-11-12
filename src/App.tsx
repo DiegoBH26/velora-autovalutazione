@@ -7752,7 +7752,7 @@ export default function App() {
     setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:false}));
     setFamilyMessage(prev=>({...prev,[otaId]:"Richiedo la lettura della pagina "+FAMILY_COMPANION_LABELS[otaId]+" già visibile in Chrome..."}));
     if(!familyCompanionSupported){
-      setFamilyMessage(prev=>({...prev,[otaId]:"Per acquisire "+FAMILY_COMPANION_LABELS[otaId]+" installa o ricarica Chrome Companion 0.4.4. L'agente automatico resta indipendente."}));
+      setFamilyMessage(prev=>({...prev,[otaId]:"Per acquisire "+FAMILY_COMPANION_LABELS[otaId]+" installa o ricarica Chrome Companion 0.4.5. L'agente automatico resta indipendente."}));
       return;
     }
     window.postMessage({
