@@ -11132,7 +11132,11 @@ export default function App() {
                           </button>
                         </div>}
                         {(["trip","priceline","hotels","travelocity"] as const).includes(agent.id as "trip"|"priceline"|"hotels"|"travelocity") && <div className="mt-2 border-t border-current/15 pt-2">
-                          {manualOtaPresenceButton(agent.id as "trip"|"priceline"|"hotels"|"travelocity")}
+                          {rateQuotes.some(q=>q.otaId===agent.id&&q.origin==="browser-assisted")
+                            ? <p className="rounded-lg border border-emerald-700/60 bg-[#164A45] px-3 py-2 text-[12px] font-bold text-[#D8FFF0]">
+                                Scheda con tariffe Chrome acquisite · dati da verificare
+                              </p>
+                            : manualOtaPresenceButton(agent.id as "trip"|"priceline"|"hotels"|"travelocity")}
                         </div>}
                         {agent.id==="official_site" && <p className="mt-2 rounded-md border border-amber-300/60 bg-white/85 px-2 py-1.5 text-[10px] font-semibold text-[#6B4F06]" role="status">
                           Versione Leonardo richiesta dal sito: <span className="font-mono break-all">{EXPECTED_LEONARDO_BUILD}</span>
@@ -11520,7 +11524,11 @@ export default function App() {
                             className="mt-2 w-full rounded-lg border border-[#7197BC] bg-[#294663] px-3 py-2 text-[12px] font-bold text-white">
                             Registra su Giove le {imported} tariffe già importate
                           </button>}
-                          {manualOtaPresenceButton(otaId)}
+                          {imported>0 || (capture&&match)
+                            ? <p className="mt-2 rounded-lg border border-emerald-700 bg-[#164A45] p-2 text-[12px] font-bold text-[#D8FFF0]">
+                                Scheda {label} individuata · {imported>0?imported+" tariffe Chrome importate, da verificare":"identità compatibile; tariffe da acquisire"}
+                              </p>
+                            : manualOtaPresenceButton(otaId)}
                         </section>;
                       })}
                     </div>
