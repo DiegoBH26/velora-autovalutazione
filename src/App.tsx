@@ -11358,7 +11358,7 @@ export default function App() {
                     <p className="mt-1 text-[12px] font-bold leading-5 text-[#50627F]">
                       {familyCompanionSupported
                         ? "Chrome Companion "+(companionVersion||"0.4.4")+" · acquisizione su 5 OTA disponibile"
-                        : "Per Tesla e Newton aggiorna Chrome Companion alla versione 0.4.4; le tre OTA precedenti restano utilizzabili."}
+                        : "Per Tesla e Newton aggiorna Chrome Companion alla versione 0.4.5; le tre OTA precedenti restano utilizzabili."}
                       {!familyCompanionSupported && <> · <a className="underline" href="https://diegobh26.github.io/velora-autovalutazione/velora-expedia-companion.zip" target="_blank" rel="noopener noreferrer">Scarica Companion 0.4.4</a></>}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
