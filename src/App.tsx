@@ -10837,7 +10837,7 @@ export default function App() {
                           window.localStorage.setItem("velora-pilot-selected-support-agents",JSON.stringify(next));
                         }
                       };
-                      return <div key={agent.id} className={
+                      return <div key={agent.id} data-velora-agent={agent.id} data-velora-selected={selected ? "yes" : "no"} className={
                         "flex h-full min-w-0 flex-col justify-between rounded-xl border p-3 transition "+
                         (group.id==="access"?"min-h-[232px]":"min-h-[110px]")+
                         " "+(selected?active:idle)
