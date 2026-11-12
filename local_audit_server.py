@@ -592,7 +592,8 @@ def agent_mailbox_result(property_id,agent_id):
             "needs_human_review","no_public_rate","dates_unconfirmed",
             "quote_candidates_unverified"}]
         errors=[row for row in rows if row.get("status") in {
-            "rate_limited","access_blocked","blocked","http_error","login_required"}]
+            "rate_limited","access_blocked","blocked","http_error","login_required",
+            "portal_redirect"}]
         rejected=[row for row in rows if row.get("status") in {
             "wrong_property_listing","identity_mismatch","wrong_property"
         } or row.get("identityQuarantined")]
