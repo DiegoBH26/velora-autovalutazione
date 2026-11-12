@@ -1,6 +1,7 @@
 import React, { FormEvent, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import "./admin-console.css";
 
 type View = "login" | "request" | "register" | "forgot" | "reset";
 
@@ -541,65 +542,132 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const history = requests.filter((request) => request.status !== "pending");
 
   return (
-    <main className="min-h-screen bg-[#F7F4FB] px-5 py-8 text-[#23124A] md:px-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+    <main className="velora-admin" aria-label="Centro amministrativo Velora">
+      <aside className="velora-admin__sidebar" aria-label="Navigazione amministrazione">
+        <div className="velora-admin__identity">
+          <div className="velora-admin__monogram" aria-hidden="true">V</div>
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C8A96B]">Amministrazione</p>
-            <h1 className="mt-2 text-3xl font-black">Richieste di accesso</h1>
-            <p className="mt-2 text-sm font-semibold text-[#50627F]">Approva l’utente, copia il codice e invialo personalmente.</p>
+            <strong>VELORA</strong>
+            <span>AUTOVALUTAZIONE</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void loadRequests()} className="rounded-xl border border-[#E5DDF1] bg-white px-4 py-2 text-xs font-black">Aggiorna</button>
-            <button type="button" onClick={() => setShowPassword((value) => !value)} className="rounded-xl border border-[#E5DDF1] bg-white px-4 py-2 text-xs font-black">Cambia password</button>
-            <button type="button" onClick={onClose} className="rounded-xl bg-[#23124A] px-4 py-2 text-xs font-black text-white">Apri software</button>
+        </div>
+        <p className="velora-admin__side-label">AREA RISERVATA</p>
+        <nav className="velora-admin__side-nav" aria-label="Sezioni amministrative">
+          <a className="velora-admin__nav-active" href="#velora-admin-pending">
+            <span aria-hidden="true">◉</span>
+            <span>Richieste di accesso<small>Account da approvare</small></span>
+            <b>{pending.length}</b>
+          </a>
+          <a href="#velora-admin-history">
+            <span aria-hidden="true">≡</span>
+            <span>Storico utenti<small>Account registrati e approvati</small></span>
+          </a>
+          <button type="button" onClick={() => setShowPassword((value) => !value)}>
+            <span aria-hidden="true">⚙</span>
+            <span>Sicurezza account<small>Cambio password amministratore</small></span>
+          </button>
+        </nav>
+        <div className="velora-admin__side-bottom">
+          <span className="velora-admin__secure-icon" aria-hidden="true">✓</span>
+          <p><strong>Accesso amministratore</strong><span>Le approvazioni e i codici restano gestiti dai controlli di sicurezza esistenti.</span></p>
+        </div>
+      </aside>
+
+      <div className="velora-admin__main">
+        <header className="velora-admin__header">
+          <div className="velora-admin__heading">
+            <p className="velora-admin__eyebrow">VELORA / AMMINISTRAZIONE</p>
+            <h1>Centro amministrativo</h1>
+            <p>Gestione degli accessi, approvazioni e account della piattaforma.</p>
           </div>
+          <div className="velora-admin__actions">
+            <button type="button" onClick={() => void loadRequests()} disabled={loading} className="velora-admin__action velora-admin__action--outline">
+              {loading ? "Aggiornamento…" : "Aggiorna"}
+            </button>
+            <button type="button" onClick={() => setShowPassword((value) => !value)} aria-expanded={showPassword} className="velora-admin__action velora-admin__action--outline">
+              Cambia password
+            </button>
+            <button type="button" onClick={onClose} className="velora-admin__action velora-admin__action--primary">
+              Apri software
+            </button>
+          </div>
+        </header>
+
+        <div className="velora-admin__stats" aria-label="Stato accessi">
+          <article className="velora-admin__stat velora-admin__stat--pending">
+            <span>Richieste da approvare</span>
+            <strong>{pending.length}</strong>
+            <small>{pending.length === 0 ? "Nessuna richiesta in attesa" : "Richiedono la tua approvazione"}</small>
+          </article>
+          <article className="velora-admin__stat velora-admin__stat--approved">
+            <span>Accessi approvati</span>
+            <strong>{history.filter((request) => request.status === "approved").length}</strong>
+            <small>In attesa del completamento della registrazione</small>
+          </article>
+          <article className="velora-admin__stat velora-admin__stat--registered">
+            <span>Utenti registrati</span>
+            <strong>{history.filter((request) => request.status === "registered").length}</strong>
+            <small>Richieste con registrazione completata</small>
+          </article>
         </div>
 
         {showPassword && (
-          <form onSubmit={changePassword} className="mt-6 grid gap-4 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:grid-cols-[1fr_1fr_auto] md:items-end">
-            <Field label="Nuova password"><input required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></Field>
-            <Field label="Ripeti password"><input required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} /></Field>
-            <button className="h-12 rounded-2xl bg-[#23124A] px-5 text-sm font-black text-white">Salva password</button>
-            {passwordMessage && <div className="md:col-span-3"><Notice kind={passwordMessage.includes("correttamente") ? "success" : "error"}>{passwordMessage}</Notice></div>}
-          </form>
-        )}
-
-        {generated && (
-          <section className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Codice pronto</p>
-            <h2 className="mt-2 text-2xl font-black">{generated.fullName}</h2>
-            <p className="mt-1 text-sm font-semibold text-emerald-900">{generated.email}</p>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <code className="rounded-2xl bg-white px-6 py-4 text-center text-3xl font-black tracking-[0.25em] text-[#23124A]">{generated.code}</code>
-              <button type="button" onClick={() => navigator.clipboard.writeText(generated.code)} className="rounded-2xl bg-[#23124A] px-5 py-4 text-sm font-black text-white">Copia codice</button>
+          <section className="velora-admin__panel velora-admin__security" aria-label="Sicurezza amministratore">
+            <div className="velora-admin__panel-heading">
+              <div><p>ACCOUNT E SICUREZZA</p><h2>Cambia la password</h2></div>
+              <button type="button" className="velora-admin__quiet" onClick={() => setShowPassword(false)}>Chiudi</button>
             </div>
-            <p className="mt-4 text-xs font-bold text-emerald-800">Valido per 24 ore e utilizzabile una sola volta. Un nuovo codice sostituisce quello precedente.</p>
+            <form onSubmit={changePassword} className="velora-admin__password-form">
+              <Field label="Nuova password">
+                <input required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} />
+              </Field>
+              <Field label="Ripeti password">
+                <input required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} />
+              </Field>
+              <button type="submit" className="velora-admin__action velora-admin__action--primary">Salva password</button>
+              {passwordMessage && <div className="velora-admin__password-message"><Notice kind={passwordMessage.includes("correttamente") ? "success" : "error"}>{passwordMessage}</Notice></div>}
+            </form>
           </section>
         )}
 
-        {error && <div className="mt-6"><Notice kind="error">{error}</Notice></div>}
+        {generated && (
+          <section className="velora-admin__panel velora-admin__generated" role="status" aria-label="Codice di accesso appena generato">
+            <div className="velora-admin__panel-heading">
+              <div><p>CODICE PRONTO</p><h2>{generated.fullName}</h2><span>{generated.email}</span></div>
+            </div>
+            <div className="velora-admin__code-row">
+              <code>{generated.code}</code>
+              <button type="button" onClick={() => navigator.clipboard.writeText(generated.code)} className="velora-admin__action velora-admin__action--primary">Copia codice</button>
+            </div>
+            <p className="velora-admin__hint">Valido per 24 ore e utilizzabile una sola volta. Un nuovo codice sostituisce quello precedente. Invialo personalmente all'utente.</p>
+          </section>
+        )}
 
-        <section className="mt-7 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:p-7">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-black">Da approvare</h2>
-            <span className="rounded-full bg-[#FFF8E8] px-3 py-1 text-xs font-black text-[#80621F]">{pending.length}</span>
+        {error && <div className="velora-admin__error"><Notice kind="error">{error}</Notice></div>}
+
+        <section id="velora-admin-pending" className="velora-admin__panel">
+          <div className="velora-admin__panel-heading">
+            <div><p>GESTIONE ACCESSI</p><h2>Richieste da approvare</h2><span>Verifica l'utente, approva l'accesso e consegna personalmente il codice generato.</span></div>
+            <span className="velora-admin__count">{pending.length} in attesa</span>
           </div>
           {loading ? (
-            <p className="mt-6 text-sm font-bold text-[#718096]">Caricamento…</p>
+            <p className="velora-admin__empty" role="status">Caricamento delle richieste in corso…</p>
           ) : pending.length === 0 ? (
-            <Notice kind="info">Non ci sono nuove richieste.</Notice>
+            <div className="velora-admin__empty">
+              <span className="velora-admin__empty-mark" aria-hidden="true">✓</span>
+              <p><strong>Nessuna nuova richiesta da approvare</strong><small>Le nuove richieste appariranno qui. Usa Aggiorna per verificare l'elenco.</small></p>
+            </div>
           ) : (
-            <div className="mt-5 grid gap-4">
+            <div className="velora-admin__requests">
               {pending.map((request) => (
-                <article key={request.id} className="grid gap-4 rounded-2xl border border-[#E5DDF1] p-5 md:grid-cols-[1fr_auto] md:items-center">
+                <article key={request.id} className="velora-admin__request">
                   <div>
-                    <h3 className="font-black">{request.full_name}</h3>
-                    <p className="mt-1 text-sm font-semibold text-[#50627F]">{request.email}</p>
-                    {request.phone && <p className="mt-1 text-sm font-semibold text-[#50627F]">{request.phone}</p>}
-                    <p className="mt-2 text-xs font-bold text-[#8A94A6]">Richiesta: {new Date(request.requested_at).toLocaleString("it-IT")}</p>
+                    <h3>{request.full_name}</h3>
+                    <p>{request.email}</p>
+                    {request.phone && <p>{request.phone}</p>}
+                    <small>Richiesta: {new Date(request.requested_at).toLocaleString("it-IT")}</small>
                   </div>
-                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="rounded-2xl bg-[#23124A] px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="velora-admin__action velora-admin__action--primary">
                     {busyId === request.id ? "Approvazione…" : "Approva e genera codice"}
                   </button>
                 </article>
@@ -608,27 +676,34 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
           )}
         </section>
 
-        <section className="mt-7 rounded-3xl border border-[#E5DDF1] bg-white p-5 md:p-7">
-          <h2 className="text-xl font-black">Storico recente</h2>
-          <div className="mt-5 grid gap-3">
+        <section id="velora-admin-history" className="velora-admin__panel">
+          <div className="velora-admin__panel-heading">
+            <div><p>ATTIVITÀ ACCOUNT</p><h2>Storico recente</h2><span>Stato delle richieste gestite e delle registrazioni completate.</span></div>
+            <span className="velora-admin__count">{history.length} richieste</span>
+          </div>
+          <div className="velora-admin__history">
             {history.length === 0 ? (
-              <p className="text-sm font-semibold text-[#718096]">Nessuna richiesta approvata.</p>
+              <p className="velora-admin__empty">Nessuna richiesta approvata.</p>
             ) : history.map((request) => (
-              <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-[#EEE8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-black">{request.full_name} · {request.email}</p>
-                  <p className="mt-1 text-xs font-bold text-[#718096]">
-                    {request.status === "registered"
-                      ? "Registrato"
-                      : request.invited_at
-                        ? "Email di verifica inviata — in attesa della password"
-                        : "Approvato — puoi generare un nuovo codice"}
-                  </p>
+              <article key={request.id} className="velora-admin__history-row">
+                <div className="velora-admin__avatar" aria-hidden="true">{(request.full_name.trim().charAt(0) || "U").toUpperCase()}</div>
+                <div className="velora-admin__person">
+                  <strong>{request.full_name}</strong>
+                  <span>{request.email}</span>
                 </div>
+                <span className={"velora-admin__state " + (request.status === "registered" ? "velora-admin__state--registered" : "velora-admin__state--approved")}>
+                  {request.status === "registered"
+                    ? "Registrato"
+                    : request.invited_at
+                      ? "Verifica email / password in attesa"
+                      : "Approvato · codice disponibile"}
+                </span>
                 {request.status === "approved" && !request.invited_at && (
-                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="rounded-xl border border-[#C8A96B]/60 bg-[#FFF8E8] px-4 py-2 text-xs font-black">Nuovo codice</button>
+                  <button type="button" disabled={busyId === request.id} onClick={() => void approve(request)} className="velora-admin__action velora-admin__action--outline">
+                    Nuovo codice
+                  </button>
                 )}
-              </div>
+              </article>
             ))}
           </div>
         </section>

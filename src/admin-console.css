@@ -1,0 +1,180 @@
+/* Velora administration console R4.
+ * Scoped to the existing administrator-only screen. No auth or state changes.
+ */
+.velora-admin {
+  --va-bg:#0b1527;
+  --va-side:#101c30;
+  --va-panel:#192840;
+  --va-panel-muted:#1e304b;
+  --va-border:#37506d;
+  --va-text:#f5f8ff;
+  --va-muted:#c5d4e8;
+  --va-primary:#7658db;
+  display:grid;grid-template-columns:255px minmax(0,1fr);min-height:100vh;
+  background:radial-gradient(circle at 80% -20%,#222b52 0,transparent 42%),var(--va-bg);
+  color:var(--va-text);
+  font:400 15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.velora-admin * {box-sizing:border-box;}
+.velora-admin__sidebar {
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:1.3rem .8rem;background:var(--va-side);border-right:1px solid #2f435f;
+}
+.velora-admin__identity {display:flex;align-items:center;gap:.72rem;padding:.15rem .42rem 1.45rem;border-bottom:1px solid var(--va-border);}
+.velora-admin__identity strong {display:block;color:#fff;font-size:1.24rem;letter-spacing:.1em;line-height:1.2;}
+.velora-admin__identity span {display:block;color:#becae4;font-size:.72rem;letter-spacing:.115em;font-weight:800;}
+.velora-admin__monogram {
+  width:41px;height:41px;display:grid;place-items:center;border-radius:12px;
+  background:linear-gradient(135deg,#a58bfb,#6547ce);color:#fff;font-size:1.35rem;font-weight:900;
+  flex-shrink:0;
+}
+.velora-admin__side-label {color:#9daccc;font-size:.74rem;font-weight:900;letter-spacing:.11em;padding:.95rem .6rem .25rem;margin:0;}
+.velora-admin__side-nav {display:grid;gap:.35rem;}
+.velora-admin__side-nav a,.velora-admin__side-nav button {
+  width:100%;display:flex;align-items:center;gap:.7rem;padding:.82rem .68rem;min-height:59px;
+  border:1px solid transparent;border-radius:.8rem;text-align:left;cursor:pointer;
+  background:transparent;color:#e1e9f6;font:inherit;font-weight:800;text-decoration:none;
+}
+.velora-admin__side-nav a:hover,.velora-admin__side-nav button:hover {background:#263b5b;}
+.velora-admin__side-nav .velora-admin__nav-active {background:#343466;border-color:#6e60b5;color:white;}
+.velora-admin__side-nav a>span:first-child,.velora-admin__side-nav button>span:first-child {width:24px;font-size:1.2rem;color:#ab9dfa;text-align:center;flex-shrink:0;}
+.velora-admin__side-nav a>span:nth-child(2),.velora-admin__side-nav button>span:nth-child(2) {flex:1;min-width:0;font-size:.88rem;}
+.velora-admin__side-nav small {display:block;color:#bdcbe1;font-size:.71rem;font-weight:500;line-height:1.4;}
+.velora-admin__side-nav b {color:#fff;background:#55449b;border-radius:50px;font-size:.79rem;min-width:25px;text-align:center;padding:2px 5px;}
+.velora-admin__side-bottom {
+  margin-top:auto;display:flex;align-items:flex-start;gap:.6rem;padding:.8rem;
+  border:1px solid #304e64;border-radius:.85rem;background:#1b2b43;
+}
+.velora-admin__secure-icon {color:#79edc4;border-radius:8px;background:#214438;display:grid;place-items:center;width:25px;height:25px;flex-shrink:0;font-weight:900;}
+.velora-admin__side-bottom p {display:grid;gap:.2rem;margin:0;}
+.velora-admin__side-bottom strong {font-size:.82rem;color:#e9f5ff;}
+.velora-admin__side-bottom span {font-size:.73rem;color:#b9cce4;line-height:1.5;}
+.velora-admin__main {min-width:0;width:100%;max-width:1620px;margin:0 auto;padding:2rem clamp(1rem,2.3vw,2.5rem) 3rem;}
+.velora-admin__header {display:flex;align-items:flex-start;justify-content:space-between;gap:1.1rem;margin:0 0 1.5rem;}
+.velora-admin__heading {min-width:0;}
+.velora-admin__eyebrow {margin:0 0 .5rem;color:#dbbd77;font-size:.75rem;font-weight:900;letter-spacing:.14em;}
+.velora-admin__heading h1 {font-size:clamp(1.6rem,2.2vw,2.25rem);font-weight:900;letter-spacing:-.025em;line-height:1.2;margin:0 0 .55rem;color:#fff;}
+.velora-admin__heading>p:last-child {margin:0;color:#c9d6e8;font-size:.96rem;}
+.velora-admin__actions {display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.55rem;}
+.velora-admin__action {
+  display:inline-flex;align-items:center;justify-content:center;min-height:42px;
+  border:1px solid transparent;border-radius:.65rem;padding:.65rem .98rem;
+  font-family:inherit;font-size:.86rem;font-weight:800;line-height:1.4;white-space:normal;text-align:center;cursor:pointer;
+  transition:background-color .15s ease,border-color .15s ease;
+}
+.velora-admin__action--primary {background:#7658db;color:#fff;border-color:#927af0;}
+.velora-admin__action--primary:hover {background:#8c6aed;}
+.velora-admin__action--outline {background:#24334d;color:#eff4ff;border-color:#506788;}
+.velora-admin__action--outline:hover {background:#304867;}
+.velora-admin__action:disabled {opacity:.58;cursor:not-allowed;}
+.velora-admin__stats {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem;margin-bottom:1.3rem;}
+.velora-admin__stat {
+  display:flex;flex-direction:column;align-items:flex-start;gap:.25rem;
+  padding:1.1rem 1.25rem;background:var(--va-panel);border:1px solid #3b506d;
+  border-top:3px solid #9d89fa;border-radius:.92rem;min-height:135px;
+}
+.velora-admin__stat--pending {border-top-color:#eab96b;}
+.velora-admin__stat--approved {border-top-color:#9f85f5;}
+.velora-admin__stat--registered {border-top-color:#55d5b7;}
+.velora-admin__stat span {color:#d2ddeb;font-size:.83rem;font-weight:850;letter-spacing:.01em;}
+.velora-admin__stat strong {color:#fff;font-size:2.1rem;line-height:1.2;font-weight:900;font-variant-numeric:tabular-nums;}
+.velora-admin__stat small {color:#aebfd7;font-size:.77rem;line-height:1.4;}
+.velora-admin__panel {
+  margin:0 0 1.2rem;padding:1.25rem 1.4rem;border:1px solid var(--va-border);
+  background:var(--va-panel);border-radius:1rem;box-shadow:0 10px 24px #030b171f;
+  scroll-margin-top:1.5rem;
+}
+.velora-admin__panel-heading {
+  display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  margin-bottom:1rem;padding-bottom:.95rem;border-bottom:1px solid #334962;
+}
+.velora-admin__panel-heading p {margin:0 0 .28rem;color:#81e6cf;font-size:.72rem;font-weight:900;letter-spacing:.11em;}
+.velora-admin__panel-heading h2 {margin:0;color:#fff;font-size:1.3rem;font-weight:900;letter-spacing:-.015em;}
+.velora-admin__panel-heading span:not(.velora-admin__count) {display:block;margin-top:.3rem;color:#c2d1e6;font-size:.85rem;}
+.velora-admin__count {border:1px solid #57698b;background:#2a3957;border-radius:40px;color:#eee8ff;font-weight:850;font-size:.81rem;padding:.34rem .72rem;white-space:nowrap;}
+.velora-admin__empty {
+  display:flex;gap:.8rem;align-items:center;background:#142a3c;border:1px solid #325e65;
+  border-radius:.75rem;padding:1rem;color:#e5f3fb;font-size:.93rem;line-height:1.45;
+}
+.velora-admin__empty p {display:grid;gap:.2rem;margin:0;}
+.velora-admin__empty strong {font-size:.95rem;color:#f5fcff;}
+.velora-admin__empty small {font-size:.81rem;color:#bcd0de;}
+.velora-admin__empty-mark {
+  width:31px;height:31px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;
+  background:#244b40;border:1px solid #58b79a;color:#a0f5d2;font-weight:900;
+}
+.velora-admin__requests,.velora-admin__history {display:grid;gap:.6rem;}
+.velora-admin__request,.velora-admin__history-row {
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border:1px solid #3b5270;background:var(--va-panel-muted);border-radius:.78rem;padding:.85rem 1rem;
+}
+.velora-admin__request h3 {font-size:1rem;color:#fff;margin:0 0 .25rem;font-weight:900;}
+.velora-admin__request p {font-size:.88rem;color:#d5e2f4;margin:.18rem 0;overflow-wrap:anywhere;}
+.velora-admin__request small {display:block;color:#abc0d9;font-size:.8rem;margin-top:.35rem;}
+.velora-admin__avatar {
+  width:39px;height:39px;display:grid;place-items:center;flex-shrink:0;
+  border-radius:.65rem;background:#3c4875;color:#f2ecff;font-weight:900;font-size:1.1rem;
+}
+.velora-admin__person {display:grid;gap:.19rem;min-width:0;flex:1;}
+.velora-admin__person strong {font-size:.95rem;color:#f8fbff;font-weight:850;}
+.velora-admin__person span {font-size:.85rem;color:#bfcee1;overflow-wrap:anywhere;}
+.velora-admin__state {
+  display:inline-flex;align-items:center;border-radius:40px;padding:.36rem .72rem;
+  border:1px solid #8873b5;color:#e2d3ff;background:#3e315e;
+  font-size:.8rem;font-weight:850;
+}
+.velora-admin__state--registered {color:#a7f4cd;border-color:#357e69;background:#1b4a40;}
+.velora-admin__state--approved {color:#ffe0a4;border-color:#896b43;background:#4a382c;}
+.velora-admin__password-form {display:grid;gap:.85rem;grid-template-columns:repeat(2,minmax(0,1fr)) auto;align-items:end;}
+.velora-admin__password-form label {color:#e9f1ff;font-size:.88rem;}
+.velora-admin input {
+  width:100%;height:45px;background:#0f1c31!important;color:#f5faff!important;
+  border:1px solid #577093!important;border-radius:.65rem;padding:.7rem .85rem;
+  font-size:.96rem!important;
+}
+.velora-admin input::placeholder {color:#9bb2cf!important;}
+.velora-admin input:focus-visible,.velora-admin button:focus-visible,.velora-admin a:focus-visible {
+  outline:2px solid #a792ff;outline-offset:2px;
+}
+.velora-admin__quiet {background:#24364f;color:#f0f5fe;border:1px solid #567097;padding:.4rem .65rem;border-radius:.6rem;cursor:pointer;font-weight:800;font-size:.83rem;}
+.velora-admin__password-message {grid-column:1/-1;color:#fff;}
+.velora-admin__generated {border-color:#3d9173;background:#183e3b;}
+.velora-admin__code-row {display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;}
+.velora-admin__code-row code {background:#0a2126;color:#f1f9f7;font-size:1.5rem;font-weight:900;letter-spacing:.13em;border:1px solid #4f947e;border-radius:.7rem;padding:.7rem 1.2rem;}
+.velora-admin__hint {font-size:.83rem;color:#c7e7dc;margin:.7rem 0 0;}
+.velora-admin__error {margin:0 0 1rem;}
+/* Existing Notice used inside admin only: never reuse its light palette. */
+.velora-admin [class*="bg-red-50"] {background:#4d2434!important;color:#ffdae0!important;border-color:#ad5969!important;}
+.velora-admin [class*="bg-emerald-50"] {background:#174339!important;color:#bcf7db!important;border-color:#3c9371!important;}
+.velora-admin [class*="bg-[#FBF9FF]"] {background:#253650!important;color:#e7efff!important;border-color:#637796!important;}
+@media(max-width:1150px) {
+  .velora-admin {grid-template-columns:210px minmax(0,1fr);}
+  .velora-admin__header {flex-wrap:wrap;}
+  .velora-admin__actions {justify-content:flex-start;}
+  .velora-admin__password-form {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .velora-admin__password-form>button {grid-column:1/-1;}
+}
+@media(max-width:840px) {
+  .velora-admin {display:block;}
+  .velora-admin__sidebar {position:static;width:100%;height:auto;padding:.75rem;}
+  .velora-admin__identity {padding-bottom:.65rem;}
+  .velora-admin__side-label,.velora-admin__side-bottom {display:none;}
+  .velora-admin__side-nav {display:flex;overflow-x:auto;padding-top:.55rem;}
+  .velora-admin__side-nav a,.velora-admin__side-nav button {width:auto;flex-shrink:0;min-height:42px;padding:.55rem .75rem;}
+  .velora-admin__side-nav small {display:none;}
+  .velora-admin__main {padding:1.2rem .85rem 2rem;}
+  .velora-admin__stats {gap:.5rem;}
+}
+@media(max-width:580px) {
+  .velora-admin__heading h1 {font-size:1.6rem;}
+  .velora-admin__stats {grid-template-columns:1fr;}
+  .velora-admin__stat {min-height:100px;}
+  .velora-admin__panel {padding:.9rem;}
+  .velora-admin__password-form {grid-template-columns:minmax(0,1fr);}
+  .velora-admin__request>.velora-admin__action {width:100%;}
+  .velora-admin__history-row {align-items:flex-start;}
+  .velora-admin__state {order:3;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .velora-admin__action {transition:none;}
+}

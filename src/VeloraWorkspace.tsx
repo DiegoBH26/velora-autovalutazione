@@ -55,7 +55,7 @@ export default function VeloraWorkspace({
           <div className="velora-workspace__brand-copy">
             <strong>VELORA</strong>
             <span>AUTOVALUTAZIONE</span>
-            <span className="velora-workspace__ui-version">RADAR · R3</span>
+            <span className="velora-workspace__ui-version">RADAR · R4</span>
           </div>
           <button type="button" className="velora-workspace__collapse" onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? "Espandi menu" : "Comprimi menu"} title={collapsed ? "Espandi menu" : "Comprimi menu"}>

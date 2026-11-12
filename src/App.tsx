@@ -10534,7 +10534,7 @@ export default function App() {
             <div className="px-4 pb-4">
           <h3 className="mt-4 text-lg font-black text-[#23124A]">Prezzi osservati per mese e delta tra OTA</h3>
           <p className="mt-1 text-xs leading-5 text-[#50627F]">Il <b>range</b> va dalla tipologia meno cara alla più cara effettivamente quotata per quelle date, usando il piano meno caro di ciascuna tipologia. Non è ADR reale (ricavi camere / camere vendute), né una media di tutto il mese. Un delta è ammesso soltanto quando è confermata la <b>stessa unità fisica</b>, oltre a date, ospiti, durata, colazione, cancellazione, pubblico, valuta e imposte uguali. “—” non significa prezzo zero.</p>
-          <section className="mt-4 overflow-hidden rounded-2xl border border-[#D5D0E7] bg-white" aria-label="Asimmetrie OTA per sezione">
+          <section className="velora-ota-matrix mt-4 overflow-hidden rounded-2xl border border-[#D5D0E7] bg-white" aria-label="Asimmetrie OTA per sezione">
             <div className="border-b border-[#E5DDF1] bg-[#F8F5FC] p-4">
               <h4 className="text-sm font-black text-[#23124A]">Barra delle asimmetrie · Sito diretto MASTER · Booking riferimento tra OTA</h4>
               <p className="mt-1 text-[11px] leading-5 text-[#50627F]">
@@ -10550,31 +10550,33 @@ export default function App() {
                 Differenze tariffarie soltanto con stessa camera verificata, date, ospiti e condizioni.
               </p>
             </div>
-            <div className="overflow-x-auto">
-              <div className="min-w-[1350px]">
-                <div className="grid grid-cols-[152px_repeat(6,minmax(0,1fr))] gap-2 border-b border-[#E5DDF1] bg-[#F8F5FC] px-3 py-2 text-[11px] font-black text-[#23124A]">
-                  <div>Canale</div><div>1 · Presenza scheda</div><div>2 · Fotografie</div>
-                  <div>3 · Tipologie / Booking</div><div>4 · Tariffe / Booking</div>
-                  <div>5 · Tariffe / Sito diretto</div><div>6 · Camere / Sito diretto</div>
-                </div>
+            <div className="velora-ota-matrix__list" aria-label="Apri un canale per visualizzare le sei verifiche">
+              <p className="velora-ota-matrix__intro">Seleziona un canale per leggere i sei controlli su scheda, fotografie, tipologie, tariffe e camere. Le verifiche e i dati acquisiti restano invariati.</p>
                 {asymmetryWithDirect.map(row=>{
                   const styleFor=(state:string)=>state==="present"
                     ? "bg-emerald-500" : state==="missing"?"bg-rose-500"
                     : state==="candidate"||state==="blocked"?"bg-amber-400":"bg-slate-300";
-                  const cell=(state:string,label:string)=>(
-                    <div className="min-w-0">
-                      <div className="h-2 overflow-hidden rounded-full bg-[#EDE8F2]">
+                  const cell=(state:string,label:string,title:string)=>(
+                    <div className="velora-ota-matrix__evidence min-w-0">
+                      <strong className="velora-ota-matrix__cell-title">{title}</strong>
+                      <div className="velora-ota-matrix__bar h-2 overflow-hidden rounded-full bg-[#EDE8F2]">
                         <div className={`h-full w-full rounded-full ${styleFor(state)}`}/>
                       </div>
-                      <p className="mt-1.5 text-[10px] font-semibold leading-[1.4] text-[#34435B]">{label}</p>
+                      <p className="velora-ota-matrix__cell-detail mt-1.5 text-[10px] font-semibold leading-[1.4] text-[#34435B]">{label}</p>
                     </div>);
-                  return <div key={"asymmetry-"+row.otaId} className="grid grid-cols-[152px_repeat(6,minmax(0,1fr))] gap-2 border-b border-[#F0EAF5] px-3 py-3 last:border-0">
-                    <div>
+                  return <details key={"asymmetry-"+row.otaId} className="velora-ota-matrix__item" data-status={row.presence}>
+                    <summary className="velora-ota-matrix__summary">
+                      <strong>{row.platform}</strong>
+                      <span className="velora-ota-matrix__status">{row.presenceLabel}</span>
+                      <span className="velora-ota-matrix__expand">Visualizza le 6 verifiche</span>
+                    </summary>
+                    <div className="velora-ota-matrix__checks">
+                    <div className="velora-ota-matrix__source">
                       <p className="text-xs font-black text-[#23124A]">{row.platform}</p>
                       {row.url && <a className="mt-1 inline-block break-all text-[10px] font-semibold text-[#50627F] underline" href={row.url} target="_blank" rel="noopener noreferrer">{row.otaId==="sito"?"Apri booking engine":"Apri scheda"}</a>}
                     </div>
                     <div>
-                      {cell(row.presence,row.presenceLabel)}
+                      {cell(row.presence,row.presenceLabel,"1 · Presenza scheda")}
                       {row.otaId!=="sito" && <>
                       <select aria-label={`Verifica presenza ${row.platform}`}
                         value={answers["audit-ota-"+row.otaId]?.auditStatus||""}
@@ -10609,23 +10611,23 @@ export default function App() {
                       </label>}
                       </>}
                     </div>
-                    {cell(row.photosState,row.photosLabel)}
-                    {cell(row.roomState,row.roomLabel)}
-                    <div>{cell(row.priceState,row.priceLabel)}
+                    {cell(row.photosState,row.photosLabel,"2 · Fotografie")}
+                    {cell(row.roomState,row.roomLabel,"3 · Tipologie / Booking")}
+                    <div>{cell(row.priceState,row.priceLabel,"4 · Tariffe / Booking")}
                       {row.differentPrices.length>0 && <p className="mt-1 text-[10px] text-rose-700">
                         Δ prezzi confrontabili: {row.differentPrices.slice(0,3).map(item=>`+${item.delta.toFixed(1)}%`.replace("+-","-")).join(" · ")}
                       </p>}
                     </div>
-                    <div>{cell(row.directComparison.state,row.directComparison.label)}
+                    <div>{cell(row.directComparison.state,row.directComparison.label,"5 · Tariffe / Sito diretto")}
                       {row.directComparison.matched.length>0 && <p className="mt-1 text-[10px] font-bold text-[#23124A]">
                         Δ da sito diretto: {row.directComparison.matched.slice(0,3).map(item=>
                           `${item.delta>0?"+":""}${item.delta.toFixed(1)}%`).join(" · ")}
                       </p>}
                     </div>
-                    {cell(row.directRoomComparison.state,row.directRoomComparison.label)}
-                  </div>;
+                    {cell(row.directRoomComparison.state,row.directRoomComparison.label,"6 · Camere / Sito diretto")}
+                    </div>
+                  </details>;
                 })}
-              </div>
             </div>
             <p className="border-t border-[#E5DDF1] bg-[#FCFAFF] px-4 py-2 text-[10px] text-[#50627F]">
               Il conteggio delle tipologie riguarda le <b>unità con preventivo letto</b>, non necessariamente l'inventario totale pubblicato.
