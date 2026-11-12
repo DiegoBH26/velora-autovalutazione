@@ -48,10 +48,10 @@ function wedgePath(from: number, to: number) {
   const startInner = polar(INNER_RADIUS, from);
   const largeArc = to - from > 180 ? 1 : 0;
   return [
-    \`M \${startOuter[0]} \${startOuter[1]}\`,
-    \`A \${OUTER_RADIUS} \${OUTER_RADIUS} 0 \${largeArc} 1 \${endOuter[0]} \${endOuter[1]}\`,
-    \`L \${endInner[0]} \${endInner[1]}\`,
-    \`A \${INNER_RADIUS} \${INNER_RADIUS} 0 \${largeArc} 0 \${startInner[0]} \${startInner[1]}\`,
+    `M ${startOuter[0]} ${startOuter[1]}`,
+    `A ${OUTER_RADIUS} ${OUTER_RADIUS} 0 ${largeArc} 1 ${endOuter[0]} ${endOuter[1]}`,
+    `L ${endInner[0]} ${endInner[1]}`,
+    `A ${INNER_RADIUS} ${INNER_RADIUS} 0 ${largeArc} 0 ${startInner[0]} ${startInner[1]}`,
     "Z",
   ].join(" ");
 }
@@ -126,8 +126,8 @@ export default function VeloraRadar({
                     key={sector.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={\`Apri \${sector.label}\`}
-                    className={\`velora-radar__slice\${active ? " is-previewed" : ""}\`}
+                    aria-label={`Apri ${sector.label}`}
+                    className={`velora-radar__slice${active ? " is-previewed" : ""}`}
                     style={{ "--radar-sector": sector.color } as React.CSSProperties}
                     onMouseEnter={() => setPointedId(sector.id)}
                     onMouseLeave={() => setPointedId(null)}
@@ -144,7 +144,7 @@ export default function VeloraRadar({
                     <title>{sector.label}: {sector.description}</title>
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-fill" />
                     <path d={wedgePath(begin, end)} className="velora-radar__slice-stroke" />
-                    <circle cx={...polar(277, midpoint).slice(0,1)} cy={polar(277,midpoint)[1]} r="3.1" fill={sector.color} />
+                    <circle cx={polar(277,midpoint)[0]} cy={polar(277,midpoint)[1]} r="3.1" fill={sector.color} />
                     <text x={tx} y={ty - ((sector.short.length - 1) * 8)} className="velora-radar__slice-label" textAnchor="middle">
                       {sector.short.map((line, li) => <tspan key={li} x={tx} dy={li === 0 ? 0 : 16}>{line}</tspan>)}
                       {sector.metric && <tspan x={tx} dy="17" className="velora-radar__slice-metric">{sector.metric}</tspan>}
@@ -161,7 +161,7 @@ export default function VeloraRadar({
                 {mode === "macro" ? "AUDIT WEB" : "VELORA"}
               </text>
               <text x="360" y="367" textAnchor="middle" className="velora-radar__center-info">
-                {mode === "macro" ? \`\${sectors.length} aree osservabili\` : "AUTOVALUTAZIONE"}
+                {mode === "macro" ? `${sectors.length} aree osservabili` : "AUTOVALUTAZIONE"}
               </text>
               <path d="M310 390h100" stroke="#2a6371" />
               <text x="360" y="410" textAnchor="middle" className="velora-radar__center-property">
@@ -188,7 +188,7 @@ export default function VeloraRadar({
               <button
                 key={sector.id}
                 type="button"
-                className={\`velora-radar__sector-button\${pointedId === sector.id ? " is-previewed" : ""}\`}
+                className={`velora-radar__sector-button${pointedId === sector.id ? " is-previewed" : ""}`}
                 style={{ "--radar-sector": sector.color } as React.CSSProperties}
                 onMouseEnter={() => setPointedId(sector.id)}
                 onMouseLeave={() => setPointedId(null)}
