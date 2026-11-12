@@ -1,0 +1,115 @@
+/* Velora visual navigation only.  All sector destinations are existing App modules. */
+.velora-radar {
+  color: #f3f7ff;
+  border: 1px solid #31435f;
+  border-radius: 1.15rem;
+  background: linear-gradient(145deg,#17263e 0%,#0b1629 75%);
+  box-shadow: 0 18px 50px #0208173d;
+  padding: 1.1rem;
+  min-width: 0;
+}
+.velora-radar__header {
+  display: flex;align-items: flex-start;justify-content:space-between;gap:1rem;
+  padding:.2rem .35rem 1rem;border-bottom:1px solid #2f425f;
+}
+.velora-radar__header h2 {margin:.28rem 0 .26rem;font-size:1.42rem;line-height:1.2;font-weight:900;letter-spacing:-.028em;color:#f6f8ff;}
+.velora-radar__header p:not(.velora-radar__eyebrow) {color:#bac9de;font-size:.83rem;line-height:1.6;max-width:720px;margin:0;}
+.velora-radar__eyebrow {display:flex;align-items:center;gap:.48rem;font-weight:900;font-size:.67rem!important;letter-spacing:.16em;text-transform:uppercase;color:#7beac7!important;margin:0!important;}
+.velora-radar__online-indicator {display:inline-block;width:.42rem;height:.42rem;background:#37e2b0;border-radius:50%;box-shadow:0 0 0 3px #27c9a22e;}
+.velora-radar__back {
+  background:#263653;border:1px solid #556d92;border-radius:.68rem;color:#e8ecff;
+  padding:.7rem .9rem;font-size:.74rem;font-weight:800;cursor:pointer;white-space:nowrap;
+}
+.velora-radar__back:hover {background:#39496d;}
+.velora-radar__workspace {display:grid;grid-template-columns:minmax(0,1.05fr) minmax(350px,.86fr);gap:.9rem;margin-top:.95rem;align-items:stretch;}
+.velora-radar__circle-panel {
+  border:1px solid #2d435d;background:radial-gradient(circle at 50% 42%,#162c40,#0b1627 72%);
+  border-radius:.92rem;display:flex;flex-direction:column;align-items:stretch;
+  padding:.6rem;min-width:0;overflow:hidden;position:relative;
+}
+.velora-radar__circle-heading {display:flex;justify-content:space-between;gap:1rem;color:#8fa8c7;font-size:.6rem;font-weight:900;letter-spacing:.13em;padding:.2rem .42rem;}
+.velora-radar__svg-container {width:100%;max-width:660px;align-self:center;flex:1;display:flex;align-items:center;}
+.velora-radar__svg {width:100%;height:auto;display:block;overflow:visible;}
+.velora-radar__range {fill:none;stroke:#2f5369;stroke-width:1;opacity:.62;pointer-events:none;}
+.velora-radar__axis {stroke:#31506a;stroke-width:1;stroke-dasharray:3 8;opacity:.65;pointer-events:none;}
+.velora-radar__sweep {transform-origin:360px 360px;animation:velora-radar-scan 26s linear infinite;pointer-events:none;}
+@keyframes velora-radar-scan {from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+.velora-radar__slice {cursor:pointer;outline:none;--radar-sector:#7c6eea;}
+.velora-radar__slice-fill {fill:color-mix(in srgb,var(--radar-sector) 19%,#0c1e33);fill-opacity:1;transition:fill .18s ease,filter .18s ease;stroke:none;}
+.velora-radar__slice-stroke {fill:none;stroke:color-mix(in srgb,var(--radar-sector) 75%,#314b65);stroke-opacity:.75;stroke-width:1.15;transition:stroke-width .18s;}
+.velora-radar__slice:hover .velora-radar__slice-fill,
+.velora-radar__slice.is-previewed .velora-radar__slice-fill,
+.velora-radar__slice:focus-visible .velora-radar__slice-fill {fill:color-mix(in srgb,var(--radar-sector) 39%,#173048);}
+.velora-radar__slice:hover .velora-radar__slice-stroke,
+.velora-radar__slice.is-previewed .velora-radar__slice-stroke,
+.velora-radar__slice:focus-visible .velora-radar__slice-stroke {stroke:#fff;stroke-width:3;}
+.velora-radar__slice-label {
+  font-size:12px;fill:#f4f7ff;font-weight:830;letter-spacing:-.2px;
+  paint-order:stroke;stroke:#0b2036;stroke-width:2.4px;
+  pointer-events:none;
+}
+.velora-radar__slice-metric {fill:#97f3d9;font-size:10px;font-weight:800;letter-spacing:0;}
+.velora-radar__center-kicker {fill:#71e5c8;font-size:10px;letter-spacing:2px;font-weight:800;pointer-events:none;}
+.velora-radar__center-title {fill:#fff;font-size:28px;letter-spacing:1.5px;font-weight:1000;pointer-events:none;}
+.velora-radar__center-info {fill:#c7d7eb;font-size:11px;font-weight:800;letter-spacing:1px;pointer-events:none;}
+.velora-radar__center-property {fill:#f6f8ff;font-size:11px;font-weight:850;pointer-events:none;}
+.velora-radar__circle-note {display:flex;align-items:center;justify-content:center;gap:.48rem;color:#9cb3d2;font-size:.63rem;font-weight:700;padding:.2rem .4rem .5rem;margin:0;text-align:center;}
+.velora-radar__guide {min-width:0;background:#111f34;border:1px solid #314761;border-radius:.92rem;padding:.9rem;display:flex;flex-direction:column;}
+.velora-radar__guide-heading {display:flex;align-items:center;justify-content:space-between;gap:.6rem;border-bottom:1px solid #344560;padding:.1rem .15rem .76rem;}
+.velora-radar__guide-heading span:not(.velora-radar__guide-count) {font-size:.59rem;letter-spacing:.16em;font-weight:900;color:#82e3cd;}
+.velora-radar__guide-heading h3 {font-size:1.08rem;font-weight:900;color:#f4f7ff;margin:.25rem 0 0;}
+.velora-radar__guide-count {font-size:.8rem;font-weight:900;color:#b2a2ff;background:#272851;border:1px solid #534c83;padding:.28rem .55rem;border-radius:.5rem;}
+.velora-radar__sector-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem;margin-top:.65rem;}
+.velora-radar__sector-button {
+  --radar-sector:#6aaee9;min-width:0;text-align:left;display:flex;align-items:center;gap:.52rem;
+  border:1px solid #374c69;border-left:3px solid var(--radar-sector);
+  color:#eff3ff;background:#1a2a44;border-radius:.62rem;padding:.53rem .55rem;
+  cursor:pointer;transition:background .14s,transform .14s,border-color .14s;min-height:3.5rem;
+}
+.velora-radar__sector-button:hover,.velora-radar__sector-button.is-previewed {background:#273b59;border-color:var(--radar-sector);transform:translateY(-1px);}
+.velora-radar__sector-number {flex-shrink:0;display:grid;place-items:center;color:var(--radar-sector);font-size:.7rem;font-weight:900;border:1px solid #445d7d;border-radius:.35rem;width:1.48rem;height:1.48rem;}
+.velora-radar__sector-copy {min-width:0;display:flex;flex-direction:column;gap:.2rem;}
+.velora-radar__sector-copy strong {color:#f2f6ff;font-size:.71rem;font-weight:880;line-height:1.28;}
+.velora-radar__sector-copy small {font-size:.61rem;line-height:1.37;color:#acc0db;}
+.velora-radar__sector-arrow {font-size:.8rem;color:#9cb2cf;margin-left:auto;flex-shrink:0;}
+.velora-radar__focus {
+  margin-top:auto;background:linear-gradient(120deg,#20294b,#14283d);
+  border:1px solid #3d5477;border-radius:.75rem;padding:.8rem .9rem;min-height:5.3rem;
+}
+.velora-radar__focus p {color:#9b8fe7;font-size:.6rem;letter-spacing:.14em;font-weight:900;margin:0;}
+.velora-radar__focus h4 {color:#fff;font-size:.88rem;font-weight:900;margin:.27rem 0;}
+.velora-radar__focus span {color:#bed0e8;font-size:.7rem;line-height:1.4;display:block;}
+.velora-radar__focus button {border:1px solid #7766c7;background:#563ab8;color:#fff;border-radius:.45rem;padding:.42rem .7rem;font-weight:850;font-size:.68rem;cursor:pointer;margin-top:.5rem;}
+.velora-radar__metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.7rem;margin-top:.75rem;}
+.velora-radar__metric {
+  padding:.83rem 1rem;background:#182942;border:1px solid #35506a;border-radius:.72rem;
+  display:flex;flex-direction:column;gap:.18rem;min-width:0;
+}
+.velora-radar__metric span {color:#b4c4df;text-transform:uppercase;font-size:.59rem;font-weight:900;letter-spacing:.1em;}
+.velora-radar__metric strong {font-size:1.32rem;font-weight:950;color:#f5f7ff;}
+.velora-radar__metric small {color:#8ed8c7;font-size:.65rem;line-height:1.35;}
+.velora-radar button:focus-visible {outline:2px solid #baaeff;outline-offset:2px;}
+@media(max-width:1440px){
+  .velora-radar__workspace {grid-template-columns:minmax(0,1fr) minmax(310px,.85fr);}
+  .velora-radar__sector-grid {grid-template-columns:1fr;}
+  .velora-radar__sector-button {min-height:2.8rem;}
+}
+@media(max-width:1050px){
+  .velora-radar__workspace {grid-template-columns:minmax(0,1fr);}
+  .velora-radar__sector-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:640px){
+  .velora-radar {padding:.65rem;}
+  .velora-radar__header {flex-direction:column;}
+  .velora-radar__svg-container {max-width:100%;}
+  .velora-radar__slice-label {font-size:11px;}
+  .velora-radar__sector-grid {grid-template-columns:1fr;}
+  .velora-radar__metrics {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(prefers-reduced-motion:reduce){
+  .velora-radar__sweep {animation:none;}
+  .velora-radar__sector-button,.velora-radar__slice-fill {transition:none;}
+}
+@media print {
+  .velora-radar__sweep {animation:none;}
+}
