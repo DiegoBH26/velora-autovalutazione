@@ -22,7 +22,7 @@ function visibleExpediaCapture(portal = "expedia") {
   if(portal==="travelocity" && !/\.h\d+\.|hotel-information|hotel-review/.test(path))
     return {error:"Travelocity: apri la scheda dell'hotel, non i risultati generici."};
   const text = (document.body?.innerText || "").slice(0, 30000);
-  if (/accesso è temporaneamente limitato|sei un robot\?|mostraci il tuo lato umano|your access (?:has been|is) temporarily limited/i.test(text)) {
+  if (/accesso è temporaneamente limitato|sei un robot\??|mostraci il tuo lato umano|your access (?:has been|is) temporarily limited|are you a robot|verify you are human|captcha|access denied|you (?:have )?been blocked|security check|verifica di sicurezza/i.test(text.slice(0,4000))) {
     return {error: labels[portal]+" mostra una verifica o un blocco. Nessuna tariffa letta; completa solo gli eventuali controlli umani consentiti e riprova sulla scheda visibile."};
   }
 
