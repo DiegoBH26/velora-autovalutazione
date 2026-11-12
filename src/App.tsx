@@ -5392,7 +5392,10 @@ export default function App() {
         setCompanionVersion(String(event.data.payload?.version||"precedente").slice(0,24));
         setVrboSupported(Boolean(event.data.payload?.vrbo));
         setHoliduSupported(Boolean(event.data.payload?.holidu));
-        setFamilyCompanionSupported(Boolean(event.data.payload?.hotels && event.data.payload?.travelocity));
+        setFamilyCompanionSupported(Boolean(
+          event.data.payload?.hotels && event.data.payload?.travelocity &&
+          String(event.data.payload?.version||"")>="0.4.5"
+        ));
         setOtaTabLauncherSupported(Boolean(event.data.payload?.tabsLauncher));
       } else if(type==="PORTALS_OPENED") {
         const count=Number(event.data.payload?.count||0);
