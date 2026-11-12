@@ -8070,6 +8070,7 @@ export default function App() {
     setCustomQuickItemIds([...customQuickDraftIds]);
     setUseCustomQuickSelection(true);
     setAssessmentMode("quick-hotel-bb");
+    setWorkspaceSection("rapida");
     setShowQuickDeepDive(false);
     setActiveMacroId(selectedData[0]?.id ?? "");
     setShowOnlyPriority(false);
@@ -12220,6 +12221,7 @@ export default function App() {
   function openStructureAnalysis(structure: AnalyzedStructure, mode: "web-audit" | "quick-hotel-bb") {
     openStructure(structure);
     setAssessmentMode(mode);
+    setWorkspaceSection(mode==="web-audit"?"audit":"rapida");
     const selected = mode === "web-audit" ? EXTERNAL_WEB_AUDIT_DATA
       : selectAssessmentItems(new Set(structure.customQuickItemIds?.length ? structure.customQuickItemIds : savedInterviewTemplate()));
     if (mode === "quick-hotel-bb") {
@@ -12461,7 +12463,7 @@ export default function App() {
         status={`${customQuickDraftIds.length} domande selezionate`}
         navigation={[
           {id:"personalizza",label:"Personalizza intervista",description:"Configurazione in corso",active:true,onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},
-          {id:"torna",label:"Torna senza salvare",description:"Annulla le modifiche non confermate",onClick:()=>setIsCustomizingInterview(false)}
+          {id:"torna",label:"Torna senza salvare",description:"Annulla le modifiche non confermate",onClick:()=>{setIsCustomizingInterview(false);setWorkspaceSection("panoramica");}}
         ]}
       >
       <main className="velora-core velora-core--customizer min-h-screen bg-[#F7F4FB] px-4 py-5 text-[#23124A] md:px-6">
@@ -12670,7 +12672,7 @@ export default function App() {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => setIsCustomizingInterview(false)}
+                  onClick={() => {setIsCustomizingInterview(false);setWorkspaceSection("panoramica");}}
                   className="rounded-xl border border-[#E5DDF1] bg-white px-5 py-3 text-sm font-black text-[#50627F] transition hover:bg-[#FBF9FF]"
                 >
                   Annulla
