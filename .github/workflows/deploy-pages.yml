@@ -39,6 +39,7 @@ jobs:
           node tests/test_vrbo_companion.cjs
           node tests/test_holidu_companion.cjs
           node tests/test_three_ota_tabs.cjs
+          node tests/test_five_ota_companion.cjs
           node tests/test_ota_asymmetry_matrix.cjs
           node tests/test_wrong_ota_listing_quarantine.cjs
       - name: Package Chrome Companion into downloadable ZIP
