@@ -824,6 +824,7 @@ def run_specialist_job(property_id,agent_id,property_file,months,custom_period,g
             print_agent_status(agent_id,"Browser / scraping","IN CORSO",property_id)
             with AGENT_RUN_LOCK:
                 AGENT_RUNS[key]["state"]="running"
+                AGENT_RUNS[key]["runningAt"]=datetime.now(timezone.utc).isoformat()
             data=json.loads(Path(property_file).read_text(encoding="utf-8"))
             if account_profile and agent_id in {"expedia","vrbo","holidu"} and PORTAL_SESSIONS is not None:
                 portal_state=PORTAL_SESSIONS.statuses().get(agent_id,{})
