@@ -370,3 +370,97 @@
   .velora-area-head {align-items:flex-start;flex-direction:column;}
   .velora-area-head__actions {width:100%;}
 }
+
+
+/* Velora RADAR R2 – legibility pass for archived scores and OTA specialist cards.
+   Visual-only: no changes to statuses, agent settings or persisted data. */
+.velora-workspace .velora-core--archive [class*="bg-[#FAF9FC]"],
+.velora-workspace .velora-core--archive [class*="bg-[#FAF8FD]"],
+.velora-workspace .velora-core--archive [class*="bg-[#F9F7FC]"] {
+  background-color: #202f49!important;
+  border-color: #455b78!important;
+  opacity: 1!important;
+}
+.velora-workspace .velora-core--archive [class*="bg-[#FAF9FC]"] :is(p,span,strong,b),
+.velora-workspace .velora-core--archive [class*="bg-[#FAF8FD]"] :is(p,span,strong,b) {
+  color: #eff5ff!important;
+  opacity: 1!important;
+}
+.velora-workspace .velora-core--archive [class*="text-[#64748B]"] {
+  color: #bcccde!important;
+}
+.velora-workspace .velora-core [class*="bg-white/"] {
+  background-color: #223550!important;
+  color: #eff5ff!important;
+}
+.velora-workspace .velora-core [class*="text-white/"] {
+  color: #e4effe!important;
+}
+.velora-workspace .velora-core [class*="bg-[#F9F7FC]"],
+.velora-workspace .velora-core [class*="bg-[#F9F7FD]"],
+.velora-workspace .velora-core [class*="bg-[#FFF8F0]"],
+.velora-workspace .velora-core [class*="bg-[#F9FAFB]"],
+.velora-workspace .velora-core [class*="bg-[#F7FAFC]"] {
+  background-color: #1a2b43!important;
+  color: #e7f0ff!important;
+  border-color: #38506b!important;
+}
+/* Each card retains the OTA identity border, but not near-black text on a navy fill. */
+.velora-workspace .velora-core [data-velora-agent] {
+  background-color: #1b2d45!important;
+  color: #eff6ff!important;
+  opacity: 1!important;
+}
+.velora-workspace .velora-core [data-velora-agent][data-velora-selected="yes"] {
+  background-color: #263954!important;
+  box-shadow: inset 0 0 0 1px #a8bce324, 0 8px 25px #0000001f!important;
+}
+.velora-workspace .velora-core [data-velora-agent] > button:first-of-type,
+.velora-workspace .velora-core [data-velora-agent] > button:first-of-type span,
+.velora-workspace .velora-core [data-velora-agent] > div > span,
+.velora-workspace .velora-core [data-velora-agent] > div > button {
+  color: #f0f6ff!important;
+}
+.velora-workspace .velora-core [data-velora-agent] span[class*="opacity-75"],
+.velora-workspace .velora-core [data-velora-agent] span[class*="opacity-80"] {
+  opacity: 1!important;
+  color: #cadbf1!important;
+}
+.velora-workspace .velora-core [data-velora-agent] p[class*="text-[#6B4F06]"] {
+  color: #ffe2a0!important;
+}
+.velora-workspace .velora-core [data-velora-agent] [class*="text-emerald-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-sky-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-blue-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-purple-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-violet-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-rose-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-indigo-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-yellow-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-cyan-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-orange-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-teal-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-amber-9"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-purple-950"],
+.velora-workspace .velora-core [data-velora-agent] [class*="text-amber-950"] {
+  color: #eff6ff!important;
+}
+.velora-workspace .velora-core [data-velora-agent] [class*="bg-white/"] {
+  background-color: #2a405f!important;
+  color: #f4f7ff!important;
+  border-color: #516a88!important;
+}
+.velora-workspace .velora-core [data-velora-agent] [class*="bg-[#23124A]"] {
+  background-color: #7156d7!important;
+  color: #ffffff!important;
+}
+.velora-workspace .velora-core [data-velora-agent] button:focus-visible {
+  outline: 2px solid #b4a9ff;
+  outline-offset: 2px;
+}
+.velora-workspace__ui-version {
+  color: #7ee1c5!important;
+  font-size: .58rem!important;
+  letter-spacing: .12em!important;
+  font-weight: 900!important;
+}

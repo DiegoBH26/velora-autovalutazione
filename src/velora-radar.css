@@ -66,7 +66,7 @@
   color:#eff3ff;background:#1a2a44;border-radius:.62rem;padding:.53rem .55rem;
   cursor:pointer;transition:background .14s,transform .14s,border-color .14s;min-height:3.5rem;
 }
-.velora-radar__sector-button:hover,.velora-radar__sector-button.is-previewed {background:#273b59;border-color:var(--radar-sector);transform:translateY(-1px);}
+.velora-radar__sector-button:hover,.velora-radar__sector-button.is-previewed {background:#273b59;border-color:var(--radar-sector);}
 .velora-radar__sector-number {flex-shrink:0;display:grid;place-items:center;color:var(--radar-sector);font-size:.7rem;font-weight:900;border:1px solid #445d7d;border-radius:.35rem;width:1.48rem;height:1.48rem;}
 .velora-radar__sector-copy {min-width:0;display:flex;flex-direction:column;gap:.2rem;}
 .velora-radar__sector-copy strong {color:#f2f6ff;font-size:.71rem;font-weight:880;line-height:1.28;}
@@ -112,4 +112,69 @@
 }
 @media print {
   .velora-radar__sweep {animation:none;}
+}
+
+
+/* Radar UI R2 · layout geometrically stable on mouse and keyboard focus.
+   Previously the contextual text made the right panel taller on hover;
+   CSS grid stretched the left panel, moving the wheel underneath the pointer. */
+.velora-radar__workspace {
+  align-items: start;
+}
+.velora-radar__circle-panel,
+.velora-radar__guide {
+  align-self: start;
+}
+.velora-radar__circle-panel {
+  width: 100%;
+}
+.velora-radar__svg-container {
+  box-sizing: border-box;
+  display: block;
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  width: 100%;
+  max-width: 660px;
+  margin: 0 auto;
+}
+.velora-radar__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.velora-radar__focus {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+  overflow: hidden;
+}
+.velora-radar__focus h4 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.velora-radar__focus span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.velora-radar__sector-button {
+  transform: none!important;
+  transition: background-color .16s ease, border-color .16s ease;
+}
+.velora-radar__sector-button:hover,
+.velora-radar__sector-button.is-previewed {
+  transform: none!important;
+}
+/* The ring itself changes color, never dimension, scale or position. */
+.velora-radar__slice {
+  transform: none!important;
+}
+@media (max-width: 1050px) {
+  .velora-radar__circle-panel,
+  .velora-radar__guide { width: 100%; }
 }
