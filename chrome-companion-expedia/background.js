@@ -61,7 +61,7 @@ function visibleExpediaCapture(portal = "expedia") {
     if (rm) {guests=Number(rm[1]);break;}
   }
   if (!guests) {
-    const people = text.slice(0,2500).match(/\b(\d{1,2})\s*(?:persone|ospiti|adulti)\b/i);
+    const people = text.slice(0,2500).match(/\b(\d{1,2})\s*(?:persone|ospiti|adulti|guests?|adults?|travelers?|travellers?|people)\b/i);
     if (people) guests=Number(people[1]);
   }
 
