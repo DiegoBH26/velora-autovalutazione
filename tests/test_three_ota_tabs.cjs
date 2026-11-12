@@ -9,7 +9,7 @@ const worker=fs.readFileSync(path.join(root,"chrome-companion-expedia","backgrou
 const bridge=fs.readFileSync(path.join(root,"chrome-companion-expedia","bridge.js"),"utf8");
 const app=fs.readFileSync(path.join(root,"src/App.tsx"),"utf8");
 const manifest=JSON.parse(fs.readFileSync(path.join(root,"chrome-companion-expedia","manifest.json"),"utf8"));
-assert.equal(manifest.version,"0.4.3");
+assert.equal(manifest.version,"0.4.4");
 assert.ok(manifest.permissions.includes("tabs"));
 assert.match(bridge,/OPEN_THREE_OTA_TABS/);
 assert.match(bridge,/PORTALS_OPENED/);
