@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Velora · Expedia + Vrbo + Holidu Companion",
-  "version": "0.4.3",
-  "description": "Legge a richiesta informazioni già visibili su Expedia, Vrbo e Holidu, senza eseguire login o superare blocchi.",
+  "name": "Velora · 5 OTA Companion",
+  "version": "0.4.4",
+  "description": "Lettura a richiesta di pagine visibili Expedia, Vrbo, Holidu, Hotels.com e Travelocity, senza login automatici o bypass.",
   "permissions": [
     "tabs",
     "scripting"
@@ -24,7 +24,9 @@
     "https://*.holidu.com/*",
     "https://*.holidu.de/*",
     "https://*.holidu.fr/*",
-    "https://*.holidu.es/*"
+    "https://*.holidu.es/*",
+    "https://*.hotels.com/*",
+    "https://*.travelocity.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -41,6 +43,6 @@
     }
   ],
   "action": {
-    "default_title": "Velora · 3 OTA Companion"
+    "default_title": "Velora · 5 OTA Companion"
   }
 }
