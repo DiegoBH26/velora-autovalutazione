@@ -3616,6 +3616,23 @@ type ExpediaCompanionCapture = {
 };
 type VrboCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-vrbo-visible-v1"};
 type HoliduCompanionCapture = Omit<ExpediaCompanionCapture,"schema"> & {schema:"velora-holidu-visible-v1"};
+type ExpediaFamilyOtaId = "hotels" | "travelocity";
+type ExpediaFamilyCapture = Omit<ExpediaCompanionCapture,"schema"> & {
+  schema:"velora-hotels-visible-v1" | "velora-travelocity-visible-v1";
+  otaId:ExpediaFamilyOtaId;
+};
+const FAMILY_COMPANION_LABELS:Record<ExpediaFamilyOtaId,string>={hotels:"Hotels.com",travelocity:"Travelocity"};
+const FAMILY_COMPANION_HOMES:Record<ExpediaFamilyOtaId,string>={hotels:"https://it.hotels.com/",travelocity:"https://www.travelocity.com/"};
+function familyCompanionHostMatches(otaId:ExpediaFamilyOtaId, url:string):boolean {
+  try {
+    const parsed=new URL(url);
+    if(parsed.protocol!=="https:")return false;
+    const host=parsed.hostname.toLowerCase();
+    return otaId==="hotels"
+      ? (host==="hotels.com"||host.endsWith(".hotels.com"))
+      : (host==="travelocity.com"||host.endsWith(".travelocity.com"));
+  } catch { return false; }
+}
 function matchingExpediaProperty(observed:string,expected:string,city:string):boolean {
   const normalize=(value:string)=>value.toLocaleLowerCase("it-IT")
     .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
@@ -5176,6 +5193,10 @@ export default function App() {
   const [holiduReviewOpen,setHoliduReviewOpen] = useState(false);
   const [holiduIdentityConfirmed,setHoliduIdentityConfirmed] = useState(false);
   const [holiduMessage,setHoliduMessage] = useState("");
+  const [familyCompanionSupported,setFamilyCompanionSupported] = useState(false);
+  const [familyCapture,setFamilyCapture] = useState<Partial<Record<ExpediaFamilyOtaId,ExpediaFamilyCapture>>>({});
+  const [familyMessage,setFamilyMessage] = useState<Partial<Record<ExpediaFamilyOtaId,string>>>({});
+  const [familyIdentityConfirmed,setFamilyIdentityConfirmed] = useState<Record<ExpediaFamilyOtaId,boolean>>({hotels:false,travelocity:false});
   const [vrboCapture,setVrboCapture] = useState<VrboCompanionCapture|null>(null);
   const [vrboReviewOpen,setVrboReviewOpen] = useState(false);
   const [vrboIdentityConfirmed,setVrboIdentityConfirmed] = useState(false);
@@ -5361,10 +5382,13 @@ export default function App() {
         setCompanionVersion(String(event.data.payload?.version||"precedente").slice(0,24));
         setVrboSupported(Boolean(event.data.payload?.vrbo));
         setHoliduSupported(Boolean(event.data.payload?.holidu));
+        setFamilyCompanionSupported(Boolean(event.data.payload?.hotels && event.data.payload?.travelocity));
         setOtaTabLauncherSupported(Boolean(event.data.payload?.tabsLauncher));
       } else if(type==="PORTALS_OPENED") {
         const count=Number(event.data.payload?.count||0);
-        setOtaWorkspaceMessage(count===3
+        setOtaWorkspaceMessage(count===5
+          ? "Expedia, Vrbo, Holidu, Hotels.com e Travelocity aperti in cinque schede. Cerca la struttura e conferma date e ospiti prima di acquisire."
+          : count===3
           ? "Expedia, Vrbo e Holidu sono stati aperti in tre schede Chrome indipendenti. Puoi cercare la struttura e impostare date e ospiti."
           : "Sono state aperte "+count+" schede. Controlla i siti e usa i link diretti per quelli mancanti.");
       } else if(type==="PORTALS_ERROR") {
@@ -5375,9 +5399,60 @@ export default function App() {
         const message=String(event.data.payload?.message||"Acquisizione non riuscita").slice(0,300);
         if(event.data.payload?.otaId==="vrbo")setVrboMessage(message);
         else if(event.data.payload?.otaId==="holidu")setHoliduMessage(message);
+        else if(["hotels","travelocity"].includes(String(event.data.payload?.otaId||"")))
+          setFamilyMessage(prev=>({...prev,[String(event.data.payload.otaId)]:message}));
         else setCompanionMessage(message);
       } else if(type==="RESULT") {
         const payload=event.data.payload;
+        if(payload?.schema==="velora-hotels-visible-v1" || payload?.schema==="velora-travelocity-visible-v1"){
+          const otaId:ExpediaFamilyOtaId=payload.schema==="velora-hotels-visible-v1"?"hotels":"travelocity";
+          const label=FAMILY_COMPANION_LABELS[otaId];
+          if(!familyCompanionHostMatches(otaId,String(payload.sourceUrl||""))){
+            setFamilyMessage(prev=>({...prev,[otaId]:label+": URL del portale non valido o reindirizzato. Nessun dato utilizzato."}));
+            return;
+          }
+          if(!Array.isArray(payload.rooms)||payload.rooms.length>40){
+            setFamilyMessage(prev=>({...prev,[otaId]:"Risultato non valido: troppe camere o elenco prezzi mancante."}));
+            return;
+          }
+          const rooms:ExpediaCompanionRoom[]=payload.rooms.filter((item:unknown):item is ExpediaCompanionRoom=>{
+            if(!item||typeof item!=="object")return false;
+            const room=item as ExpediaCompanionRoom;
+            return typeof room.roomType==="string"&&room.roomType.trim().length>=6&&
+              room.roomType.length<=180&&Number.isFinite(room.total)&&room.total>=1&&
+              room.total<=200000&&room.confidence==="total-for-stay";
+          }).map((room:ExpediaCompanionRoom)=>({
+            roomType:room.roomType.trim(),total:room.total,confidence:"total-for-stay",
+            board:String(room.board||"Non chiaro").slice(0,80),
+            refund:String(room.refund||"Non chiaro").slice(0,80),
+            taxes:String(room.taxes||"Non chiaro").slice(0,80)
+          }));
+          const capture:ExpediaFamilyCapture={
+            schema:payload.schema,otaId,propertyId:activeAuditData.id,
+            pageTitle:String(payload.pageTitle||"").slice(0,240),
+            propertyName:String(payload.propertyName||"").slice(0,180),
+            sourceUrl:String(payload.sourceUrl||"").slice(0,1600),
+            checkin:String(payload.checkin||""),checkout:String(payload.checkout||""),
+            nights:Number(payload.nights||0),guests:Number(payload.guests||0),
+            rooms,capturedAt:new Date().toISOString(),
+            warning:String(payload.warning||"").slice(0,400)
+          };
+          setFamilyCapture(prev=>({...prev,[otaId]:capture}));
+          setFamilyIdentityConfirmed(prev=>({...prev,[otaId]:false}));
+          setFamilyMessage(prev=>({...prev,[otaId]:rooms.length
+            ? rooms.length+" totali camera visibili acquisiti da "+label+". Verifica identità, date e ospiti, poi premi Importa."
+            : "Nessuna tariffa totale affidabile. "+capture.warning}));
+          setOtaWorkspaceOpen(true);
+          setOtaContentSnapshots(previous=>[
+            ...previous.filter(item=>item.otaId!==otaId),
+            {otaId,propertyName:capture.propertyName,sourceUrl:capture.sourceUrl,
+              observedAt:capture.capturedAt,roomCount:rooms.length,
+              visibleImageCount:null,photoAltSamples:[],visibleServices:[],
+              descriptionExcerpt:"",evidenceScope:"visible-companion-observation-not-verified",
+              identityVerified:false}
+          ]);
+          return;
+        }
         if(payload?.schema==="velora-vrbo-visible-v1"){
           let url:URL;
           try {url=new URL(String(payload.sourceUrl||""));}catch{setVrboMessage("Link Vrbo non valido.");return;}
