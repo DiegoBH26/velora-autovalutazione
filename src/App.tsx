@@ -11396,7 +11396,7 @@ export default function App() {
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-2" aria-label="Hotels.com e Travelocity - acquisizione assistita">
                       {(["hotels","travelocity"] as const).map(otaId=>{
-                        const capture=familyCapture[otaId];
+                        const capture=familyCapture[otaId]?.propertyId===activeAuditData.id?familyCapture[otaId]:undefined;
                         const match=capture?matchingExpediaProperty(
                           capture.propertyName+" "+capture.pageTitle,activeAuditData.name,activeAuditData.city):false;
                         const confirmed=match||familyIdentityConfirmed[otaId];
