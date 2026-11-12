@@ -256,3 +256,117 @@
   .velora-workspace__content {padding:0!important;}
   .velora-workspace .velora-core {background:white!important;color:#111!important;}
 }
+
+
+/* Radar route view: keep the existing functional modules, display one area at a time. */
+.velora-area-head {
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;
+  padding:1rem 1.2rem;background:linear-gradient(115deg,#1c2b45,#14243a);
+  border:1px solid #3c5571;border-radius:1rem;color:#f3f6ff;
+}
+.velora-area-head > div:first-child {min-width:0;max-width:900px;}
+.velora-area-head p {margin:0 0 .35rem;letter-spacing:.14em;color:#89e6ce;font-size:.63rem;font-weight:900;}
+.velora-area-head h2 {margin:0 0 .25rem;font-size:1.32rem;font-weight:900;color:#fff;line-height:1.24;}
+.velora-area-head span {color:#bed0ea;font-size:.77rem;line-height:1.5;}
+.velora-area-head__actions {display:flex;flex-wrap:wrap;gap:.55rem;}
+.velora-area-head__actions button {
+  color:#f4f1ff;background:#3d3371;border:1px solid #806cce;
+  padding:.66rem .95rem;border-radius:.7rem;font-size:.75rem;font-weight:900;cursor:pointer;
+}
+.velora-area-head__actions button:hover {background:#564895;}
+/* The original sections are left intact, merely unmounted from visual flow when inactive. */
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-overview,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-analysis-modes,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-kpi-summary,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-structure-profile,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-opportunities,
+.velora-workspace .velora-core--assessment[data-velora-view] #velora-report-actions {
+  display:none!important;
+}
+.velora-workspace .velora-core--assessment[data-velora-view="kpi"] #velora-kpi-summary,
+.velora-workspace .velora-core--assessment[data-velora-view="struttura"] #velora-structure-profile,
+.velora-workspace .velora-core--assessment[data-velora-view="intervista"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="rapida"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="audit"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="macroarea"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="bookingengine"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="commerciale"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="scraping"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="mappa"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="piani"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="contenuti"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="asimmetrie"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="tariffe"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="recensioni"] #velora-assessment-content,
+.velora-workspace .velora-core--assessment[data-velora-view="criticita"] #velora-opportunities,
+.velora-workspace .velora-core--assessment[data-velora-view="report"] #velora-report-actions {
+  display:block!important;
+}
+/* The 10 observable macroareas belong only to the audit or an individual macroarea view. */
+.velora-workspace #velora-audit-content [data-audit-block="summary"],
+.velora-workspace #velora-audit-content [data-audit-block="macro"],
+.velora-workspace #velora-audit-content .velora-audit-extras {
+  display:none!important;
+}
+.velora-workspace #velora-audit-content[data-velora-focus="audit"] > [data-audit-block="summary"],
+.velora-workspace #velora-audit-content[data-velora-focus="audit"] > [data-audit-block="macro"],
+.velora-workspace #velora-audit-content[data-velora-focus="macroarea"] > [data-audit-block="macro"] {
+  display:block!important;
+}
+/* The audit extra wrapper contains all pre-existing OTA tools. Only the selected tool is visible. */
+.velora-workspace #velora-audit-content .velora-audit-extras > * {display:none!important;}
+.velora-workspace #velora-audit-content[data-velora-focus="bookingengine"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="commerciale"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="scraping"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="mappa"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="piani"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="contenuti"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="asimmetrie"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="tariffe"] .velora-audit-extras,
+.velora-workspace #velora-audit-content[data-velora-focus="recensioni"] .velora-audit-extras {display:block!important;}
+.velora-workspace #velora-audit-content[data-velora-focus="bookingengine"] .velora-audit-extras > [data-audit-block="bookingengine"],
+.velora-workspace #velora-audit-content[data-velora-focus="commerciale"] .velora-audit-extras > [data-audit-block="commerciale"],
+.velora-workspace #velora-audit-content[data-velora-focus="scraping"] .velora-audit-extras > [data-audit-block="scraping"],
+.velora-workspace #velora-audit-content[data-velora-focus="mappa"] .velora-audit-extras > [data-audit-block="mappa"],
+.velora-workspace #velora-audit-content[data-velora-focus="piani"] .velora-audit-extras > [data-audit-block="piani"],
+.velora-workspace #velora-audit-content[data-velora-focus="contenuti"] .velora-audit-extras > [data-audit-block="contenuti"],
+.velora-workspace #velora-audit-content[data-velora-focus="asimmetrie"] .velora-audit-extras > [data-audit-block="asimmetrie"],
+.velora-workspace #velora-audit-content[data-velora-focus="tariffe"] .velora-audit-extras > [data-audit-block="tariffe"],
+.velora-workspace #velora-audit-content[data-velora-focus="recensioni"] .velora-audit-extras > [data-audit-block="recensioni"] {
+  display:block!important;
+}
+/* Contrast repairs for original light status palettes after dark-shell migration. */
+.velora-workspace .velora-core [class*="bg-slate-50"],
+.velora-workspace .velora-core [class*="bg-slate-100"],
+.velora-workspace .velora-core [class*="bg-[#FAF9FC]"],
+.velora-workspace .velora-core [class*="bg-[#FAF7FC]"],
+.velora-workspace .velora-core [class*="bg-[#F8F6FC]"],
+.velora-workspace .velora-core [class*="bg-[#FAF8FD]"],
+.velora-workspace .velora-core [class*="bg-[#F3EFFA]"],
+.velora-workspace .velora-core [class*="bg-[#FFFCF4]"],
+.velora-workspace .velora-core [class*="bg-[#F6F3FC]"] {
+  background-color:#1b2b44!important;color:#d4e2f5!important;
+}
+.velora-workspace .velora-core [class*="text-slate-400"],
+.velora-workspace .velora-core [class*="text-slate-500"] {color:#b0bfd4!important;}
+.velora-workspace .velora-core [class*="text-amber-950"] {color:#f5d9a0!important;}
+.velora-workspace .velora-core [class*="text-[#64748B]"],
+.velora-workspace .velora-core [class*="text-[#7A5B96]"] {color:#bacbea!important;}
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-sky-900"],
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-blue-900"],
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-indigo-900"] {color:#b9d9fc!important;}
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-purple-900"],
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-violet-900"] {color:#d6baff!important;}
+.velora-workspace .velora-core [data-audit-block="scraping"] [class*="text-orange-900"] {color:#ffd0a5!important;}
+/* Protect keyboard navigation and dense technical tables. */
+.velora-workspace .velora-core [data-audit-block] input:not([type="checkbox"]),
+.velora-workspace .velora-core [data-audit-block] select,
+.velora-workspace .velora-core [data-audit-block] textarea {
+  background:#101a2d!important;color:#f3f6ff!important;border:1px solid #47607c!important;
+}
+.velora-workspace .velora-core [data-audit-block] table {overflow-wrap:anywhere;}
+@media(max-width:700px){
+  .velora-area-head {align-items:flex-start;flex-direction:column;}
+  .velora-area-head__actions {width:100%;}
+}
