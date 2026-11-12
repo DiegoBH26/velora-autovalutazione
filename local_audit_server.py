@@ -1870,7 +1870,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/ota-presence/manual","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/ota-presence/manual","/api/companion/observation","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1884,6 +1884,38 @@ class Handler(SimpleHTTPRequestHandler):
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
+
+            if route=="/api/companion/observation":
+                # A user-triggered Companion observation is LOGGING ONLY.
+                # Do not mark an OTA present, approve a quote or edit agent results.
+                property_id=safe_property_id(payload.get("propertyId"))
+                ota_id=str(payload.get("otaId") or "").lower()
+                action=str(payload.get("action") or "").lower()
+                currency=str(payload.get("currency") or "").upper()
+                count=payload.get("count")
+                if ota_id not in {"hotels","travelocity"} or action not in {"captured","imported","empty"}:
+                    raise ValueError("Evento Chrome non riconosciuto")
+                if type(count) is not int or not 0<=count<=40:
+                    raise ValueError("Numero prezzi non valido")
+                if currency not in {"EUR","USD","MIXED","UNKNOWN"}:
+                    raise ValueError("Valuta del campione non valida")
+                label=MANUAL_OTA_AGENT_NAMES[ota_id][1]
+                event_type="pricing_read_failure" if action=="empty" else "pricing_observed"
+                status={
+                    "captured":"browser_assisted_visible_unverified",
+                    "imported":"browser_assisted_saved_unverified",
+                    "empty":"browser_assisted_no_total"
+                }[action]
+                event=agent_mailbox_publish(property_id,ota_id,event_type,{
+                    "status":status,"ota":label,"priceCount":count,"roomCount":count,
+                    "sourceRun":"chrome-companion-v0.4.5",
+                    "message":("Chrome assistito · "+label+" · "+
+                       ("lettura senza totale affidabile" if action=="empty" else
+                        ("totali visibili letti" if action=="captured" else "tariffe importate, non validate"))+
+                       f": {count} · valuta {currency}. Nessuna parità Booking confermata.")
+                })
+                self._json(200,{"ok":True,"propertyId":property_id,"event":event})
+                return
 
             if route=="/api/ota-presence/manual":
                 property_id=safe_property_id(payload.get("propertyId"))
