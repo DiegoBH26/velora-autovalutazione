@@ -1017,3 +1017,28 @@
   border-radius:.7rem;padding:.85rem 1rem;
   font-size:.86rem;line-height:1.55;
 }
+
+/* R7 · Azioni manuali OTA: il rosso indica solo una dichiarazione esplicita
+   dell'operatore, non una pagina bloccata o un risultato assente confermato. */
+.velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button] {
+  min-height:43px;
+  padding:.65rem .8rem!important;
+  border:1px solid #b37580!important;
+  background:#392b3a!important;
+  color:#ffe8ed!important;
+  border-radius:.7rem;
+  font-size:13.5px!important;
+  font-weight:850!important;
+  line-height:1.35!important;
+  letter-spacing:.01em;
+}
+.velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button]:hover {
+  background:#573548!important;
+  border-color:#e3a7ae!important;
+}
+.velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button][data-reported="yes"] {
+  background:#463a26!important;border-color:#c5a362!important;color:#ffedb8!important;
+}
+.velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button]:focus-visible {
+  outline:2px solid #d4b8ff!important;outline-offset:2px;
+}
