@@ -108,7 +108,7 @@ export default function VeloraWorkspace({
   function showGuide(event: React.SyntheticEvent<HTMLDivElement>) {
     if (!guideEnabled) return;
     const origin = event.target;
-    if (!(origin instanceof HTMLElement)) return;
+    if (!(origin instanceof Element)) return;
     const target = origin.closest<HTMLElement>('[data-guide],button,summary,label,input,select,textarea,h1,h2,h3,h4,a');
     if (!target || target.closest('[data-velora-guide-ui]')) {
       if (lastGuideTarget.current) {lastGuideTarget.current=null;setGuideTip(null);}
