@@ -1,0 +1,288 @@
+/*
+ * VELORA — readable dark UI, November 2026.
+ * Visual-only. Preserve component markup, behaviors, stored assessments,
+ * tariff data, scraping workflows, and dark-mode architecture.
+ *
+ * Principle: hierarchy through size, spacing, color and borders — never
+ * through heavy weight. 400 throughout by explicit design request.
+ */
+#root .velora-workspace,
+#root .velora-admin {
+  --v-readable-main:#eef3fa;
+  --v-readable-secondary:#c9d6e6;
+  --v-readable-muted:#b1c4d9;
+  --v-readable-border:#526780;
+  --v-readable-surface:#1b2c43;
+  --v-readable-field:#13253a;
+  color:var(--v-readable-main);
+  font-family:"Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+  font-size:15px;
+  line-height:1.6;
+  font-synthesis:none;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+#root .velora-workspace *,
+#root .velora-admin * {
+  font-weight:400!important;
+  text-shadow:none!important;
+  -webkit-text-stroke-width:0!important;
+}
+/* Legacy utility classes set tight letter spacing and ALL-CAPS with ultra-heavy text.
+   Keep original labels, but allow the user to read them naturally. */
+#root .velora-workspace .velora-core [class*="tracking-"],
+#root .velora-workspace .velora-core [class*="uppercase"],
+#root .velora-workspace .velora-radar [class*="tracking-"],
+#root .velora-admin [class*="tracking-"] {
+  letter-spacing:.015em!important;
+}
+#root .velora-workspace .velora-core [class*="uppercase"] {
+  text-transform:none!important;
+}
+#root .velora-workspace :is(p,li,dd,dt,small,span,label),
+#root .velora-admin :is(p,li,dd,dt,small,span,label) {
+  line-height:1.55;
+}
+/* Tiny Tailwind sizes were the primary problem in all four screenshots.
+   The larger size applies to every module, but does not enlarge headings. */
+#root .velora-workspace .velora-core [class*="text-[7px]"],
+#root .velora-workspace .velora-core [class*="text-[8px]"],
+#root .velora-workspace .velora-core [class*="text-[9px]"] {
+  font-size:13.5px!important;
+  line-height:1.5!important;
+}
+#root .velora-workspace .velora-core [class*="text-[10px]"],
+#root .velora-workspace .velora-core [class*="text-[11px]"] {
+  font-size:14px!important;
+  line-height:1.55!important;
+}
+#root .velora-workspace .velora-core [class*="text-[12px]"],
+#root .velora-workspace .velora-core [class*="text-[13px]"],
+#root .velora-workspace .velora-core [class~="text-xs"] {
+  font-size:14.5px!important;
+  line-height:1.55!important;
+}
+#root .velora-workspace .velora-core [class~="text-sm"] {
+  font-size:15px!important;
+  line-height:1.6!important;
+}
+#root .velora-workspace .velora-core [class~="text-base"] {
+  font-size:16px!important;
+  line-height:1.55!important;
+}
+/* Sidebar and titles remain distinct in size rather than weight. */
+#root .velora-workspace__nav-copy strong {
+  font-size:14.5px!important;
+  line-height:1.4!important;
+  color:#f1f5fb!important;
+}
+#root .velora-workspace__nav-copy small {
+  font-size:12.5px!important;
+  line-height:1.45!important;
+  color:#c4d1e2!important;
+}
+#root .velora-workspace__nav-button {
+  min-height:58px;
+  padding:.82rem .8rem!important;
+}
+#root .velora-workspace__nav-heading {
+  font-size:13px!important;
+  letter-spacing:.035em!important;
+  color:#b3c4dd!important;
+}
+#root .velora-workspace__topbar h1 {
+  font-size:clamp(20px,1.55vw,25px)!important;
+  letter-spacing:0!important;
+  color:#f6f8fd!important;
+  line-height:1.3!important;
+}
+#root .velora-workspace__topbar p {
+  font-size:14px!important;
+  color:#cfdaea!important;
+  line-height:1.55!important;
+}
+#root .velora-workspace__breadcrumbs,
+#root .velora-workspace__property-label small,
+#root .velora-workspace__sidebar-footer-copy span {
+  font-size:12.5px!important;
+  letter-spacing:.015em!important;
+  color:#bccce0!important;
+}
+#root .velora-workspace__property-label strong,
+#root .velora-workspace__sidebar-footer-copy strong,
+#root .velora-workspace__status {
+  font-size:14px!important;
+}
+/* Large metric labels and 4-sector radar: maintain proportion and clarity. */
+#root .velora-workspace .velora-radar :is(p,span,small,li) {
+  line-height:1.55!important;
+}
+#root .velora-workspace .velora-radar [class*="text-[10px]"],
+#root .velora-workspace .velora-radar [class*="text-[11px]"],
+#root .velora-workspace .velora-radar [class~="text-xs"] {
+  font-size:14px!important;
+}
+/* Inputs and option text are high-contrast, at a comfortable reading size. */
+#root .velora-workspace .velora-core :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea),
+#root .velora-admin :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea) {
+  min-height:42px;
+  font-size:15px!important;
+  line-height:1.6!important;
+  color:#f0f5fc!important;
+  background-color:#122238!important;
+  border:1px solid #56708c!important;
+  border-radius:9px;
+  caret-color:#fff;
+}
+#root .velora-workspace .velora-core textarea,
+#root .velora-admin textarea {
+  min-height:100px;
+  padding:11px 13px;
+  resize:vertical;
+}
+#root .velora-workspace .velora-core :is(input,textarea)::placeholder,
+#root .velora-admin :is(input,textarea)::placeholder {
+  color:#b2c3d7!important;
+  opacity:1!important;
+}
+#root .velora-workspace .velora-core select option,
+#root .velora-admin select option {
+  color:#f3f7fd;
+  background:#172b42;
+}
+#root .velora-workspace .velora-core :is(input,select,textarea):focus-visible,
+#root .velora-admin :is(input,select,textarea):focus-visible {
+  outline:2px solid #94baf1;
+  outline-offset:2px;
+  box-shadow:0 0 0 3px #83aee329!important;
+}
+/* Field labels and buttons are now normal weight, with visible boundaries. */
+#root .velora-workspace .velora-core label {
+  font-size:14.5px!important;
+  line-height:1.55!important;
+  color:#dce7f3;
+}
+#root .velora-workspace .velora-core button,
+#root .velora-workspace .velora-core a,
+#root .velora-admin button {
+  font-size:14px!important;
+  line-height:1.45!important;
+  letter-spacing:0!important;
+}
+#root .velora-workspace .velora-core button {
+  min-height:38px;
+}
+#root .velora-workspace .velora-core button:disabled {
+  opacity:.68!important;
+  cursor:not-allowed;
+}
+#root .velora-workspace .velora-core :is(button,summary,a):focus-visible,
+#root .velora-workspace__nav-button:focus-visible,
+#root .velora-admin button:focus-visible {
+  outline:2px solid #b6c9ff!important;
+  outline-offset:3px!important;
+}
+/* Muted information is never washed-out on navy. Distinguish by hue,
+   not by reducing opacity or using a smaller font. */
+#root .velora-workspace .velora-core [class*="text-[#50627F]"],
+#root .velora-workspace .velora-core [class*="text-[#64748B]"],
+#root .velora-workspace .velora-core [class*="text-[#718096]"],
+#root .velora-workspace .velora-core [class*="text-slate-400"],
+#root .velora-workspace .velora-core [class*="text-gray-500"] {
+  color:#c5d4e5!important;
+}
+#root .velora-workspace .velora-core [class*="text-[#C8A96B]"] {
+  color:#efd5a3!important;
+}
+#root .velora-workspace .velora-core [class*="text-amber-950"],
+#root .velora-workspace .velora-core [class*="text-amber-900"],
+#root .velora-workspace .velora-core [class*="text-yellow-950"] {
+  color:#ffe0a8!important;
+}
+#root .velora-workspace .velora-core [class*="text-rose-700"],
+#root .velora-workspace .velora-core [class*="text-red-700"],
+#root .velora-workspace .velora-core [class*="text-red-800"] {
+  color:#ffd7df!important;
+}
+#root .velora-workspace .velora-core [class*="text-emerald-900"] {
+  color:#c3f4dd!important;
+}
+/* Large, readable table headings and notes; no dense technical microcopy. */
+#root .velora-workspace .velora-core :is(table th,table td) {
+  font-size:14px!important;
+  line-height:1.58!important;
+  padding-block:10px;
+}
+#root .velora-workspace .velora-core table th {
+  color:#e7f0fd!important;
+}
+#root .velora-workspace .velora-core table td {
+  color:#d6e2f1!important;
+}
+#root .velora-workspace .velora-core summary {
+  font-size:15px!important;
+  line-height:1.6!important;
+  padding-block:12px;
+}
+#root .velora-workspace .velora-core :is(h1,h2,h3,h4) {
+  line-height:1.35!important;
+  letter-spacing:0!important;
+}
+/* Consistent legible OTA cards, notices and selected filter lists. */
+#root .velora-workspace .velora-core [data-velora-agent] {
+  background:#1b2c43!important;
+  color:#edf5fd!important;
+}
+#root .velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button] {
+  font-size:14px!important;
+  min-height:42px;
+}
+#root .velora-workspace .velora-core [data-audit-block] :is(p,li,td,th,small) {
+  font-size:14px!important;
+  line-height:1.6!important;
+}
+#root .velora-workspace .velora-core [data-audit-block] summary {
+  font-size:15px!important;
+}
+#root .velora-workspace .velora-core [data-velora-rate-history] > summary {
+  background:#203551!important;
+  color:#edf4fc!important;
+}
+#root .velora-workspace .velora-core [data-velora-rate-history] > summary:hover {
+  background:#2c4563!important;
+}
+#root .velora-workspace .velora-core [data-velora-agent-chat] {
+  background:#15263e!important;
+  border-color:#58728e!important;
+}
+/* Personalization sidebar in the third screenshot: more readable captions. */
+#root .velora-workspace .velora-core--customizer :is(label,p,span,small,button) {
+  line-height:1.55!important;
+}
+#root .velora-workspace .velora-core--customizer [class*="text-[10px]"],
+#root .velora-workspace .velora-core--customizer [class*="text-[11px]"] {
+  font-size:14px!important;
+}
+/* Administration pages share the same visual comfort, without changing logic. */
+#root .velora-admin {
+  font-size:15px!important;
+  line-height:1.6!important;
+}
+#root .velora-admin :is(button,label,span,small,p,th,td) {
+  font-size:14px;
+  line-height:1.55;
+}
+#root .velora-admin__side-nav :is(a,button) {
+  min-height:43px;
+}
+/* Responsiveness: avoid clipping in single-column forms and longer labels. */
+@media (max-width:980px) {
+  #root .velora-workspace__nav-copy strong {font-size:14px!important;}
+  #root .velora-workspace__topbar h1 {font-size:20px!important;}
+}
+@media (prefers-reduced-motion:reduce) {
+  #root .velora-workspace :is(button,input,select,textarea),
+  #root .velora-admin :is(button,input,select,textarea) {
+    transition:none!important;
+  }
+}
