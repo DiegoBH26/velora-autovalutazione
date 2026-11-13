@@ -315,3 +315,67 @@ html.velora-inclusive-dark #root .velora-admin :is(input,select,textarea) {
 html.velora-inclusive-dark #root .velora-admin :is(button,a):focus-visible {
   outline-color:#c6e7ff!important;
 }
+
+
+/* Acquisizione assistita: anche il pannello flottante usa la stessa palette,
+   senza alterarne apertura, dimensioni, griglia o pulsanti. */
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] {
+  background:#11283a!important;
+  border-color:#96b4ce!important;
+  color:#f4faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] :is(section,div)[class*="bg-[#1"] {
+  background:#1b3448!important;
+  border-color:#7f9bb3!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] :is(section,div)[class*="bg-[#2"] {
+  background:#203b52!important;
+  border-color:#819eb8!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] :is(h2,h3,b,strong,p,span,label) {
+  color:#eef6fe!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] button[class*="bg-[#6"],
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] button[class*="bg-[#7"],
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] button[class*="bg-[#5"] {
+  background:#315e80!important;
+  border-color:#b8d9f0!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] button[class*="bg-[#3"],
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] button[class*="bg-[#2"] {
+  background:#28465d!important;
+  border-color:#8cabc3!important;
+  color:#f4faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] [class*="bg-[#443620]"] {
+  background:#403625!important;
+  border-color:#f7d897!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-assisted-dialog] [class*="bg-[#164A45]"] {
+  background:#234254!important;
+  border-color:#a8d9f4!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-agent-chat] {
+  background:#172d42!important;
+  border-color:#83a0ba!important;
+}
+html.velora-inclusive-dark #root .velora-workspace [data-velora-agent-chat] [data-velora-chat-event] {
+  background:#223c52!important;
+  border-left-color:#a9dafa!important;
+  border-color:#7b9bb5!important;
+}
+/* Modalità attiva: focus e guide non si distinguono per rosso/verde. */
+html.velora-inclusive-dark #root .velora-workspace__guide-toggle[aria-pressed="true"] {
+  background:#23475c!important;
+  border-color:#aed7f2!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__guide-question {
+  background:#b5ddf6!important;color:#102b40!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__guide-tooltip {
+  background:#143146!important;
+  color:#f8fbff!important;
+  border-color:#b5dafa!important;
+}
