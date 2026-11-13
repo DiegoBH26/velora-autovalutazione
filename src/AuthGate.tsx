@@ -477,6 +477,18 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
+  // Stessa modalità e stessa preferenza persistente del pulsante nel software.
+  const [inclusiveDark, setInclusiveDark] = useState(() => {
+    try { return window.localStorage.getItem("velora-color-mode") === "dark-inclusive"; }
+    catch { return document.documentElement.classList.contains("velora-inclusive-dark"); }
+  });
+  function toggleInclusiveDark() {
+    const next = !inclusiveDark;
+    setInclusiveDark(next);
+    document.documentElement.classList.toggle("velora-inclusive-dark", next);
+    try { window.localStorage.setItem("velora-color-mode", next ? "dark-inclusive" : "original"); }
+    catch { /* Mantieni la modalità funzionante anche con storage bloccato. */ }
+  }
 
   async function loadRequests() {
     setLoading(true);
@@ -581,6 +593,15 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
             <p>Gestione degli accessi, approvazioni e account della piattaforma.</p>
           </div>
           <div className="velora-admin__actions">
+            <button type="button" data-velora-inclusive-switch
+              className="velora-admin__action velora-admin__inclusive-toggle"
+              aria-pressed={inclusiveDark}
+              aria-label={inclusiveDark ? "Disattiva Dark inclusivo e torna ai colori originali" : "Attiva Dark inclusivo, modalità cromatica accessibile"}
+              title={inclusiveDark ? "Ripristina i colori originali di Velora" : "Cambia soltanto i colori: Dark inclusivo"}
+              onClick={toggleInclusiveDark}>
+              <span className="velora-admin__inclusive-icon" aria-hidden="true">◐</span>
+              {inclusiveDark ? "Dark inclusivo · attivo" : "Dark inclusivo"}
+            </button>
             <button type="button" onClick={() => void loadRequests()} disabled={loading} className="velora-admin__action velora-admin__action--outline">
               {loading ? "Aggiornamento…" : "Aggiorna"}
             </button>
