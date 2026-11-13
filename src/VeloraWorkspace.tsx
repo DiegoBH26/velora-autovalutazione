@@ -24,6 +24,8 @@ type VeloraWorkspaceProps = {
   children: React.ReactNode;
 };
 
+const INCLUSIVE_COLOR_KEY = "velora-color-mode";
+
 const paths: Record<string, string> = {
   archivio: "M4 7h16v13H4z M4 11h16 M9 3h6l1 4H8z",
   nuova: "M12 5v14 M5 12h14",
@@ -103,6 +105,17 @@ export default function VeloraWorkspace({
   title, description, structureName, status, navigation, guideEnabled = false, onGuideToggle, children
 }: VeloraWorkspaceProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [inclusiveDark, setInclusiveDark] = useState(() => {
+    try { return window.localStorage.getItem(INCLUSIVE_COLOR_KEY) === "dark-inclusive"; }
+    catch { return document.documentElement.classList.contains("velora-inclusive-dark"); }
+  });
+  function toggleInclusiveDark() {
+    const next = !inclusiveDark;
+    setInclusiveDark(next);
+    document.documentElement.classList.toggle("velora-inclusive-dark", next);
+    try { window.localStorage.setItem(INCLUSIVE_COLOR_KEY, next ? "dark-inclusive" : "original"); }
+    catch { /* La scelta funziona anche se lo storage è bloccato. */ }
+  }
   const [guideTip, setGuideTip] = useState<{text:string;x:number;y:number}|null>(null);
   const lastGuideTarget = useRef<HTMLElement|null>(null);
   function showGuide(event: React.SyntheticEvent<HTMLDivElement>) {
@@ -126,7 +139,7 @@ export default function VeloraWorkspace({
   }
   function hideGuide() {lastGuideTarget.current=null;setGuideTip(null);}
   return (
-    <div className={"velora-workspace" + (collapsed ? " velora-workspace--collapsed" : "") + (guideEnabled ? " velora-workspace--guide-enabled" : "")}
+    <div className={"velora-workspace" + (collapsed ? " velora-workspace--collapsed" : "") + (guideEnabled ? " velora-workspace--guide-enabled" : "") + (inclusiveDark ? " velora-workspace--inclusive" : "")}
       onPointerOver={showGuide} onPointerLeave={hideGuide} onFocusCapture={showGuide} onBlurCapture={hideGuide}
       onKeyDown={event=>{if(event.key==="Escape")hideGuide();}}>
       <a href="#velora-workspace-content" className="velora-workspace__skip">Vai ai contenuti</a>
@@ -176,6 +189,15 @@ export default function VeloraWorkspace({
             <p>{description}</p>
           </div>
           <div className="velora-workspace__context">
+            <button type="button" data-velora-inclusive-switch
+              className="velora-workspace__inclusive-toggle"
+              aria-pressed={inclusiveDark}
+              aria-label={inclusiveDark ? "Disattiva Dark inclusivo e torna ai colori originali" : "Attiva Dark inclusivo, modalità cromatica accessibile"}
+              title={inclusiveDark ? "Ripristina i colori originali di Velora" : "Cambia solo i colori: Dark inclusivo"}
+              onClick={toggleInclusiveDark}>
+              <span aria-hidden="true" className="velora-workspace__inclusive-icon">◐</span>
+              {inclusiveDark ? "Dark inclusivo · attivo" : "Dark inclusivo"}
+            </button>
             {onGuideToggle && <button type="button" data-velora-guide-ui
               className="velora-workspace__guide-toggle" aria-pressed={guideEnabled}
               title={guideEnabled?"Disattiva la guida contestuale":"Attiva la guida contestuale"}
