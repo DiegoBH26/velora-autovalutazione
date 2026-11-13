@@ -420,3 +420,28 @@ html.velora-inclusive-dark #root .velora-admin .velora-admin__inclusive-toggle[a
   outline:2px solid #c4e6ff!important;
   outline-offset:3px!important;
 }
+
+
+/* Contrasto agente Windows — Dark inclusivo, anche prima della connessione. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-local-agent-status] {
+  background:#29465c!important;
+  border:1px solid #b8d9f0!important;
+  color:#f8fcff!important;
+  opacity:1!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-local-agent-status][data-connected="yes"] {
+  background:#244d61!important;
+  border-color:#c5e6fc!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-local-agent-connect] {
+  background:#315e80!important;
+  border:1px solid #c5e6fc!important;
+  color:#fff!important;
+  opacity:1!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-local-agent-connect]:is(:hover,:focus-visible) {
+  background:#417398!important;
+  border-color:#e3f2ff!important;
+  color:#fff!important;
+}
