@@ -1,0 +1,317 @@
+/*
+ * Velora / Dark inclusivo (opt-in).
+ * SOLO COLORI: non modificare layout, font, dimensioni, spaziature,
+ * funzionalità, fotografie, contenuti OTA, PDF o dati memorizzati.
+ * Nessun filtro globale: le immagini restano cromaticamente originali.
+ * Palette ad alto contrasto con significato degli stati sempre testuale.
+ */
+html.velora-inclusive-dark #root .velora-workspace {
+  --v-bg:#091621;
+  --v-side:#0d1d2d;
+  --v-surface:#192e43;
+  --v-raised:#21394e;
+  --v-border:#718fa8;
+  --v-primary:#a7d6fa;
+  --v-text:#f6faff;
+  --v-muted:#d4e1ee;
+  --v-readable-main:#f6faff;
+  --v-readable-secondary:#dfe9f3;
+  --v-readable-muted:#d0deeb;
+  --v-readable-border:#7794af;
+  --v-readable-surface:#1b344a;
+  --v-readable-field:#132a3c;
+  background:#091621!important;
+  color:#f6faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__sidebar {
+  background:#0c1d2d!important;
+  border-color:#6d8aa3!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__topbar {
+  background:#13273a!important;
+  border-color:#6b88a3!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__brand,
+html.velora-inclusive-dark #root .velora-workspace__sidebar-footer {
+  background:#142a3e!important;
+  border-color:#69849e!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__nav-button {
+  background:#14283b!important;
+  border-color:#526e88!important;
+  color:#f4f9ff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__nav-button:hover,
+html.velora-inclusive-dark #root .velora-workspace__nav-button.is-active {
+  background:#294963!important;
+  border-color:#b2d5f0!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__nav-copy :is(strong,small),
+html.velora-inclusive-dark #root .velora-workspace__brand-copy :is(strong,span),
+html.velora-inclusive-dark #root .velora-workspace__topbar :is(h1,p),
+html.velora-inclusive-dark #root .velora-workspace__property-label :is(strong,small),
+html.velora-inclusive-dark #root .velora-workspace__sidebar-footer-copy :is(strong,span) {
+  color:#edf5fc!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__breadcrumbs,
+html.velora-inclusive-dark #root .velora-workspace__nav-heading,
+html.velora-inclusive-dark #root .velora-workspace__status {
+  color:#d6e6f3!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__property-chip,
+html.velora-inclusive-dark #root .velora-workspace__status {
+  background:#213c53!important;
+  border-color:#7ca0bc!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__nav-rail,
+html.velora-inclusive-dark #root .velora-workspace__property-dot,
+html.velora-inclusive-dark #root .velora-workspace__status i {
+  background:#d2eaff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace__glyph {
+  color:#e4f2ff!important;
+}
+/* Card e contenitori: lo stesso fondo navy neutro, separati da bordi visibili. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-white"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#FBF9FF]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#F7F4FB]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#F3EEF9]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#FBF8FF]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#FFF8E8]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-[#FFFBF2]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-gradient"] {
+  background-color:#1b3349!important;
+  background-image:none!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-amber-50"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-yellow-50"] {
+  background:#413625!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-rose-50"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-red-50"] {
+  background:#3d3038!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-green-50"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="bg-emerald-50"] {
+  background:#20414a!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="border-[#E5DDF1]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="border-[#D8C8A5]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="border-[#E0D7EC]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="border-[#D5D0E7]"] {
+  border-color:#6e8ba5!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-[#23124A]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-white"] {
+  color:#f7fbff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-[#50627F]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-[#64748B]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-[#718096]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-slate-400"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [class*="text-[#C8A96B]"] {
+  color:#dce9f5!important;
+}
+/* Azioni principali blu, azioni secondarie grigio-azzurre: nessun rosso/verde indispensabile. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#23124A]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#5947B1]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#7553D0]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#7654D0]"],
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#6851CF]"] {
+  background:#315e80!important;
+  color:#fff!important;
+  border-color:#b1d5f2!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a)[class*="bg-[#C8A96B]"] {
+  background:#a8d8fa!important;
+  color:#10283b!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(button,a):is(:hover,:focus-visible) {
+  border-color:#c8e2f7!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core a {
+  color:#b9ddff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),textarea,select) {
+  color:#f6faff!important;
+  background:#132a3e!important;
+  border-color:#8aaac2!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core select option {
+  background:#132a3e!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(input,textarea)::placeholder {
+  color:#d0dfed!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core input[type="checkbox"] {
+  accent-color:#99cbed!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core details {
+  border-color:#7491ad!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core details > summary {
+  background:#244056!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core table th {
+  color:#f0f7ff!important;
+  background:#223c53!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core table td {
+  color:#e4eef8!important;
+  border-color:#64839c!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core table tr[class*="odd:bg"] {
+  background:#21374b!important;
+}
+/* Stati: stessa semantica testuale (Bassa/Media/Alta), anche senza distinguere i colori. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-priority="bassa"] {
+  background:#1e404d!important;
+  border-color:#a0d7ef!important;
+  color:#f1fbff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-priority="media"] {
+  background:#463b2d!important;
+  border-color:#f8d89e!important;
+  color:#fff0d3!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-priority="alta"] {
+  background:#3d3340!important;
+  border-color:#d0c6df!important;
+  color:#fff2fc!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-priority] > * {
+  color:inherit!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-macro-option] {
+  background:#20374a!important;
+  border-color:#7e9db7!important;
+  color:#f7fbff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-macro-option]:hover {
+  background:#2c4a62!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-macro-option] > div:first-child > span:last-child {
+  background:#315369!important;
+  border-color:#a6d5f4!important;
+  color:#fff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-macro-title],
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-macro-progress] {
+  color:#eef6fd!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-agent] {
+  background:#1d3549!important;
+  border-color:#728ea8!important;
+  color:#f3f8ff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-presence-button] {
+  background:#294355!important;
+  border-color:#aacbe4!important;
+  color:#f4fbff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-rate-history] > summary {
+  background:#28455d!important;
+  color:#fff!important;
+}
+/* Radar: stessi spicchi, numeri, titoli, dati e geometrie; palette blu con etichette.
+   Nessun trattamento a fotografie, canvas o contenuti acquisiti. */
+html.velora-inclusive-dark #root .velora-radar {
+  color:#f5faff!important;
+  background:#13283a!important;
+  border-color:#7a97b0!important;
+}
+html.velora-inclusive-dark #root .velora-radar__header,
+html.velora-inclusive-dark #root .velora-radar__guide-heading {
+  border-color:#7694ad!important;
+}
+html.velora-inclusive-dark #root .velora-radar__circle-panel,
+html.velora-inclusive-dark #root .velora-radar__guide {
+  background:#10273a!important;
+  border-color:#6f8da5!important;
+}
+html.velora-inclusive-dark #root .velora-radar__slice,
+html.velora-inclusive-dark #root .velora-radar__sector-button {
+  --radar-sector:#a8d8fb!important;
+}
+html.velora-inclusive-dark #root .velora-radar__slice-fill {
+  fill:#274d69!important;
+}
+html.velora-inclusive-dark #root .velora-radar__slice:is(:hover,.is-previewed,:focus-visible) .velora-radar__slice-fill {
+  fill:#416f90!important;
+}
+html.velora-inclusive-dark #root .velora-radar__slice-stroke {
+  stroke:#bedef5!important;
+}
+html.velora-inclusive-dark #root .velora-radar__slice-label,
+html.velora-inclusive-dark #root .velora-radar__center-title,
+html.velora-inclusive-dark #root .velora-radar__center-kicker,
+html.velora-inclusive-dark #root .velora-radar__center-info,
+html.velora-inclusive-dark #root .velora-radar__center-property {
+  fill:#f8fbff!important;
+}
+html.velora-inclusive-dark #root .velora-radar__sector-button,
+html.velora-inclusive-dark #root .velora-radar__metric,
+html.velora-inclusive-dark #root .velora-radar__focus {
+  background:#203a50!important;
+  border-color:#8caac3!important;
+  color:#f2f8ff!important;
+}
+html.velora-inclusive-dark #root .velora-radar :is(p,h2,h3,h4,span,small,strong) {
+  color:#edf6ff!important;
+}
+html.velora-inclusive-dark #root .velora-radar .velora-radar__sector-number {
+  color:#c3e7ff!important;
+}
+/* Le immagini non vengono mai filtrate, convertite né modificate. */
+/* Pulsante di attivazione: aggiunto nell'intestazione, senza spostare sezioni o campi. */
+#root .velora-workspace__inclusive-toggle {
+  display:inline-flex;align-items:center;justify-content:center;gap:.55rem;
+  color:#eaf3fc;background:#243850;border:1px solid #7791ad;
+  border-radius:.75rem;padding:.57rem .83rem;min-height:40px;
+  font-size:.78rem;font-weight:400;line-height:1.3;white-space:nowrap;
+  cursor:pointer;transition:background-color .18s,border-color .18s;
+}
+#root .velora-workspace__inclusive-toggle:hover {
+  background:#345271;border-color:#b2d8f3;
+}
+#root .velora-workspace__inclusive-icon {
+  width:23px;height:23px;border-radius:50%;display:grid;place-items:center;
+  background:#3b5470;color:#fff;font-size:1.07rem;line-height:1;
+}
+html.velora-inclusive-dark #root .velora-workspace__inclusive-toggle[aria-pressed="true"] {
+  background:#24465c;border-color:#c0e5fc;color:#fff;
+}
+html.velora-inclusive-dark #root .velora-workspace__inclusive-icon {
+  background:#b7e0fb;color:#0c273b;
+}
+#root .velora-workspace__inclusive-toggle:focus-visible {
+  outline:2px solid #c4e6ff;outline-offset:2px;
+}
+/* Mantieni leggibili anche i pannelli amministrativi fuori dal radar principale. */
+html.velora-inclusive-dark #root .velora-admin {
+  --va-bg:#0b1927;
+  --va-side:#132a3b;
+  --va-panel:#1e344a;
+  --va-panel-muted:#284158;
+  --va-border:#7694ae;
+  --va-text:#f6fbff;
+  --va-muted:#d5e3ef;
+  --va-primary:#3d6886;
+  background:#0b1927!important;
+  color:#f6fbff!important;
+}
+html.velora-inclusive-dark #root .velora-admin__sidebar,
+html.velora-inclusive-dark #root .velora-admin__panel {
+  background:#1e344a!important;
+  border-color:#7897b0!important;
+}
+html.velora-inclusive-dark #root .velora-admin :is(input,select,textarea) {
+  color:#f6fbff!important;background:#14293d!important;
+  border-color:#86a4be!important;
+}
+html.velora-inclusive-dark #root .velora-admin :is(button,a):focus-visible {
+  outline-color:#c6e7ff!important;
+}
