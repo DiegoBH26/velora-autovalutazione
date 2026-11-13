@@ -12313,7 +12313,11 @@ export default function App() {
             Attenzione: {rateQuotes.filter(q=>q.currency==="USD").length} tariffe acquisite in USD sono conservate nella valuta originale. Non sono incluse nelle medie in euro né nei delta con Booking.
           </p>}
           <p className="mt-2 text-[10px] text-[#50627F]">Δ = scostamento medio percentuale rispetto a Booking su date coincidenti e rilevate nello stesso giorno; (n) = confronti abbinati. Una sola data non rappresenta l'intero mese. Nessun dato è stimato da listini stagionali o prezzi di altre strutture. Focus: Pasqua, ponti, 2 giugno, Ferragosto, Natale/Capodanno e principali eventi locali solo se confermati.</p>
-          <div className="mt-3 space-y-1">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · {observedRateLabel(quote.total / quote.nights,quote.currency||"EUR")}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.origin==="browser-assisted"?"lettura Chrome assistita · camera non verificata":("rilevazione manuale"+(quote.manualListingTitle?" · "+quote.manualListingTitle:"")))}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-black text-rose-700">Elimina</button></div>)}</div>
+          <details data-velora-rate-history className="mt-3 overflow-hidden rounded-xl border border-[#627E9E] bg-[#172A43]">
+            <summary data-guide="Apre lo storico delle ultime 20 tariffe acquisite per questa struttura. È chiuso all'avvio; puoi consultare i valori e le azioni Elimina soltanto quando lo espandi." className="cursor-pointer select-none px-4 py-3 text-[12px] font-semibold text-[#F2F8FF]">
+              Storico tariffe acquisite · {Math.min(rateQuotes.length,20)} righe · apri/chiudi
+            </summary>
+            <div className="space-y-1 border-t border-[#526A87] px-2 pb-2 pt-2">{[...rateQuotes].reverse().slice(0, 20).map((quote) => <div key={quote.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5DDF1] px-3 py-2 text-[11px] text-[#23124A]"><span><b>{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId}</b> · {quote.stayDate} · {observedRateLabel(quote.total / quote.nights,quote.currency||"EUR")}/notte · {quote.ratePlan || quote.refund} · {quote.origin === "pilot" ? (quote.pilotVerified === false ? "rilevazione automatica · da verificare" : "rilevazione automatica validata") : (quote.origin==="browser-assisted"?"lettura Chrome assistita · camera non verificata":("rilevazione manuale"+(quote.manualListingTitle?" · "+quote.manualListingTitle:"")))}{quote.eventTag ? ` · ${quote.eventTag}` : ""} · rilevato {new Date(quote.observedAt).toLocaleString("it-IT")}</span><button type="button" onClick={() => removeRateQuote(quote.id)} className="rounded-md border border-rose-200 px-2 py-1 font-semibold text-rose-700">Elimina</button></div>)}</div></details>
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
             <b>Promozioni verificate su una tariffa futura:</b> {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).length || "nessuna"}.
             {rateQuotes.filter((quote) => quote.stayDate >= todayLocalIso() && quote.promotionKind && !["Non verificata", "Nessuna visibile"].includes(quote.promotionKind)).slice(-6).map((quote) => <p key={`promo-${quote.id}`} className="mt-1">{activeAuditData.otaPresence.find((channel) => channel.id === quote.otaId)?.platform ?? quote.otaId} · {quote.stayDate} · {promotionSummary(quote)}</p>)}
@@ -12687,6 +12691,8 @@ export default function App() {
   if (showStructures) {
     return (
       <VeloraWorkspace
+        guideEnabled={guideEnabled}
+        onGuideToggle={() => setGuideEnabled(current=>!current)}
         title="Archivio strutture"
         description="Accedi alle autovalutazioni registrate, ai report esistenti e ai nuovi audit."
         status={`${structures.length} strutture in archivio`}
@@ -12860,6 +12866,8 @@ export default function App() {
 
     return (
       <VeloraWorkspace
+        guideEnabled={guideEnabled}
+        onGuideToggle={() => setGuideEnabled(current=>!current)}
         title="Personalizzazione intervista"
         description="Configura macroaree, sottogruppi e domande; salva con il comando esistente."
         structureName={interviewTarget?.name || ownerInfo.propertyName || ""}
@@ -13026,7 +13034,7 @@ export default function App() {
                             return (
                               <label
                                 key={`customizer-${item.id}`}
-                                title={guideEnabled ? getGuideText(macro, category, item) : undefined}
+                                data-guide={guideEnabled ? getGuideText(macro, category, item) : undefined}
                                 className={`flex min-h-[42px] items-start gap-2 rounded-lg border px-2.5 py-2 transition ${
                                   guideEnabled ? "cursor-help" : "cursor-pointer"
                                 } ${
@@ -13099,6 +13107,8 @@ export default function App() {
 
   return (
     <VeloraWorkspace
+        guideEnabled={guideEnabled}
+        onGuideToggle={() => setGuideEnabled(current=>!current)}
       title="Autovalutazione struttura ricettiva"
       description="Intervista consulenziale, analisi rapida e scraping OTA in un unico percorso operativo."
       structureName={ownerInfo.propertyName || activeAuditData.name}
@@ -13776,7 +13786,7 @@ export default function App() {
                                 Voce consulenziale
                               </p>
                               <h4
-                                title={guideEnabled ? getGuideText(activeMacro, category, item) : undefined}
+                                data-guide={guideEnabled ? getGuideText(activeMacro, category, item) : undefined}
                                 className={`mt-1 text-base font-black leading-6 text-[#23124A] ${
                                   guideEnabled
                                     ? "cursor-help underline decoration-emerald-500/70 decoration-dotted underline-offset-4"
