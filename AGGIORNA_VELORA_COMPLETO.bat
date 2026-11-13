@@ -150,6 +150,17 @@ echo Verifico import e registrazione dei 12 agenti e di Giove...
 %VELORA_PY% -c "import velora_agent_network as n; import velora_direct_commercial as d; import velora_direct_stays as ds; import velora_shared_intelligence as m; import velora_portal_sessions as p; import velora_portal_credentials as c; assert hasattr(c,'WindowsPortalVault'); assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
 if errorlevel 1 goto :errore_import
 
+rem Avvio CMD da browser: registrazione locale per utente corrente.
+rem Installazione opzionale solo per la comodita' del pulsante web.
+rem Non richiede amministratore, non modifica l'agente esistente.
+echo.
+echo [EXTRA] Installa il collegamento browser - agente Windows...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/VELORA_AVVIO_WEB.ps1?nocache=%RANDOM%' -OutFile 'VELORA_AVVIO_WEB.ps1.new'; $content=Get-Content 'VELORA_AVVIO_WEB.ps1.new' -Raw; if($content -notmatch 'velora-agent://start' -or $content.Length -lt 400){throw 'File avvio web non valido'}; $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseInput($content,[ref]$tokens,[ref]$errors) | Out-Null; if($errors.Count -gt 0){throw 'Errore sintassi file avvio web'}; Move-Item -Force 'VELORA_AVVIO_WEB.ps1.new' 'VELORA_AVVIO_WEB.ps1'"
+if errorlevel 1 goto :errore_protocollo
+powershell -NoProfile -ExecutionPolicy Bypass -File "VELORA_AVVIO_WEB.ps1" -Register
+if errorlevel 1 goto :errore_protocollo
+
 echo.
 echo ==========================================================
 echo   AGGIORNAMENTO COMPLETATO
@@ -158,8 +169,9 @@ echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s=Get-Content 'local_audit_server.py' -Raw; $p=Get-Content 'browser_audit_pilot.py' -Raw; $sv=[regex]::Match($s,'velora-local-agent-v(\d+)').Groups[1].Value; $pv=[regex]::Match($p,'velora-browser-pilot-v(\d+)').Groups[1].Value; Write-Host ('Agente: v'+$sv); Write-Host ('Pilot:  v'+$pv)"
 echo.
-echo Ora chiudi questa finestra e avvia AVVIA_AGENTE_VELORA.bat
-echo dalla stessa cartella.
+echo Ora il pulsante "Avvia / Collega agente" nel sito Velora
+echo puo' aprire direttamente la CMD sul PC dopo la conferma Chrome.
+echo AVVIA_AGENTE_VELORA.bat resta disponibile come alternativa.
 echo.
 pause
 exit /b 0
@@ -176,6 +188,23 @@ echo Se manca una libreria, esegui INSTALLA_AGENTE_VELORA.bat,
 echo poi ripeti AGGIORNA_VELORA_COMPLETO.bat.
 echo Non avviare i test finche non leggi OK: 12/12.
 echo.
+pause
+exit /b 1
+
+
+:errore_protocollo
+echo.
+echo ==========================================================
+echo   MODULI VELORA AGGIORNATI - AVVIO DAL SITO NON REGISTRATO
+echo ==========================================================
+echo.
+echo I 12 agenti sono stati aggiornati. Per avviare da Velora
+echo direttamente in CMD manca la registrazione Windows.
+echo.
+echo Puoi ancora usare AVVIA_AGENTE_VELORA.bat dalla cartella.
+echo Riprova questo aggiornamento per configurare il pulsante web.
+echo.
+del /Q "VELORA_AVVIO_WEB.ps1.new" 2>nul
 pause
 exit /b 1
 
