@@ -84,7 +84,7 @@ function guideTextFor(target: HTMLElement): string {
     target.textContent ||
     target.getAttribute("title") ||
     ""
-  ).replace(/\\s+/g, " ").trim().slice(0, 150);
+  ).replace(/\s+/g, " ").trim().slice(0, 150);
   if (!label) return "";
   const title = target.getAttribute("title")?.trim();
   for (const [test, description] of GUIDE_HINTS) {
