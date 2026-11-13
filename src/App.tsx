@@ -11350,7 +11350,7 @@ export default function App() {
                       </section>
                     ))}
                   </div>
-                  {otaWorkspaceOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091525]/80 p-3 sm:p-6"><aside role="dialog" aria-modal="true" aria-label="Acquisizione assistita OTA" className="max-h-[92vh] w-full max-w-[1100px] overflow-y-auto rounded-2xl border-2 border-[#506987] bg-[#14273F] p-4 text-[#F1F7FF] shadow-2xl">
+                  {otaWorkspaceOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091525]/80 p-3 sm:p-6"><aside data-velora-assisted-dialog role="dialog" aria-modal="true" aria-label="Acquisizione assistita OTA" className="max-h-[92vh] w-full max-w-[1100px] overflow-y-auto rounded-2xl border-2 border-[#506987] bg-[#14273F] p-4 text-[#F1F7FF] shadow-2xl">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="text-base font-semibold text-[#F5F8FC]">Acquisizione assistita · {otaWorkspaceSelection==="all"?"5 OTA":({expedia:"Expedia",vrbo:"Vrbo",holidu:"Holidu",hotels:"Hotels.com",travelocity:"Travelocity"} as const)[otaWorkspaceSelection]}</h3>
