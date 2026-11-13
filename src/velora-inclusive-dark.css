@@ -379,3 +379,44 @@ html.velora-inclusive-dark #root .velora-workspace__guide-tooltip {
   color:#f8fbff!important;
   border-color:#b5dafa!important;
 }
+
+
+/* Home amministratore: stesso pulsante Dark inclusivo del software.
+   Cambiano soltanto i colori, non le operazioni di approvazione account. */
+#root .velora-admin .velora-admin__inclusive-toggle {
+  display:inline-flex;
+  align-items:center;
+  gap:.55rem;
+  background:#253a52;
+  color:#eff6ff;
+  border:1px solid #7a96b1;
+  cursor:pointer;
+}
+#root .velora-admin .velora-admin__inclusive-toggle:hover {
+  background:#33516d;
+  border-color:#b8d9f0;
+}
+#root .velora-admin .velora-admin__inclusive-icon {
+  display:inline-grid;
+  place-items:center;
+  width:23px;height:23px;
+  flex-shrink:0;
+  border-radius:50%;
+  background:#435b76;
+  color:#fff;
+  font-size:1.05rem;
+  line-height:1;
+}
+html.velora-inclusive-dark #root .velora-admin .velora-admin__inclusive-toggle[aria-pressed="true"] {
+  background:#24465c;
+  color:#fff;
+  border-color:#c0e5fc;
+}
+html.velora-inclusive-dark #root .velora-admin .velora-admin__inclusive-toggle[aria-pressed="true"] .velora-admin__inclusive-icon {
+  background:#b7e0fb;
+  color:#0c273b;
+}
+#root .velora-admin .velora-admin__inclusive-toggle:focus-visible {
+  outline:2px solid #c4e6ff!important;
+  outline-offset:3px!important;
+}
