@@ -5383,6 +5383,33 @@ export default function App() {
     }
   }
 
+  // Protocollo Windows installato una sola volta da AGGIORNA_VELORA_COMPLETO.bat.
+  // L'apertura è SEMPRE conseguenza del clic: un sito non può eseguire .bat
+  // direttamente e Chrome può chiedere conferma all'utente.
+  function startAndConnectLocalAgent() {
+    if (localPilotToken) { void connectLocalAgent(false); return; }
+    setLocalPilotMessage("Richiesta avvio agente Windows: se Chrome chiede conferma, scegli Apri. Velora cercherà automaticamente la connessione. Se il protocollo non è registrato, esegui AGGIORNA_VELORA_COMPLETO.bat una volta sul PC.");
+    const link = document.createElement("a");
+    link.href = "velora-agent://start";
+    link.setAttribute("aria-hidden","true");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Nessun reset dei dati: rileva solo la comparsa dell'agente locale.
+    let attempts = 0;
+    const check = async () => {
+      const token = await connectLocalAgent(true);
+      if (token) return;
+      attempts++;
+      if (attempts < 16) {
+        window.setTimeout(() => void check(), 1800);
+      } else {
+        setLocalPilotMessage("Agente non ancora raggiungibile. Conferma l'apertura richiesta dal browser; se il protocollo non è disponibile, aggiorna una volta la cartella Velora con AGGIORNA_VELORA_COMPLETO.bat. In alternativa resta disponibile AVVIA_AGENTE_VELORA.bat.");
+      }
+    };
+    window.setTimeout(() => void check(), 1800);
+  }
+
   useEffect(() => {
     const receive=(event:MessageEvent)=>{
       if(event.source!==window || event.origin!==window.location.origin ||
@@ -11895,7 +11922,7 @@ export default function App() {
                 })()}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
-                {!localPilotToken && <button type="button" onClick={()=>void connectLocalAgent(false)} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Collega agente locale Windows</button>}
+                {!localPilotToken && <button type="button" data-velora-local-agent-connect onClick={startAndConnectLocalAgent} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Avvia / Collega agente Windows</button>}
                 <p className="text-[10px] text-[#64748B]">Gli specialisti Booking, Airbnb e Agoda lavorano sulle pagine pubbliche. Expedia, Vrbo e Holidu richiedono il profilo Chrome locale preparato con «Apri accesso» e «Chiudi e conserva», quindi partono soltanto in modalità Account. L'autenticazione effettiva non viene garantita automaticamente e le tariffe account restano diagnostiche finché identità, camera e condizioni non siano confermate. Il login non elimina necessariamente le restrizioni del portale.</p>
 
               </div>}
@@ -12734,7 +12761,7 @@ export default function App() {
                   Velora online invia il sito all'agente gratuito sul tuo PC. Il database Excel, quando contiene la struttura, accelera il riconoscimento ma non e' obbligatorio: per strutture esterne al database Velora ricostruisce l'identita' dal sito ufficiale e usa quei segnali per cercare e verificare le schede OTA. OTA, recensioni e prezzi futuri restano separati finche' non vengono verificati.
                 </p>
               </div>
-              <div className={"rounded-full px-3 py-1.5 text-xs font-black " + (localPilotToken ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
+              <div data-velora-local-agent-status data-connected={localPilotToken ? "yes" : "no"} className={"rounded-full px-3 py-1.5 text-xs font-black " + (localPilotToken ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
                 {localPilotToken ? "Agente locale collegato" : "Agente locale da collegare"}
               </div>
             </div>
@@ -12761,7 +12788,7 @@ export default function App() {
                 <input value={autoAuditDraft.rooms} inputMode="numeric" onChange={(event) => setAutoAuditDraft((current) => ({ ...current, rooms: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="Es. 12" className="mt-1.5 h-11 w-full rounded-xl border border-[#E0D7EC] bg-white px-3 text-sm font-semibold outline-none focus:border-[#23124A]" />
               </label>
               <div className="flex items-end gap-2 lg:col-span-2">
-                {!localPilotToken && <button type="button" onClick={() => void connectLocalAgent(false)} className="h-11 rounded-xl border border-[#C8A96B] bg-white px-4 text-xs font-black text-[#23124A] hover:bg-[#FFF8E8]">Collega agente</button>}
+                {!localPilotToken && <button type="button" data-velora-local-agent-connect onClick={startAndConnectLocalAgent} title="Avvia da questa pagina l’agente installato sul PC e collegalo a Velora. Al primo utilizzo conferma l’apertura del protocollo nel browser." className="h-11 rounded-xl border border-[#C8A96B] bg-white px-4 text-xs font-black text-[#23124A] hover:bg-[#FFF8E8]">Avvia / Collega agente</button>}
                 <button type="button" disabled={autoAuditRunning || !autoAuditDraft.website.trim()} onClick={() => void startAutomaticAudit()} className="h-11 flex-1 rounded-xl bg-[#23124A] px-5 text-sm font-black text-white hover:bg-[#372368] disabled:cursor-not-allowed disabled:opacity-50">
                   {autoAuditRunning ? "Analisi in corso..." : "Analizza struttura"}
                 </button>
