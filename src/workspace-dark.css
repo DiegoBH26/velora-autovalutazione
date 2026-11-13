@@ -1042,3 +1042,46 @@
 .velora-workspace .velora-core [data-velora-agent] [data-velora-presence-button]:focus-visible {
   outline:2px solid #d4b8ff!important;outline-offset:2px;
 }
+
+
+/* Guida contestuale generale. Disponibile in tutte le sezioni Velora. */
+.velora-workspace__guide-toggle {
+  display:inline-flex;align-items:center;justify-content:center;gap:.55rem;
+  border:1px solid #61758f;border-radius:.75rem;
+  color:#e6f0ff;background:#243650;
+  padding:.57rem .83rem;min-height:40px;white-space:nowrap;
+  font-size:.78rem;font-weight:600;line-height:1.3;
+  cursor:pointer;transition:background .18s,border-color .18s;
+}
+.velora-workspace__guide-toggle:hover {
+  background:#304664;border-color:#9bb4d5;
+}
+.velora-workspace__guide-toggle[aria-pressed="true"] {
+  background:#164c3f;color:#ebfff5;border-color:#55c699;
+}
+.velora-workspace__guide-question {
+  width:23px;height:23px;border-radius:50%;display:grid;place-items:center;
+  background:#384d68;color:#fff;font-weight:700;font-size:.9rem;
+}
+.velora-workspace__guide-toggle[aria-pressed="true"] .velora-workspace__guide-question {
+  background:#50c791;color:#0e2d21;
+}
+.velora-workspace__guide-toggle:focus-visible {
+  outline:2px solid #8fe8b7;outline-offset:3px;
+}
+.velora-workspace__guide-tooltip {
+  position:fixed;z-index:200000;max-width:min(340px,calc(100vw - 28px));
+  padding:.85rem 1rem;background:#15314a;color:#f4fff9;
+  border:1px solid #63ca9d;border-radius:.75rem;
+  box-shadow:0 12px 35px #030e1c99;
+  font-size:.82rem;line-height:1.5;font-weight:400;
+  pointer-events:none;overflow-wrap:anywhere;
+}
+.velora-workspace--guide-enabled [data-guide]:hover {
+  text-decoration:underline;text-decoration-style:dotted;
+  text-decoration-color:#69e5aa;text-underline-offset:4px;
+}
+@media (max-width:720px) {
+  .velora-workspace__guide-toggle {padding:.45rem .6rem;font-size:.7rem;}
+  .velora-workspace__guide-tooltip {font-size:.8rem;}
+}
