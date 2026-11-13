@@ -2,11 +2,14 @@
 # Installazione per utente corrente, senza privilegi amministratore.
 # Nessun parametro del sito diventa un comando: e' consentito solo
 # il protocollo velora-agent://start che avvia il BAT fisso nella cartella.
-param([Parameter(Position = 0)][string]$Request = "")
+param(
+    [switch]$Register,
+    [Parameter(Position = 0)][string]$Request = ""
+)
 
 $ErrorActionPreference = "Stop"
 
-if ($Request -eq "-Register") {
+if ($Register) {
     $batch = Join-Path $PSScriptRoot "AVVIA_AGENTE_VELORA.bat"
     if (-not (Test-Path -LiteralPath $batch -PathType Leaf)) {
         throw "AVVIA_AGENTE_VELORA.bat non presente nella cartella Velora."
