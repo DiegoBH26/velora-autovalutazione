@@ -31,8 +31,10 @@ class InclusiveThemeContracts(unittest.TestCase):
         self.assertIn("velora-admin", CSS)
         # Explicitly no image conversion, no layout or typography changes.
         for prop in ('filter:grayscale(', 'hue-rotate(', 'invert(', 'grid-template-columns:',
-                     'font-size:', 'font-weight:700!important', 'transform:scale('):
+                     'font-weight:700!important', 'transform:scale('):
             self.assertNotIn(prop, CSS)
+        # The one newly introduced toggle may define its own font size.
+        self.assertNotIn("font-size:", CSS.split("/* Pulsante di attivazione:")[0])
 
 
 if __name__ == "__main__":
