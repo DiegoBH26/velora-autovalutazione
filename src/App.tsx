@@ -3840,6 +3840,7 @@ type BrowserPilotResult = {
       searchSubmitted?:boolean;datesConfirmedAfterSearch?:boolean;searchAction?:{submitted?:boolean;reason?:string;action?:string};dateAttempts?:Array<{frameUrl?:string;dates?:{applied?:boolean;reason?:string;trace?:string[];method?:string;displayedDates?:{checkin?:string;checkout?:string}};error?:string}>;occupancyControl?:{confirmed?:boolean;evidence?:string};controls?:{applied?:boolean;reason?:string};
       visiblePrices?:Array<{amount:number;text:string}>;quotes?:Array<{roomType:string;displayedAmount:number;currency:string;displayedBasis:string;verified:boolean;evidence:string}>;
       formDiagnostic?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number};
+      frameDiagnostics?:Array<{frameUrl?:string;form?:{fieldSamples?:Array<{type?:string;label?:string;readOnly?:boolean}>;searchActions?:string[];dateWidgets?:number}}>;
       evidence?:string[]}> };
   navigationAudit?: {pagesVisited?:number;internalLinksSeen?:number;failedPages?:Array<{url:string;status?:number;error?:string}>;status?:string;evidence?:string};
   discoveredSources?: Record<string, DiscoveredPilotSource>;
@@ -3865,6 +3866,49 @@ type BrowserPilotResult = {
   }[];
   observations: BrowserPilotObservation[];
 };
+
+function formatLeonardoTechnicalLog(result: BrowserPilotResult): string {
+  const commercial=result.directCommercialAudit;
+  if(!commercial) return "Leonardo: nessun risultato commerciale salvato.";
+  const lines=[
+    "VELORA · LOG TECNICO LEONARDO",
+    "Struttura: "+(result.propertyName||result.propertyId),
+    "Esito: "+(commercial.status||"non verificato"),
+    "Ricerche effettivamente inviate: "+Number(commercial.searchedTotal||0),
+    "Tariffe camere lette: "+(commercial.observedRoomPrices||[]).length,
+    "Preventivi verificati: "+(commercial.verifiedQuotes||[]).length,
+    ...(commercial.evidence||[]).map(message=>"Sintesi: "+message),
+  ];
+  for(const [index,sample] of (commercial.samples||[]).entries()){
+    lines.push("","TENTATIVO "+(index+1)+" · "+sample.checkin+" → "+sample.checkout,
+      "Stato: "+sample.status+" · Ricerca inviata: "+(sample.searchSubmitted?"SI":"NO"),
+      "Navigazione: "+(sample.navigation?.openingMethod||"n.d.")+
+        " · HTTP sito "+(sample.navigation?.siteHttpStatus??"n.d.")+
+        " · HTTP motore "+(sample.navigation?.httpStatus??"n.d."),
+      "Dettaglio apertura: "+(sample.navigation?.reason||"n.d."),
+      "Modulo disponibile: "+(sample.formReadiness?.ready?"SI":"NO")+
+        " · frame "+(sample.formReadiness?.frameUrl||"n.d.")+
+        " · controlli "+(sample.formReadiness?.controls??0));
+    for(const [j,attempt] of (sample.dateAttempts||[]).entries()){
+      lines.push("Frame "+(j+1)+": "+(attempt.frameUrl||"n.d."),
+        "  Date: "+(attempt.dates?.applied?"applicate":"NON applicate")+
+        " · "+(attempt.dates?.method||"senza metodo"),
+        "  Errore: "+(attempt.dates?.reason||attempt.error||"nessun errore dichiarato"));
+      for(const step of attempt.dates?.trace||[])lines.push("  Passaggio: "+step);
+    }
+    for(const frame of sample.frameDiagnostics||[]){
+      const labels=(frame.form?.fieldSamples||[]).map(field=>
+        [field.type,field.label,field.readOnly?"sola lettura":""].filter(Boolean).join(" · "));
+      lines.push("Diagnostica frame: "+(frame.frameUrl||"n.d."),
+        "  Campi: "+(labels.join(" | ")||"nessuno"),
+        "  Azioni: "+((frame.form?.searchActions||[]).join(" | ")||"nessuna"),
+        "  Calendari: "+(frame.form?.dateWidgets??0));
+    }
+    if(sample.diagnosticScreenshot)lines.push("Schermata sul PC: "+sample.diagnosticScreenshot);
+    for(const evidence of sample.evidence||[])lines.push("Evidenza: "+evidence);
+  }
+  return lines.join("\n");
+}
 
 type VerifiedRatingChannel = { id:string; label:string; raw:number; scale:number; normalized:number; reviewCount:number|null };
 function verifiedRatingChannels(result: BrowserPilotResult | null | undefined): VerifiedRatingChannel[] {
@@ -5227,6 +5271,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
   const [resetScrapingMessage,setResetScrapingMessage]=useState("");
   const [specialistExpanded, setSpecialistExpanded] = useState(true);
   const [specialistMessage, setSpecialistMessage] = useState("");
+  const [leonardoDiagnostic, setLeonardoDiagnostic] = useState("");
   const [specialistLaunchErrors,setSpecialistLaunchErrors]=useState<Record<string,string>>({});
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
@@ -6534,6 +6579,21 @@ export default function App({ consultantName = "" }: { consultantName?: string }
     );
   }
 
+  async function loadLeonardoTechnicalLog() {
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token) throw new Error("Collega l'agente Windows per leggere il log di Leonardo.");
+      const response=await fetch(localAgentUrl("/api/agents/result?propertyId="+
+        encodeURIComponent(activeAuditData.id)+"&agentId=official_site"),{mode:"cors",cache:"no-store"});
+      const value=await response.json() as BrowserPilotResult & {error?:string};
+      if(!response.ok) throw new Error(value.error||"Nessun risultato Leonardo salvato sul PC.");
+      if(value.propertyId!==activeAuditData.id)throw new Error("La diagnostica appartiene a un'altra struttura.");
+      setLeonardoDiagnostic(formatLeonardoTechnicalLog(value));
+    }catch(error){
+      setLeonardoDiagnostic(error instanceof Error?error.message:"Log Leonardo non disponibile.");
+    }
+  }
+
   async function refreshSpecialistStatuses() {
     try {
       const response = await fetch(localAgentUrl("/api/agents/status?propertyId=" + encodeURIComponent(activeAuditData.id)), { mode:"cors", cache:"no-store" });
@@ -6665,6 +6725,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 });
                 applyPilotEvidence(specialistPartial);
                 if(agentId==="official_site"){
+                  setLeonardoDiagnostic(formatLeonardoTechnicalLog(specialistPartial));
                   const commercial=specialistPartial.directCommercialAudit;
                   setSpecialistMessage((commercial?.searchedTotal||0)>0
                     ? (commercial?.observedRoomPrices?.length
@@ -6843,8 +6904,10 @@ export default function App({ consultantName = "" }: { consultantName?: string }
               // saranno condivise con le altre OTA. Nessun MASTER diretto fittizio.
               setSpecialistMessage("Leonardo: sito diretto non verificato. "+
                 "Stato="+(commercial?.status||"non disponibile")+
-                (diagnostics?" · Motivo: "+diagnostics:" · Apri Audit commerciale per i dettagli")+
-                ". Procedo con Minerva su Booking: il confronto diretto resta sospeso.");
+                (diagnostics?" · Motivo: "+diagnostics:" · Apri il log tecnico Leonardo per i dettagli")+
+                (needsBooking||ids.includes("booking")
+                  ? ". Minerva potrà verificare Booking; il confronto diretto resta sospeso."
+                  : ". Test del solo sito diretto concluso, nessun'altra OTA avviata."));
             } else if (!noEngine && !siteReport.directCommercialAudit?.masterStay?.checkin) {
               setSpecialistMessage("Leonardo non ha confermato una tariffa prenotabile sul sito diretto. "+
                 "Procedo con Minerva per cercare date effettivamente confermate da Booking; "+
@@ -11946,6 +12009,22 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                     </nav>
                   </div>;
                 })()}
+                {(specialistStatuses.official_site?.hasResult ||
+                  (browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit) ||
+                  agentRunIds.includes("official_site")) && <details open className="mt-3 rounded-xl border border-amber-300 bg-[#FFF9E8] p-3 text-[#23124A]">
+                  <summary className="cursor-pointer text-xs font-black">Leonardo · Log tecnico effettivo del booking engine</summary>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={()=>void loadLeonardoTechnicalLog()}
+                      className="rounded-lg border border-amber-500 bg-white px-3 py-2 text-[11px] font-bold">Leggi / aggiorna log Leonardo</button>
+                    {leonardoDiagnostic && <button type="button" onClick={()=>void navigator.clipboard.writeText(leonardoDiagnostic)}
+                      className="rounded-lg border border-[#56718B] bg-[#263B52] px-3 py-2 text-[11px] font-bold text-white">Copia log</button>}
+                  </div>
+                  <p className="mt-2 text-[11px]">Le esecuzioni tecniche possono terminare anche senza tariffe. Qui trovi i tentativi reali, il frame visitato, i controlli data individuati e l'eventuale motivo del blocco.</p>
+                  <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-amber-200 bg-white p-3 text-[11px] leading-5">{leonardoDiagnostic ||
+                    (browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit
+                      ? formatLeonardoTechnicalLog(browserPilotResult)
+                      : "Premi «Leggi / aggiorna log Leonardo» per recuperare la diagnostica salvata sul PC.")}</pre>
+                </details>}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" data-velora-local-agent-connect onClick={startAndConnectLocalAgent} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Avvia / Collega agente Windows</button>}
