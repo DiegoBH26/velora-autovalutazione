@@ -825,7 +825,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <button type="button" onClick={() => supabase.auth.signOut()} className="rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] px-4 py-2 text-xs font-black text-[#23124A] hover:bg-[#F3EEF9]">Esci</button>
           </div>
         </div>
-        {children}
+        {React.isValidElement(children)
+          ? React.cloneElement(children as React.ReactElement<{ consultantName?: string }>, {
+              consultantName: profile.full_name.trim(),
+            })
+          : children}
       </>
     );
   }
