@@ -2178,6 +2178,38 @@ class Handler(SimpleHTTPRequestHandler):
                             if custom_period else browser_pilot.monthly_plan(
                                 datetime.now().date(),limit=(13 if months==12 else months)))
                         locks=booking_result.get("bookingReferenceStays") or []
+                        # Without a direct MASTER, Minerva may have found the
+                        # first confirmed Booking window inside the requested
+                        # interval. Reuse THAT SINGLE requested window for
+                        # specialists, not the entire daily candidate calendar.
+                        # Never reuse a saved lock outside today's chosen plan.
+                        if (not direct_master and custom_period
+                                and booking_result.get("bookingFallbackStatus")=="confirmed"):
+                            requested_candidates=browser_pilot.custom_date_plan(
+                                datetime.now().date(),custom_period)
+                            requested_keys={
+                                (str(stay["checkin"]),str(stay["checkout"]),
+                                 int(stay["nights"]),int(stay["adults"]))
+                                for stay in requested_candidates
+                            }
+                            chosen=next((row for row in locks
+                                if isinstance(row,dict)
+                                and row.get("status") in {
+                                    "initial_dates_available","shifted_to_available_booking_dates"
+                                }
+                                and (str(row.get("requestedCheckin")),
+                                     str(row.get("requestedCheckout")),
+                                     int(row.get("nights") or 0),
+                                     int(row.get("adults") or 2)) in requested_keys
+                            ),None)
+                            if chosen:
+                                custom_period={
+                                    "start":str(chosen["requestedCheckin"]),
+                                    "end":str(chosen["requestedCheckout"]),
+                                    "nights":int(chosen["nights"]),
+                                    "adults":int(chosen["adults"]),
+                                    "frequency":"daily",
+                                }
                         expected_keys=[
                             (str(stay.get("checkin")),str(stay.get("checkout")),
                              int(stay.get("nights") or 0),int(stay.get("adults") or 2))
