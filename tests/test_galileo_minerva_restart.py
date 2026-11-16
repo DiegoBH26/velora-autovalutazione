@@ -15,7 +15,10 @@ class GalileoSavedMinervaLockTests(unittest.TestCase):
 
     def test_restart_does_not_require_volatile_completed_state(self):
         self.assertIn('if(!reuseMinerva){\n          const bookingCheck=',APP)
-        self.assertIn('if(!ids.includes("booking")){\n            throw new Error("Galileo non può partire:',APP)
+        # In assenza di una data Booking verificata, esegui Minerva prima
+        # di Galileo, anziché bloccare l'intera rete e restituire zero dati.
+        self.assertIn('await startSpecialistAgent("booking",false,"public"',APP)
+        self.assertIn('Minerva necessaria: nessun riferimento Booking confermato',APP)
 
     def test_legacy_exact_booking_statuses_are_accepted(self):
         self.assertIn('["direct_master_checked","initial_dates_available","shifted_to_available_booking_dates","reused_minerva_lock"].includes',APP)
