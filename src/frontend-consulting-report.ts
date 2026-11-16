@@ -315,7 +315,7 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     '<div class="identity"><div><label>Struttura</label><b>'+text(input.propertyName)+'</b></div>'+
     '<div><label>Località</label><b>'+text(input.city,"Non indicata")+'</b></div>'+
     '<div><label>Consulente · account di esecuzione</label><b>'+text(input.consultant,"Non registrato per questa scansione")+'</b></div>'+
-    '<div><label>Rilevazione del report</label><b>'+text(input.generatedDate)+' · '+text(input.generatedTime,"")+'</b></div></div></div>'+
+    '<div><label>Data di emissione del report</label><b>'+text(input.generatedDate)+' · '+text(input.generatedTime,"")+'</b></div></div></div>'+
     '<div class="ratingbox"><label>RATING PUBBLICO</label><div class="ratingchip">'+ratings+'</div><span>'+clean(ratingBox.source)+'</span>'+
     (num(ratingBox.count)!==null?'<small>'+ratingBox.count+' recensioni pubblicate</small>':'<small>Fonte e punteggio non verificabili nel campione</small>')+'</div></div>'+
     '<div class="stats"><div><label>OTA con tariffe validate</label><strong>'+channelsWithValid+'</strong></div>'+
