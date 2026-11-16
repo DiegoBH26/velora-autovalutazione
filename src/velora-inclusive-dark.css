@@ -445,3 +445,52 @@ html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-loc
   border-color:#e3f2ff!important;
   color:#fff!important;
 }
+
+
+/* R9 · In Dark inclusivo le etichette legacy restano sempre
+   chiare su fondi scuri; non si affida mai lo stato al solo colore. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(
+  [class~="bg-amber-100"],[class~="bg-amber-200"],
+  [class~="bg-yellow-100"],[class~="bg-yellow-200"],
+  [class~="bg-orange-100"]
+):not([data-velora-local-agent-status]) {
+  background-color:#383f4b!important;
+  color:#f5faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(
+  [class~="bg-emerald-100"],[class~="bg-emerald-200"],
+  [class~="bg-green-100"],[class~="bg-green-200"],
+  [class~="bg-teal-100"]
+):not([data-velora-local-agent-status]) {
+  background-color:#244555!important;
+  color:#f3faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(
+  [class~="bg-red-100"],[class~="bg-red-200"],
+  [class~="bg-rose-100"],[class~="bg-rose-200"],
+  [class~="bg-pink-100"]
+) {
+  background-color:#40374a!important;
+  color:#fff6ff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(
+  [class~="bg-blue-100"],[class~="bg-sky-100"],
+  [class~="bg-cyan-100"],[class~="bg-slate-100"],
+  [class~="bg-indigo-100"],[class~="bg-purple-100"],
+  [class~="bg-violet-100"]
+) {
+  background-color:#26465f!important;
+  color:#f4faff!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-score-badge="bassa"] {
+  background:#244658!important;color:#f4fbff!important;
+  box-shadow:0 0 0 1px #b4def5!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-score-badge="media"] {
+  background:#393e49!important;color:#f8fbff!important;
+  box-shadow:0 0 0 1px #d7e6f5!important;
+}
+html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-score-badge="alta"] {
+  background:#41374d!important;color:#faf7ff!important;
+  box-shadow:0 0 0 1px #dad2ee!important;
+}
