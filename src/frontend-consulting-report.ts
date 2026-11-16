@@ -9,7 +9,7 @@ type PriceQuote = {
 };
 type Observation = {
   otaId:string;checkin?:string;checkout?:string;status?:string;
-  title?:string;identityQuarantined?:boolean;quotes?:PriceQuote[];
+  title?:string;identityQuarantined?:boolean;identityUnverified?:boolean;quotes?:PriceQuote[];
 };
 type StoredQuote = {
   otaId:string;stayDate?:string;roomType?:string;total:number;nights:number;
@@ -115,7 +115,7 @@ function collectRows(input:FrontendReportInput) {
           total!==null&&total>0&&nights!==null&&nights>0?total/nights:null;
         if(nightly===null||nightly<=0||nightly>100000)continue;
         const currency=String(q.currency||"EUR").toUpperCase();
-        marks.push({nightly,currency,verified:q.verified===true,
+        marks.push({nightly,currency,verified:q.verified===true && o.identityUnverified!==true,
           key:[id,o.checkin,q.roomType,currency,Math.round(nightly*100)].join("|")});
       }
     }
