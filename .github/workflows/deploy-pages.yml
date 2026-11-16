@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Validate client-facing BarbarHouse PDF content
+        run: node tests/test_frontend_consulting_report.mjs
       - name: Verify Chrome Companion syntax and room grid
         run: |
           node --check chrome-companion-expedia/background.js
