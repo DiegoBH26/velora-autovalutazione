@@ -13965,6 +13965,9 @@ export default function App() {
                         </td>
                         <td className="px-4 py-4 text-right">
                           <span
+                            data-velora-score-badge={label.shortLabel.toLowerCase()}
+                            title={label.label}
+                            aria-label={`${row.score} punti, ${label.label}`}
                             className={`inline-flex min-w-12 justify-center rounded-full px-3 py-1 text-sm font-black ring-1 ${label.pillClassName}`}
                           >
                             {row.score}
