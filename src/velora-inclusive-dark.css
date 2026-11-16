@@ -494,3 +494,11 @@ html.velora-inclusive-dark #root .velora-workspace .velora-core [data-velora-sco
   background:#41374d!important;color:#faf7ff!important;
   box-shadow:0 0 0 1px #dad2ee!important;
 }
+
+
+/* Vecchie etichette oro di Analisi rapida/Intervista:
+   su Dark inclusivo nessun testo chiaro rimane su fondo giallo. */
+html.velora-inclusive-dark #root .velora-workspace .velora-core :is(span,div)[class*="bg-[#C8A96B]"] {
+  background-color:#294a61!important;
+  color:#f6fbff!important;
+}
