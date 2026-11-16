@@ -33,7 +33,7 @@ const valid = {
       {otaId:'booking',checkin:'2027-06-01',checkout:'2027-06-04',status:'quote_candidates'},
       {otaId:'airbnb',checkin:'2027-06-01',checkout:'2027-06-04',status:'quote_candidates'},
       {otaId:'vrbo',checkin:'2027-06-01',checkout:'2027-06-04',status:'wrong_property_listing',
-        quotes:[{total:999999,nights:3,currency:'EUR',verified:true}]}
+        quotes:[{total:9000,nights:3,currency:'EUR',verified:true}]}
     ]
   },
   eligibleObservations:[
@@ -61,7 +61,7 @@ assert.ok(html.includes('€150*') || html.includes('€150</span>') ||
   html.includes('€150'),"Airbnb unverified price must be labelled observed");
 assert.ok(html.includes('Osservata, da verificare'),"Unverified quotes should not count as validated");
 assert.ok(html.includes('USD 100'),"USD retained, not converted");
-assert.ok(!html.includes('€333.333'),"Wrong property prices must be excluded");
+assert.ok(!html.includes('€3.000'),"Wrong property prices must be excluded");
 assert.ok(html.includes('Scheda estranea scartata'),"Wrong listing should be diagnosed");
 assert.ok(html.includes('Bedzzle'),"Booking-engine provider missing");
 assert.ok(html.includes('Foto bagni da integrare'),"Photo assessment missing");
