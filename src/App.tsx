@@ -11963,6 +11963,12 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                   const queued=entries.filter(item=>item?.state==="queued").length;
                   const failed=entries.filter(item=>item?.state==="failed").length;
                   const complete=done===agentRunIds.length && !launchingBatch;
+                  const leonardoNoSearch=agentRunIds.includes("official_site") &&
+                    specialistStatuses.official_site?.state==="completed" &&
+                    ((browserPilotResult?.propertyId===activeAuditData.id &&
+                      browserPilotResult.directCommercialAudit &&
+                      Number(browserPilotResult.directCommercialAudit.searchedTotal||0)===0) ||
+                      leonardoDiagnostic.includes("Ricerche effettivamente inviate: 0"));
                   const totalProgress=entries.reduce((sum,item)=>{
                     if(item?.state==="completed"||item?.state==="failed") return sum+100;
                     const partial=Number(item?.progress??(item?.state==="running"?2:0));
@@ -11978,18 +11984,19 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                   const longRunning=Boolean(active && activeElapsed>5*60*1000);
                   return <div className="rounded-xl border border-emerald-200 bg-white p-3" role="status" aria-live="polite">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-black text-[#23124A]">
-                      <span>{complete?(failed?"Scansione terminata con errori":"Scansione agenti terminata"):"Scansione agenti in corso"} · {done}/{agentRunIds.length} conclusi</span>
+                      <span>{complete?(failed?"Scansione terminata con errori":leonardoNoSearch?"Scansione conclusa · ricerca Leonardo NON eseguita":"Scansione agenti terminata"):"Scansione agenti in corso"} · {done}/{agentRunIds.length} conclusi</span>
                       <span className="inline-flex items-center gap-3 font-mono"><span>{formatPilotElapsed(Math.max(0,agentRunClock-agentRunStartedAt))}</span><span>{percentage}%</span></span>
                     </div>
                     <div className="h-2.5 overflow-hidden rounded-full bg-[#EEE8F4]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-label="Avanzamento scansione per fasi">
-                      <div className={"h-full rounded-full transition-all duration-500 "+(complete&&failed?"bg-amber-500":"bg-emerald-500")} style={{width:percentage+"%"}} />
+                      <div className={"h-full rounded-full transition-all duration-500 "+(complete&&(failed||leonardoNoSearch)?"bg-amber-500":"bg-emerald-500")} style={{width:percentage+"%"}} />
                     </div>
                     <p className="mt-2 text-[10px] font-semibold text-[#23124A]">{active?veloraAgentName(active.id)+" · ":""}{phase}{detail?" · "+detail:""}</p>
                     <p className="mt-1 text-[10px] font-semibold text-[#50627F]">{running} al lavoro · {queued} in coda · {failed} interrotti. Percentuale calcolata sulle fasi concluse e sui campioni registrati, non sul tempo trascorso.</p>
                     <div className="mt-3 flex flex-wrap gap-2" aria-label="Stato dei singoli agenti">
                       {agentRunIds.map(id=>{
                         const state=specialistStatuses[id]?.state||"queued";
-                        const label=state==="completed"?"Completato":state==="failed"?"Errore":state==="running"?"In corso":"In coda";
+                        const label=id==="official_site"&&state==="completed"&&leonardoNoSearch?"Ricerca NON eseguita":
+                          state==="completed"?"Completato":state==="failed"?"Errore":state==="running"?"In corso":"In coda";
                         return <span key={id} className="rounded-lg border border-[#56718B] bg-[#263B52] px-3 py-2 text-[11px] font-bold text-white">
                           {veloraAgentName(id)} · {label}
                         </span>;
