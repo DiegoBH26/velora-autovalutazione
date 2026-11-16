@@ -6821,24 +6821,35 @@ export default function App() {
                 ...(sample?.evidence||[]),
                 ...(commercial?.evidence||[])
               ].filter(Boolean).slice(0,3).join(" · ").slice(0,520);
-              throw new Error("Leonardo: nessuna ricerca date e ospiti effettuata. "+
+              // Una data non selezionabile sul diretto NON deve bloccare l'intera
+              // rete: Booking può eseguire autonomamente la finestra RICHIESTA
+              // dal piano, ma solo le date davvero confermate da Minerva
+              // saranno condivise con le altre OTA. Nessun MASTER diretto fittizio.
+              setSpecialistMessage("Leonardo: sito diretto non verificato. "+
                 "Stato="+(commercial?.status||"non disponibile")+
                 (diagnostics?" · Motivo: "+diagnostics:" · Apri Audit commerciale per i dettagli")+
-                ". Rete fermata prima di Booking.");
+                ". Procedo con Minerva su Booking: il confronto diretto resta sospeso.");
+            } else if (!noEngine && !siteReport.directCommercialAudit?.masterStay?.checkin) {
+              setSpecialistMessage("Leonardo non ha confermato una tariffa prenotabile sul sito diretto. "+
+                "Procedo con Minerva per cercare date effettivamente confermate da Booking; "+
+                "il sito diretto rimane non verificato e non produce delta.");
+            } else {
+              setSpecialistMessage(noEngine
+                ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
+                : siteReport.directCommercialAudit?.verifiedQuotes?.length
+                  ? "Leonardo: ricerche e preventivi diretti verificati. Ora confronto con Booking."
+                  : "Leonardo: ricerca date effettuata, prezzi o condizioni ancora da verificare. Ora confronto con Booking.");
             }
-            if (!noEngine && !siteReport.directCommercialAudit?.masterStay?.checkin) {
-              throw new Error("Leonardo non ha identificato una finestra con tariffe effettivamente prenotabili sul sito diretto. " +
-                "Gli altri agenti non partiranno con date arbitrarie. Apri l'audit diretto per la diagnosi.");
-            }
-            setSpecialistMessage(noEngine
-              ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
-              : siteReport.directCommercialAudit?.verifiedQuotes?.length
-                ? "Leonardo: ricerche e preventivi diretti verificati. Ora confronto con Booking."
-                : "Leonardo: ricerca date effettuata, prezzi o condizioni ancora da verificare. Ora confronto con Booking.");
           }
         }else{
           setSpecialistMessage("Leonardo non ha concluso l'audit. Il sito diretto resta non verificato; Booking prosegue per le altre OTA.");
         }
+      }
+      // Le recensioni sono indipendenti da tariffe e date.
+      // Fallire il calendario diretto o il lock Booking non deve nasconderle.
+      if(ids.includes("reviews")) {
+        setSpecialistMessage("Ipazia: verifico le recensioni indipendentemente dalla disponibilità delle tariffe.");
+        await startSpecialistAgent("reviews",false,"public",()=>onAccepted("reviews"));
       }
       if(needsBooking || ids.includes("booking")){
         // Un singolo specialista come Galileo deve riutilizzare il lavoro
@@ -6875,10 +6886,13 @@ export default function App() {
         if(reuseMinerva){
           setSpecialistMessage("Minerva ha già verificato le date MASTER. Galileo e gli altri specialisti riutilizzano il risultato salvato, senza ripetere Booking.");
         } else {
-          if(!ids.includes("booking")){
-            throw new Error("Galileo non può partire: manca un risultato Minerva salvato con date e ospiti identici al MASTER di Leonardo. Controlla l'esito Booking e le date in Chat agenti; non ripeto automaticamente le scansioni.");
-          }
-          setSpecialistMessage("Fase 2/3: Booking confronta le date e guida gli altri canali.");
+          // Se è stato chiesto soltanto Galileo (o altra OTA), ma manca
+          // un lock Booking verificato, avviamo prima Minerva. Senza un
+          // MASTER diretto validato Minerva parte dal piano RICHIESTO,
+          // non da prezzi o date dedotti dal calendario non compilato.
+          setSpecialistMessage(ids.includes("booking")
+            ? "Fase 2/3: Booking confronta le date e guida gli altri canali."
+            : "Minerva necessaria: nessun riferimento Booking confermato; eseguo la ricerca prima delle altre OTA.");
           await startSpecialistAgent("booking",false,"public",()=>onAccepted("booking"));
         }
         // Dopo un riavvio Windows, AGENT_RUNS è vuoto anche se il file
@@ -6913,7 +6927,7 @@ export default function App() {
           }
         }
       }
-      const remaining=ids.filter(id=>id!=="booking" && id!=="official_site");
+      const remaining=ids.filter(id=>id!=="booking" && id!=="official_site" && id!=="reviews");
       if(remaining.length){
         setSpecialistMessage("Fase 3/3: agenti OTA e recensioni sulle date Booking confermate.");
         await Promise.all(remaining.map(id=>startSpecialistAgent(id,false,"public",()=>onAccepted(id))));
