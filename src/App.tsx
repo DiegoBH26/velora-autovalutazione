@@ -12018,7 +12018,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 })()}
                 {(specialistStatuses.official_site?.hasResult ||
                   (browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.directCommercialAudit) ||
-                  agentRunIds.includes("official_site")) && <details open className="mt-3 rounded-xl border border-amber-300 bg-[#FFF9E8] p-3 text-[#23124A]">
+                  agentRunIds.includes("official_site")) && <details open className="mt-3 rounded-xl border border-amber-300 bg-[#FFF9EC] p-3 text-[#23124A]">
                   <summary className="cursor-pointer text-xs font-black">Leonardo · Log tecnico effettivo del booking engine</summary>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button type="button" onClick={()=>void loadLeonardoTechnicalLog()}
