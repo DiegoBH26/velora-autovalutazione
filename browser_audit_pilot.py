@@ -14919,6 +14919,60 @@ async def run(args: argparse.Namespace) -> dict:
                         flush=True,
                     )
                     await asyncio.sleep(1)
+                # Fallback senza MASTER diretto: il calendario giornaliero e'
+                # un elenco di CANDIDATI, non 27 soggiorni da confrontare.
+                # Minerva si ferma alla prima tariffa datata confermata;
+                # se vede prezzi ancora non verificabili, chiede verifica
+                # invece di accumulare centinaia di quote scollegate.
+                if specialist_id=="booking" and direct_master.get("status")!="direct_price_observed":
+                    last_booking=(result.get("observations") or [{}])[-1]
+                    if last_booking.get("otaId")=="booking":
+                        has_price=bool(last_booking.get("quotes"))
+                        verified_price=any(
+                            q.get("verified") is True
+                            for q in (last_booking.get("quotes") or [])
+                            if isinstance(q,dict)
+                        )
+                        lock_confirmed=resolution.get("status") in {
+                            "initial_dates_available","shifted_to_available_booking_dates"
+                        }
+                        fallback_outcome=(
+                            "confirmed" if lock_confirmed and verified_price else
+                            "needs_validation" if has_price else
+                            "technical_stop" if resolution.get("status") in {
+                                "initial_dates_technical_stop","stopped_rate_limited",
+                                "booking_reference_unavailable"
+                            } else ""
+                        )
+                        if fallback_outcome:
+                            # Preserve earlier probes as diagnostic history,
+                            # not as prices belonging to the selected window.
+                            result["bookingSamplingHistory"]={
+                                "dateResolution":list(result.get("bookingDateResolution") or []),
+                                "observations":list(result.get("observations") or []),
+                            }
+                            result["bookingReferenceStays"]=[reference_lock]
+                            result["bookingDateResolution"]=[resolution]
+                            result["observations"]=[last_booking]
+                            result["plan"]=[{
+                                "month":effective_stay["month"],
+                                "checkin":effective_stay["checkin"],
+                                "checkout":effective_stay["checkout"],
+                                "nights":effective_stay["nights"],
+                                "adults":effective_stay.get("adults",2),
+                            }]
+                            result["bookingFallbackStatus"]=fallback_outcome
+                            if fallback_outcome=="needs_validation":
+                                reference_lock["status"]="booking_price_needs_validation"
+                                resolution["status"]="booking_price_needs_validation"
+                            print(
+                                "MINERVA FIRST-DATE HANDOFF · "+fallback_outcome+
+                                " · "+effective_stay["checkin"]+" → "+effective_stay["checkout"]+
+                                " · no more daily candidates",
+                                flush=True,
+                            )
+                            write_result(output,result)
+                            break
             apply_booking_room_reference(result)
             result["browserPhases"].append({
                 "phase":"pricing","status":"completed",
