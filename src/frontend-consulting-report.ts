@@ -82,16 +82,22 @@ type QuoteMark={nightly:number;currency:string;verified:boolean;key:string};
 function collectRows(input:FrontendReportInput) {
   const pilot=input.pilot;
   const eligible=input.eligibleObservations||[];
+  // Mostra le OTA effettivamente esaminate o con evidenze raccolte.
+  // Non riempire il report del cliente con portali mai analizzati; ciò
+  // lascia spazio a tariffe leggibili anche quando la scansione è parziale.
+  const labels=new Map(OTAS);
   const ids=[...new Set([
-    ...OTAS.map(([id])=>id),
     ...eligible.map(o=>o.otaId),
     ...Object.keys(pilot?.discoveredSources||{}),
     ...Object.keys(pilot?.otaProfiles||{}),
     ...(input.rateQuotes||[]).map(q=>q.otaId),
     ...(input.manualAbsentIds||[]),
     ...(input.wrongListingChannels||[]),
-  ])].filter(id=>id && id!=="sito" && id!=="official_site" && id!=="google" && id!=="reviews");
-  const labels=new Map(OTAS);
+  ])].filter(id=>id && id!=="sito" && id!=="official_site" && id!=="google" && id!=="reviews")
+    .sort((a,b)=>{
+      const ai=OTAS.findIndex(([id])=>id===a),bi=OTAS.findIndex(([id])=>id===b);
+      return (ai<0?100:ai)-(bi<0?100:bi);
+    });
   return ids.map(id=>{
     const observations=eligible.filter(x=>x.otaId===id);
     const source=pilot?.discoveredSources?.[id];
