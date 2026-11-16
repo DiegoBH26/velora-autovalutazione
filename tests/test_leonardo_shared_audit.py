@@ -217,12 +217,16 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
         self.assertIn("if not matched:",cta)
         self.assertNotIn("prenota|book now",cta)
 
-    def test_leonardo_ui_shows_search_coverage_and_prevents_premature_batch(self):
+    def test_leonardo_ui_shows_search_coverage_and_preserves_safe_booking_fallback(self):
         app=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
         self.assertIn("ricerche date effettivamente inviate",app)
         self.assertIn("Ricerca disponibilità inviata:",app)
         self.assertIn("search_not_executed",app)
-        self.assertIn("Rete fermata prima di Booking.",app)
+        # Non dedurre mai prezzi diretti, ma una data non selezionabile
+        # sul sito non deve impedire la verifica indipendente su Booking.
+        self.assertIn("il confronto diretto resta sospeso.",app)
+        self.assertIn("Booking non ha confermato tutte le finestre",app)
+        self.assertNotIn("Rete fermata prima di Booking.",app)
 
     def test_leonardo_windows_and_frontend_versions_match(self):
         from velora_direct_stays import LEONARDO_BUILD
