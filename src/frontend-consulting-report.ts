@@ -323,12 +323,21 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     '<div><label>Campioni OTA osservati</label><strong>'+observationsCount+'</strong></div></div>'+
     '<h2>Valutazione generale</h2><div class="conclusion"><p>'+clean(summary)+
     (searched?" Sul sito diretto risultano "+searched+" ricerche effettivamente inviate.":" La ricerca commerciale sul sito diretto non è ancora confermata.")+
-    '</p><p>Questa è una lettura preliminare del frontend: non equivale a un audit gestionale o a una certificazione delle tariffe.</p></div>'+
+    '</p>'+(num(input.opportunityScore)!==null && (input.assessedItemCount||0)>0
+      ? '<p><b>Indice di opportunità consulenziale:</b> '+input.opportunityScore+'/100 su '+
+        input.assessedItemCount+' voci valutate. È una priorità di intervento interna, non un rating degli ospiti né un indice di qualità assoluta.</p>'
+      : '<p>Indice di opportunità: non calcolabile senza voci valutate.</p>')+
+    '<p>Questa è una lettura preliminare del frontend: non equivale a un audit gestionale o a una certificazione delle tariffe.</p></div>'+
     '<h2>Quadro immediato</h2><div class="two">'+
     '<div class="card"><label>Presenza sulle OTA</label><b>'+withPresence+' portali con riscontro confermato</b><p>Un annuncio non rilevato automaticamente non dimostra assenza definitiva.</p></div>'+
     '<div class="card"><label>Canale diretto</label><b>'+clean(engineText)+'</b><p>'+clean(siteStatus)+'</p></div>'+
     '<div class="card"><label>Copertura temporale</label><b>'+clean(dateScope)+'</b><p>Finestre campionate, non intera stagione.</p></div>'+
-    '<div class="card"><label>Prossimo passo</label><b>'+clean(priority[0].title)+'</b><p>'+clean(priority[0].action)+'</p></div></div>';
+    '<div class="card"><label>Prossimo passo</label><b>'+clean(priority[0].title)+'</b><p>'+clean(priority[0].action)+'</p></div></div>'+ 
+    ((input.areas||[]).length
+      ? '<div class="minor"><b>Spunti dalle aree già valutate:</b> '+
+        (input.areas||[]).slice(0,3).map(a=>clean(a.name)).join(' · ')+
+        '. Da confermare con la direzione sulla base delle evidenze raccolte.</div>'
+      : '');
   const p2=
     '<p class="lead">Range delle tariffe pubbliche effettivamente lette, normalizzate per notte. Il numero di osservazioni non indica tutte le disponibilità del portale.</p>'+
     '<h2>Tariffe minime e massime per OTA</h2>'+
