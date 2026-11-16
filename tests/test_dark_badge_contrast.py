@@ -29,7 +29,7 @@ def pill_colors(css: str, level: str) -> tuple[str, str]:
     start = css.index(selector)
     block = css[start:].split("{", 1)[1].split("}", 1)[0]
     background = re.search(r'background(?:-color)?:\s*(#[0-9a-fA-F]{6})', block)
-    foreground = re.search(r'color:\s*(#[0-9a-fA-F]{6})', block)
+    foreground = re.search(r'(?<!-)color:\s*(#[0-9a-fA-F]{6})', block)
     if not background or not foreground:
         raise AssertionError("Incomplete badge palette for " + level)
     return foreground.group(1), background.group(1)
