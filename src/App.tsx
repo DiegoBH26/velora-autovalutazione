@@ -9897,12 +9897,20 @@ export default function App({ consultantName = "" }: { consultantName?: string }
         const frontendAreas = priorityRows.filter(row =>
           ["present","partial","missing"].includes(row.answer.auditStatus || "") &&
           row.answer.note.trim().length > 20
-        ).slice(0,3).map(row=>({
-          name:row.item.text,
-          score:row.score,
-          finding:row.answer.note.slice(0,240),
-          action:recommendedAction(row),
-        }));
+        ).slice(0,3).map(row=>{
+          // Nel PDF cliente non esporre log interni, percorsi locali,
+          // URL diagnostici o altri dettagli tecnici delle note.
+          const summary = row.answer.note.split(/[\r\n]+/)
+            .map(line=>line.trim())
+            .find(line=>line.length>15 &&
+              !/https?:\/\/|file:\/\/|localhost|127\.0\.0\.1|token|password|cookie|bearer|^font[ei]?:|^log:|^trace:/i.test(line));
+          return {
+            name:row.item.text,
+            score:row.score,
+            finding:(summary || "Riscontro frontend registrato: dettaglio da verificare con la direzione.").slice(0,220),
+            action:recommendedAction(row),
+          };
+        });
         html = buildFrontendConsultingReportHtml({
           propertyName:ownerInfo.propertyName || activeAuditData.name,
           city:ownerInfo.city || activeAuditData.city,
