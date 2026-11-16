@@ -4943,7 +4943,7 @@ function getScoreLabel(score: number) {
       label: "Alta priorità",
       shortLabel: "Alta",
       className: "border-red-200 bg-red-50 text-red-700",
-      pillClassName: "bg-red-100 text-red-800 ring-red-200",
+      pillClassName: "bg-[#452C39] text-[#FFE5EB] ring-[#DD9EAF]",
     };
   }
 
@@ -4952,7 +4952,7 @@ function getScoreLabel(score: number) {
       label: "Priorità media",
       shortLabel: "Media",
       className: "border-amber-200 bg-amber-50 text-amber-700",
-      pillClassName: "bg-amber-100 text-amber-800 ring-amber-200",
+      pillClassName: "bg-[#463723] text-[#FFF0CA] ring-[#E0BF81]",
     };
   }
 
@@ -4960,7 +4960,7 @@ function getScoreLabel(score: number) {
     label: "Bassa priorità",
     shortLabel: "Bassa",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    pillClassName: "bg-emerald-100 text-emerald-800 ring-emerald-200",
+    pillClassName: "bg-[#193D3D] text-[#E0FFF4] ring-[#8AD9BF]",
   };
 }
 
