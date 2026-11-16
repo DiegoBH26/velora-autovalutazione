@@ -34,6 +34,7 @@ class LeonardoCalendarAndDiagnosticsR11(unittest.TestCase):
         self.assertIn("Leonardo · Log tecnico effettivo del booking engine",APP)
         self.assertIn("Ricerca NON eseguita",APP)
         self.assertIn("Copia log",APP)
+        self.assertIn("bg-[#FFF9EC]",APP)
 
 
 if __name__=="__main__":
