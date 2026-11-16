@@ -474,3 +474,76 @@
   border-color:#f3d7a0!important;
   color:#fff!important;
 }
+
+
+/* ===========================================================
+   R9 · Badge e stati cromatici leggibili in TUTTE le pagine.
+   Le classi legacy *-50/*-100/*-200 creavano testo chiaro
+   sopra fondi pastello. Il tema dark converte entrambi i colori,
+   senza cambiare dimensioni, funzioni o significato degli stati.
+   =========================================================== */
+/* Avvisi e priorita' medie: ambra CHIARA su marrone SCURO. */
+#root .velora-workspace .velora-core :is(
+  [class~="bg-amber-100"],[class~="bg-amber-200"],
+  [class~="bg-yellow-100"],[class~="bg-yellow-200"],
+  [class~="bg-orange-100"]
+):not([data-velora-local-agent-status]) {
+  background-color:#463723!important;
+  color:#fff0ca!important;
+}
+/* Successi/presenza: verde-menta chiaro su petrolio scuro. */
+#root .velora-workspace .velora-core :is(
+  [class~="bg-emerald-100"],[class~="bg-emerald-200"],
+  [class~="bg-green-100"],[class~="bg-green-200"],
+  [class~="bg-teal-100"]
+):not([data-velora-local-agent-status]) {
+  background-color:#193c3e!important;
+  color:#e0fff4!important;
+}
+/* Errori/assenze: rosa chiarissimo su bordeaux scuro. */
+#root .velora-workspace .velora-core :is(
+  [class~="bg-red-100"],[class~="bg-red-200"],
+  [class~="bg-rose-100"],[class~="bg-rose-200"],
+  [class~="bg-pink-100"]
+) {
+  background-color:#452c39!important;
+  color:#ffe5eb!important;
+}
+/* Informazioni e selezioni: sfumature scure con testo leggibile. */
+#root .velora-workspace .velora-core :is(
+  [class~="bg-blue-100"],[class~="bg-sky-100"],
+  [class~="bg-cyan-100"],[class~="bg-slate-100"]
+) {
+  background-color:#233e55!important;
+  color:#e7f4ff!important;
+}
+#root .velora-workspace .velora-core :is(
+  [class~="bg-purple-100"],[class~="bg-violet-100"],
+  [class~="bg-indigo-100"]
+) {
+  background-color:#36354e!important;
+  color:#f0ebff!important;
+}
+/* Caso specifico segnalato: Score 50 / priorita' media.
+   Identificatori semantici separati dalla palette originale. */
+#root .velora-workspace .velora-core [data-velora-score-badge] {
+  background-image:none!important;
+  opacity:1!important;
+  font-variant-numeric:tabular-nums;
+}
+#root .velora-workspace .velora-core [data-velora-score-badge="bassa"] {
+  background-color:#193d3d!important;
+  color:#e0fff4!important;
+  box-shadow:0 0 0 1px #8ad9bf!important;
+}
+#root .velora-workspace .velora-core [data-velora-score-badge="media"] {
+  background-color:#463723!important;
+  color:#fff0ca!important;
+  box-shadow:0 0 0 1px #e0bf81!important;
+}
+#root .velora-workspace .velora-core [data-velora-score-badge="alta"] {
+  background-color:#452c39!important;
+  color:#ffe5eb!important;
+  box-shadow:0 0 0 1px #dd9eaf!important;
+}
+/* Il cambio di tema non deve introdurre badge pastello o numeri invisibili. */
