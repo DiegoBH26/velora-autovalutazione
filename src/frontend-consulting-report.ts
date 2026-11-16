@@ -307,9 +307,9 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
   const ratings=ratingBox.number==="n.d."?"<span class='no-rating'>Non rilevato</span>":
     '<span class="ratingvalue">'+clean(ratingBox.number)+'</span><span class="ratingscale">/'+clean(ratingBox.max)+'</span>';
   const page=(i:number,title:string,inner:string)=>
-    '<section class="report-page"><div class="masthead"><div><span class="brand">BarbarHouse</span><small>CONSULENZA E DISTRIBUZIONE TURISTICA</small></div><div class="brandright">REPORT FRONTEND <b>'+i+' / 4</b></div></div>'+
+    '<section class="report-page"><div class="masthead"><div><span class="brand">BarbarHouse</span><small>CONSULENZA E DISTRIBUZIONE TURISTICA</small></div><div class="brandright">REPORT FRONTEND <b>Sezione '+i+' / 4</b></div></div>'+
     '<div class="page-title"><div class="eyebrow">SCRAPING FRONTEND · '+clean(input.propertyName)+'</div><h1>'+title+'</h1></div>'+
-    '<div class="page-content">'+inner+'</div><footer><span>Scraping frontend · '+text(input.generatedDate)+' · by BarbarHouse</span><span>Pag. '+i+' / 4</span></footer></section>';
+    '<div class="page-content">'+inner+'</div><footer><span>Scraping frontend · '+text(input.generatedDate)+' · by BarbarHouse</span><span>Sezione '+i+' / 4</span></footer></section>';
   const p1=
     '<div class="cover"><div><p class="lead">Analisi consulenziale delle evidenze pubbliche di sito diretto, OTA e reputazione.</p>'+
     '<div class="identity"><div><label>Struttura</label><b>'+text(input.propertyName)+'</b></div>'+
@@ -366,8 +366,8 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
   const css=`
     @page{size:A4;margin:0}
     *{box-sizing:border-box}
-    html,body{margin:0;background:#fff;color:#25364c;font-family:Arial,Helvetica,sans-serif;font-size:10.5px;line-height:1.44}
-    .report-page{height:297mm;min-height:297mm;width:210mm;padding:13mm 14mm 12mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;overflow:hidden}
+    html,body{margin:0;background:#fff;color:#25364c;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.44}
+    .report-page{min-height:297mm;height:auto;width:210mm;padding:13mm 14mm 12mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;overflow:visible}
     .report-page:last-child{page-break-after:auto;break-after:auto}
     .masthead{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #152e4d;padding-bottom:10px}
     .brand{display:block;font-size:18px;letter-spacing:-.45px;color:#163456;font-weight:700}
@@ -378,7 +378,7 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     h1{font-size:22px;color:#163456;line-height:1.17;margin:5px 0 0}
     h2{color:#173754;font-size:13px;margin:13px 0 7px;padding-bottom:5px;border-bottom:1px solid #ccdae7}
     h3{font-size:11px;line-height:1.3;color:#193550;margin:3px 0 8px}
-    p{margin:5px 0 8px}.lead{font-size:11px;color:#51647a;margin:0 0 10px}.muted,small{font-size:9px;color:#5e6f82}
+    p{margin:5px 0 8px}.lead{font-size:12px;color:#51647a;margin:0 0 10px}.muted,small{font-size:9px;color:#5e6f82}
     .page-content{min-height:0;flex:1}
     .cover{display:grid;grid-template-columns:1fr 152px;gap:16px;align-items:start}
     .identity{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:9px 0}
@@ -402,9 +402,9 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     .note{background:#f7f9fb;border-left:3px solid #7799b5;padding:10px 12px;margin:9px 0;border-radius:3px 7px 7px 3px}
     .note p{margin:4px 0}.minor{padding:5px 8px;font-size:9px;color:#52647a}
     .caveat{font-size:9px;color:#5c7086;margin-top:10px}
-    table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px;margin:6px 0 8px}
+    table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10px;margin:6px 0 8px}
     thead{display:table-header-group}tbody tr{break-inside:avoid;page-break-inside:avoid}
-    th{background:#153957;color:#fff;text-align:left;font-size:8px;letter-spacing:.1px;padding:6px 7px}
+    th{background:#153957;color:#fff;text-align:left;font-size:9px;letter-spacing:.1px;padding:6px 7px}
     td{border-bottom:1px solid #d5e0e9;padding:6px 7px;vertical-align:top;overflow-wrap:anywhere}
     tbody tr:nth-child(even){background:#f1f5f9}
     td small{display:block;font-size:8px;margin-top:2px}td .muted{color:#596f84}
@@ -412,7 +412,7 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:8px 0}
     .action{border:1px solid #cbdbe8;border-radius:10px;padding:9px 10px;display:grid;grid-template-columns:22px 1fr;gap:8px;break-inside:avoid}
     .actionno{display:grid;place-items:center;border-radius:50%;width:22px;height:22px;background:#183b5b;color:#fff;font-size:10px}
-    .action b{display:block;color:#1c3c5a;font-size:10.5px}.action p{font-size:9.5px;margin:4px 0}.action small{font-size:9px;line-height:1.4}
+    .action b{display:block;color:#1c3c5a;font-size:10.5px}.action p{font-size:10.5px;margin:4px 0}.action small{font-size:9.5px;line-height:1.4}
     footer{margin-top:auto;border-top:1px solid #cbd7e4;padding-top:9px;display:flex;justify-content:space-between;color:#65778a;font-size:8.5px;gap:10px}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.report-page{page-break-after:always;break-after:page}}
   `;
