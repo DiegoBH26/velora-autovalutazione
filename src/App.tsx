@@ -8,6 +8,7 @@ import braReportUrl from "./bra-hotel-report.pdf?url";
 import { buildRateComparisonRows } from "./rate-comparison";
 import VeloraWorkspace from "./VeloraWorkspace";
 import VeloraRadar, {type VeloraRadarSector} from "./VeloraRadar";
+import { buildFrontendConsultingReportHtml } from "./frontend-consulting-report";
 
 declare global {
   interface Window {
@@ -5163,7 +5164,7 @@ function veloraAgentName(id: string): string {
   return selected ? selected.name+" ("+selected.channel+")" : id;
 }
 
-export default function App() {
+export default function App({ consultantName = "" }: { consultantName?: string }) {
   const initialUiState = useMemo(() => loadUiState(), []);
   const [structures, setStructures] = useState<AnalyzedStructure[]>(loadAnalyzedStructures);
   const [activeStructureId, setActiveStructureId] = useState<string | null>(null);
@@ -5957,6 +5958,12 @@ export default function App() {
           if (status.error) throw new Error(status.error);
           if (!isAuditData(status.auditData)) throw new Error("L'agente non ha restituito un audit Velora valido.");
           const seeded = installAuditData(status.auditData);
+          if (consultantName.trim()) {
+            try {
+              window.localStorage.setItem("velora-scraping-operator:" + seeded.id,
+                JSON.stringify({name:consultantName.trim(), recordedAt:new Date().toISOString()}));
+            } catch { /* Nessun impatto sull'audit. */ }
+          }
           setAutoAuditDraft({ name: "", website: "", city: "", province: "", rooms: "" });
           setAutoAuditMessage("Audit iniziale creato per " + seeded.name + ". Completa OTA, recensioni e prezzi futuri prima del report definitivo.");
           return;
@@ -6595,6 +6602,15 @@ export default function App() {
         throw new Error(detail.error || "Impossibile avviare lo specialista.");
       }
       accepted = true;
+      // Registra il consulente autenticato SOLO dopo l'accettazione reale
+      // dell'avvio dello scraping. Il lettore successivo non sostituisce
+      // automaticamente il responsabile della scansione.
+      if (consultantName.trim()) {
+        try {
+          window.localStorage.setItem("velora-scraping-operator:" + propertyId,
+            JSON.stringify({name:consultantName.trim(), recordedAt:new Date().toISOString()}));
+        } catch { /* Non impedire lo scraping se il browser blocca lo storage. */ }
+      }
       setSpecialistLaunchErrors(previous=>{
         const next={...previous};
         delete next[agentId];
@@ -9856,70 +9872,58 @@ export default function App() {
       </html>
     `;
 
-      // Versione commerciale compatta: quattro pagine; prezzi puntuali e diagnostica restano in Velora.
-    if (isWebAudit) {
-      const pilot = browserPilotResult?.propertyId === activeAuditData.id ? browserPilotResult : null;
-      const observations = pilot?.observations || [];
-      const channels = Array.from(new Set(observations.map((o) => o.otaId))).filter((id) => id !== "sito");
-      const channelRows = channels.map((id) => {
-        const rows = observations.filter((o) => o.otaId === id);
-        const verified = rows.filter((o) => !pilot || !pilotWrongListingReason(pilot,o)).filter((o) => (o.quotes || []).some((q) => q.verified)).length;
-        const blocked = rows.some((o) => /blocked|429|403|rate_limited|robots_denied/i.test(o.status || ""));
-        const state = verified ? "Prezzi rilevati" : blocked ? "Portale limitato" : rows.some((o) => o.status === "no_public_rate") ? "Nessun prezzo nel campione" : "Da verificare";
-        return { id, name: reportChannels.find((c) => c.id === id)?.platform || id, count: rows.length, verified, state };
-      });
-      const asymmetries = pilotDistributionAsymmetries(pilot);
-      const comparisonEvidence=pilotComparisonEvidence(pilot);
-      const strengths = (reputation?.strengths || []).slice(0,2).map((x) => x.theme).join(", ") || "Da approfondire";
-      const weaknesses = (reputation?.weaknesses || []).slice(0,2).map((x) => x.theme).join(", ") || "Nessuna criticità ricorrente verificata nel campione";
-      const photographic = (photoAudit?.gaps || []).slice(0,2).join(" ") || "Qualità visiva delle immagini da valutare separatamente."; 
-      const barHtml = channelRows.map((row) => {
-        const percentage = row.count ? Math.round(row.verified / row.count * 100) : 0;
-        return '<div class="barrow"><b>'+safe(row.name)+'</b><div><div class="track"><div style="width:'+percentage+'%" class="fill"></div></div><small>'+safe(row.state)+' · '+row.verified+'/'+row.count+' controlli con tariffa validata</small></div></div>';
-      }).join("") || "<p>Nessuna verifica OTA disponibile per questo campione.</p>";
-      const asymmetryTable = asymmetries.length ? '<table class="asym-table"><thead><tr><th>Date del test</th><th>OTA</th><th>Tipologie rilevate</th><th>Confronto / opportunità</th></tr></thead><tbody>'+
-        asymmetries.slice(0,5).map((x)=>'<tr><td>'+safe(x.checkin+" → "+x.checkout)+'</td><td><b>'+safe(x.otaLabel)+'</b></td><td>'+x.unitCount+' di '+x.maxUnitCount+'</td><td>'+safe(x.finding).slice(0,320)+'</td></tr>').join("") + '</tbody></table>' :
-        '<div class="note"><b>'+safe(comparisonEvidence.comparable ? "Nessuna asimmetria di camere dimostrata nel campione confrontabile." : "CONFRONTO NON DETERMINABILE: evidenze comparabili insufficienti.")+'</b><p>Un sito bloccato, una scheda di un’altra struttura o una camera diversa non dimostrano né parità tariffaria né asimmetria verificata. La mancanza di confronto non significa che i prezzi siano uguali.</p></div>'+
-        (comparisonEvidence.identityWarnings.length ? '<div class="note"><b>ATTENZIONE - Possibili schede di altre strutture</b><p>'+safe(comparisonEvidence.identityWarnings.slice(0,4).join(" | "))+'</p></div>' : '');
-      const interventionCards = [
-        {title:"Distribuzione e revenue", observation:asymmetries.length ? "Tipologie visibili differenti tra OTA nel campione confrontabile." : "Campione non sufficiente a dimostrare asimmetrie di inventario.", action:"Allineare le schede camera, verificare disponibilità futura, restrizioni e regole tariffarie; validare in extranet e PMS."},
-        {title:"Prenotazione diretta",observation:bookingStatusLabel,action:"Testare l’intero percorso dalla scelta delle date al riepilogo prenotazione; verificare chiarezza e vantaggi del canale diretto."},
-        {title:"Reputazione ed esperienza",observation:"Temi ricorrenti positivi: "+strengths+".",action:"Valorizzare i punti apprezzati nella comunicazione e approfondire le segnalazioni ricorrenti con campioni più ampi."},
-        {title:"Presentazione del prodotto",observation:"Indice fotografico frontend: "+(photoAudit?.score ?? "n.d.")+"/10.",action:"Rivedere risoluzione e copertura delle immagini hero, camere, bagni, esterni e servizi; verificare qualità creativa con valutazione visiva."},
-      ].map((x)=>'<article class="insight"><h3>'+safe(x.title)+'</h3><p><b>Riscontro:</b> '+safe(x.observation)+'</p><p><b>Azione:</b> '+safe(x.action)+'</p></article>').join("");
-      const recommendedTail = '<div class="conclusion"><h3>Valutazione consulenziale</h3><p>L’obiettivo non è moltiplicare attività, ma individuare le leve con impatto misurabile. Partendo dalle evidenze frontend, un confronto con la direzione può distinguere problemi di pubblicazione, vincoli commerciali e scelte consapevoli di posizionamento.</p></div>';
-      const actions = priorityRows.slice(0,4).map((row,i) => '<div class="action"><span>'+(i+1)+'</span><div><b>'+safe(row.item.text)+' · '+row.score+'/100</b><p>'+safe(recommendedAction(row))+'</p></div></div>').join("");
-      const page = (number: number, body: string) => '<section class="page"><div class="kicker">VELORA RMS · ANALISI COMMERCIALE</div>'+body+'<footer>Audit esterno · '+safe(generatedDate)+'<span>'+number+' / 4</span></footer></section>';
-      const p1 = '<h1>Diagnosi preliminare della struttura</h1><p class="lead">Analisi dei segnali pubblici per individuare opportunità di sviluppo e avviare un confronto di partnership.</p>'+
-        '<div class="meta"><div><label>Struttura</label><b>'+safe(ownerInfo.propertyName)+'</b></div><div><label>Località</label><b>'+safe(ownerInfo.location)+'</b></div><div><label>Data</label><b>'+safe(generatedDate)+'</b></div></div>'+
-        '<div class="stats"><div><label>Indice opportunità</label><strong>'+reportScore+'/100</strong></div><div><label>Voci osservate</label><strong>'+completedRows.length+'</strong></div><div><label>Da approfondire</label><strong>'+(distribution.attention+distribution.critical)+'</strong></div></div>'+
-        '<div class="note"><b>Lettura corretta:</b> l’indice indica opportunità potenziali, non la qualità assoluta della struttura. Le verifiche incomplete non sono difetti accertati.</div>'+
-        '<h2>Panoramica degli ambiti</h2><div class="cols"><article><b>Distribuzione OTA</b><p>'+channelRows.filter((x)=>x.verified>0).length+' canali con tariffe validate nel campione; la copertura va verificata sulle altre date.</p></article><article><b>Vendita diretta</b><p>'+safe(bookingStatusLabel)+'. Il completamento del checkout richiede una prova dedicata.</p></article><article><b>Reputazione</b><p>Punti apprezzati: '+safe(strengths)+'.</p></article><article><b>Immagini</b><p>'+(photoAudit?.score !== undefined ? safe(String(photoAudit.score))+'/10 indice tecnico frontend' : 'Valutazione non disponibile')+'.</p></article></div>';
-      const p2 = '<h1>Distribuzione, tariffe e asimmetrie</h1><p class="lead">Verifica della visibilità commerciale dei canali sulle date campionate. La presenza di un annuncio non garantisce prezzi o inventario disponibile.</p>'+
-        '<h2>Copertura delle verifiche OTA</h2><p class="muted">Le barre indicano i controlli con tariffa validata, non la percentuale di camere in vendita.</p>'+barHtml+
-        '<h2>Tabella delle asimmetrie riscontrate</h2>'+asymmetryTable+
-        '<h2>Interpretazione e lavoro consigliato</h2><div class="cols"><article><b>Se emergono differenze</b><p>Verificare corrispondenza delle tipologie, allotment, restrizioni, channel manager e calendario. La causa non è deducibile dal solo frontend.</p></article><article><b>Se mancano le tariffe</b><p>Distinguere blocchi del sito, date non confermate e assenza documentata del prezzo: sono esiti diversi e non giustificano conclusioni automatiche.</p></article></div>'+
-        '<p class="muted">Le disparità di prezzo richiedono stessa unità fisica, date, ospiti, condizioni, tasse e valuta. I singoli preventivi rimangono nello storico tecnico Velora.</p>';
-      const p3 = '<h1>Esperienza digitale e reputazione</h1><h2>Sito e prenotazione diretta</h2><div class="note"><b>'+safe(bookingStatusLabel)+'</b><p>Percorso osservato: '+safe(bookingMode)+'. Fornitore: '+safe(bookingProvider)+'. Checkout e pagamento non sono stati certificati.</p></div>'+
-        '<h2>Recensioni e percezione</h2><div class="stats"><div><label>Google</label><strong>'+(reputation?.rating ? safe(String(reputation.rating))+'/5' : 'n.d.')+'</strong></div><div><label>Recensioni visibili</label><strong>'+safe(String(reputation?.reviewCount ?? "n.d."))+'</strong></div><div><label>Campione letto</label><strong>'+safe(String(reputation?.sampleSize || 0))+'</strong></div></div>'+
-        '<div class="cols"><article><b>Punti di forza</b><p>'+safe(strengths)+'</p></article><article><b>Criticità ricorrenti</b><p>'+safe(weaknesses)+'</p></article></div>'+
-        '<h2>Presentazione fotografica</h2><p>Indice tecnico: <b>'+(photoAudit?.score !== undefined ? safe(String(photoAudit.score))+'/10' : 'n.d.')+'</b>; immagini rilevanti: '+safe(String(photoAudit?.imageCount ?? "n.d."))+'.</p>'+
-        '<div class="note"><b>Interventi suggeriti</b><p>'+safe(photographic)+' Migliorare la coerenza delle foto tra sito e OTA e verificare separatamente luce, styling e composizione.</p></div>'+
-        '<h2>Cosa approfondire con la direzione</h2><p>Verificare la coerenza delle descrizioni e delle fotografie tra sito ufficiale e OTA; testare la facilità della prenotazione diretta e confrontare le aspettative comunicate con i temi effettivamente ricorrenti nelle recensioni.</p>'+
-        '<p class="muted">Le recensioni lette costituiscono un campione, non una valutazione complessiva del servizio. Il punteggio fotografico misura segnali tecnici del frontend, non la qualità estetica delle immagini.</p>';
-      const p4 = '<h1>Priorità, opportunità e partnership</h1><p class="lead">Lettura consulenziale per area: riscontro osservabile, azione verificabile e risultato da misurare in un possibile percorso di collaborazione.</p>'+
-        '<h2>Ambiti prioritari di miglioramento</h2><div class="insight-grid">'+interventionCards+'</div>'+
-        '<h2>Priorità emerse dalla valutazione Velora</h2><div class="action-grid">'+(actions || "<p>Nessuna priorità valutabile con sufficiente certezza.</p>")+'</div>'+
-        recommendedTail +
-        '<h2>Proposta di lavoro in tre fasi</h2><div class="three"><article><b>Primi 30 giorni</b><p>Confronto con la proprietà, verifica dati e individuazione delle priorità.</p></article><article><b>30–60 giorni</b><p>Interventi su schede, conversione diretta, fotografie e presidio tariffario.</p></article><article><b>60–90 giorni</b><p>Misurazione KPI, nuove verifiche e consolidamento delle attività.</p></article></div>'+
-        '<div class="note"><b>Proposta di approfondimento:</b> incontro conoscitivo per definire insieme le aree in cui una partnership può produrre valore. La diagnosi non presume problemi gestionali interni non osservabili dal frontend.</div>';
-      html = '<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Velora · Audit commerciale</title><style>'+
-        '@page{size:A4;margin:14mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.48;color:#263047;margin:0}.page{min-height:258mm;page-break-after:always;break-after:page;display:flex;flex-direction:column}.page:last-child{page-break-after:auto;break-after:auto}.kicker{font-size:10px;letter-spacing:2px;color:#a48b55;font-weight:800;margin-bottom:18px}h1{color:#241449;font-size:25px;line-height:1.17;margin:0 0 12px}h2{font-size:16px;color:#241449;border-bottom:2px solid #cbb17d;margin:19px 0 9px;padding-bottom:5px}p{margin:5px 0 9px}.lead{font-size:13px;color:#566179}.muted,small{font-size:9.5px;color:#667189}.meta,.stats,.cols,.three{display:grid;gap:10px;margin:15px 0}.meta,.stats,.three{grid-template-columns:repeat(3,1fr)}.cols{grid-template-columns:1fr 1fr}.meta>div,.stats>div,.cols>article,.three>article,.action{border:1px solid #e1dce9;border-radius:9px;padding:12px}.meta label,.stats label{display:block;color:#69738a;font-size:9px;text-transform:uppercase}.meta b{color:#241449;font-size:12px}.stats strong{font-size:23px;color:#241449}.cols article{background:#fbfafc}.cols b,.three b{color:#241449}.note{border-left:4px solid #c3a970;background:#faf8f1;padding:12px;margin:13px 0}.barrow{display:grid;grid-template-columns:115px 1fr;gap:10px;align-items:center;margin:10px 0}.barrow>b{color:#241449}.track{height:10px;background:#e9e5ef;border-radius:8px;overflow:hidden}.fill{height:100%;background:#71538e;border-radius:8px}.action{display:grid;grid-template-columns:28px 1fr;gap:10px;margin:10px 0}.action span{background:#241449;color:white;border-radius:50%;height:26px;width:26px;line-height:26px;text-align:center;font-weight:800}.action p{margin:3px 0}.three article{border-top:3px solid #c3a970;background:#faf9fc;padding:12px}footer{margin-top:auto;padding-top:12px;border-top:1px solid #ded8e6;color:#7a8293;font-size:9px}footer span{float:right}.asym-table{width:100%;border-collapse:collapse;margin:10px 0 13px;font-size:10.5px}.asym-table th{background:#241449;color:white;text-align:left;padding:9px}.asym-table td{border-bottom:1px solid #e2dce9;padding:9px;vertical-align:top}.asym-table tr:nth-child(even){background:#faf9fc}.insight-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin:12px 0}.insight{border:1px solid #ddd4ea;border-left:4px solid #bea165;padding:10px 12px;border-radius:8px;background:#fbfafc}.insight h3{margin:0 0 6px;font-size:12px;color:#241449}.insight p{margin:4px 0;font-size:10.5px}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.action-grid .action{margin:0;padding:10px}.action-grid .action p{font-size:10.5px}.conclusion{border:1px solid #d8d1e6;border-radius:9px;padding:11px 13px;background:#f4f1f8}.conclusion h3{margin:0 0 4px;color:#241449}.page{min-height:0;height:258mm}.page h2{margin:16px 0 8px}.page p{line-height:1.45}.page footer{margin-top:auto}.barrow{margin:8px 0}</style></head><body>'+page(1,p1)+page(2,p2)+page(3,p3)+page(4,p4)+'</body></html>';
-    }
+      // Report consulenziale client-facing by BarbarHouse: dati della struttura
+      // attiva, identità dell'operatore registrata al momento della scansione,
+      // tariffe verificate separate dalle osservazioni non confrontabili.
+      if (isWebAudit) {
+        const pilot = browserPilotResult?.propertyId === activeAuditData.id
+          ? browserPilotResult : null;
+        let scrapingOperator = "";
+        try {
+          const saved = window.localStorage.getItem("velora-scraping-operator:" + activeAuditData.id);
+          const record = saved ? JSON.parse(saved) as {name?:string} : null;
+          scrapingOperator = String(record?.name || "").trim();
+        } catch { /* La mancanza di attribuzione è dichiarata nel PDF. */ }
+        const relevantObservations = pilotEligiblePriceObservations(pilot);
+        const wrongListingChannels = pilot
+          ? [...new Set((pilot.observations||[])
+              .filter(o => Boolean(pilotWrongListingReason(pilot,o)))
+              .map(o => o.otaId))]
+          : [];
+        const absentByOperator = Object.keys(answers)
+          .filter(k => k.startsWith("audit-ota-") &&
+            answers[k]?.manualPresence?.status === "not_found_by_operator")
+          .map(k => k.slice("audit-ota-".length));
+        const frontendAreas = priorityRows.filter(row =>
+          ["present","partial","missing"].includes(row.answer.auditStatus || "") &&
+          row.answer.note.trim().length > 20
+        ).slice(0,3).map(row=>({
+          name:row.item.text,
+          score:row.score,
+          finding:row.answer.note.slice(0,240),
+          action:recommendedAction(row),
+        }));
+        html = buildFrontendConsultingReportHtml({
+          propertyName:ownerInfo.propertyName || activeAuditData.name,
+          city:ownerInfo.city || activeAuditData.city,
+          website:activeStructure?.website || activeAuditData.website,
+          consultant:scrapingOperator,
+          generatedDate,generatedTime,pilot,
+          eligibleObservations:relevantObservations,
+          wrongListingChannels,
+          rateQuotes,
+          asymmetries:pilotDistributionAsymmetries(pilot),
+          manualAbsentIds:absentByOperator,
+          bookingStatus,bookingProvider,bookingMode,
+          opportunityScore:scoredRows.length?reportScore:null,
+          assessedItemCount:scoredRows.length,
+          areas:frontendAreas,
+        });
+      }
   if (window.veloraDesktop?.savePdf) {
       try {
         const reportKind = isWebAudit
-          ? "audit-web-frontend"
+          ? "scraping-frontend-by-barbarhouse"
           : isQuickHotelBb
           ? useCustomQuickSelection
             ? "intervista-consulenziale-personalizzata"
@@ -9953,7 +9957,7 @@ export default function App() {
       try {
         const token = await connectLocalAgent(true);
         if (!token) throw new Error("Agente locale non disponibile.");
-        const reportKind = isWebAudit ? "audit-web-frontend" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
+        const reportKind = isWebAudit ? "scraping-frontend-by-barbarhouse" : isQuickHotelBb ? "analisi-rapida-hotel-bb" : "autovalutazione";
         const filename = `velora-${reportKind}-${sanitizeFilename(ownerInfo.propertyName)}.pdf`;
         const response = await fetch(localAgentUrl("/api/report/pdf"), {
           method: "POST",
