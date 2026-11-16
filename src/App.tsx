@@ -11069,7 +11069,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                   <label className="text-xs font-semibold">Ospiti<select value={customPilotAdults} disabled={localPilotRunning || launchingBatch} onChange={e=>setCustomPilotAdults(Number(e.target.value))} className="mt-1 block w-full rounded-lg border p-2">{Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
                   <label className="col-span-2 text-xs font-semibold">Campionamento<select value={customPilotFrequency} disabled={localPilotRunning || launchingBatch} onChange={e=>setCustomPilotFrequency(e.target.value as "daily"|"weekly"|"biweekly")} className="mt-1 block w-full rounded-lg border p-2"><option value="weekly">Settimanale</option><option value="biweekly">Ogni 14 giorni</option><option value="daily">Giornaliero</option></select></label>
                 </div>
-                <p className="mt-2 text-[10px] text-[#50627F]">Ogni soggiorno viene verificato su Booking e confrontato sulle OTA selezionate. Se il check-out supera la data finale, il soggiorno non viene programmato.</p>
+                <p className="mt-2 text-[10px] text-[#50627F]">Le date del campionamento sono tentativi: Leonardo cerca la prima disponibilità prenotabile, Booking ne conferma le stesse date e le OTA selezionate le riutilizzano. Senza prezzi diretti verificati, Booking cerca il primo soggiorno con prezzo confermato e lo segnala come confronto parziale. Il check-out resta nel periodo scelto.</p>
               </div>}
 
                 <details className="rounded-lg border border-[#EEE8F4] bg-[#FAF9FC] text-[11px] text-[#50627F]">
