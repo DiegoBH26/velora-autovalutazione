@@ -122,7 +122,7 @@ def _date_is_present(values, iso):
     return any(form.lower() in tokens for form in _date_renderings(iso))
 
 
-async def _select_explicit_calendar_date(scope, field, iso):
+async def _select_explicit_calendar_date(scope, field, iso, *, already_open=False):
     """Seleziona un giorno con identificatore completo e avanza solo se il controllo
     'mese successivo' è univoco. Non clicca mai un semplice numero di giorno.
     """
@@ -137,7 +137,8 @@ async def _select_explicit_calendar_date(scope, field, iso):
     for text in _date_renderings(iso)[4:]:
         css.extend((f'[aria-label="{text}"]',f'[title="{text}"]'))
     try:
-        await field.click(timeout=3000)
+        if not already_open:
+            await field.click(timeout=3000)
         await asyncio.sleep(0.2)
         for _ in range(15):
             for selector in css:
@@ -737,7 +738,26 @@ async def _apply_dates_generic(scope, stay):
         requested=stay[name]
         try:
             if index is None:
-                await _choose_visual_date_field(scope,name)
+                # Alcuni engine mostrano un datepicker senza mese/anno in
+                # chiaro, ma con data ISO completa sulle celle accessibili.
+                # Prima apri il campo reale, poi cerca SOLO quel giorno.
+                opened=await _choose_visual_date_field(scope,name)
+                if not opened:
+                    focus=await _bedzzle_focus_box(scope,name)
+                    opened=bool(focus.get("found"))
+                    if not opened:
+                        traces.append(str(focus.get("reason") or "Nessun campo data visibile"))
+                if not opened:
+                    return {"applied":False,"reason":(
+                        "Controllo "+name+" non individuato nel booking engine; "+
+                        "non posso selezionare una data verificabile.")[:600],
+                        "trace":traces}
+                explicit=await _select_explicit_calendar_date(
+                    scope,scope.locator("body"),requested,already_open=True)
+                if explicit:
+                    methods.append("explicit-iso-calendar")
+                    traces.append("Data "+name+" selezionata con identificatore completo "+requested)
+                    continue
                 path=[]
                 if not await _select_visual_calendar_date(scope,requested,path):
                     traces.extend(path[-5:])
