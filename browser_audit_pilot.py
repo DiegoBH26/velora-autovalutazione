@@ -14951,7 +14951,8 @@ async def run(args: argparse.Namespace) -> dict:
                                 "dateResolution":list(result.get("bookingDateResolution") or []),
                                 "observations":list(result.get("observations") or []),
                             }
-                            result["bookingReferenceStays"]=[reference_lock]
+                            selected_lock=(result.get("bookingReferenceStays") or [{}])[-1]
+                            result["bookingReferenceStays"]=[selected_lock]
                             result["bookingDateResolution"]=[resolution]
                             result["observations"]=[last_booking]
                             result["plan"]=[{
@@ -14963,7 +14964,7 @@ async def run(args: argparse.Namespace) -> dict:
                             }]
                             result["bookingFallbackStatus"]=fallback_outcome
                             if fallback_outcome=="needs_validation":
-                                reference_lock["status"]="booking_price_needs_validation"
+                                selected_lock["status"]="booking_price_needs_validation"
                                 resolution["status"]="booking_price_needs_validation"
                             print(
                                 "MINERVA FIRST-DATE HANDOFF · "+fallback_outcome+
