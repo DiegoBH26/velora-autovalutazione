@@ -13488,7 +13488,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 onClick={generatePrintableReport}
                 className="rounded-2xl bg-[#23124A] px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63]"
               >
-                Genera report PDF
+                {isWebAudit ? "Genera report consulenziale frontend" : "Genera report PDF"}
               </button>
 
               <button
@@ -14081,7 +14081,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 onClick={generatePrintableReport}
                 className="rounded-2xl bg-[#23124A] px-5 py-4 text-sm font-black text-white shadow-sm transition hover:bg-[#2F1A63]"
               >
-                Genera report PDF
+                {isWebAudit ? "Genera report consulenziale frontend" : "Genera report PDF"}
               </button>
 
               <button
