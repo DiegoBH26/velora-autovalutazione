@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-universal-r10-20261111"
+LEONARDO_BUILD = "direct-calendar-diagnostics-r11-20261116"
 
 import asyncio
 import re
@@ -312,7 +312,7 @@ async def _bedzzle_focus_box(scope, name):
         found=await scope.evaluate(r"""kind => {
           const visible=e=>{
             const r=e.getBoundingClientRect();
-            return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight;
+            return r.width>0&&r.height>0;
           };
           const txt=e=>(e?.innerText||e?.textContent||'').replace(/\s+/g,' ').trim();
           const date=/\b\d{1,2}[\/.-]\d{1,2}[\/.-](?:20)?\d{2}\b/;
@@ -1297,7 +1297,7 @@ async def _navigate_booking_engine(page, context, engine_url, site_url=None):
     return page,diagnostic
 
 
-async def _wait_for_booking_search_form(page, *, seconds=13):
+async def _wait_for_booking_search_form(page, *, seconds=25):
     """Wait until the SPA renders arrival/departure fields.
 
     Navigation success alone is not proof that Bedzzle mounted its widget.
@@ -1612,8 +1612,16 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                         sample["dateAttempts"]=attempts[:12]
                         if active is None:
                             sample["status"]="dates_not_selectable"
+                            # A parent page can have no date fields while its
+                            # embedded booking iframe renders the real controls.
                             sample["formDiagnostic"]=await _form_diagnostic(
                                 scopes[0] if scopes else engine_page.main_frame)
+                            sample["frameDiagnostics"]=[]
+                            for candidate_frame in scopes[:12]:
+                                sample["frameDiagnostics"].append({
+                                    "frameUrl":candidate_frame.url.split("?")[0][:220],
+                                    "form":await _form_diagnostic(candidate_frame),
+                                })
                             if debug_dir is not None:
                                 try:
                                     dest=Path(debug_dir)
@@ -1646,12 +1654,26 @@ async def probe_direct_stays(url, rows, *, limit=4, ghost=False, site_url=None, 
                                     (reason[:220] for reason in reasons if reason),
                                     "Il calendario Bedzzle non ha accettato le date")
                             else:
-                                for reason in reasons:
-                                    if any(fragment in reason.lower() for fragment in (
-                                        "freccia", "è rimasto su", "nessun calendario",
-                                        "calendario non utilizzabile","limite di 24 passaggi")):
-                                        systemic_calendar_failure=reason[:220]
-                                        break
+                                missing_controls=bool(reasons) and all(
+                                    "controllo checkin non individuato" in reason.lower()
+                                    or "controllo checkout non individuato" in reason.lower()
+                                    or "nessun campo data arrivo" in reason.lower()
+                                    or "nessun campo data partenza" in reason.lower()
+                                    for reason in reasons if reason
+                                ) and not any((attempt.get("dates") or {}).get("applied")
+                                              for attempt in attempts)
+                                if missing_controls:
+                                    systemic_calendar_failure=(
+                                        "Il booking engine è stato aperto, ma i controlli "
+                                        "data non sono stati individuati in nessun frame. "
+                                        "Salvata diagnostica per ciascun frame.")
+                                else:
+                                    for reason in reasons:
+                                        if any(fragment in reason.lower() for fragment in (
+                                            "freccia", "è rimasto su", "nessun calendario",
+                                            "calendario non utilizzabile","limite di 24 passaggi")):
+                                            systemic_calendar_failure=reason[:220]
+                                            break
                         else:
                             sample["formDiagnostic"]=await _form_diagnostic(active)
                             occupancy=await _apply_guests(active,stay["guests"])
