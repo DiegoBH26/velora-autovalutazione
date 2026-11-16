@@ -2157,7 +2157,13 @@ class Handler(SimpleHTTPRequestHandler):
                     if (direct_result.get("propertyId")==property_id
                         and direct_result.get("propertyName")==data.get("name")
                         and candidate.get("status")=="direct_price_observed"
-                        and candidate.get("checkin") and candidate.get("checkout")):
+                        and candidate.get("checkin") and candidate.get("checkout")
+                        and (not custom_period or (
+                            str(custom_period["start"])<=str(candidate["checkin"])
+                            and str(candidate["checkout"])<=str(custom_period["end"])
+                            and int(candidate.get("nights") or 0)==int(custom_period["nights"])
+                            and int(candidate.get("adults") or 0)==int(custom_period["adults"])
+                        ))):
                         direct_master=candidate
                 except (OSError,ValueError,TypeError):
                     pass
