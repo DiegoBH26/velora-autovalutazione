@@ -307,7 +307,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertNotIn("date.test(t)",focus)
         ready=inspect.getsource(_wait_for_booking_search_form)
         self.assertIn("checkin&&checkout",ready)
-        self.assertIn("seconds=13",ready)
+        self.assertIn("seconds=25",ready)
 
     def test_date_picker_fallback_traces_initial_failure(self):
         import inspect
