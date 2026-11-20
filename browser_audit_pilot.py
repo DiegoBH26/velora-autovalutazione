@@ -14938,6 +14938,7 @@ async def run(args: argparse.Namespace) -> dict:
                         }
                         fallback_outcome=(
                             "confirmed" if lock_confirmed and verified_price else
+                            "dates_confirmed_prices_unverified" if lock_confirmed and has_price else
                             "needs_validation" if has_price else
                             "technical_stop" if resolution.get("status") in {
                                 "initial_dates_technical_stop","stopped_rate_limited",
@@ -14963,6 +14964,14 @@ async def run(args: argparse.Namespace) -> dict:
                                 "adults":effective_stay.get("adults",2),
                             }]
                             result["bookingFallbackStatus"]=fallback_outcome
+                            result["bookingPriceValidationStatus"]=(
+                                "verified" if verified_price else
+                                "unverified" if has_price else "no_prices"
+                            )
+                            # Confirmed dates are a usable cross-OTA WINDOW,
+                            # even if quote amount/room conditions are NOT yet
+                            # comparable. Never relabel a confirmed date lock
+                            # as an unverified-price lock.
                             if fallback_outcome=="needs_validation":
                                 selected_lock["status"]="booking_price_needs_validation"
                                 resolution["status"]="booking_price_needs_validation"
