@@ -16,7 +16,26 @@ import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields, follow_booking_cta
 from velora_direct_stays import probe_direct_stays, planned_direct_stays, discover_direct_engine
-from velora_site_traffic import collect_site_traffic
+# Traffic estimates are an OPTIONAL Leonardo extension. Legacy Windows updater
+# batches might install the agent-network file before the new traffic module.
+# Never disable all 12 agents because an optional integration is missing.
+try:
+    from velora_site_traffic import collect_site_traffic
+except ModuleNotFoundError as exc:
+    if exc.name != "velora_site_traffic":
+        raise
+    def collect_site_traffic(website, **kwargs):
+        return {
+            "provider": "Vaneform",
+            "status": "module_not_installed",
+            "measurement": "third_party_estimate",
+            "wholeSiteVisits": None,
+            "visitsMonthlyEstimate": None,
+            "note": (
+                "Modulo traffico non presente nell'agente Windows. "
+                "Scarica AGGIORNA_VELORA_COMPLETO.bat aggiornato e rieseguilo."
+            ),
+        }
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
