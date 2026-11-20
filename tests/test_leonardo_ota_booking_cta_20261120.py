@@ -73,6 +73,30 @@ class DirectCtaToOtaTests(unittest.TestCase):
                 self.assertEqual(found["status"],"ota_redirect")
                 self.assertEqual(found["otaName"],name)
 
+    def test_preflight_follows_real_hotel_dimora_page_link(self):
+        # Masseria Mancini places "Prenota ora" on the boutique-hotel page,
+        # not the homepage; the preflight must discover the linked page.
+        from velora_direct_stays import _booking_discovery_pages
+        links=[
+            {"href":"/wedding/","text":"Wedding"},
+            {"href":"/boutique-hotel/","text":"Hotel Dimora"},
+            {"href":"/contatti/","text":"Contatti"},
+            {"href":"https://www.booking.com/hotel/it/other.html","text":"Prenota ora"},
+        ]
+        found=_booking_discovery_pages("https://www.masseriamancini.it/",links)
+        self.assertEqual(found,["https://www.masseriamancini.it/boutique-hotel/"])
+        self.assertTrue(all("booking.com" not in item for item in found))
+
+    def test_preflight_preserves_ota_result_for_later_site_audit(self):
+        network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
+        preflight=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
+        self.assertIn("while index<len(pages) and index<=5:",preflight)
+        self.assertIn("pages.extend(_booking_discovery_pages(page.url,links,max_pages=5))",preflight)
+        self.assertIn('if (preflight_engine.get("status")=="ota_redirect"',network)
+        self.assertIn('"otaName":preflight_engine.get("otaName") or ""',network)
+        self.assertIn('"otaSourcePage":preflight_engine.get("otaSourcePage") or ""',network)
+        self.assertIn('if engine_status=="ota_redirect":',network)
+
     def test_audit_crawls_hotel_pages_and_honors_ota_result(self):
         builder=(ROOT/"site_audit_builder.py").read_text(encoding="utf-8")
         self.assertIn('"boutique-hotel"',builder)
