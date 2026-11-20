@@ -545,6 +545,18 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             cta_verification=await follow_booking_cta(site,audit.get("bookingEngine") or {})
         except Exception as exc:
             cta_verification={"status":"error","evidence":[type(exc).__name__]}
+        if cta_verification.get("status")=="ota_redirect_verified":
+            # The user may book through the OTA; this remains a direct-channel
+            # distribution weakness, NOT a validated direct booking engine.
+            observed=audit.get("bookingEngine") or {}
+            if observed.get("status")=="ota_redirect":
+                observed["otaName"]=cta_verification.get("otaName") or observed.get("otaName") or ""
+                observed["otaUrl"]=cta_verification.get("resolvedUrl") or observed.get("otaUrl") or ""
+                observed["evidence"]=(
+                    str(observed.get("evidence") or "")+" "+
+                    " ".join(cta_verification.get("evidence") or [])
+                )[:950]
+                observed["clickVerified"]=True
         if cta_verification.get("status")=="reached" and cta_verification.get("resolvedUrl"):
             from booking_engine import detect_booking_engine
             discovered=detect_booking_engine(
@@ -593,11 +605,20 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             else:
                 engine_status=(audit.get("bookingEngine") or {}).get("status") or ""
                 direct_stays["status"]=(
-                    "booking_engine_not_found" if engine_status=="not_found_in_page"
+                    "ota_redirect_no_direct_engine" if engine_status=="ota_redirect"
+                    else "booking_engine_not_found" if engine_status=="not_found_in_page"
                     else "request_only_no_booking_engine" if engine_status=="request_only"
                     else "engine_url_missing")
-                direct_stays.setdefault("evidence",[]).append(
-                    "Non è stata individuata una destinazione pubblica del pulsante Prenota.")
+                if engine_status=="ota_redirect":
+                    ota_engine=audit.get("bookingEngine") or {}
+                    direct_stays.setdefault("evidence",[]).append(
+                        "Booking engine diretto NON rilevato. Il pulsante Prenota "
+                        "rimanda alla OTA "+str(ota_engine.get("otaName") or "non identificata")+
+                        ". Nessuna tariffa di questa CTA e' una tariffa diretta."
+                    )
+                else:
+                    direct_stays.setdefault("evidence",[]).append(
+                        "Non è stata individuata una destinazione pubblica del pulsante Prenota.")
         elif (audit.get("bookingEngine") or {}).get("status")!="provider_identified":
             audit["bookingEngine"]={
                 "status":preflight_engine.get("status") or "provider_unknown",
