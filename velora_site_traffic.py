@@ -253,6 +253,7 @@ def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None,
             stored_at=datetime.fromisoformat(str(prior.get("retrievedAt") or "").replace("Z","+00:00"))
             stored_at=stored_at.replace(tzinfo=stored_at.tzinfo or timezone.utc)
             if (prior.get("provider")=="Vaneform" and prior.get("domain")==domain
+                    and prior.get("schemaVersion")==2
                     and prior.get("status") in {"estimated","not_available"}
                     and (stored_at.strftime("%Y-%m")==now.strftime("%Y-%m")
                          if prior.get("status")=="estimated"
@@ -261,6 +262,7 @@ def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None,
         except (OSError,ValueError,TypeError,AttributeError):
             pass
     def save(value):
+        value={**value,"schemaVersion":2}
         if cache_file is not None and value.get("status") in {"estimated","not_available"}:
             try:
                 cache_file.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding="utf-8")
