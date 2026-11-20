@@ -6892,7 +6892,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
           );
           if(siteCheck.ok){
             const siteReport=await siteCheck.json() as {
-              propertyId?:string;bookingEngine?:{status?:string};
+              propertyId?:string;bookingEngine?:{status?:string;otaName?:string};
               directCommercialAudit?:{status?:string;searchedTotal?:number;verifiedQuotes?:unknown[];masterStay?:{checkin?:string;checkout?:string;adults?:number};
                 evidence?:string[];samples?:Array<{status?:string;
                 navigation?:{openingMethod?:string;httpStatus?:number|null;siteHttpStatus?:number|null;reason?:string};
@@ -6901,7 +6901,8 @@ export default function App({ consultantName = "" }: { consultantName?: string }
             };
             if(siteReport.propertyId!==activeAuditData.id)throw new Error("L'audit diretto ricevuto appartiene a un'altra struttura.");
             const noEngine=siteReport.bookingEngine?.status==="not_found_in_page" ||
-              siteReport.bookingEngine?.status==="request_only";
+              siteReport.bookingEngine?.status==="request_only" ||
+              siteReport.bookingEngine?.status==="ota_redirect";
             if(!noEngine && !(siteReport.directCommercialAudit?.searchedTotal||0)){
               const commercial=siteReport.directCommercialAudit;
               const sample=commercial?.samples?.[0];
@@ -6931,7 +6932,11 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 "il sito diretto rimane non verificato e non produce delta.");
             } else {
               setSpecialistMessage(noEngine
-                ? "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
+                ? siteReport.bookingEngine?.status==="ota_redirect"
+                  ? "Leonardo: non rilevato un booking engine diretto. Il pulsante Prenota ora rimanda alla OTA "+
+                    (siteReport.bookingEngine?.otaName||"non identificata")+
+                    ". Procedo con Minerva; non esistono tariffe dirette da confrontare."
+                  : "Leonardo: booking engine non individuato o soltanto richiesta. Procedo con Booking; confronto diretto impossibile."
                 : siteReport.directCommercialAudit?.verifiedQuotes?.length
                   ? "Leonardo: ricerche e preventivi diretti verificati. Ora confronto con Booking."
                   : "Leonardo: ricerca date effettuata, prezzi o condizioni ancora da verificare. Ora confronto con Booking.");
