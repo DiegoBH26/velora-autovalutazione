@@ -17,7 +17,7 @@ pause
 
 set "BASE=https://raw.githubusercontent.com/DiegoBH26/velora-autovalutazione/main"
 
-for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py velora_direct_commercial.py velora_direct_stays.py velora_shared_intelligence.py velora_portal_sessions.py velora_portal_credentials.py ota_public_source_hints.json) do (
+for %%F in (local_audit_server.py browser_audit_pilot.py site_audit_builder.py booking_engine.py velora_quote_history.py velora_agent_network.py velora_direct_commercial.py velora_direct_stays.py velora_site_traffic.py velora_shared_intelligence.py velora_portal_sessions.py velora_portal_credentials.py ota_public_source_hints.json) do (
   rem Non sovrascrivere il backup del precedente aggiornamento fallito.
   if exist "%%F" if not exist "%%F.bak" copy /Y "%%F" "%%F.bak" >nul 2>nul
 )
@@ -82,6 +82,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_direct_stays.py?nocache=%RANDOM%' -OutFile 'velora_direct_stays.py.new'"
 if errorlevel 1 goto :errore
 
+echo [EXTRA] Scarico l'integrazione traffico Vaneform gratuita...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Headers @{'Cache-Control'='no-cache'} -Uri '%BASE%/velora_site_traffic.py?nocache=%RANDOM%' -OutFile 'velora_site_traffic.py.new'"
+if errorlevel 1 goto :errore
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try{$c=Get-Content 'velora_portal_credentials.py.new' -Raw; if($c -notmatch 'class WindowsPortalVault'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
@@ -90,7 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try{$h=Get-Content 'ota_public_source_hints.json.new' -Raw | ConvertFrom-Json; if($h.schema -ne 'velora-public-ota-source-hints-v1'){exit 2}}catch{exit 2}"
 if errorlevel 1 goto :errore
 
-for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new velora_agent_network.py.new velora_direct_commercial.py.new velora_direct_stays.py.new velora_shared_intelligence.py.new velora_portal_sessions.py.new velora_portal_credentials.py.new) do (
+for %%F in (local_audit_server.py.new browser_audit_pilot.py.new site_audit_builder.py.new booking_engine.py.new velora_quote_history.py.new velora_agent_network.py.new velora_direct_commercial.py.new velora_direct_stays.py.new velora_site_traffic.py.new velora_shared_intelligence.py.new velora_portal_sessions.py.new velora_portal_credentials.py.new) do (
   for %%S in ("%%F") do if %%~zS LSS 1000 goto :errore
 )
 
@@ -117,7 +122,7 @@ if not defined VELORA_PY (
 if not defined VELORA_PY goto :errore
 echo.
 echo Verifico la sintassi dei moduli PRIMA della sostituzione...
-%VELORA_PY% -c "import ast,pathlib; fs=['local_audit_server.py','browser_audit_pilot.py','site_audit_builder.py','booking_engine.py','velora_quote_history.py','velora_agent_network.py','velora_direct_commercial.py','velora_direct_stays.py','velora_shared_intelligence.py','velora_portal_sessions.py','velora_portal_credentials.py']; [ast.parse(pathlib.Path(f+'.new').read_text(encoding='utf-8-sig'),filename=f) for f in fs]; print('OK: sintassi verificata, aggiornamento consentito')"
+%VELORA_PY% -c "import ast,pathlib; fs=['local_audit_server.py','browser_audit_pilot.py','site_audit_builder.py','booking_engine.py','velora_quote_history.py','velora_agent_network.py','velora_direct_commercial.py','velora_direct_stays.py','velora_site_traffic.py','velora_shared_intelligence.py','velora_portal_sessions.py','velora_portal_credentials.py']; [ast.parse(pathlib.Path(f+'.new').read_text(encoding='utf-8-sig'),filename=f) for f in fs]; print('OK: sintassi verificata, aggiornamento consentito')"
 if errorlevel 1 goto :errore
 
 move /Y "local_audit_server.py.new" "local_audit_server.py" >nul
@@ -128,6 +133,7 @@ move /Y "velora_quote_history.py.new" "velora_quote_history.py" >nul
 move /Y "velora_agent_network.py.new" "velora_agent_network.py" >nul
 move /Y "velora_direct_commercial.py.new" "velora_direct_commercial.py" >nul
 move /Y "velora_direct_stays.py.new" "velora_direct_stays.py" >nul
+move /Y "velora_site_traffic.py.new" "velora_site_traffic.py" >nul
 move /Y "velora_shared_intelligence.py.new" "velora_shared_intelligence.py" >nul
 move /Y "velora_portal_sessions.py.new" "velora_portal_sessions.py" >nul
 move /Y "velora_portal_credentials.py.new" "velora_portal_credentials.py" >nul
@@ -139,6 +145,7 @@ if exist "__pycache__" (
   del /Q "__pycache__\velora_agent_network*.pyc" 2>nul
   del /Q "__pycache__\velora_direct_commercial*.pyc" 2>nul
   del /Q "__pycache__\velora_direct_stays*.pyc" 2>nul
+  del /Q "__pycache__\velora_site_traffic*.pyc" 2>nul
   del /Q "__pycache__\velora_shared_intelligence*.pyc" 2>nul
   del /Q "__pycache__\velora_portal_sessions*.pyc" 2>nul
   del /Q "__pycache__\velora_portal_credentials*.pyc" 2>nul
@@ -147,7 +154,7 @@ if exist "__pycache__" (
 rem Verifica import dopo la sostituzione: i moduli devono essere effettivamente caricabili.
 echo.
 echo Verifico import e registrazione dei 12 agenti e di Giove...
-%VELORA_PY% -c "import velora_agent_network as n; import velora_direct_commercial as d; import velora_direct_stays as ds; import velora_shared_intelligence as m; import velora_portal_sessions as p; import velora_portal_credentials as c; assert hasattr(c,'WindowsPortalVault'); assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
+%VELORA_PY% -c "import velora_agent_network as n; import velora_direct_commercial as d; import velora_direct_stays as ds; import velora_site_traffic as t; import velora_shared_intelligence as m; import velora_portal_sessions as p; import velora_portal_credentials as c; assert hasattr(c,'WindowsPortalVault'); assert len(n.AGENTS)==12, 'Attesi 12 specialisti'; assert n.REVIEWER_NAME=='Giove', 'Revisore Giove mancante'; assert all(n.AGENTS[k]['ready'] for k in n.AGENTS); print('OK: 12/12 agenti importabili e Giove presente. Sessioni Chrome:', ', '.join(p.PORTALS))"
 if errorlevel 1 goto :errore_import
 
 rem Avvio CMD da browser: registrazione locale per utente corrente.
