@@ -3,7 +3,7 @@ Nessun acquisto, login, elusione di controlli o navigazione aggressiva.
 """
 from __future__ import annotations
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from site_audit_builder import public_url, robots_allowed
 from booking_engine import detect_booking_engine
 from playwright.async_api import async_playwright
@@ -14,11 +14,24 @@ def _safe(url):
         p.hostname in ("localhost","127.0.0.1") or p.hostname.endswith(".local"))
 
 async def follow_booking_cta(site_url, engine, *, timeout_ms=18000):
-    """Segue una CTA pubblica verso il booking engine, senza procedere a una prenotazione."""
+    """Follow the actual booking CTA without treating OTA links as direct engines.
+
+    A link on an inner Hotel/Rooms page counts even when the homepage has none.
+    We keep the DOM observation if the click cannot be verified, and never
+    open booking dates or payments here.
+    """
+    from booking_engine import _ota_name, _public_url
     evidence={"status":"not_verified","resolvedUrl":"","connectionType":"",
-              "provider":"","evidence":[]}
+              "provider":"","otaName":"","evidence":[]}
     if not _safe(site_url) or robots_allowed(site_url,{}) is not True:
         evidence["evidence"].append("Visita CTA non autorizzata o sito non valido.")
+        return evidence
+    is_ota=engine.get("status")=="ota_redirect"
+    source=engine.get("otaSourcePage") if is_ota else site_url
+    source=source if (_safe(source) and
+        urlparse(source).hostname==urlparse(site_url).hostname) else site_url
+    if robots_allowed(source,{}) is False:
+        evidence["evidence"].append("Pagina contenente il pulsante Prenota non accessibile secondo robots.txt.")
         return evidence
     async with async_playwright() as pw:
         browser=await pw.chromium.launch(channel="chrome",headless=True)
@@ -26,48 +39,78 @@ async def follow_booking_cta(site_url, engine, *, timeout_ms=18000):
             context=await browser.new_context(locale="it-IT",timezone_id="Europe/Rome")
             page=await context.new_page()
             try:
-                response=await page.goto(site_url,wait_until="domcontentloaded",timeout=timeout_ms)
+                response=await page.goto(source,wait_until="domcontentloaded",timeout=timeout_ms)
                 if not response or response.status>=400:return evidence
                 await page.wait_for_timeout(650)
                 candidates=page.locator("a[href]:visible")
-                target=engine.get("url") or ""
+                target=engine.get("otaUrl") if is_ota else (engine.get("url") or "")
                 chosen=None
-                for i in range(min(await candidates.count(),180)):
+                for i in range(min(await candidates.count(),220)):
                     a=candidates.nth(i)
                     href=await a.get_attribute("href") or ""
-                    label=await a.inner_text(timeout=1400)
-                    if "booking.bedzzle.com" in href or (
-                        target and urlparse(target).hostname and urlparse(target).hostname in href
-                        and re.search(r"prenot|book",label,re.I)):
+                    try:label=await a.inner_text(timeout=1200)
+                    except Exception:label=""
+                    if is_ota:
+                        url=urljoin(page.url,href)
+                        expected=urlparse(target)
+                        observed=urlparse(url)
+                        if (_ota_name((observed.hostname or "").lower().removeprefix("www."))
+                            and observed.hostname==expected.hostname
+                            and observed.path.rstrip("/")==expected.path.rstrip("/")
+                            and re.search(r"prenot|book|reserve",label,re.I)):
+                            chosen=a
+                            break
+                    elif "booking.bedzzle.com" in href or (
+                        target and urlparse(target).hostname and
+                        urlparse(target).hostname in href and
+                        re.search(r"prenot|book",label,re.I)):
                         chosen=a
                         break
                 if chosen is None:
-                    evidence["evidence"].append("Nessun collegamento CTA univoco rilevato nella homepage.")
+                    evidence["evidence"].append(
+                        "CTA osservata nell'audit DOM, ma non cliccabile con un collegamento univoco.")
                     return evidence
                 original=page.url
                 before=set(context.pages)
                 await chosen.click(timeout=4500)
-                await page.wait_for_timeout(1400)
+                await page.wait_for_timeout(1200)
                 after=[p for p in context.pages if p not in before]
-                destination=after[0] if after else page
+                destination=after[-1] if after else page
                 try:await destination.wait_for_load_state("domcontentloaded",timeout=5500)
                 except Exception:pass
                 final=destination.url
                 if not _safe(final) or final==original:
                     evidence["evidence"].append("La CTA non ha mostrato una navigazione verificabile.")
                     return evidence
+                final_host=(urlparse(final).hostname or "").lower().removeprefix("www.")
+                ota=_ota_name(final_host)
+                if ota:
+                    evidence.update(status="ota_redirect_verified",
+                        resolvedUrl=_public_url(final,final),
+                        connectionType=("nuova scheda" if after else "stessa scheda")
+                            +" verso una OTA",
+                        otaName=ota)
+                    evidence["evidence"].append(
+                        "Pulsante Prenota cliccato: la pagina di destinazione appartiene a "+
+                        ota+". NON e' un booking engine diretto.")
+                    return evidence
                 detected=detect_booking_engine(final,"",final)
                 if detected.get("status")!="provider_identified":
-                    evidence["evidence"].append("La CTA ha raggiunto una destinazione non identificata come booking engine.")
+                    evidence["evidence"].append(
+                        "CTA raggiunta, ma booking engine diretto non identificato.")
                     return evidence
-                evidence.update(status="reached",resolvedUrl=detected.get("url") or "",
+                evidence.update(status="reached",
+                    resolvedUrl=detected.get("url") or "",
                     connectionType=("nuova scheda" if after else "stessa scheda")
-                    + (" verso dominio esterno" if urlparse(final).hostname!=urlparse(original).hostname else ""),
+                        +(" verso dominio esterno"
+                          if urlparse(final).hostname!=urlparse(original).hostname else ""),
                     provider=detected.get("provider") or "")
-                evidence["evidence"].append("CTA prenota cliccata e destinazione osservata senza avviare il checkout.")
+                evidence["evidence"].append(
+                    "CTA Prenota cliccata; booking engine del fornitore identificato.")
             except Exception as exc:
                 evidence["status"]="error"
-                evidence["evidence"].append("Navigazione CTA non conclusa: "+type(exc).__name__)
+                evidence["evidence"].append(
+                    "Navigazione CTA non conclusa: "+type(exc).__name__)
             finally:
                 await context.close()
         finally:
