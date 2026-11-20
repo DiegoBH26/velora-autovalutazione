@@ -518,6 +518,21 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "rooms": str(data.get("rooms") or ""),
             "propertyType": data.get("propertyType", "Struttura ricettiva"),
         })
+        # The early visit can find Prenota on an inner Hotel page even when
+        # the broader snapshot audit misses it (slow page/HTML differences).
+        # Prefer observed OTA evidence over an inconclusive page finding, but
+        # NEVER override a positively identified independent booking engine.
+        if (preflight_engine.get("status")=="ota_redirect"
+                and (audit.get("bookingEngine") or {}).get("status")!="provider_identified"):
+            audit["bookingEngine"]={
+                "status":"ota_redirect","provider":"","url":"",
+                "mode":"prenotazione reindirizzata a OTA",
+                "otaName":preflight_engine.get("otaName") or "",
+                "otaUrl":preflight_engine.get("otaUrl") or "",
+                "otaSourcePage":preflight_engine.get("otaSourcePage") or "",
+                "evidence":" | ".join(preflight_engine.get("evidence") or [])[:900],
+                "pagesInspected":preflight_engine.get("pagesInspected") or [],
+            }
         # Recupera il collaudato audit fotografico multi-pagina, non un parser nuovo.
         profile = property_file.parent / "chrome-photos"
         picture_data={**data,"sources":{**(data.get("sources") or {}),
@@ -590,7 +605,10 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
         # Un sito senza CTA nella discovery veloce può comunque avere un
         # engine rilevato dal successivo audit; tenta SOLO in questo caso.
         if not booking_url:
-            booking_url=(audit.get("bookingEngine") or {}).get("url") or ""
+            # Keep all OTA redirect destinations outside the price-search
+            # pipeline: they can be checked by Minerva, never as direct rates.
+            booking_url=("" if (audit.get("bookingEngine") or {}).get("status")=="ota_redirect"
+                         else (audit.get("bookingEngine") or {}).get("url") or "")
             if booking_url:
                 try:
                     direct_stays=await probe_direct_stays(
