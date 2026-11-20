@@ -5345,6 +5345,8 @@ export default function App({ consultantName = "" }: { consultantName?: string }
   const [vaneformCheck,setVaneformCheck]=useState<{status:string;note?:string;plan?:string;creditsRemaining?:number|null}|null>(null);
   const [vaneformChecking,setVaneformChecking]=useState(false);
   const [trafficRefreshing,setTrafficRefreshing]=useState(false);
+  const [trafficRefreshMessage,setTrafficRefreshMessage]=useState("");
+  const [trafficRefreshSuccess,setTrafficRefreshSuccess]=useState(false);
   const [trafficLatest,setTrafficLatest]=useState<{propertyId:string;siteTraffic:BrowserPilotResult["siteTraffic"]}|null>(null);
   const [specialistLaunchErrors,setSpecialistLaunchErrors]=useState<Record<string,string>>({});
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
@@ -6685,6 +6687,8 @@ export default function App({ consultantName = "" }: { consultantName?: string }
 
   async function refreshOnlySiteTraffic(){
     setTrafficRefreshing(true);
+    setTrafficRefreshSuccess(false);
+    setTrafficRefreshMessage("Connessione all'agente Windows e richiesta dei dati Vaneform in corso...");
     try {
       const token=await connectLocalAgent(false);
       if(!token)throw new Error("Collega l'agente Windows per aggiornare le visite.");
@@ -6693,7 +6697,8 @@ export default function App({ consultantName = "" }: { consultantName?: string }
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
         body:JSON.stringify({propertyId:activeAuditData.id}),
       });
-      const payload=await response.json() as {
+      const payload=await response.json().catch(()=>({error:
+        "Risposta locale non disponibile: aggiorna e riavvia l'agente Windows."})) as {
         propertyId?:string;siteTraffic?:BrowserPilotResult["siteTraffic"];error?:string;
       };
       if(!response.ok || payload.propertyId!==activeAuditData.id || !payload.siteTraffic)
@@ -6702,13 +6707,23 @@ export default function App({ consultantName = "" }: { consultantName?: string }
       setTrafficLatest({propertyId:activeAuditData.id,siteTraffic});
       setBrowserPilotResult(previous=>{
         if(!previous||previous.propertyId!==activeAuditData.id)return previous;
-        const updated={...previous,siteTraffic};
-        window.localStorage.setItem("velora-browser-pilot:"+activeAuditData.id,JSON.stringify(updated));
-        return updated;
+        return {...previous,siteTraffic};
       });
-      setVaneformCheck({status:siteTraffic.status||"not_available",note:siteTraffic.note});
+      const count=siteTraffic.monthlyVisits?.length||0;
+      const countSources=Object.keys(siteTraffic.sourcesPct||{}).length;
+      const label=siteTraffic.status==="estimated"
+        ? "Dati aggiornati per "+(siteTraffic.domain||"il dominio")+
+          ": "+count+" mesi disponibili, "+countSources+" sorgenti di traffico. "+
+          (count<12?"Totale annuale NON calcolabile se mancano mesi. ":"")+
+          (siteTraffic.note||"")
+        : "Verifica conclusa: "+(siteTraffic.note||"il provider non ha restituito visite.");
+      setTrafficRefreshSuccess(true);
+      setTrafficRefreshMessage(label);
     }catch(error){
-      setVaneformCheck({status:"unavailable",note:error instanceof Error?error.message:"Impossibile aggiornare il traffico."});
+      setTrafficRefreshSuccess(false);
+      setTrafficRefreshMessage("Aggiornamento non eseguito: "+
+        (error instanceof Error?error.message:"impossibile comunicare con Vaneform.")+
+        " · Non serve ripetere Leonardo.");
     }finally{setTrafficRefreshing(false);}
   }
 
@@ -12213,6 +12228,11 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                       {trafficRefreshing?"Acquisizione visite...":"Rileva solo visite · senza rifare Leonardo"}
                     </button>
                   </div>
+                  {trafficRefreshMessage && <p className={"mt-2 rounded-lg border px-3 py-2 text-[11px] font-bold "+
+                    (trafficRefreshSuccess?"border-emerald-400 bg-[#EDF8EF] text-[#14532D]":"border-amber-400 bg-[#FFF9EC] text-[#23124A]")}
+                    role="status" aria-live="polite">
+                    {trafficRefreshMessage}
+                  </p>}
                   {vaneformCheck && <p className="mt-2 font-semibold" role="status">
                     Verifica Vaneform: {vaneformCheck.status==="connected"?"COLLEGATO":vaneformCheck.status}.
                     {" "}{vaneformCheck.note||""}
@@ -12253,7 +12273,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                     return measured?.status==="estimated" && measured.estimateType==="site"
                       ?<SiteTrafficDetails traffic={measured}/>:null;
                   })()}
-                  <p className="mt-1 text-[#50627F]">Dato stimato, non traffico effettivo Google Analytics. Il dettaglio si trova anche nell'Audit, dopo la sezione Booking engine.</p>
+                  <p className="mt-1 text-[#50627F]">Se Vaneform restituisce solo 1–3 mesi, non è possibile calcolare il totale annuale: il piano Free dà accesso agli stessi campi di traffico, ma non garantisce 12 mesi né anni precedenti. Dato stimato, non Analytics.</p>
                 </div>}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
