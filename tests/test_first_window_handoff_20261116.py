@@ -33,7 +33,12 @@ class FirstWindowHandoff(unittest.TestCase):
         self.assertIn('break',fragment)
 
     def test_only_confirmed_booking_window_reaches_other_otas(self):
-        self.assertIn('booking_result.get("bookingFallbackStatus")=="confirmed"',SERVER)
+        self.assertIn('"confirmed","dates_confirmed_prices_unverified"',SERVER)
+        self.assertIn('"dates_confirmed_prices_unverified" if lock_confirmed and has_price',PILOT)
+        self.assertIn('result["bookingPriceValidationStatus"]=',PILOT)
+        fragment=SERVER.split('locks=booking_result.get("bookingReferenceStays") or []',1)[1].split('expected_keys=[',1)[0]
+        self.assertLess(fragment.index('if (not direct_master and custom_period'),fragment.index('expected_plan=('),
+                        "Expected plan must use Minerva narrowed dates")
         self.assertIn('requested_candidates=browser_pilot.custom_date_plan(',SERVER)
         self.assertIn('and (str(row.get("requestedCheckin"))',SERVER)
         self.assertIn('and str(candidate["checkout"])<=str(custom_period["end"])',SERVER)
