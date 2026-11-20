@@ -6695,7 +6695,14 @@ export default function App({ consultantName = "" }: { consultantName?: string }
       const response=await fetch(localAgentUrl("/api/traffic/refresh"),{
         method:"POST",mode:"cors",cache:"no-store",
         headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
-        body:JSON.stringify({propertyId:activeAuditData.id}),
+        body:JSON.stringify({
+          propertyId:activeAuditData.id,
+          propertyData:{
+            id:activeAuditData.id,
+            name:activeAuditData.name,
+            website:activeStructure?.website || activeAuditData.website || "",
+          },
+        }),
       });
       const payload=await response.json().catch(()=>({error:
         "Risposta locale non disponibile: aggiorna e riavvia l'agente Windows."})) as {
