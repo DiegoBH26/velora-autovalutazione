@@ -87,6 +87,64 @@ class DirectCtaToOtaTests(unittest.TestCase):
         self.assertEqual(found,["https://www.masseriamancini.it/boutique-hotel/"])
         self.assertTrue(all("booking.com" not in item for item in found))
 
+    def test_complete_preflight_visits_hotel_dimora_and_detects_booking(self):
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch, AsyncMock
+        try:
+            from velora_direct_stays import discover_direct_engine
+            import site_audit_builder
+        except ModuleNotFoundError as exc:
+            if exc.name in {"selectolax","playwright"}:
+                self.skipTest("Optional browser-parser dependencies absent")
+            raise
+        visited=[]
+        home="https://www.masseriamancini.it/"
+        rooms=home+"boutique-hotel/"
+
+        class FakePage:
+            url=home
+            async def goto(self,url,**kwargs):
+                self.url=url
+                visited.append(url)
+                return SimpleNamespace(status=200)
+            async def wait_for_timeout(self,delay):pass
+            async def content(self):
+                if self.url==home:
+                    return '<a href="/boutique-hotel/">Hotel Dimora</a>'
+                return '<a href="https://www.booking.com/hotel/it/masseria-mancini-polignano-a-mare.it.html">Prenota ora</a>'
+            async def eval_on_selector_all(self,selector,script):
+                return [{"href":"/boutique-hotel/","text":"Hotel Dimora"},
+                        {"href":"/wedding/","text":"Wedding"}]
+
+        class FakeContext:
+            async def new_page(self):return FakePage()
+            async def close(self):pass
+
+        class FakeBrowser:
+            async def new_context(self,**kwargs):return FakeContext()
+            async def close(self):pass
+
+        class FakeChromium:
+            async def launch(self,**kwargs):return FakeBrowser()
+
+        class FakePlaywright:
+            async def __aenter__(self):return SimpleNamespace(chromium=FakeChromium())
+            async def __aexit__(self,*args):pass
+
+        with (patch("playwright.async_api.async_playwright",
+                    return_value=FakePlaywright()),
+              patch.object(site_audit_builder,"robots_allowed",return_value=True),
+              patch.object(site_audit_builder,"dismiss_cookie",
+                           new=AsyncMock(return_value=""))):
+            result=asyncio.run(discover_direct_engine(home))
+        self.assertEqual(visited,[home,rooms])
+        self.assertEqual(result["status"],"ota_redirect")
+        self.assertEqual(result["otaName"],"Booking.com")
+        self.assertEqual(result["otaSourcePage"],rooms)
+        self.assertEqual(result["url"],"")
+        self.assertEqual(len(result["pagesInspected"]),2)
+
     def test_preflight_preserves_ota_result_for_later_site_audit(self):
         network=(ROOT/"velora_agent_network.py").read_text(encoding="utf-8")
         preflight=(ROOT/"velora_direct_stays.py").read_text(encoding="utf-8")
