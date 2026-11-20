@@ -84,6 +84,9 @@ class LeonardoTraffic(unittest.TestCase):
         self.assertIn("siteTraffic:agentId===\"official_site\"",app)
         self.assertIn("Leonardo · Visite mensili stimate",app)
         self.assertIn("Traffico stimato del sito diretto",report)
+        self.assertIn("trafficRefreshMessage",app)
+        self.assertIn("Dati aggiornati per ",app)
+        self.assertIn("Totale annuale NON calcolabile",app)
 
 
 if __name__=="__main__":
