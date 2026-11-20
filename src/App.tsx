@@ -5287,6 +5287,10 @@ export default function App({ consultantName = "" }: { consultantName?: string }
   const [specialistExpanded, setSpecialistExpanded] = useState(true);
   const [specialistMessage, setSpecialistMessage] = useState("");
   const [leonardoDiagnostic, setLeonardoDiagnostic] = useState("");
+  const [vaneformCheck,setVaneformCheck]=useState<{status:string;note?:string;plan?:string;creditsRemaining?:number|null}|null>(null);
+  const [vaneformChecking,setVaneformChecking]=useState(false);
+  const [trafficRefreshing,setTrafficRefreshing]=useState(false);
+  const [trafficLatest,setTrafficLatest]=useState<{propertyId:string;siteTraffic:BrowserPilotResult["siteTraffic"]}|null>(null);
   const [specialistLaunchErrors,setSpecialistLaunchErrors]=useState<Record<string,string>>({});
   const [specialistStatuses, setSpecialistStatuses] = useState<Record<string, SpecialistAgentState>>({});
   const [specialistChecks, setSpecialistChecks] = useState<AgentCheck[] | null>(null);
@@ -6608,6 +6612,49 @@ export default function App({ consultantName = "" }: { consultantName?: string }
     }catch(error){
       setLeonardoDiagnostic(error instanceof Error?error.message:"Log Leonardo non disponibile.");
     }
+  }
+
+  async function checkVaneformAccount(){
+    setVaneformChecking(true);
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token)throw new Error("Collega l'agente Windows per verificare Vaneform.");
+      const response=await fetch(localAgentUrl("/api/traffic/account"),{mode:"cors",cache:"no-store"});
+      const info=await response.json() as {status:string;note?:string;plan?:string;creditsRemaining?:number|null;error?:string};
+      if(!response.ok)throw new Error(info.error||"Controllo Vaneform non riuscito.");
+      setVaneformCheck(info);
+    }catch(error){
+      setVaneformCheck({status:"unavailable",note:error instanceof Error?error.message:"Impossibile verificare Vaneform."});
+    }finally{setVaneformChecking(false);}
+  }
+
+  async function refreshOnlySiteTraffic(){
+    setTrafficRefreshing(true);
+    try {
+      const token=await connectLocalAgent(false);
+      if(!token)throw new Error("Collega l'agente Windows per aggiornare le visite.");
+      const response=await fetch(localAgentUrl("/api/traffic/refresh"),{
+        method:"POST",mode:"cors",cache:"no-store",
+        headers:{"Content-Type":"application/json","X-Velora-Local-Token":token},
+        body:JSON.stringify({propertyId:activeAuditData.id}),
+      });
+      const payload=await response.json() as {
+        propertyId?:string;siteTraffic?:BrowserPilotResult["siteTraffic"];error?:string;
+      };
+      if(!response.ok || payload.propertyId!==activeAuditData.id || !payload.siteTraffic)
+        throw new Error(payload.error||"Risposta Vaneform non valida.");
+      const siteTraffic=payload.siteTraffic;
+      setTrafficLatest({propertyId:activeAuditData.id,siteTraffic});
+      setBrowserPilotResult(previous=>{
+        if(!previous||previous.propertyId!==activeAuditData.id)return previous;
+        const updated={...previous,siteTraffic};
+        window.localStorage.setItem("velora-browser-pilot:"+activeAuditData.id,JSON.stringify(updated));
+        return updated;
+      });
+      setVaneformCheck({status:siteTraffic.status||"not_available",note:siteTraffic.note});
+    }catch(error){
+      setVaneformCheck({status:"unavailable",note:error instanceof Error?error.message:"Impossibile aggiornare il traffico."});
+    }finally{setTrafficRefreshing(false);}
   }
 
   async function refreshSpecialistStatuses() {
@@ -12102,27 +12149,49 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 {(agentRunIds.includes("official_site") ||
                   browserPilotResult?.propertyId===activeAuditData.id) && <div className="mt-3 rounded-xl border border-[#D8D3E2] bg-[#FBF9FF] p-3 text-xs text-[#23124A]">
                   <b>Leonardo · Visite mensili stimate del sito diretto (Vaneform)</b>
-                  {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.siteTraffic
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button type="button" disabled={vaneformChecking} onClick={()=>void checkVaneformAccount()}
+                      className="rounded-lg border border-[#56718B] bg-[#263B52] px-3 py-2 text-[11px] font-bold text-white disabled:opacity-60">
+                      {vaneformChecking?"Controllo API in corso...":"Verifica collegamento Vaneform · 0 crediti"}
+                    </button>
+                    <button type="button" disabled={trafficRefreshing} onClick={()=>void refreshOnlySiteTraffic()}
+                      className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-[11px] font-bold text-[#23124A] disabled:opacity-60">
+                      {trafficRefreshing?"Acquisizione visite...":"Rileva solo visite · senza rifare Leonardo"}
+                    </button>
+                  </div>
+                  {vaneformCheck && <p className="mt-2 font-semibold" role="status">
+                    Verifica Vaneform: {vaneformCheck.status==="connected"?"COLLEGATO":vaneformCheck.status}.
+                    {" "}{vaneformCheck.note||""}
+                    {vaneformCheck.status==="connected" && vaneformCheck.plan?" Piano: "+vaneformCheck.plan+".":""}
+                    {vaneformCheck.status==="connected" && vaneformCheck.creditsRemaining!=null
+                      ?" Crediti residui: "+vaneformCheck.creditsRemaining+".":""}
+                  </p>}
+                  {(()=>{
+                    const traffic=trafficLatest?.propertyId===activeAuditData.id
+                      ?trafficLatest.siteTraffic
+                      :browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult.siteTraffic:undefined;
+                    return traffic
                     ? <p className="mt-1 font-semibold">
-                        {browserPilotResult.siteTraffic.status==="estimated" &&
-                         browserPilotResult.siteTraffic.estimateType==="site" &&
-                         Number(browserPilotResult.siteTraffic.wholeSiteVisits)>0
-                          ? Number(browserPilotResult.siteTraffic.wholeSiteVisits).toLocaleString("it-IT")+" visite mensili stimate"
-                          : browserPilotResult.siteTraffic.status==="not_configured"
+                        {traffic.status==="estimated" &&
+                         traffic.estimateType==="site" &&
+                         Number(traffic.wholeSiteVisits)>0
+                          ? Number(traffic.wholeSiteVisits).toLocaleString("it-IT")+" visite mensili stimate"
+                          : traffic.status==="not_configured"
                             ? "Vaneform: API key non disponibile all'agente Windows"
-                            : browserPilotResult.siteTraffic.status==="limit_reached"
+                            : traffic.status==="limit_reached"
                               ? "Vaneform: limite gratuito raggiunto"
-                              : browserPilotResult.siteTraffic.status==="not_available"
+                              : traffic.status==="not_available"
                                 ? "Vaneform: nessuna stima disponibile per il dominio"
-                                : browserPilotResult.siteTraffic.status==="estimated"
+                                : traffic.status==="estimated"
                                   ? "Vaneform: disponibili soltanto dati parziali, non visite totali"
-                                  : "Vaneform: "+(browserPilotResult.siteTraffic.note||"stima non disponibile")}
-                        {" · "}{browserPilotResult.siteTraffic.domain||"dominio non identificato"}
-                        {browserPilotResult.siteTraffic.month?" · "+browserPilotResult.siteTraffic.month:""}
-                        {browserPilotResult.siteTraffic.scope==="domain_not_property"
+                                  : "Vaneform: "+(traffic.note||"stima non disponibile")}
+                        {" · "}{traffic.domain||"dominio non identificato"}
+                        {traffic.month?" · "+traffic.month:""}
+                        {traffic.scope==="domain_not_property"
                           ?" · Dato del dominio condiviso, NON della singola struttura":""}
                       </p>
-                    : <p className="mt-1 text-[#50627F]">Nessun esito traffico ancora importato. Esegui Leonardo e aggiorna gli stati; l'assenza del dato non significa zero visite.</p>}
+                    : <p className="mt-1 text-[#50627F]">Nessun esito traffico ancora importato. Esegui Leonardo e aggiorna gli stati; l'assenza del dato non significa zero visite.</p>;
+                  })()}
                   <p className="mt-1 text-[#50627F]">Dato stimato, non traffico effettivo Google Analytics. Il dettaglio si trova anche nell'Audit, dopo la sezione Booking engine.</p>
                 </div>}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
