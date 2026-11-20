@@ -15,8 +15,21 @@ from selectolax.lexbor import LexborHTMLParser
 OTA_HOSTS = (
     "booking.com", "airbnb.com", "airbnb.it", "expedia.com", "expedia.it",
     "vrbo.com", "vrbo.it", "hotels.com", "agoda.com", "trip.com",
-    "google.com", "google.it", "holidaycheck.de",
+    "holidaycheck.de", "holidu.com", "holidu.it", "priceline.com",
+    "travelocity.com", "tripadvisor.com", "trivago.com",
+    "google.com", "google.it",
 )
+OTA_NAMES = (
+    ("booking.com","Booking.com"), ("airbnb.com","Airbnb"), ("airbnb.it","Airbnb"),
+    ("expedia.com","Expedia"), ("expedia.it","Expedia"),
+    ("vrbo.com","Vrbo"), ("vrbo.it","Vrbo"),
+    ("hotels.com","Hotels.com"), ("agoda.com","Agoda"),
+    ("trip.com","Trip.com"), ("holidu.com","Holidu"), ("holidu.it","Holidu"),
+    ("priceline.com","Priceline"), ("travelocity.com","Travelocity"),
+    ("tripadvisor.com","Tripadvisor"), ("trivago.com","Trivago"),
+    ("holidaycheck.de","HolidayCheck"),
+)
+
 BOOKING_WORDS = re.compile(r"\b(prenota|prenotazioni|book(?:ing)?|reserv(?:ation|a)|disponibilit[aà]|availability)\b", re.I)
 CONTACT_WORDS = re.compile(r"/(?:contatt[io]|contact|richiedi[-_/]?info|inquiry|request)(?:[/?#-]|$)", re.I)
 REQUEST_WORDS = re.compile(r"\b(richiesta|richiedi|contatt(?:a|aci|o|i)?|inviaci|inquiry|request|messaggio|message)\b", re.I)
@@ -58,6 +71,13 @@ def _is_ota(host: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in OTA_HOSTS)
 
 
+def _ota_name(host: str) -> str:
+    for domain, label in OTA_NAMES:
+        if host == domain or host.endswith("." + domain):
+            return label
+    return ""
+
+
 def detect_booking_engine(page_url: str, html: str, final_url: str | None = None) -> dict[str, str]:
     """Return provider, URL, mode and evidence; uncertainty is explicit."""
     final = final_url or page_url
@@ -72,6 +92,7 @@ def detect_booking_engine(page_url: str, html: str, final_url: str | None = None
 
     tree = LexborHTMLParser(html)
     candidates: list[tuple[int, str, str, str, str]] = []
+    ota_candidates: list[tuple[int, str, str, str, str]] = []
     request_candidates: list[tuple[str, str, str]] = []
     for selector, attr, mode in (("a[href]", "href", "link dal sito"),
                                  ("iframe[src]", "src", "widget incorporato"),
@@ -92,6 +113,15 @@ def detect_booking_engine(page_url: str, html: str, final_url: str | None = None
                 continue
             target_host = _host(url)
             if _is_ota(target_host):
+                # A "Prenota ora" link to Booking.com is an important
+                # commercial finding, NOT an independent direct booking engine.
+                # Avoid counting unrelated footer/social links as booking CTAs.
+                if selector=="a[href]" and booking_text:
+                    ota_candidates.append((
+                        0 if re.search(r"prenot|book now|book here|reserve",text,re.I) else 1,
+                        _ota_name(target_host) or target_host,
+                        url,mode,text.strip()
+                    ))
                 continue
 
             if booking_text and CONTACT_WORDS.search(url):
@@ -130,6 +160,19 @@ def detect_booking_engine(page_url: str, html: str, final_url: str | None = None
         evidence = f"Riscontro DOM: {mode} «{text.strip() or urlparse(url).path}» con destinazione {url}."[:500]
         return {"status": "provider_identified" if vendor else "provider_unknown",
                 "provider": vendor, "url": url, "mode": mode, "evidence": evidence}
+
+    if ota_candidates:
+        _, ota, url, mode, text = sorted(ota_candidates,key=lambda row:row[0])[0]
+        return {
+            "status":"ota_redirect","provider":"","url":"",
+            "mode":"prenotazione reindirizzata a OTA",
+            "otaName":ota,"otaUrl":url,"otaSourcePage":final,
+            "evidence":(
+                "Non rilevato un booking engine diretto. La CTA «"+
+                (text or "Prenota ora")+"» nella pagina "+final+
+                " rimanda alla scheda OTA "+ota+" ("+url+")."
+            )[:850],
+        }
 
     if request_candidates:
         mode, text, target = request_candidates[0]
