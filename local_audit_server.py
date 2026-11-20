@@ -2225,9 +2225,6 @@ class Handler(SimpleHTTPRequestHandler):
                         if (booking_result.get("propertyId")!=property_id
                                 or booking_result.get("propertyName")!=data.get("name")):
                             raise ValueError("Identità Booking diversa dalla struttura attuale")
-                        expected_plan=(browser_pilot.custom_date_plan(datetime.now().date(),custom_period)
-                            if custom_period else browser_pilot.monthly_plan(
-                                datetime.now().date(),limit=(13 if months==12 else months)))
                         locks=booking_result.get("bookingReferenceStays") or []
                         # Without a direct MASTER, Minerva may have found the
                         # first confirmed Booking window inside the requested
@@ -2235,7 +2232,9 @@ class Handler(SimpleHTTPRequestHandler):
                         # specialists, not the entire daily candidate calendar.
                         # Never reuse a saved lock outside today's chosen plan.
                         if (not direct_master and custom_period
-                                and booking_result.get("bookingFallbackStatus")=="confirmed"):
+                                and booking_result.get("bookingFallbackStatus") in {
+                                    "confirmed","dates_confirmed_prices_unverified"
+                                }):
                             requested_candidates=browser_pilot.custom_date_plan(
                                 datetime.now().date(),custom_period)
                             requested_keys={
@@ -2261,6 +2260,14 @@ class Handler(SimpleHTTPRequestHandler):
                                     "adults":int(chosen["adults"]),
                                     "frequency":"daily",
                                 }
+                        # Important: the expected plan MUST be generated
+                        # AFTER selecting Minerva's first confirmed window.
+                        # Before this fix we still required every daily June
+                        # window, so valid 1-window Booking results blocked
+                        # Galileo/Apollo with "DATE NON SINCRONIZZATE".
+                        expected_plan=(browser_pilot.custom_date_plan(datetime.now().date(),custom_period)
+                            if custom_period else browser_pilot.monthly_plan(
+                                datetime.now().date(),limit=(13 if months==12 else months)))
                         expected_keys=[
                             (str(stay.get("checkin")),str(stay.get("checkout")),
                              int(stay.get("nights") or 0),int(stay.get("adults") or 2))
