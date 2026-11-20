@@ -21,7 +21,8 @@ type Pilot = {
   observations?:Observation[];
   discoveredSources?:Record<string,Source>;
   otaProfiles?:Record<string,{status?:string;rating?:number|null;ratingScale?:number|null;reviewCount?:number|null;url?:string}>;
-  bookingEngine?:{status?:string;provider?:string;mode?:string;url?:string;evidence?:string};
+  bookingEngine?:{status?:string;provider?:string;mode?:string;url?:string;evidence?:string;
+    otaName?:string;otaUrl?:string;otaSourcePage?:string;clickVerified?:boolean};
   directBookingVerification?:{status?:string;navigation?:string;bookingFlow?:string;availability?:string;evidence?:string[]};
   siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;estimateType?:string;visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;month?:string;confidence?:string;momChangePct?:number|null;note?:string};
   directCommercialAudit?:{status?:string;searchedTotal?:number;plannedTotal?:number;
@@ -221,17 +222,23 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
   const ratingBox=rating(input);
   const searched=pilot?.directCommercialAudit?.searchedTotal||0;
   const directStatus=pilot?.bookingEngine?.status||"non_verificato";
+  const bookingToOta=directStatus==="ota_redirect";
+  const otaDestination=pilot?.bookingEngine?.otaName||"OTA non identificata";
   const engineDetected=/^(?:found|present|detected|available|linked|verified|provider_identified)$/i.test(directStatus) ||
     Boolean(pilot?.bookingEngine?.url) ||
     input.bookingStatus==="present";
   const engineExplicitMissing=/not_found_in_page|request_only|missing/i.test(directStatus) ||
     input.bookingStatus==="missing";
-  const engineText=engineDetected?"Percorso di prenotazione individuato":
+  const engineText=bookingToOta
+    ?"Nessun booking engine diretto · Prenota rimanda a "+otaDestination
+    : engineDetected?"Percorso di prenotazione individuato":
     engineExplicitMissing?"Booking engine non rilevato nel percorso esaminato":
     "Presenza del booking engine da verificare";
   const siteStatus=searched>0?
     "Ricerche sulle date eseguite: "+searched+". Preventivi completi verificati: "+
     (pilot?.directCommercialAudit?.verifiedQuotes?.length||0)+".":
+    bookingToOta?"Le prenotazioni vengono indirizzate a "+otaDestination+
+      "; nessuna ricerca di tariffa diretta eseguita.":
     engineDetected?"Percorso aperto, ma ricerca date/ospiti non confermata.":
     "Percorso di prenotazione non verificato.";
   const traffic=pilot?.siteTraffic;
@@ -368,8 +375,13 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     '<p class="caveat">Per attestare un’asimmetria serve almeno un riferimento con stessa data, stesso numero di ospiti e tipologia effettivamente comparabile. «Non verificato» e «non rilevato» non significano «assente».</p>';
   const p3=
     '<div class="two"><div class="card"><label>BOOKING ENGINE</label><h3>'+clean(engineText)+'</h3>'+
-    '<dl><dt>Fornitore</dt><dd>'+text(input.bookingProvider||pilot?.bookingEngine?.provider,"Da identificare")+'</dd>'+
-    '<dt>Percorso</dt><dd>'+text(input.bookingMode||pilot?.bookingEngine?.mode,"Non verificato")+'</dd></dl></div>'+
+    '<dl><dt>Fornitore</dt><dd>'+text(bookingToOta?"Nessun booking engine diretto rilevato":input.bookingProvider||pilot?.bookingEngine?.provider,"Da identificare")+'</dd>'+
+    '<dt>Percorso</dt><dd>'+text(bookingToOta?"Pulsante Prenota → "+otaDestination:input.bookingMode||pilot?.bookingEngine?.mode,"Non verificato")+'</dd></dl>'+
+    (bookingToOta?'<p>La destinazione OTA è distinta dai fornitori di booking engine come Kross Booking ed ErmesHotels. '+
+      (pilot?.bookingEngine?.clickVerified?'Clic confermato.':'Link osservato nella pagina; clic non verificato.')+
+      '</p><p class="muted">Origine: '+clean(pilot?.bookingEngine?.otaSourcePage||"non rilevata")+
+      ' · Destinazione: '+clean(pilot?.bookingEngine?.otaUrl||"non rilevata")+'</p>':'')+
+    '</div>'+
     '<div class="card"><label>FUNZIONAMENTO DELLA RICERCA</label><h3>'+clean(siteStatus)+'</h3>'+
     '<p>Un dominio raggiungibile o una CTA cliccabile non provano disponibilità, checkout o pagamento funzionanti.</p></div></div>'+
     '<h2>Traffico stimato del sito diretto</h2><div class="note"><p>'+clean(trafficLine)+'</p>'+
