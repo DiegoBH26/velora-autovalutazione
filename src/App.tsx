@@ -12229,7 +12229,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                     </button>
                   </div>
                   {trafficRefreshMessage && <p className={"mt-2 rounded-lg border px-3 py-2 text-[11px] font-bold "+
-                    (trafficRefreshSuccess?"border-emerald-400 bg-[#EDF8EF] text-[#14532D]":"border-amber-400 bg-[#FFF9EC] text-[#23124A]")}
+                    (trafficRefreshSuccess?"border-[#C8A96B] bg-[#FFF9EC] text-[#23124A]":"border-amber-400 bg-[#FFF9EC] text-[#23124A]")}
                     role="status" aria-live="polite">
                     {trafficRefreshMessage}
                   </p>}
