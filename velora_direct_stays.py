@@ -1133,47 +1133,128 @@ async def _visible_offer_candidates(page):
     return offers
 
 
-async def discover_direct_engine(site_url):
-    """Rapid homepage-only booking-CTA discovery BEFORE site/photo audits.
 
-    Does not crawl room pages or guess an engine URL. The observed, public
-    booking link will be used as the target for the real dated search.
+def _booking_discovery_pages(site_url, links, *, max_pages=5):
+    """Select only real, on-site room/hotel/booking links from the homepage.
+
+    The real booking CTA may be on the Hotel Dimora page rather than home.
+    Never manufacture paths, visit OTAs or treat unrelated links as evidence.
+    """
+    from urllib.parse import urlsplit, urlunsplit, urljoin
+    home=urlsplit(site_url)
+    homehost=(home.hostname or "").lower().removeprefix("www.")
+    candidates={}
+    terms=(
+        "hotel dimora","boutique hotel","boutique-hotel",
+        "camere","camera","rooms","room","suite","alloggi","accommodation",
+        "soggiorna","stay","prenota","book now","booking","disponibilita",
+    )
+    for item in (links or [])[:350]:
+        if not isinstance(item,dict):
+            continue
+        raw=str(item.get("href") or "")
+        label=str(item.get("text") or "").lower().strip()
+        if not raw or raw.startswith(("#","mailto:","tel:","javascript:")):
+            continue
+        try:
+            url=urlsplit(urljoin(site_url,raw))
+        except ValueError:
+            continue
+        if url.scheme not in {"http","https"} or (
+            (url.hostname or "").lower().removeprefix("www.")!=homehost
+        ):
+            continue
+        if url.path.lower().endswith((".pdf",".jpg",".png",".zip",".xml")):
+            continue
+        # Only link paths supplied by the website; never guess an OTA listing.
+        path=url.path.lower().replace("_","-")
+        hay=label+" "+path.replace("-"," ")
+        score=sum(4 if term in label else 2 for term in terms if term in hay)
+        if score<=0:
+            continue
+        clean=urlunsplit((url.scheme,url.netloc,url.path or "/","",""))
+        if clean.rstrip("/")==site_url.split("?")[0].rstrip("/"):
+            continue
+        candidates[clean]=max(score,candidates.get(clean,0))
+    return [url for url,_ in sorted(candidates.items(),
+                                   key=lambda row:(-row[1],row[0]))[:max_pages]]
+
+
+async def discover_direct_engine(site_url):
+    """Find a real direct engine OR an OTA CTA, also on linked hotel pages.
+
+    Booking.com on 'Hotel Dimora' is not a direct booking engine. No OTA is
+    opened and no prices are collected by this preflight discovery.
     """
     from playwright.async_api import async_playwright
     from site_audit_builder import public_url, robots_allowed, dismiss_cookie
     from booking_engine import detect_booking_engine
-    result={"status":"not_verified","url":"","provider":"","evidence":[]}
+    result={"status":"not_verified","url":"","provider":"","evidence":[],
+            "pagesInspected":[],"otaName":"","otaUrl":"","otaSourcePage":""}
     try:
         site_url=public_url(site_url)
     except ValueError:
         result["evidence"].append("Sito ufficiale non valido.")
         return result
-    if robots_allowed(site_url,{}) is not True:
+    robot_cache={}
+    if robots_allowed(site_url,robot_cache) is not True:
         result["evidence"].append("Visita homepage non autorizzata o robots.txt non verificabile.")
         return result
+    ranking={"provider_identified":0,"ota_redirect":1,"provider_unknown":2,
+             "request_only":3,"not_found_in_page":4,"not_applicable":5}
+    best_rank=99
     async with async_playwright() as pw:
         browser=await pw.chromium.launch(channel="chrome",headless=True)
         try:
             context=await browser.new_context(locale="it-IT",timezone_id="Europe/Rome")
             try:
                 page=await context.new_page()
-                response=await page.goto(site_url,wait_until="domcontentloaded",timeout=20000)
-                if response is None or response.status>=400:
-                    result["evidence"].append(
-                        "Homepage non raggiunta: HTTP "+str(response.status if response else "assente"))
-                    return result
-                await dismiss_cookie(page)
-                await page.wait_for_timeout(400)
-                detected=detect_booking_engine(page.url,await page.content(),page.url)
-                result.update(status=detected.get("status") or "not_verified",
-                              url=detected.get("url") or "",
-                              provider=detected.get("provider") or "")
-                result["evidence"].append(
-                    "Discovery iniziale pulsante Prenota: "+
-                    (detected.get("evidence") or "nessuna destinazione identificata"))
-            except Exception as exc:
-                result["evidence"].append(
-                    "Discovery iniziale non riuscita: "+type(exc).__name__)
+                pages=[site_url]
+                index=0
+                while index<len(pages) and index<=5:
+                    target=pages[index]
+                    index+=1
+                    # Inner candidates are appended only after visiting home.
+                    if index>1 and robots_allowed(target,robot_cache) is not True:
+                        result["evidence"].append("Pagina interna non verificabile secondo robots.txt: "+target[:170])
+                        continue
+                    try:
+                        response=await page.goto(target,wait_until="domcontentloaded",timeout=20000)
+                        if response is None or response.status>=400:
+                            result["evidence"].append(
+                                "Pagina "+target[:160]+" HTTP "+
+                                str(response.status if response else "assente"))
+                            continue
+                        await dismiss_cookie(page)
+                        await page.wait_for_timeout(900)
+                        html=await page.content()
+                        detected=detect_booking_engine(page.url,html,page.url)
+                        result["pagesInspected"].append({
+                            "url":page.url.split("?")[0][:220],
+                            "status":detected.get("status","not_verified"),
+                            "otaName":detected.get("otaName",""),
+                        })
+                        result["evidence"].append(
+                            "Discovery Prenota pagina "+page.url.split("?")[0][:170]+
+                            ": "+str(detected.get("evidence") or "destinazione non rilevata")[:330])
+                        new_rank=ranking.get(detected.get("status"),50)
+                        if new_rank<best_rank:
+                            best_rank=new_rank
+                            for field in ("status","url","provider","mode",
+                                          "otaName","otaUrl","otaSourcePage"):
+                                result[field]=detected.get(field) or ""
+                        if detected.get("status")=="provider_identified":
+                            break
+                        if index==1:
+                            links=await page.eval_on_selector_all("a[href]",r"""nodes=>nodes.map(a=>({
+                                href:a.getAttribute('href')||'',
+                                text:(a.innerText||a.textContent||a.getAttribute('aria-label')||'').trim().slice(0,140)
+                            })).slice(0,350)""")
+                            pages.extend(_booking_discovery_pages(page.url,links,max_pages=5))
+                    except Exception as exc:
+                        result["evidence"].append(
+                            "Discovery Prenota "+target[:120]+": "+type(exc).__name__)
+                        continue
             finally:
                 await context.close()
         finally:
