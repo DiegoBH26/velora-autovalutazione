@@ -5,7 +5,7 @@ non verificati restano osservazioni e non entrano in delta o disponibilità.
 """
 from __future__ import annotations
 
-LEONARDO_BUILD = "direct-ota-booking-cta-r12-20261120"
+LEONARDO_BUILD = "direct-ota-room-discovery-r13-20261120"
 
 import asyncio
 import re
