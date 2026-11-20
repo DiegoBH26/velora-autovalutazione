@@ -73,7 +73,7 @@ class LeonardoTraffic(unittest.TestCase):
         app=(ROOT/"src/App.tsx").read_text(encoding="utf-8")
         report=(ROOT/"src/frontend-consulting-report.ts").read_text(encoding="utf-8")
         ast.parse(network)
-        self.assertIn("traffic=await asyncio.to_thread(collect_site_traffic,site)",network)
+        self.assertIn("traffic=await asyncio.to_thread(collect_site_traffic,site,cache_dir=output.parent)",network)
         self.assertIn('"siteTraffic": traffic,',network)
         self.assertIn("velora_site_traffic.py.new",installer)
         self.assertIn("siteTraffic:agentId===\"official_site\"",app)
