@@ -10078,8 +10078,12 @@ export default function App({ consultantName = "" }: { consultantName?: string }
       // attiva, identità dell'operatore registrata al momento della scansione,
       // tariffe verificate separate dalle osservazioni non confrontabili.
       if (isWebAudit) {
-        const pilot = browserPilotResult?.propertyId === activeAuditData.id
+        const pilotBase = browserPilotResult?.propertyId === activeAuditData.id
           ? browserPilotResult : null;
+        // La rilevazione dedicata aggiorna subito anche il PDF, senza rieseguire Leonardo.
+        const pilot = pilotBase && trafficLatest?.propertyId === activeAuditData.id
+          ? {...pilotBase, siteTraffic:trafficLatest.siteTraffic}
+          : pilotBase;
         let scrapingOperator = "";
         try {
           const saved = window.localStorage.getItem("velora-scraping-operator:" + activeAuditData.id);
