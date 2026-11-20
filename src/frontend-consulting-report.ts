@@ -24,7 +24,7 @@ type Pilot = {
   bookingEngine?:{status?:string;provider?:string;mode?:string;url?:string;evidence?:string;
     otaName?:string;otaUrl?:string;otaSourcePage?:string;clickVerified?:boolean};
   directBookingVerification?:{status?:string;navigation?:string;bookingFlow?:string;availability?:string;evidence?:string[]};
-  siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;estimateType?:string;visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;month?:string;confidence?:string;momChangePct?:number|null;note?:string};
+  siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;estimateType?:string;visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;month?:string;confidence?:string;momChangePct?:number|null;note?:string;monthlyVisits?:Array<{month:string;visits:number}>;annualSummaries?:Array<{year:number;sumAvailableMonths:number;monthsAvailable:number;completeYear:boolean}>;sourcesPct?:Record<string,number>;bounceRatePct?:number|null;pagesPerVisit?:number|null;timeOnSiteSeconds?:number|null};
   directCommercialAudit?:{status?:string;searchedTotal?:number;plannedTotal?:number;
     verifiedQuotes?:unknown[];samples?:Array<{status?:string;searchSubmitted?:boolean;checkin?:string;checkout?:string}>};
   navigationAudit?:{status?:string;pagesVisited?:number;internalLinksSeen?:number;failedPages?:unknown[];evidence?:string};
@@ -256,6 +256,40 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
       : traffic?.status==="limit_reached"
         ?"Stima traffico non disponibile: limite del piano gratuito raggiunto."
         : "Nessuna stima affidabile delle visite mensili disponibile per questa struttura.";
+  const trafficMonths=(trafficVerified?(traffic?.monthlyVisits||[]):[])
+    .filter(entry=>/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(entry.month) &&
+      Number.isFinite(entry.visits) && entry.visits>=0)
+    .sort((a,b)=>a.month.localeCompare(b.month));
+  const channelLabels:Record<string,string>={
+    search:"Ricerca organica",direct:"Diretto",referrals:"Siti referenti",
+    search_paid:"Ricerca a pagamento",display_ads:"Display",
+    social:"Social",affiliate:"Affiliazioni",mail:"Email",gen_ai:"AI generativa",other:"Altri",
+  };
+  const trafficSources=(trafficVerified?Object.entries(traffic?.sourcesPct||{}):[])
+    .filter(([,value])=>Number.isFinite(value)&&value>=0&&value<=100)
+    .sort((a,b)=>b[1]-a[1]);
+  const trafficMonthlyHtml=trafficMonths.length
+    ?'<h3>Visite stimate mese per mese</h3><div class="traffic-mini-grid">'+
+      trafficMonths.map(row=>'<div><span>'+clean(row.month)+'</span><b>'+row.visits.toLocaleString("it-IT")+'</b></div>').join("")+
+      '</div>':"<p class='muted'>Storico mensile non disponibile dal provider.</p>";
+  const annualTrafficHtml=(traffic?.annualSummaries||[]).map(year=>
+    '<p><b>'+(year.completeYear?"Totale annuo":"Somma dei soli mesi disponibili")+
+    ' '+clean(String(year.year))+': '+
+    Number(year.sumAvailableMonths).toLocaleString("it-IT")+
+    ' visite</b> · '+Number(year.monthsAvailable)+'/12 mesi'+
+    (year.completeYear?"":". NON è un totale annuale completo")+'.</p>').join("");
+  const trafficSourcesHtml=trafficSources.length
+    ?'<h3>Origine stimata del traffico · '+clean(traffic?.month||"mese non dichiarato")+'</h3>'+
+      '<div class="traffic-mini-grid">'+trafficSources.map(([name,share])=>
+        '<div><span>'+clean(channelLabels[name]||name)+'</span><b>'+
+        Number(share).toLocaleString("it-IT")+"%</b></div>").join("")+'</div>'
+    :"<p class='muted'>Suddivisione per canale non disponibile.</p>";
+  const trafficEngagement=[
+    traffic?.timeOnSiteSeconds!=null?
+      "Durata media "+Math.floor(traffic.timeOnSiteSeconds/60)+"m "+Math.round(traffic.timeOnSiteSeconds%60)+"s":"",
+    traffic?.pagesPerVisit!=null?"Pagine/visita "+traffic.pagesPerVisit.toLocaleString("it-IT"):"",
+    traffic?.bounceRatePct!=null?"Rimbalzo "+traffic.bounceRatePct.toLocaleString("it-IT")+"%":"",
+  ].filter(Boolean).join(" · ");
   const nav=pilot?.navigationAudit;
   const failedPages=nav?.failedPages?.length||0;
   const siteUsability=nav?.pagesVisited?
@@ -385,7 +419,9 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     '<div class="card"><label>FUNZIONAMENTO DELLA RICERCA</label><h3>'+clean(siteStatus)+'</h3>'+
     '<p>Un dominio raggiungibile o una CTA cliccabile non provano disponibilità, checkout o pagamento funzionanti.</p></div></div>'+
     '<h2>Traffico stimato del sito diretto</h2><div class="note"><p>'+clean(trafficLine)+'</p>'+
-    '<p>Fonte: Vaneform, ove disponibile. Valore indicativo di traffico dell’intero dominio, non conversioni o visite certificate; assenza di dato non significa zero visite.</p></div>'+
+    (trafficVerified?trafficMonthlyHtml+annualTrafficHtml+trafficSourcesHtml+
+      (trafficEngagement?'<p>'+clean(trafficEngagement)+'</p>':''):'')+
+    '<p class="muted">Fonte: Vaneform. Stima del dominio, non visita certificata. Un mese assente non equivale a zero; il totale annuo si dichiara soltanto quando sono presenti 12 mesi.</p></div>'+
     '<h2>Usabilità del sito diretto</h2><div class="note">'+clean(siteUsability)+
     '<p>Verifiche consigliate: navigazione mobile, chiarezza della CTA «Prenota», selezione date, ospiti, preventivo finale e condizioni. Il checkout non è certificato dal solo scraping.</p></div>'+
     '<h2>Fotografie</h2><div class="card wide"><p>'+text(photoText)+'</p>'+
@@ -407,6 +443,9 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     *{box-sizing:border-box}
     html,body{margin:0;background:#fff;color:#25364c;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.44}
     .report-page{min-height:297mm;height:auto;width:210mm;padding:13mm 14mm 12mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;overflow:visible}
+    .traffic-mini-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 10px;margin:5px 0 9px}
+    .traffic-mini-grid>div{display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px solid #e7e7ed;font-size:10px}
+    .traffic-mini-grid b{white-space:nowrap}
     .report-page:last-child{page-break-after:auto;break-after:auto}
     .masthead{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #152e4d;padding-bottom:10px}
     .brand{display:block;font-size:18px;letter-spacing:-.45px;color:#163456;font-weight:700}
