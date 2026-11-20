@@ -30,7 +30,7 @@ TEMPLATE = ROOT / "src" / "santantonio-audit.json"
 BOT_UA = "VeloraAuditBot/1.0"
 
 PAGE_WORDS = {
-    "camere": ("camere", "camera", "rooms", "room", "suite", "alloggi", "accommodation", "appartament", "villa"),
+    "camere": ("camere", "camera", "rooms", "room", "suite", "alloggi", "accommodation", "appartament", "villa", "boutique-hotel", "hotel-dimora", "hotel dimora", "soggiorna"),
     "gallery": ("gallery", "galleria", "foto", "photos"),
     "servizi": ("servizi", "services", "amenities", "spa", "wellness", "piscina", "pool", "ristorante", "restaurant"),
     "offerte": ("offerte", "offers", "promoz", "packages", "pacchetti"),
@@ -259,7 +259,7 @@ def build_audit(payload, snaps, mobile):
             sources[key] = {"label": labels.get(key, key.title()), "url": url}
 
     engines = [detect_booking_engine(x["url"], x["html"], x["url"]) for x in snaps]
-    rank = {"provider_identified":0,"request_only":1,"provider_unknown":2,"not_found_in_page":3,"not_applicable":4}
+    rank = {"provider_identified":0,"provider_unknown":1,"ota_redirect":2,"request_only":3,"not_found_in_page":4,"not_applicable":5}
     engine = sorted(engines, key=lambda x: rank.get(x.get("status",""), 9))[0] if engines else {"status":"unverified","provider":"","url":"","mode":"","evidence":"Nessuna pagina esaminata."}
     if engine.get("url"):
         sources["engine"] = {"label":"Booking engine","url":engine["url"]}
