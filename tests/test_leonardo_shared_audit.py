@@ -230,7 +230,7 @@ class LeonardoSharedEvidenceTests(unittest.TestCase):
 
     def test_leonardo_windows_and_frontend_versions_match(self):
         from velora_direct_stays import LEONARDO_BUILD
-        expected="direct-calendar-diagnostics-r11-20261116"
+        expected="direct-ota-booking-cta-r12-20261120"
         self.assertEqual(LEONARDO_BUILD,expected)
         frontend=(ROOT/"src"/"App.tsx").read_text(encoding="utf-8")
         server=(ROOT/"local_audit_server.py").read_text(encoding="utf-8")
