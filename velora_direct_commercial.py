@@ -29,7 +29,8 @@ async def follow_booking_cta(site_url, engine, *, timeout_ms=18000):
     is_ota=engine.get("status")=="ota_redirect"
     source=engine.get("otaSourcePage") if is_ota else site_url
     source=source if (_safe(source) and
-        urlparse(source).hostname==urlparse(site_url).hostname) else site_url
+        (urlparse(source).hostname or "").lower().removeprefix("www.")==
+        (urlparse(site_url).hostname or "").lower().removeprefix("www.")) else site_url
     if robots_allowed(source,{}) is False:
         evidence["evidence"].append("Pagina contenente il pulsante Prenota non accessibile secondo robots.txt.")
         return evidence
