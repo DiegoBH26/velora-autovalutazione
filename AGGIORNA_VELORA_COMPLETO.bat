@@ -139,6 +139,18 @@ move /Y "velora_portal_sessions.py.new" "velora_portal_sessions.py" >nul
 move /Y "velora_portal_credentials.py.new" "velora_portal_credentials.py" >nul
 move /Y "ota_public_source_hints.json.new" "ota_public_source_hints.json" >nul
 
+rem A missing optional new module used to break the ENTIRE agent network.
+rem Validate the actual file after moving it, not just the downloaded .new.
+if not exist "velora_site_traffic.py" (
+  echo ERRORE: manca velora_site_traffic.py, il modulo delle visite Vaneform.
+  echo L'aggiornamento e' incompleto: scarica il BAT piu' recente e riprova.
+  goto :errore_import
+)
+for %%F in (velora_agent_network.py velora_direct_stays.py velora_site_traffic.py) do (
+  for %%S in ("%%F") do if %%~zS LSS 1000 goto :errore_import
+)
+echo OK: modulo traffico Vaneform installato.
+
 if exist "__pycache__" (
   del /Q "__pycache__\browser_audit_pilot*.pyc" 2>nul
   del /Q "__pycache__\local_audit_server*.pyc" 2>nul
@@ -191,8 +203,10 @@ echo ==========================================================
 echo.
 echo I file sono stati scaricati ma Python non riesce a importare
 echo tutti gli specialisti. Controlla l'errore mostrato qui sopra.
-echo Se manca una libreria, esegui INSTALLA_AGENTE_VELORA.bat,
-echo poi ripeti AGGIORNA_VELORA_COMPLETO.bat.
+echo Se vedi ModuleNotFoundError per velora_site_traffic,
+echo NON serve INSTALLA_AGENTE: devi scaricare questo BAT aggiornato.
+echo Per altre librerie mancanti puoi usare INSTALLA_AGENTE_VELORA.bat,
+echo poi ripetere AGGIORNA_VELORA_COMPLETO.bat.
 echo Non avviare i test finche non leggi OK: 12/12.
 echo.
 pause
