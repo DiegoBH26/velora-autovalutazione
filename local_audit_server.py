@@ -33,11 +33,13 @@ from urllib.request import Request, urlopen
 import browser_audit_pilot as browser_pilot
 import velora_direct_stays as leonardo_direct_engine
 try:
-    from velora_site_traffic import check_vaneform_connection
+    from velora_site_traffic import check_vaneform_connection, collect_site_traffic
 except ImportError:
     def check_vaneform_connection():
         return {"provider":"Vaneform","status":"module_not_installed",
                 "note":"Modulo traffico da aggiornare sull'agente Windows."}
+    def collect_site_traffic(website, **kwargs):
+        return check_vaneform_connection()
 try:
     from velora_portal_sessions import ManualPortalSessions, PORTALS as LOGIN_PORTALS
 except ImportError:
@@ -1882,7 +1884,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route=urlparse(self.path).path
-        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/ota-presence/manual","/api/companion/observation","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish"}:
+        if route not in {"/api/pilot/start","/api/pilot/reset","/api/scraping/reset","/api/pilot/intervention","/api/audit/start","/api/report/pdf","/api/agents/start","/api/agents/validate","/api/ota-presence/manual","/api/companion/observation","/api/vrbo-presence/start","/api/portal-session/start","/api/portal-session/finish","/api/portal-session/navigate","/api/portal-account/save","/api/portal-account/remove","/api/portal-account/info","/api/portal-auth/resume","/api/portal-auth/start","/api/portal-firefox/start","/api/portal-firefox/finish","/api/traffic/refresh"}:
             self._json(404,{"error":"Percorso sconosciuto"}); return
         if (not self._allowed_origin()
                 or self.headers.get("X-Velora-Local-Token")!=STATE.token
@@ -1897,6 +1899,37 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(payload,dict):
                 raise ValueError("Richiesta JSON non valida")
 
+            if route=="/api/traffic/refresh":
+                # Explicit user click, authenticated via local token + origin.
+                # URL comes exclusively from the local property, not the request.
+                property_id=safe_property_id(payload.get("propertyId"))
+                saved=resolve_property_path(property_id)
+                if saved is None:
+                    self._json(404,{"error":"Anagrafica della struttura non presente sul PC."}); return
+                with AGENT_RUN_LOCK:
+                    running=AGENT_RUNS.get((property_id,"official_site")) or {}
+                    if running.get("state") in {"running","queued"}:
+                        self._json(409,{"error":"Leonardo sta lavorando: riprova a scansione conclusa."}); return
+                data=json.loads(saved.read_text(encoding="utf-8"))
+                sources=data.get("sources") if isinstance(data.get("sources"),dict) else {}
+                official=sources.get("sito") if isinstance(sources.get("sito"),dict) else {}
+                site=str(official.get("url") or data.get("website") or "").strip()
+                if not site:
+                    self._json(400,{"error":"Sito diretto non configurato."}); return
+                out=agent_output(property_id,"official_site")
+                traffic=collect_site_traffic(site,cache_dir=out.parent)
+                if out.exists():
+                    try:
+                        previous=json.loads(out.read_text(encoding="utf-8"))
+                        if previous.get("propertyId")==property_id:
+                            previous["siteTraffic"]=traffic
+                            tmp=out.with_suffix(".traffic-tmp")
+                            tmp.write_text(json.dumps(previous,ensure_ascii=False,indent=2),encoding="utf-8")
+                            tmp.replace(out)
+                    except (OSError,ValueError,TypeError):
+                        pass
+                self._json(200,{"propertyId":property_id,"siteTraffic":traffic})
+                return
             if route=="/api/companion/observation":
                 # A user-triggered Companion observation is LOGGING ONLY.
                 # Do not mark an OTA present, approve a quote or edit agent results.
