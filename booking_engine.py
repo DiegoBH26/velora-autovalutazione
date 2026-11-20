@@ -31,6 +31,7 @@ OTA_NAMES = (
 )
 
 BOOKING_WORDS = re.compile(r"\b(prenota|prenotazioni|book(?:ing)?|reserv(?:ation|a)|disponibilit[aà]|availability)\b", re.I)
+OTA_CTA_WORDS = re.compile(r"\b(prenota(?:\\s+ora)?|book(?:\\s+(?:now|here))?|reserve|reservation|check\\s+availability|verifica\\s+disponibilit[aà])\b", re.I)
 CONTACT_WORDS = re.compile(r"/(?:contatt[io]|contact|richiedi[-_/]?info|inquiry|request)(?:[/?#-]|$)", re.I)
 REQUEST_WORDS = re.compile(r"\b(richiesta|richiedi|contatt(?:a|aci|o|i)?|inviaci|inquiry|request|messaggio|message)\b", re.I)
 TRANSACTION_WORDS = re.compile(r"\b(prezzo|price|tariffa|rate|totale|total|camera|room|disponibilit[aà]|availability|checkout|pagamento|payment)\b", re.I)
@@ -116,7 +117,7 @@ def detect_booking_engine(page_url: str, html: str, final_url: str | None = None
                 # A "Prenota ora" link to Booking.com is an important
                 # commercial finding, NOT an independent direct booking engine.
                 # Avoid counting unrelated footer/social links as booking CTAs.
-                if selector=="a[href]" and booking_text:
+                if selector=="a[href]" and OTA_CTA_WORDS.search(text):
                     ota_candidates.append((
                         0 if re.search(r"prenot|book now|book here|reserve",text,re.I) else 1,
                         _ota_name(target_host) or target_host,
