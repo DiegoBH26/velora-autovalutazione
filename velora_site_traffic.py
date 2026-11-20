@@ -10,7 +10,8 @@ import json
 import os
 import ipaddress
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from urllib.parse import urlsplit, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -113,7 +114,8 @@ def _parse(domain: str,scope: str,value: dict) -> dict:
     }
 
 
-def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None) -> dict:
+def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None,
+                         cache_dir: str|Path|None=None) -> dict:
     """One best-effort lookup; never block or invalidate Leonardo's booking audit.
 
     Vaneform's individual domain GET is cache_only. A no-data response can be
@@ -131,11 +133,39 @@ def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None) ->
     if not key:
         return {**base,"status":"not_configured",
                 "note":"Configura la chiave gratuita VANEFORM_API_KEY sull'agente Windows."}
+    # Avoid spending a free credit every day when Leonardo is rerun on the
+    # same domain. One successful reading per UTC month is enough for audits;
+    # missing data is retried after 24 hours.
+    cache_file=None
+    now=datetime.now(timezone.utc)
+    if cache_dir is not None:
+        try:
+            cache_base=Path(cache_dir).resolve()
+            cache_base.mkdir(parents=True,exist_ok=True)
+            cache_file=cache_base/("traffic_"+domain.replace(".","_")+".json")
+            prior=json.loads(cache_file.read_text(encoding="utf-8"))
+            stored_at=datetime.fromisoformat(str(prior.get("retrievedAt") or "").replace("Z","+00:00"))
+            stored_at=stored_at.replace(tzinfo=stored_at.tzinfo or timezone.utc)
+            if (prior.get("provider")=="Vaneform" and prior.get("domain")==domain
+                    and prior.get("status") in {"estimated","not_available"}
+                    and (stored_at.strftime("%Y-%m")==now.strftime("%Y-%m")
+                         if prior.get("status")=="estimated"
+                         else now-stored_at < timedelta(hours=24))):
+                return {**prior,"cached":True}
+        except (OSError,ValueError,TypeError,AttributeError):
+            pass
+    def save(value):
+        if cache_file is not None and value.get("status") in {"estimated","not_available"}:
+            try:
+                cache_file.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding="utf-8")
+            except OSError:
+                pass
+        return value
     call=fetch or _request
     try:
         value=call(API_ROOT+"/domains/"+quote(domain,safe="")+"?include=scale",key)
         parsed=_parse(domain,source["scope"],value)
-        if parsed["status"]=="estimated":return parsed
+        if parsed["status"]=="estimated":return save(parsed)
         # Single domain read is cache_only; a bulk read can fetch an uncached
         # traffic estimate. This still uses the vendor's documented API.
         bulk=call(API_ROOT+"/bulk?q="+quote(domain,safe=""),key)
@@ -145,8 +175,8 @@ def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None) ->
                 if isinstance(item,dict) and item.get("domain")==domain),None)
             if chosen:
                 result=_parse(domain,source["scope"],chosen)
-                if result["status"]=="estimated":return result
-        return {**parsed,"note":"Nessuna stima disponibile dal provider per questo dominio; non equivale a zero visite."}
+                if result["status"]=="estimated":return save(result)
+        return save({**parsed,"note":"Nessuna stima disponibile dal provider per questo dominio; non equivale a zero visite."})
     except HTTPError as exc:
         status={401:"invalid_key",403:"access_denied",429:"limit_reached"}.get(exc.code,"unavailable")
         return {**base,"status":status,"note":(
