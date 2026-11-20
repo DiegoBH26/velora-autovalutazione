@@ -123,7 +123,7 @@ def _api_error(exc: HTTPError) -> tuple[str, str]:
             details=payload.get("error")
             if isinstance(details,dict):
                 code=str(details.get("code") or "")[:80]
-    except (OSError,ValueError,TypeError,UnicodeError):
+    except (OSError,ValueError,TypeError,UnicodeError,AttributeError):
         pass
     if exc.code==401:
         if code=="invalid_api_key":
