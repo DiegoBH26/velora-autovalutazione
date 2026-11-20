@@ -16,6 +16,7 @@ import browser_audit_pilot as pilot
 from site_audit_builder import build_site_audit
 from velora_direct_commercial import inspect_direct_booking, concise_engine_fields, follow_booking_cta
 from velora_direct_stays import probe_direct_stays, planned_direct_stays, discover_direct_engine
+from velora_site_traffic import collect_site_traffic
 from velora_shared_intelligence import read_peer_evidence, store_peer_evidence
 from playwright.async_api import async_playwright
 
@@ -633,6 +634,9 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             direct_stays["bookingHistoricalDateMatches"]=sum(
                 1 for w in direct_windows
                 if (w.get("checkin"),w.get("checkout"),w.get("adults")) in confirmed)
+        # Independent and optional: traffic estimates never hold up commercial
+        # date/room scraping or change its validated outcomes.
+        traffic=await asyncio.to_thread(collect_site_traffic,site)
         direct_verification["ctaNavigation"]=cta_verification
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
@@ -644,6 +648,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
             "bookingEngineFields": engine_fields,
             "directBookingVerification": direct_verification,
             "directCommercialAudit": direct_stays,
+            "siteTraffic": traffic,
             "masterSequence": ["official_site","booking","ota"],
             "navigationAudit": (audit.get("_autoAudit") or {}).get("navigationChecks") or {},
             "peerBookingDates": booking_windows,
