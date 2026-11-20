@@ -3831,6 +3831,11 @@ type BrowserPilotResult = {
   createdAt: string;
   bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
+  siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;measurement?:string;
+    visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;estimateType?:string;
+    month?:string;confidence?:string;momChangePct?:number|null;retrievedAt?:string;
+    sourcesPct?:Record<string,number>;topRegions?:Array<{country:string;sharePct:number}>;
+    reportUrl?:string;note?:string};
   bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
   directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;
@@ -3955,6 +3960,7 @@ function mergeBrowserPilotResults(previous: BrowserPilotResult | null | undefine
     otaProfiles: { ...(previous.otaProfiles || {}), ...(next.otaProfiles || {}) },
     reputation: next.reputation?.status ? next.reputation : previous.reputation,
     photoAudit: next.photoAudit?.status ? next.photoAudit : previous.photoAudit,
+    siteTraffic: next.siteTraffic?.status ? next.siteTraffic : previous.siteTraffic,
     roomReferences: next.roomReferences?.length ? next.roomReferences : previous.roomReferences,
     observations: [...observations.values()].sort((a,b) => (a.month + a.otaId).localeCompare(b.month + b.otaId)),
   };
@@ -6718,6 +6724,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                     bookingEngine:agentId==="official_site"?(specialistPartial.bookingEngine):(sameProperty?previous.bookingEngine:undefined),
                     directBookingVerification:agentId==="official_site"?(specialistPartial.directBookingVerification):(sameProperty?previous.directBookingVerification:undefined),
                     directCommercialAudit:agentId==="official_site"?(specialistPartial.directCommercialAudit):(sameProperty?previous.directCommercialAudit:undefined),
+                    siteTraffic:agentId==="official_site"?(specialistPartial.siteTraffic):(sameProperty?previous.siteTraffic:undefined),
                     navigationAudit:agentId==="official_site"?(specialistPartial.navigationAudit):(sameProperty?previous.navigationAudit:undefined),
                   };
                   window.localStorage.setItem("velora-browser-pilot:"+propertyId,JSON.stringify(combined));
@@ -10709,6 +10716,39 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 <span className="block text-[#50627F]">Non equivale al collaudo di tutti i menu, widget o checkout.</span>
               </p>}
             </div>}
+          </section>
+          <section data-audit-block="site-traffic" className="my-4 rounded-2xl border border-[#D8D3E2] bg-white p-4">
+            <h3 className="text-sm font-black text-[#23124A]">Leonardo · Visite mensili stimate del sito diretto</h3>
+            <p className="mt-1 text-xs text-[#50627F]">Vaneform Free API: stima pubblica del traffico del dominio, non Analytics e non visite reali certificate. Disponibilità del dato e limiti del piano dipendono dal fornitore.</p>
+            {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.siteTraffic
+              ?(()=>{
+                const traffic=browserPilotResult.siteTraffic!;
+                const ready=traffic.status==="estimated" && traffic.estimateType==="site" &&
+                  Number.isFinite(traffic.wholeSiteVisits) && Number(traffic.wholeSiteVisits)>0;
+                const searchOnly=traffic.status==="estimated" && traffic.estimateType==="search";
+                return <div className="mt-3 rounded-xl border border-[#E5DDF1] bg-[#FBF9FF] p-3 text-xs text-[#23124A]">
+                  <p className="font-black">{ready
+                    ? Number(traffic.wholeSiteVisits).toLocaleString("it-IT")+" visite/mese stimate"
+                    : searchOnly?"Solo stima delle visite dalla ricerca, non del traffico complessivo"
+                    : traffic.status==="not_configured"?"Collegamento Vaneform non configurato sul PC"
+                    : traffic.status==="limit_reached"?"Crediti gratuiti esauriti o frequenza superata"
+                    : traffic.status==="not_available"?"Nessuna stima disponibile per questo dominio"
+                    :"Traffico del sito non determinabile"}
+                  </p>
+                  <p className="mt-1">Dominio: {traffic.domain||"non identificato"} · Fonte: Vaneform
+                    {traffic.month?" · Dati al "+traffic.month:""}
+                    {traffic.confidence?" · Affidabilità dichiarata: "+traffic.confidence:""}
+                  </p>
+                  {ready && traffic.momChangePct!=null && Number.isFinite(traffic.momChangePct) &&
+                    <p className="mt-1">Variazione sul mese precedente: {traffic.momChangePct>0?"+":""}{traffic.momChangePct.toLocaleString("it-IT")}%</p>}
+                  {ready && Object.keys(traffic.sourcesPct||{}).length>0 &&
+                    <p className="mt-1">Fonti stimate: {Object.entries(traffic.sourcesPct||{}).slice(0,6).map(([k,v])=>k+" "+v.toLocaleString("it-IT")+"%").join(" · ")}</p>}
+                  {traffic.scope==="domain_not_property" && <p className="mt-2 font-bold text-amber-900">Attenzione: la struttura è una pagina di un dominio condiviso. Queste visite NON sono attribuibili alla singola struttura.</p>}
+                  <p className="mt-1 text-[#50627F]">{traffic.note}</p>
+                  {traffic.reportUrl?.startsWith("https://vaneform.com/") && <a href={traffic.reportUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-bold underline">Apri la fonte Vaneform</a>}
+                </div>;
+              })()
+              :<p className="mt-2 text-xs text-[#50627F]">Nessun dato acquisito. La lettura parte con Leonardo quando la chiave VANEFORM_API_KEY è configurata sull'agente Windows.</p>}
           </section>
           <details data-audit-block="commerciale" open={workspaceSection==="commerciale"} className="my-4 rounded-2xl border border-[#E5DDF1] bg-white">
             <summary className="cursor-pointer select-none p-4 text-sm font-black text-[#23124A]">Audit commerciale del sito diretto · prezzi, disponibilità e confronto OTA</summary>
