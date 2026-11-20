@@ -33,6 +33,12 @@ from urllib.request import Request, urlopen
 import browser_audit_pilot as browser_pilot
 import velora_direct_stays as leonardo_direct_engine
 try:
+    from velora_site_traffic import check_vaneform_connection
+except ImportError:
+    def check_vaneform_connection():
+        return {"provider":"Vaneform","status":"module_not_installed",
+                "note":"Modulo traffico da aggiornare sull'agente Windows."}
+try:
     from velora_portal_sessions import ManualPortalSessions, PORTALS as LOGIN_PORTALS
 except ImportError:
     ManualPortalSessions=None
@@ -1723,6 +1729,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         route=urlparse(self.path).path
+        if route=="/api/traffic/account":
+            if self.headers.get("Origin") and not self._allowed_origin():
+                self._json(403,{"error":"Origine non autorizzata"}); return
+            # Only a safe healthcheck: never return/print the API key.
+            self._json(200,check_vaneform_connection())
+            return
         if route=="/api/pilot/config":
             if self.headers.get("Origin") and not self._allowed_origin():
                 self._json(403,{"error":"Origine non autorizzata"}); return
