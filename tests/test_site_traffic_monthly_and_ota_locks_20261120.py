@@ -76,7 +76,7 @@ class TrafficMonthlyAndLocks(unittest.TestCase):
             cached=collect_site_traffic("https://masseriamancini.it",
                 api_key="test",fetch=fetch,cache_dir=folder)
             self.assertEqual(len(calls),1)
-            self.assertEqual(previous["schemaVersion"],2)
+            self.assertEqual(previous["schemaVersion"],3)
             self.assertTrue(cached["cached"])
 
     def test_frontend_and_pdf_render_months_sources_and_partial_annual(self):
