@@ -259,7 +259,7 @@ def build_audit(payload, snaps, mobile):
             sources[key] = {"label": labels.get(key, key.title()), "url": url}
 
     engines = [detect_booking_engine(x["url"], x["html"], x["url"]) for x in snaps]
-    rank = {"provider_identified":0,"provider_unknown":1,"ota_redirect":2,"request_only":3,"not_found_in_page":4,"not_applicable":5}
+    rank = {"provider_identified":0,"ota_redirect":1,"provider_unknown":2,"request_only":3,"not_found_in_page":4,"not_applicable":5}
     engine = sorted(engines, key=lambda x: rank.get(x.get("status",""), 9))[0] if engines else {"status":"unverified","provider":"","url":"","mode":"","evidence":"Nessuna pagina esaminata."}
     if engine.get("url"):
         sources["engine"] = {"label":"Booking engine","url":engine["url"]}
@@ -307,6 +307,9 @@ def build_audit(payload, snaps, mobile):
         "direct":(
             "Booking engine diretto rilevato; tariffe future da campionare."
             if engine.get("status") in {"provider_identified","provider_unknown"}
+            else "Il pulsante Prenota indirizza alla OTA "+str(engine.get("otaName") or "non identificata")+
+                 "; non è un booking engine diretto e non genera tariffe dirette."
+            if engine.get("status") == "ota_redirect"
             else "CTA di prenotazione presente, ma conduce a richiesta/contatto e non a disponibilità con prezzo e checkout."
             if engine.get("status") == "request_only"
             else "Percorso diretto da verificare."
@@ -356,6 +359,7 @@ def build_audit(payload, snaps, mobile):
     engine_status = (
         "present" if engine.get("status") == "provider_identified"
         else "partial" if engine.get("status") in {"provider_unknown", "request_only"}
+        else "missing" if engine.get("status")=="ota_redirect"
         else "unverified"
     )
     engine_reason = clean(engine.get("evidence") or "Nessuna evidenza tecnica disponibile.", 700)
@@ -373,6 +377,17 @@ def build_audit(payload, snaps, mobile):
             "Riscontro osservato: esiste un percorso con segnali di prenotazione, ma il fornitore "
             "o il completamento del flusso non sono identificabili con sufficiente certezza.\n"
             "Motivo dell'esito: il percorso esiste, ma non sono state verificate tutte le condizioni di un flusso completo.\n"
+            f"Dettaglio tecnico: {engine_reason}"
+        )
+    elif engine.get("status") == "ota_redirect":
+        engine_explanation = (
+            "Esito: Non rilevato nel percorso analizzato\\n"
+            "Riscontro osservato: il pulsante Prenota rimanda alla OTA "+
+            str(engine.get("otaName") or "non identificata")+
+            ", non a un booking engine diretto della struttura.\\n"
+            "Motivo dell'esito: il collegamento OTA trasferisce l'utente a un portale di distribuzione; "
+            "non va confuso con fornitori di booking engine come Kross Booking o ErmesHotels. "
+            "Questo non dimostra che un booking engine non esista su altre pagine.\\n"
             f"Dettaglio tecnico: {engine_reason}"
         )
     elif engine.get("status") == "request_only":
