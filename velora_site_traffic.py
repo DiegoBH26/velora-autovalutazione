@@ -88,6 +88,56 @@ def _parse(domain: str,scope: str,value: dict) -> dict:
         val=raw_sources.get(name)
         if isinstance(val,(int,float)) and not isinstance(val,bool) and 0<=val<=1:
             sources[name]=round(float(val)*100,2)
+    # Vaneform returns dated monthly history in scale.monthly_visits.
+    # Preserve only legitimate months; do not infer missing months as zero.
+    monthly=[]
+    raw_history=scale.get("monthly_visits")
+    if isinstance(raw_history,list):
+        seen=set()
+        for item in raw_history[:36]:
+            if not isinstance(item,dict):
+                continue
+            month=str(item.get("month") or "")
+            raw_visits=item.get("visits")
+            if not re.fullmatch(r"20[0-9]{2}-(0[1-9]|1[0-2])",month) or month in seen:
+                continue
+            if isinstance(raw_visits,bool) or not isinstance(raw_visits,(int,float)):
+                continue
+            estimated=int(raw_visits)
+            if estimated<0 or estimated>10**12 or estimated!=raw_visits:
+                continue
+            monthly.append({"month":month,"visits":estimated})
+            seen.add(month)
+    monthly.sort(key=lambda row:row["month"])
+    # The current snapshot may be newer than the returned series. Only add
+    # it when it represents whole-site traffic and has an unambiguous month.
+    current_month=str(scale.get("as_of") or "")[:7]
+    if (is_site and visits is not None and
+        re.fullmatch(r"20[0-9]{2}-(0[1-9]|1[0-2])",current_month)
+        and current_month not in {row["month"] for row in monthly}):
+        monthly.append({"month":current_month,"visits":visits})
+        monthly.sort(key=lambda row:row["month"])
+    months_by_year={}
+    for item in monthly:
+        year=item["month"][:4]
+        months_by_year.setdefault(year,[]).append(item)
+    annual=[]
+    for year,entries in sorted(months_by_year.items()):
+        # Do not turn the sum of 3 sampled months into a claimed annual total.
+        annual.append({
+            "year":int(year),
+            "sumAvailableMonths":sum(row["visits"] for row in entries),
+            "monthsAvailable":len(entries),
+            "monthsMissing":[f"{year}-{m:02d}" for m in range(1,13)
+                             if f"{year}-{m:02d}" not in {r["month"] for r in entries}],
+            "completeYear":len(entries)==12,
+        })
+    raw_bounce=scale.get("bounce_rate")
+    bounce_pct=round(raw_bounce*100,2) if isinstance(raw_bounce,(int,float)) and not isinstance(raw_bounce,bool) and 0<=raw_bounce<=1 else None
+    raw_pages=scale.get("pages_per_visit")
+    pages_per_visit=round(float(raw_pages),2) if isinstance(raw_pages,(int,float)) and not isinstance(raw_pages,bool) and 0<=raw_pages<1000 else None
+    raw_duration=scale.get("time_on_site_seconds")
+    duration_seconds=int(raw_duration) if isinstance(raw_duration,(int,float)) and not isinstance(raw_duration,bool) and 0<=raw_duration<86400 else None
     raw_regions=scale.get("top_regions") if isinstance(scale.get("top_regions"),list) else []
     regions=[]
     for row in raw_regions[:5]:
@@ -105,6 +155,10 @@ def _parse(domain: str,scope: str,value: dict) -> dict:
         "momChangePct":scale.get("visits_mom_change_pct")
             if isinstance(scale.get("visits_mom_change_pct"),(int,float)) else None,
         "sourcesPct":sources,"topRegions":regions,
+        "monthlyVisits":monthly if is_site else [],
+        "annualSummaries":annual if is_site else [],
+        "bounceRatePct":bounce_pct,"pagesPerVisit":pages_per_visit,
+        "timeOnSiteSeconds":duration_seconds,
         "retrievedAt":datetime.now(timezone.utc).isoformat(),
         "reportUrl":value.get("report_url") if isinstance(value.get("report_url"),str)
             and value["report_url"].startswith("https://vaneform.com/") else "",
