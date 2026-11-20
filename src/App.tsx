@@ -3829,7 +3829,7 @@ type BrowserPilotResult = {
   agentId?: string;
   propertyName?: string;
   createdAt: string;
-  bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string };
+  bookingEngine?: { status: string; provider: string; url: string; mode: string; evidence: string; otaName?:string; otaUrl?:string; otaSourcePage?:string; clickVerified?:boolean };
   directBookingVerification?: { status?: string; navigation?: string; bookingFlow?: string; availability?: string; datedPrices?: unknown[]; controls?: {dates?: boolean; guests?: boolean; bookingAction?: boolean}; evidence?: string[]; ctaNavigation?: {status?:string;resolvedUrl?:string;connectionType?:string;provider?:string;evidence?:string[]} };
   siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;measurement?:string;
     visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;estimateType?:string;
@@ -3879,6 +3879,15 @@ function formatLeonardoTechnicalLog(result: BrowserPilotResult): string {
     "VELORA · LOG TECNICO LEONARDO",
     "Struttura: "+(result.propertyName||result.propertyId),
     "Esito: "+(commercial.status||"non verificato"),
+    ...(result.bookingEngine?.status==="ota_redirect"
+      ? ["Prenota ora → OTA: "+(result.bookingEngine.otaName||"non identificata"),
+        "Pagina origine: "+(result.bookingEngine.otaSourcePage||"non rilevata"),
+        "URL OTA: "+(result.bookingEngine.otaUrl||"non rilevato"),
+        "Booking engine diretto NON rilevato."] : []),
+    "Traffico esterno Vaneform: "+(result.siteTraffic?.status||"non acquisito")+
+      (result.siteTraffic?.wholeSiteVisits!=null
+        ?" · "+Number(result.siteTraffic.wholeSiteVisits)+" visite/mese stimate":""),
+
     "Ricerche effettivamente inviate: "+Number(commercial.searchedTotal||0),
     "Tariffe camere lette: "+(commercial.observedRoomPrices||[]).length,
     "Preventivi verificati: "+(commercial.verifiedQuotes||[]).length,
@@ -6105,7 +6114,8 @@ export default function App({ consultantName = "" }: { consultantName?: string }
       const engine = result.bookingEngine;
       const resolved = engine.url ? providerFromBookingUrl(engine.url) : null;
       const provider = engine.provider || resolved?.provider || "";
-      const status = provider ? "present" :
+      const status = engine.status==="ota_redirect" ? "missing" :
+        provider ? "present" :
         engine.status === "provider_unknown" || engine.status === "request_only" ? "partial" : "unverified";
       updateAnswer("audit-booking-engine", { auditStatus: status });
       updateAnswer("audit-booking-engine-provider", { note: provider });
@@ -10690,7 +10700,10 @@ export default function App({ consultantName = "" }: { consultantName?: string }
               <textarea value={answers["audit-booking-engine-evidence"]?.note || ""} onChange={(event) => updateAnswer("audit-booking-engine-evidence", { note: event.target.value })} placeholder="Dove porta Prenota, cosa compare, data della prova, cosa non è stato verificato" className="mt-1 block min-h-[70px] w-full rounded-lg border border-[#E0D7EC] bg-white p-2 text-xs" />
             </label>
             {browserPilotResult?.propertyId === activeAuditData.id && browserPilotResult.bookingEngine && <div className="mt-3 rounded-xl border border-[#D8D3E2] bg-[#F8F6FC] p-3 text-[11px] text-[#23124A]">
-              <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.provider ||
+              <b>Riscontro automatico di Leonardo:</b> {browserPilotResult.bookingEngine.status==="ota_redirect"
+                ? "NESSUN BOOKING ENGINE DIRETTO RILEVATO · Prenota ora rimanda alla OTA "+
+                  (browserPilotResult.bookingEngine.otaName||"non identificata")
+                : browserPilotResult.bookingEngine.provider ||
                 (browserPilotResult.bookingEngine.status==="not_found_in_page"
                   ? "BOOKING ENGINE NON RILEVATO nel campione del sito"
                   : browserPilotResult.bookingEngine.status==="request_only"
@@ -10702,10 +10715,19 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                 Ospiti: {browserPilotResult.directBookingVerification.controls?.guests ? "controlli rilevati" : "non confermati"} ·
                 Disponibilità e prezzi datati: {browserPilotResult.directCommercialAudit?.verifiedQuotes?.length?"Verificati su alcuni campioni":"non verificati"}.
               </p>}
+              {browserPilotResult.bookingEngine.status==="ota_redirect" && <p className="mt-2 font-bold text-amber-900">
+                Il sito indirizza l'utente a una OTA anziché a un booking engine diretto.
+                {browserPilotResult.bookingEngine.otaSourcePage?" Pagina con la CTA: "+browserPilotResult.bookingEngine.otaSourcePage:""}
+                {browserPilotResult.bookingEngine.clickVerified?" · Clic verificato.":" · Collegamento osservato nell'HTML; clic non confermato."}
+                {browserPilotResult.bookingEngine.otaUrl && <a href={browserPilotResult.bookingEngine.otaUrl}
+                  className="ml-1 underline" target="_blank" rel="noopener noreferrer">Apri destinazione OTA</a>}
+              </p>}
               {browserPilotResult.directBookingVerification?.ctaNavigation && <p className="mt-1 text-[#50627F]">
                 Clic su Prenota: {browserPilotResult.directBookingVerification.ctaNavigation.status==="reached"
                   ? (browserPilotResult.directBookingVerification.ctaNavigation.connectionType||"Destinazione raggiunta")
-                  : "percorso non confermato"}.
+                  : browserPilotResult.directBookingVerification.ctaNavigation.status==="ota_redirect_verified"
+                    ? "Verificato: porta a "+(browserPilotResult.directBookingVerification.ctaNavigation.otaName||"una OTA")
+                    : "percorso non confermato"}.
               </p>}
               {browserPilotResult.navigationAudit && <p className="mt-2">
                 Navigazione sito: {browserPilotResult.navigationAudit.pagesVisited??0} pagine visitate ·
@@ -12072,6 +12094,32 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                       ? formatLeonardoTechnicalLog(browserPilotResult)
                       : "Premi «Leggi / aggiorna log Leonardo» per recuperare la diagnostica salvata sul PC.")}</pre>
                 </details>}
+                {(agentRunIds.includes("official_site") ||
+                  browserPilotResult?.propertyId===activeAuditData.id) && <div className="mt-3 rounded-xl border border-[#D8D3E2] bg-[#FBF9FF] p-3 text-xs text-[#23124A]">
+                  <b>Leonardo · Visite mensili stimate del sito diretto (Vaneform)</b>
+                  {browserPilotResult?.propertyId===activeAuditData.id && browserPilotResult.siteTraffic
+                    ? <p className="mt-1 font-semibold">
+                        {browserPilotResult.siteTraffic.status==="estimated" &&
+                         browserPilotResult.siteTraffic.estimateType==="site" &&
+                         Number(browserPilotResult.siteTraffic.wholeSiteVisits)>0
+                          ? Number(browserPilotResult.siteTraffic.wholeSiteVisits).toLocaleString("it-IT")+" visite mensili stimate"
+                          : browserPilotResult.siteTraffic.status==="not_configured"
+                            ? "Vaneform: API key non disponibile all'agente Windows"
+                            : browserPilotResult.siteTraffic.status==="limit_reached"
+                              ? "Vaneform: limite gratuito raggiunto"
+                              : browserPilotResult.siteTraffic.status==="not_available"
+                                ? "Vaneform: nessuna stima disponibile per il dominio"
+                                : browserPilotResult.siteTraffic.status==="estimated"
+                                  ? "Vaneform: disponibili soltanto dati parziali, non visite totali"
+                                  : "Vaneform: "+(browserPilotResult.siteTraffic.note||"stima non disponibile")}
+                        {" · "}{browserPilotResult.siteTraffic.domain||"dominio non identificato"}
+                        {browserPilotResult.siteTraffic.month?" · "+browserPilotResult.siteTraffic.month:""}
+                        {browserPilotResult.siteTraffic.scope==="domain_not_property"
+                          ?" · Dato del dominio condiviso, NON della singola struttura":""}
+                      </p>
+                    : <p className="mt-1 text-[#50627F]">Nessun esito traffico ancora importato. Esegui Leonardo e aggiorna gli stati; l'assenza del dato non significa zero visite.</p>}
+                  <p className="mt-1 text-[#50627F]">Dato stimato, non traffico effettivo Google Analytics. Il dettaglio si trova anche nell'Audit, dopo la sezione Booking engine.</p>
+                </div>}
                 {portalSessionMessage && <p className="rounded-lg border border-[#E5DDF1] bg-white px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{portalSessionMessage}</p>}
                 {specialistMessage && <p className="rounded-lg bg-[#F4F0F8] px-3 py-2 text-xs font-semibold text-[#23124A]" role="status">{specialistMessage}</p>}
                 {!localPilotToken && <button type="button" data-velora-local-agent-connect onClick={startAndConnectLocalAgent} className="rounded-lg border border-[#C8A96B] bg-white px-3 py-2 text-xs font-black text-[#23124A]">Avvia / Collega agente Windows</button>}
