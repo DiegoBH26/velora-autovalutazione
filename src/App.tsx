@@ -3883,7 +3883,7 @@ const SITE_TRAFFIC_LABELS:Record<string,string>={
 
 function SiteTrafficDetails({traffic}:{traffic:NonNullable<BrowserPilotResult["siteTraffic"]>}) {
   const history=(traffic.monthlyVisits||[])
-    .filter(row=>/^20\\d{2}-(0[1-9]|1[0-2])$/.test(row.month) && Number.isFinite(row.visits))
+    .filter(row=>/^20\d{2}-(0[1-9]|1[0-2])$/.test(row.month) && Number.isFinite(row.visits))
     .sort((a,b)=>a.month.localeCompare(b.month));
   const sources=Object.entries(traffic.sourcesPct||{})
     .filter(([,share])=>Number.isFinite(share)&&share>=0&&share<=100)
