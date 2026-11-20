@@ -1900,22 +1900,38 @@ class Handler(SimpleHTTPRequestHandler):
                 raise ValueError("Richiesta JSON non valida")
 
             if route=="/api/traffic/refresh":
-                # Explicit user click, authenticated via local token + origin.
-                # URL comes exclusively from the local property, not the request.
+                # Explicit user click authenticated by the same local token and
+                # origin as all specialist starts. The online workspace can hold
+                # the canonical property even when Windows has no local profile.
                 property_id=safe_property_id(payload.get("propertyId"))
                 saved=resolve_property_path(property_id)
-                if saved is None:
-                    self._json(404,{"error":"Anagrafica della struttura non presente sul PC."}); return
                 with AGENT_RUN_LOCK:
                     running=AGENT_RUNS.get((property_id,"official_site")) or {}
                     if running.get("state") in {"running","queued"}:
                         self._json(409,{"error":"Leonardo sta lavorando: riprova a scansione conclusa."}); return
-                data=json.loads(saved.read_text(encoding="utf-8"))
+                data={}
+                if saved is not None:
+                    data=json.loads(saved.read_text(encoding="utf-8"))
+                else:
+                    # This does not register a new property or restart Leonardo.
+                    # Only the explicitly selected online property's public
+                    # website is used for the Vaneform domain-only estimate.
+                    online=payload.get("propertyData")
+                    if not isinstance(online,dict) or online.get("id")!=property_id:
+                        self._json(404,{"error":"Anagrafica assente sul PC: aggiorna Velora online per trasmettere il sito ufficiale."}); return
+                    name=str(online.get("name") or "").strip()
+                    if not 2<=len(name)<=180:
+                        self._json(400,{"error":"Nome struttura non valido nell'anagrafica online."}); return
+                    data={"name":name,"website":str(online.get("website") or "").strip()}
                 sources=data.get("sources") if isinstance(data.get("sources"),dict) else {}
                 official=sources.get("sito") if isinstance(sources.get("sito"),dict) else {}
                 site=str(official.get("url") or data.get("website") or "").strip()
                 if not site:
-                    self._json(400,{"error":"Sito diretto non configurato."}); return
+                    self._json(400,{"error":"Sito diretto non configurato nell'anagrafica selezionata."}); return
+                try:
+                    site=public_http_url(site)
+                except ValueError:
+                    self._json(400,{"error":"URL del sito ufficiale non valido."}); return
                 out=agent_output(property_id,"official_site")
                 traffic=collect_site_traffic(site,cache_dir=out.parent)
                 if out.exists():
