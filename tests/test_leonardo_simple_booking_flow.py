@@ -232,7 +232,7 @@ class TestLeonardoBookingFlow(unittest.TestCase):
         self.assertIn('ctaClicked=True',body)
         self.assertIn("Prenota del sito ufficiale",body)
         preflight=inspect.getsource(discover_direct_engine)
-        self.assertIn("detect_booking_engine(page.url,await page.content(),page.url)",preflight)
+        self.assertIn("detected=detect_booking_engine(page.url,html,page.url)",preflight)
         self.assertNotIn("frontend_photo_audit",preflight)
 
     def test_bedzzle_uses_dedicated_date_boxes_before_generic_calendar(self):
