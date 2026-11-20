@@ -114,6 +114,58 @@ def _parse(domain: str,scope: str,value: dict) -> dict:
     }
 
 
+def _api_error(exc: HTTPError) -> tuple[str, str]:
+    """Translate documented API error codes, without logging secrets."""
+    code=""
+    try:
+        payload=json.loads(exc.read(8192).decode("utf-8"))
+        if isinstance(payload,dict):
+            details=payload.get("error")
+            if isinstance(details,dict):
+                code=str(details.get("code") or "")[:80]
+    except (OSError,ValueError,TypeError,UnicodeError):
+        pass
+    if exc.code==401:
+        if code=="invalid_api_key":
+            return "invalid_key","Chiave API rifiutata da Vaneform: sostituita, errata o non attiva."
+        return "unauthorized","Autenticazione Vaneform non autorizzata: verifica chiave e formato Bearer."
+    if exc.code==429:
+        return "limit_reached","Limite o crediti Vaneform esauriti ("+(code or "HTTP 429")+")."
+    if exc.code==403:
+        return "access_denied","Accesso Vaneform negato ("+(code or "HTTP 403")+")."
+    return "unavailable","Vaneform non disponibile (HTTP "+str(exc.code)+")."
+
+
+def check_vaneform_connection(*, api_key: str|None=None, fetch=None) -> dict:
+    """Free GET /account; never returns the API key or makes a paid lookup."""
+    key=(api_key if api_key is not None else os.environ.get("VANEFORM_API_KEY","")).strip()
+    if not key:
+        return {"provider":"Vaneform","status":"not_configured",
+                "note":"Chiave VANEFORM_API_KEY non presente nell'agente Windows."}
+    if not key.startswith("vf_live_") or len(key)<20 or any(c.isspace() for c in key):
+        return {"provider":"Vaneform","status":"invalid_format",
+                "note":"Il valore salvato in Windows non ha il formato vf_live_... della chiave API."}
+    try:
+        data=(fetch or _request)(API_ROOT+"/account",key)
+        credits=data.get("credits")
+        credits=credits if isinstance(credits,dict) else {}
+        remaining=credits.get("remaining")
+        if not isinstance(remaining,int) or isinstance(remaining,bool):
+            remaining=None
+        return {
+            "provider":"Vaneform","status":"connected",
+            "plan":str(data.get("plan") or "non indicato")[:25],
+            "creditsRemaining":remaining,
+            "note":"Chiave API verificata sull'endpoint account; controllo gratuito, nessun credito consumato.",
+        }
+    except HTTPError as exc:
+        status,note=_api_error(exc)
+        return {"provider":"Vaneform","status":status,"note":note}
+    except (URLError,TimeoutError,OSError,ValueError,TypeError) as exc:
+        return {"provider":"Vaneform","status":"unavailable",
+                "note":"Controllo Vaneform non concluso ("+type(exc).__name__+")."}
+
+
 def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None,
                          cache_dir: str|Path|None=None) -> dict:
     """One best-effort lookup; never block or invalidate Leonardo's booking audit.
@@ -178,12 +230,8 @@ def collect_site_traffic(website: str, *, api_key: str|None=None, fetch=None,
                 if result["status"]=="estimated":return save(result)
         return save({**parsed,"note":"Nessuna stima disponibile dal provider per questo dominio; non equivale a zero visite."})
     except HTTPError as exc:
-        status={401:"invalid_key",403:"access_denied",429:"limit_reached"}.get(exc.code,"unavailable")
-        return {**base,"status":status,"note":(
-            "Limite del piano gratuito o frequenza superata; nessun acquisto automatico."
-            if status=="limit_reached" else
-            "Vaneform ha rifiutato la richiesta; verifica chiave o disponibilità."
-        )}
+        status,note=_api_error(exc)
+        return {**base,"status":status,"note":note}
     except (URLError,TimeoutError,OSError,ValueError,TypeError,KeyError) as exc:
         return {**base,"status":"unavailable",
                 "note":"Fonte temporaneamente non accessibile ("+type(exc).__name__+"). Nessuna visita inventata."}
