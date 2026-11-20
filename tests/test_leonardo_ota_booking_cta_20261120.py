@@ -91,13 +91,8 @@ class DirectCtaToOtaTests(unittest.TestCase):
         import asyncio
         from types import SimpleNamespace
         from unittest.mock import patch, AsyncMock
-        try:
-            from velora_direct_stays import discover_direct_engine
-            import site_audit_builder
-        except ModuleNotFoundError as exc:
-            if exc.name in {"selectolax","playwright"}:
-                self.skipTest("Optional browser-parser dependencies absent")
-            raise
+        from velora_direct_stays import discover_direct_engine
+        import sys
         visited=[]
         home="https://www.masseriamancini.it/"
         rooms=home+"boutique-hotel/"
@@ -132,12 +127,34 @@ class DirectCtaToOtaTests(unittest.TestCase):
             async def __aenter__(self):return SimpleNamespace(chromium=FakeChromium())
             async def __aexit__(self,*args):pass
 
-        with (patch("playwright.async_api.async_playwright",
-                    return_value=FakePlaywright()),
-              patch.object(site_audit_builder,"robots_allowed",return_value=True),
-              patch.object(site_audit_builder,"dismiss_cookie",
-                           new=AsyncMock(return_value=""))):
-            result=asyncio.run(discover_direct_engine(home))
+        async def cookie(page):
+            return ""
+
+        def detect(page_url, html, final_url):
+            if "/boutique-hotel/" in page_url and "booking.com/hotel" in html:
+                return {
+                    "status":"ota_redirect","url":"","provider":"",
+                    "otaName":"Booking.com",
+                    "otaUrl":"https://www.booking.com/hotel/it/masseria-mancini-polignano-a-mare.it.html",
+                    "otaSourcePage":page_url,
+                    "evidence":"Prenota ora rimanda a Booking.com",
+                }
+            return {"status":"not_found_in_page","url":"","provider":"",
+                    "evidence":"Nessun motore diretto in homepage."}
+
+        # Isolate browser navigation from optional request/HTML packages
+        # missing on GitHub CI; the real detector has separate unit tests.
+        site_stub=SimpleNamespace(public_url=lambda url:url,
+                                  robots_allowed=lambda *args:True,
+                                  dismiss_cookie=cookie)
+        booking_stub=SimpleNamespace(detect_booking_engine=detect)
+        with patch.dict(sys.modules,{
+            "site_audit_builder":site_stub,
+            "booking_engine":booking_stub,
+        }):
+            with patch("playwright.async_api.async_playwright",
+                       return_value=FakePlaywright()):
+                result=asyncio.run(discover_direct_engine(home))
         self.assertEqual(visited,[home,rooms])
         self.assertEqual(result["status"],"ota_redirect")
         self.assertEqual(result["otaName"],"Booking.com")
