@@ -3835,7 +3835,9 @@ type BrowserPilotResult = {
     visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;estimateType?:string;
     month?:string;confidence?:string;momChangePct?:number|null;retrievedAt?:string;
     sourcesPct?:Record<string,number>;topRegions?:Array<{country:string;sharePct:number}>;
-    reportUrl?:string;note?:string};
+    reportUrl?:string;note?:string;monthlyVisits?:Array<{month:string;visits:number}>;
+    annualSummaries?:Array<{year:number;sumAvailableMonths:number;monthsAvailable:number;monthsMissing?:string[];completeYear:boolean}>;
+    bounceRatePct?:number|null;pagesPerVisit?:number|null;timeOnSiteSeconds?:number|null;schemaVersion?:number};
   bookingReferenceStays?:Array<{requestedCheckin?:string;requestedCheckout?:string;checkin?:string;checkout?:string;adults?:number;status?:string}>;
   directCommercialAudit?: { status?: string; evidence?: string[]; searchedTotal?:number; plannedTotal?:number; plannedStays?:Array<{checkin:string;checkout:string;adults:number}>; observedRoomPrices?:Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;displayedAmount:number;currency:string;priceBasis:string;dateContextConfirmed:boolean;occupancyConfirmed:boolean;sourceUrl?:string;conditions?:string}>; verifiedQuotes?: Array<{checkin:string;checkout:string;guests:number;nights:number;roomType:string;referenceRoomKey?:string;total:number;board:string;refund:string;taxes:string;audience:string;sourceUrl?:string;verified?:boolean}>;
     samples?: Array<{checkin:string;checkout:string;guests:number;nights:number;status:string;sourceUrl?:string;availability?:string;
@@ -3871,6 +3873,59 @@ type BrowserPilotResult = {
   }[];
   observations: BrowserPilotObservation[];
 };
+
+const SITE_TRAFFIC_LABELS:Record<string,string>={
+  search:"Ricerca organica",direct:"Accessi diretti",referrals:"Siti referenti",
+  search_paid:"Ricerca a pagamento",display_ads:"Pubblicità display",
+  social:"Social",affiliate:"Affiliazioni",mail:"Email",
+  gen_ai:"Intelligenza artificiale",other:"Altre fonti"
+};
+
+function SiteTrafficDetails({traffic}:{traffic:NonNullable<BrowserPilotResult["siteTraffic"]>}) {
+  const history=(traffic.monthlyVisits||[])
+    .filter(row=>/^20\\d{2}-(0[1-9]|1[0-2])$/.test(row.month) && Number.isFinite(row.visits))
+    .sort((a,b)=>a.month.localeCompare(b.month));
+  const sources=Object.entries(traffic.sourcesPct||{})
+    .filter(([,share])=>Number.isFinite(share)&&share>=0&&share<=100)
+    .sort((a,b)=>b[1]-a[1]);
+  const annual=traffic.annualSummaries||[];
+  if(!history.length&&!sources.length&&!(traffic.timeOnSiteSeconds!=null))
+    return <p className="mt-2 text-[11px] text-[#50627F]">Vaneform non ha fornito uno storico mensile o una ripartizione dei canali per questo dominio.</p>;
+  return <div className="mt-3 grid gap-3 text-[11px]">
+    {history.length>0&&<div>
+      <p className="mb-2 font-black">Visite stimate mese per mese</p>
+      <div className="overflow-x-auto"><table className="w-full min-w-[320px] text-left">
+        <thead><tr className="border-b border-[#D8D3E2]"><th className="py-1 pr-3">Mese</th><th className="py-1 text-right">Visite stimate</th></tr></thead>
+        <tbody>{history.map(item=><tr key={item.month} className="border-b border-[#E5DDF1]">
+          <td className="py-1 pr-3">{new Date(item.month+"-01T12:00:00Z").toLocaleDateString("it-IT",{month:"long",year:"numeric",timeZone:"UTC"})}</td>
+          <td className="py-1 text-right font-bold">{item.visits.toLocaleString("it-IT")}</td>
+        </tr>)}</tbody>
+      </table></div>
+      {annual.map(y=><p key={y.year} className="mt-2">
+        <b>{y.completeYear?"Totale stimato "+y.year:"Somma mesi disponibili "+y.year}:</b>
+        {" "}{y.sumAvailableMonths.toLocaleString("it-IT")} visite · {y.monthsAvailable}/12 mesi.
+        {!y.completeYear?" Non è un totale annuale completo.":""}
+      </p>)}
+    </div>}
+    {sources.length>0&&<div>
+      <p className="mb-2 font-black">Provenienza stimata del traffico · {traffic.month||"ultimo mese disponibile"}</p>
+      {sources.map(([channel,share])=><div key={channel} className="mb-1.5 flex items-center gap-2">
+        <span className="w-[135px] shrink-0">{SITE_TRAFFIC_LABELS[channel]||channel}</span>
+        <div className="h-2 flex-1 overflow-hidden rounded bg-[#D8D3E2]">
+          <div className="h-full rounded bg-[#5478A6]" style={{width:Math.min(100,share)+"%"}}/>
+        </div>
+        <span className="w-12 shrink-0 text-right font-semibold">{share.toLocaleString("it-IT")}%</span>
+      </div>)}
+    </div>}
+    {(traffic.timeOnSiteSeconds!=null||traffic.pagesPerVisit!=null||traffic.bounceRatePct!=null)&&
+      <p className="text-[#50627F]">
+        {traffic.timeOnSiteSeconds!=null?"Durata media "+Math.floor(traffic.timeOnSiteSeconds/60)+"m "+Math.round(traffic.timeOnSiteSeconds%60)+"s · ":""}
+        {traffic.pagesPerVisit!=null?"Pagine/visita "+traffic.pagesPerVisit.toLocaleString("it-IT")+" · ":""}
+        {traffic.bounceRatePct!=null?"Frequenza di rimbalzo "+traffic.bounceRatePct.toLocaleString("it-IT")+"%":""}
+      </p>}
+    <p className="text-[#50627F]">Stime per dominio, non conteggi Analytics. I mesi non disponibili non valgono zero; il totale annuale si mostra soltanto con 12 mesi.</p>
+  </div>;
+}
 
 function formatLeonardoTechnicalLog(result: BrowserPilotResult): string {
   const commercial=result.directCommercialAudit;
@@ -10815,8 +10870,7 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                   </p>
                   {ready && traffic.momChangePct!=null && Number.isFinite(traffic.momChangePct) &&
                     <p className="mt-1">Variazione sul mese precedente: {traffic.momChangePct>0?"+":""}{traffic.momChangePct.toLocaleString("it-IT")}%</p>}
-                  {ready && Object.keys(traffic.sourcesPct||{}).length>0 &&
-                    <p className="mt-1">Fonti stimate: {Object.entries(traffic.sourcesPct||{}).slice(0,6).map(([k,v])=>k+" "+v.toLocaleString("it-IT")+"%").join(" · ")}</p>}
+                  {ready && <SiteTrafficDetails traffic={traffic}/>}
                   {traffic.scope==="domain_not_property" && <p className="mt-2 font-bold text-amber-900">Attenzione: la struttura è una pagina di un dominio condiviso. Queste visite NON sono attribuibili alla singola struttura.</p>}
                   <p className="mt-1 text-[#50627F]">{traffic.note}</p>
                   {traffic.reportUrl?.startsWith("https://vaneform.com/") && <a href={traffic.reportUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-bold underline">Apri la fonte Vaneform</a>}
@@ -12191,6 +12245,13 @@ export default function App({ consultantName = "" }: { consultantName?: string }
                           ?" · Dato del dominio condiviso, NON della singola struttura":""}
                       </p>
                     : <p className="mt-1 text-[#50627F]">Nessun esito traffico ancora importato. Esegui Leonardo e aggiorna gli stati; l'assenza del dato non significa zero visite.</p>;
+                  })()}
+                  {(()=>{
+                    const measured=trafficLatest?.propertyId===activeAuditData.id
+                      ?trafficLatest.siteTraffic
+                      :browserPilotResult?.propertyId===activeAuditData.id?browserPilotResult.siteTraffic:undefined;
+                    return measured?.status==="estimated" && measured.estimateType==="site"
+                      ?<SiteTrafficDetails traffic={measured}/>:null;
                   })()}
                   <p className="mt-1 text-[#50627F]">Dato stimato, non traffico effettivo Google Analytics. Il dettaglio si trova anche nell'Audit, dopo la sezione Booking engine.</p>
                 </div>}
