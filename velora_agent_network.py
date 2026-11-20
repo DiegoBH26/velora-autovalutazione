@@ -636,7 +636,7 @@ async def execute(agent: str, data: dict, property_file: Path, output: Path,
                 if (w.get("checkin"),w.get("checkout"),w.get("adults")) in confirmed)
         # Independent and optional: traffic estimates never hold up commercial
         # date/room scraping or change its validated outcomes.
-        traffic=await asyncio.to_thread(collect_site_traffic,site)
+        traffic=await asyncio.to_thread(collect_site_traffic,site,cache_dir=output.parent)
         direct_verification["ctaNavigation"]=cta_verification
         engine_fields = concise_engine_fields(audit, direct_verification)
         audit["bookingEngineVerification"] = direct_verification
