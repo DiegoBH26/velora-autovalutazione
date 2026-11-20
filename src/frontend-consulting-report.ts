@@ -23,6 +23,7 @@ type Pilot = {
   otaProfiles?:Record<string,{status?:string;rating?:number|null;ratingScale?:number|null;reviewCount?:number|null;url?:string}>;
   bookingEngine?:{status?:string;provider?:string;mode?:string;url?:string;evidence?:string};
   directBookingVerification?:{status?:string;navigation?:string;bookingFlow?:string;availability?:string;evidence?:string[]};
+  siteTraffic?:{provider?:string;status?:string;domain?:string;scope?:string;estimateType?:string;visitsMonthlyEstimate?:number|null;wholeSiteVisits?:number|null;month?:string;confidence?:string;momChangePct?:number|null;note?:string};
   directCommercialAudit?:{status?:string;searchedTotal?:number;plannedTotal?:number;
     verifiedQuotes?:unknown[];samples?:Array<{status?:string;searchSubmitted?:boolean;checkin?:string;checkout?:string}>};
   navigationAudit?:{status?:string;pagesVisited?:number;internalLinksSeen?:number;failedPages?:unknown[];evidence?:string};
@@ -233,6 +234,21 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     (pilot?.directCommercialAudit?.verifiedQuotes?.length||0)+".":
     engineDetected?"Percorso aperto, ma ricerca date/ospiti non confermata.":
     "Percorso di prenotazione non verificato.";
+  const traffic=pilot?.siteTraffic;
+  const trafficVerified=traffic?.status==="estimated" && traffic.estimateType==="site" &&
+    Number.isFinite(traffic.wholeSiteVisits) && Number(traffic.wholeSiteVisits)>0;
+  const trafficLine=trafficVerified
+    ? Number(traffic?.wholeSiteVisits).toLocaleString("it-IT")+" visite mensili stimate per il dominio "+
+      (traffic?.domain||"")+(traffic?.month?" · mese di riferimento "+traffic.month:"")+
+      (traffic?.confidence?" · confidenza dichiarata "+traffic.confidence:"")+". "+
+      (traffic?.scope==="domain_not_property"
+        ?"Dominio condiviso: il dato NON è attribuibile alla singola struttura."
+        :"Stima esterna Vaneform, NON dato misurato da Google Analytics.")
+    : traffic?.status==="not_configured"
+      ?"Stima traffico non eseguita: collegamento gratuito Vaneform non configurato."
+      : traffic?.status==="limit_reached"
+        ?"Stima traffico non disponibile: limite del piano gratuito raggiunto."
+        : "Nessuna stima affidabile delle visite mensili disponibile per questa struttura.";
   const nav=pilot?.navigationAudit;
   const failedPages=nav?.failedPages?.length||0;
   const siteUsability=nav?.pagesVisited?
@@ -356,6 +372,8 @@ export function buildFrontendConsultingReportHtml(input:FrontendReportInput):str
     '<dt>Percorso</dt><dd>'+text(input.bookingMode||pilot?.bookingEngine?.mode,"Non verificato")+'</dd></dl></div>'+
     '<div class="card"><label>FUNZIONAMENTO DELLA RICERCA</label><h3>'+clean(siteStatus)+'</h3>'+
     '<p>Un dominio raggiungibile o una CTA cliccabile non provano disponibilità, checkout o pagamento funzionanti.</p></div></div>'+
+    '<h2>Traffico stimato del sito diretto</h2><div class="note"><p>'+clean(trafficLine)+'</p>'+
+    '<p>Fonte: Vaneform, ove disponibile. Valore indicativo di traffico dell’intero dominio, non conversioni o visite certificate; assenza di dato non significa zero visite.</p></div>'+
     '<h2>Usabilità del sito diretto</h2><div class="note">'+clean(siteUsability)+
     '<p>Verifiche consigliate: navigazione mobile, chiarezza della CTA «Prenota», selezione date, ospiti, preventivo finale e condizioni. Il checkout non è certificato dal solo scraping.</p></div>'+
     '<h2>Fotografie</h2><div class="card wide"><p>'+text(photoText)+'</p>'+
